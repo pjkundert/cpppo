@@ -1,0 +1,6 @@
+* cpppo -- Communication Protocol Python Parser and Originator
+
+  Implements binary communications protocols, described in terms of state
+  machines which change state in response to input events, and produce output
+  events.
+
