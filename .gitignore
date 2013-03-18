@@ -1,0 +1,14 @@
+*.pyc
+*.log.*
+*.log
+
+# Archive files
+*.tgz
+*.tar
+
+# Editor temporaries
+*~
+.#*
+
+# System generated files
+.DS_Store

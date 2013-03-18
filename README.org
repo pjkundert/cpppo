@@ -4,3 +4,8 @@
   machines which change state in response to input events, and produce output
   events.
 
+** Deterministic Finite Automata
+
+   A dfa.process will consume its input source, yielding states 'til a terminal
+   state is reached.
+
