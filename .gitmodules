@@ -1,0 +1,3 @@
+[submodule "greenery"]
+	path = greenery
+	url = git@github.com:pjkundert/greenery.git

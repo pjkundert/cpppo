@@ -218,3 +218,42 @@ def test_struct():
     assert num == 6
     assert sta.name == "int32"
     assert machine.value == -2147286527
+
+def test_fsm():
+    import greenery
+    regex			= greenery.parse( "a*b.*x" )
+    machine			= automata.fsm( name="test1", initial=regex )
+
+    source			= automata.chainable( 'aaaab1230xoxx' )
+    sequence			= machine.run( source=source )
+    for num in xrange( 100 ):
+        try:
+            mch,sta		= sequence.next()
+            inp			= source.peek()
+        except StopIteration:
+            inp			= source.peek()
+            _log.info( "%10.10s.%-15.15s <- %-10.10r test done", mch, sta, inp )
+            break
+        _log.info( "%10.10s.%-15.15s <- %-10.10r test rcvd", mch, sta, inp )
+        if sta is None:
+            _log.info( "%10.10s.%-15.15s <- %-10.10r test no next state", mch, sta, inp )
+        if inp is None:
+            _log.info( "%10.10s.%-15.15s <- %-10.10r test source finished", mch, sta, inp )
+
+        if num == 0: assert inp == 'a'; assert sta.name == "0"
+        if num == 1: assert inp == 'a'; assert sta.name == "0"
+        if num == 2: assert inp == 'a'; assert sta.name == "0"
+        if num == 3: assert inp == 'a'; assert sta.name == "0"
+        if num == 4: assert inp == 'b'; assert sta.name == "2"
+        if num == 5: assert inp == '1'; assert sta.name == "2"
+        if num == 6: assert inp == '2'; assert sta.name == "2"
+        if num == 7: assert inp == '3'; assert sta.name == "2"
+        if num == 8: assert inp == '0'; assert sta.name == "2"
+        if num == 9: assert inp == 'x'; assert sta.name == "3"
+        if num ==10: assert inp == 'o'; assert sta.name == "2" # Trans. from term. to non-term. state!
+        if num ==11: assert inp == 'x'; assert sta.name == "3"
+        if num ==12: assert inp == 'x'; assert sta.name == "3"
+        if num ==13: assert inp ==None; assert sta is None
+    assert inp is None
+    assert num == 13
+    assert sta.name == '3'

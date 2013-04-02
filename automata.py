@@ -437,8 +437,9 @@ class dfa( object ):
     """Implements a Deterministic Finite Automata, described by the provided set
     of states, rooted at initial.  All input symbols processed since the last
     reset are appended to 'data'."""
-    def __init__( self, initial=None ):
+    def __init__( self, name=None, initial=None ):
         self.initial		= initial
+        self._name		= name or self.__class__.__name__
         self.reset()
 
     def reset( self ):
@@ -453,7 +454,7 @@ class dfa( object ):
 
     @property
     def name( self ):
-        return self.__class__.__name__
+        return self._name
 
     def run( self, source, machine=None ):
         """Yield state transitions until a terminal state is reached (yields
@@ -470,6 +471,8 @@ class dfa( object ):
                 self, self.current, source.peek() )
         yield self,self.current
         armed			= None
+
+        # Loop 'til we end up in the same terminal state, making no transitions.
         while armed is not self.current:
             _log.debug( "%10.10s.%-15.15s <- %-10.10r loop (armed: %r)",
                     self, self.current, source.peek(), armed )
@@ -485,9 +488,72 @@ class dfa( object ):
                 _log.debug( "%10.10s.%-15.15s <- %-10.10r received",
                         machine, target, source.peek() )
                 if machine is self and target is not None:
+                    # This machine made a transition (even if into the same
+                    # state!); no longer armed for termination.
                     self.current= target
+                    armed	= None
                 yield machine,target
 
         # No more state transitions available on given input iff state is None
         _log.debug( "%10.10s.%-15.15s <- %-10.10r complete",
                 self, self.current, source.peek())
+
+
+def natural( string ):
+    '''
+    A natural sort key helper function for sort() and sorted() without
+    using regular expressions or exceptions.
+
+    >>> items = ('Z', 'a', '10th', '1st', '9')
+    >>> sorted(items)
+    ['10th', '1st', '9', 'Z', 'a']
+    >>> sorted(items, key=natural)
+    ['1st', '9', '10th', 'a', 'Z']    
+    '''
+    it = type( 1 )
+    r = []
+    for c in string:
+        if c.isdigit():
+            d = int( c )
+            if r and type( r[-1] ) == it: 
+                r[-1] = r[-1] * 10 + d
+            else: 
+                r.append( d )
+        else:
+            r.append( c.lower() )
+    return r
+
+
+class fsm( dfa ):
+    """Takes a regex or greenery.lego/fsm, and converts it to a dfa."""  
+    def __init__( self, name=None, initial=None ):
+        import greenery
+        machine			= initial
+        if isinstance( machine, basestring ):
+            machine		= greenery.parse( machine )
+        if isinstance( machine, greenery.lego ):
+            machine		= machine.fsm()
+        if not isinstance( machine, greenery.fsm ):
+            raise TypeError("Provide a regular expression, or a greenery.lego/fsm")
+
+        # Create a state machine identical to the greenery.fsm 'machine'.  There
+        # are no "no-input" (NULL) transitions in a greenery.fsm; the None
+        # transition is equivalent to the default "True" transition.
+        _log.debug( lazystr( lambda: "\n%s" % str( machine )))
+        states			= {}
+        for pre in machine.map:
+            states[pre]		= state_input( name=str( pre ),
+                                               terminal=( pre in machine.finals ))
+        for pre in machine.map:
+            for sym,nxt in machine.map[pre].items():
+                states[pre][True if sym is None else sym] \
+                    		= states[nxt]
+
+        initial			= states[machine.initial]
+        _log.info( "DFA:" )
+        for sta in sorted( initial.nodes(), key=lambda s: natural( s.name )):
+            for inp,dst in sta.edges():
+                _log.info( "           %-15.15s <- %-10.10r -> %s" % ( sta, inp, dst ))
+
+        super( fsm, self ).__init__( name=name, initial=initial )
+
