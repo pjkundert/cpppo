@@ -1,12 +1,21 @@
+from __future__ import absolute_import
+from __future__ import print_function
+from __future__ import division
+
 import collections
 import logging
+import os
 import sys
 import timeit
 
-import automata
+# Allow relative imports when executing within package directory, for running tests
+sys.path.insert( 0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+import cpppo
+import cpppo.greenery
 
 logging.basicConfig( level=logging.DEBUG, datefmt='%m-%d %H:%M'  ,
-    format='%(asctime)s.%(msecs).3s %(name)-6.6s %(levelname)-6.6s %(funcName)-10.10s %(message)s' )
+    format='%(asctime)s.%(msecs)3.3s %(name)-6.6s %(levelname)-6.6s %(funcName)-10.10s %(message)s' )
 _log				= logging.getLogger()
 _lognot				= _log.level-1
 
@@ -23,7 +32,7 @@ def test_logging():
                                             " ".join( list( str( i ) for i in range( 100 )))))
     t1ms = 1000 * min( t.repeat( rep, num )) / num
 
-    t = timeit.Timer( lambda: _log.log( _lognot, automata.lazystr( lambda: \
+    t = timeit.Timer( lambda: _log.log( _lognot, cpppo.lazystr( lambda: \
                                         "%s" % (
                     			    " ".join( list( str( i ) for i in range( 100 )))))))
     t2ms = 1000 * min( t.repeat( rep, num )) / num
@@ -39,7 +48,7 @@ def test_logging():
                                         "%s: %r %d %d %d %d %d", 
                                             str( a ), repr( a ), 1, 2, 3, 4, 5 ))
     t3ms = 1000 * min( t.repeat( rep, num )) / num
-    t = timeit.Timer( lambda: _log.log( _lognot, automata.lazystr( lambda: \
+    t = timeit.Timer( lambda: _log.log( _lognot, cpppo.lazystr( lambda: \
                                         "%s: %r %d %d %d %d %d" % (
                     			    str( a ), repr( a ), 1, 2, 3, 4, 5 ))))
     t4ms = 1000 * min( t.repeat( rep, num )) / num
@@ -53,7 +62,7 @@ def test_logging():
                                         "%s: %r %d %d %d %d %d",
                                             a, a, 1, 2, 3, 4, 5 ))
     t5ms = 1000 * min( t.repeat( rep, num )) / num
-    t = timeit.Timer( lambda: _log.log( _lognot, automata.lazystr( lambda: \
+    t = timeit.Timer( lambda: _log.log( _lognot, cpppo.lazystr( lambda: \
                                         "%s: %r %d %d %d %d %d" % (
                     			    a, a, 1, 2, 3, 4, 5 ))))
     t6ms = 1000 * min( t.repeat( rep, num )) / num
@@ -62,22 +71,22 @@ def test_logging():
 
 
 def test_iterators():
-    i				= automata.chaining()
-    j				= automata.chainable( i )
-    k				= automata.chainable( 'abc' )
+    i				= cpppo.chaining()
+    j				= cpppo.chainable( i )
+    k				= cpppo.chainable( 'abc' )
     assert i is j
     try:
-        i.next()
+        next( i )
         assert False, "stream with no iterable should raise StopIteration"
     except StopIteration:
         pass
     assert k is not j
-    assert isinstance( k, automata.chaining )
+    assert isinstance( k, cpppo.chaining )
 
-    assert automata.peekable( i ) is i
-    p				= automata.peekable()
-    assert automata.peekable( p ) is p
-    assert automata.chainable( p ) is not p
+    assert cpppo.peekable( i ) is i
+    p				= cpppo.peekable()
+    assert cpppo.peekable( p ) is p
+    assert cpppo.chainable( p ) is not p
 
     i.chain('abc')
     i.chain('')
@@ -90,7 +99,7 @@ def test_iterators():
 
     i.chain( None )
     try:
-        i.next()
+        next( i )
         assert False, "Expected TypeError to be raised"
     except TypeError:
         pass
@@ -104,22 +113,22 @@ def test_dfa():
     # doesn't require input for state change.  The Default (True) transition
     # requires input to make the transition, but none of these states consume
     # it, so it'll be left over at the end.
-    a 				=     automata.state( "Initial" )
-    a[None]			= b = automata.state( "Middle" )
-    b[True]			= c = automata.state( "Terminal", terminal=True )
+    a 				=     cpppo.state( "Initial" )
+    a[None]			= b = cpppo.state( "Middle" )
+    b[True]			= c = cpppo.state( "Terminal", terminal=True )
 
-    source			= automata.chainable()
+    source			= cpppo.chainable()
     i				= a.transition( source=source )
-    m,s				= i.next()
+    m,s				= next( i )
     assert m is None
     assert s is not None and s.name == "Middle"
     try:
-        i.next()
+        next( i )
         assert False, "Expected no more non-transition events"
     except StopIteration:
         pass
 
-    machine			= automata.dfa( initial=a )
+    machine			= cpppo.dfa( initial=a )
 
     _log.info( "DFA:" )
     for initial in machine.initial.nodes():
@@ -133,11 +142,11 @@ def test_dfa():
     # and no input left.  This gives the caller an opportunity to reload input
     # and try again.
     _log.info( "States; No input" )
-    source			= automata.chainable()
+    source			= cpppo.chainable()
     sequence			= machine.run( source=source )
-    for num in xrange( 10 ):
+    for num in range( 10 ):
         try:
-            mch,sta		= sequence.next()
+            mch,sta		= next( sequence )
         except StopIteration:
             sequence		= None
             break
@@ -158,38 +167,39 @@ def test_dfa():
     # last sequence, so we'll immediately transition.
     _log.info( "States; 'abc' input" )
     assert source.peek() is None
-    source.chain( 'abc' )
-    assert source.peek() == 'a'
-    for num in xrange( 10 ):
+    source.chain( b'abc' )
+    assert source.peek() == next(iter(b'a')) # python2: str, python3: int
+    for num in range( 10 ):
         try:
-            mch,sta		= sequence.next()
+            mch,sta		= next( sequence )
         except StopIteration:
             break
         inp			= source.peek()
         _log.info( "%10.10s.%-15.15s <- %r", mch, sta, inp )
-        if num == 0: assert inp == 'a'; assert sta.name == "Terminal"
+        if num == 0: assert inp == next(iter(b'a')); assert sta.name == "Terminal"
     assert num == 1
-    assert inp == 'a'
+    assert inp == next(iter(b'a'))
     assert sta.name == "Terminal"
 
 
 def test_struct():
-    a				=     automata.state_input( "First" )
-    a[True]			= b = automata.state_input( "Second" )
-    b[True]			= c = automata.state_input( "Third" )
-    c[True]			= d = automata.state_input( "Fourth" )
-    d[None] 			= e = automata.state_struct( 
+    a				=     cpppo.state_input( "First"  )
+    a[True]			= b = cpppo.state_input( "Second" )
+    b[True]			= c = cpppo.state_input( "Third" )
+    c[True]			= d = cpppo.state_input( "Fourth" )
+    d[None] 			= e = cpppo.state_struct( 
                                           "int32", format="<i", offset=4, terminal=True )
-    machine			= automata.dfa( initial=a )
-    material			= '\x01\x02\x03\x80\x99'
+    machine			= cpppo.dfa( initial=a, datatype=( 
+            'B' if sys.version_info.major == 3 else 'c' ))
+    material			= b'\x01\x02\x03\x80\x99'
     segment			= 3
-    source			= automata.chainable()
+    source			= cpppo.chainable()
     _log.info( "States; %r input, by %d", material, segment )
     inp				= None
     sequence			= machine.run( source=source )
-    for num in xrange( 100 ):
+    for num in range( 10 ):
         try:
-            mch,sta		= sequence.next()
+            mch,sta		= next( sequence )
             inp			= source.peek()
         except StopIteration:
             inp			= source.peek()
@@ -207,28 +217,27 @@ def test_struct():
             inp			= source.peek()
             _log.info( "%10.10s.%-15.15s <- %-10.10r test chain", mch, sta, inp )
 
-        if num == 0: assert inp == '\x01'; assert sta.name == "First"
-        if num == 1: assert inp == '\x02'; assert sta.name == "Second"
-        if num == 2: assert inp == '\x03'; assert sta.name == "Third"
-        if num == 3: assert inp == '\x80'; assert sta is None
-        if num == 4: assert inp == '\x80'; assert sta.name == "Fourth"
-        if num == 5: assert inp == '\x99'; assert sta.name == "int32"
-        if num == 6: assert inp == '\x99'; assert sta.name == "int32"
-    assert inp == '\x99'
+        if num == 0: assert inp == next(iter(b'\x01')); assert sta.name == "First"
+        if num == 1: assert inp == next(iter(b'\x02')); assert sta.name == "Second"
+        if num == 2: assert inp == next(iter(b'\x03')); assert sta.name == "Third"
+        if num == 3: assert inp == next(iter(b'\x80')); assert sta is None
+        if num == 4: assert inp == next(iter(b'\x80')); assert sta.name == "Fourth"
+        if num == 5: assert inp == next(iter(b'\x99')); assert sta.name == "int32"
+        if num == 6: assert inp == next(iter(b'\x99')); assert sta.name == "int32"
+    assert inp == next(iter(b'\x99'))
     assert num == 6
     assert sta.name == "int32"
     assert machine.value == -2147286527
 
 def test_fsm():
-    import greenery
-    regex			= greenery.parse( "a*b.*x" )
-    machine			= automata.fsm( name="test1", initial=regex )
+    regex			= 'a*b.*x'
+    machine			= cpppo.fsm( name="test1", initial=regex, alphabet=str )
 
-    source			= automata.chainable( 'aaaab1230xoxx' )
+    source			= cpppo.chainable( 'aaaab1230xoxx' )
     sequence			= machine.run( source=source )
-    for num in xrange( 100 ):
+    for num in range( 20 ):
         try:
-            mch,sta		= sequence.next()
+            mch,sta		= next( sequence )
             inp			= source.peek()
         except StopIteration:
             inp			= source.peek()
@@ -240,19 +249,19 @@ def test_fsm():
         if inp is None:
             _log.info( "%10.10s.%-15.15s <- %-10.10r test source finished", mch, sta, inp )
 
-        if num == 0: assert inp == 'a'; assert sta.name == "0"
-        if num == 1: assert inp == 'a'; assert sta.name == "0"
-        if num == 2: assert inp == 'a'; assert sta.name == "0"
-        if num == 3: assert inp == 'a'; assert sta.name == "0"
-        if num == 4: assert inp == 'b'; assert sta.name == "2"
-        if num == 5: assert inp == '1'; assert sta.name == "2"
-        if num == 6: assert inp == '2'; assert sta.name == "2"
-        if num == 7: assert inp == '3'; assert sta.name == "2"
-        if num == 8: assert inp == '0'; assert sta.name == "2"
-        if num == 9: assert inp == 'x'; assert sta.name == "3"
-        if num ==10: assert inp == 'o'; assert sta.name == "2" # Trans. from term. to non-term. state!
-        if num ==11: assert inp == 'x'; assert sta.name == "3"
-        if num ==12: assert inp == 'x'; assert sta.name == "3"
+        if num == 0: assert inp == next(iter('a')); assert sta.name == "0"
+        if num == 1: assert inp == next(iter('a')); assert sta.name == "0"
+        if num == 2: assert inp == next(iter('a')); assert sta.name == "0"
+        if num == 3: assert inp == next(iter('a')); assert sta.name == "0"
+        if num == 4: assert inp == next(iter('b')); assert sta.name == "2"
+        if num == 5: assert inp == next(iter('1')); assert sta.name == "2"
+        if num == 6: assert inp == next(iter('2')); assert sta.name == "2"
+        if num == 7: assert inp == next(iter('3')); assert sta.name == "2"
+        if num == 8: assert inp == next(iter('0')); assert sta.name == "2"
+        if num == 9: assert inp == next(iter('x')); assert sta.name == "3"
+        if num ==10: assert inp == next(iter('o')); assert sta.name == "2" # Trans. from term. to non-term. state!))
+        if num ==11: assert inp == next(iter('x')); assert sta.name == "3"
+        if num ==12: assert inp == next(iter('x')); assert sta.name == "3"
         if num ==13: assert inp ==None; assert sta is None
     assert inp is None
     assert num == 13

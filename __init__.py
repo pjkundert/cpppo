@@ -20,4 +20,10 @@ __copyright__                   = "Copyright (c) 2013 Hard Consulting Corporatio
 __license__                     = "GNU General Public License, Version 3 (or later)"
 __version__			= "0.01"
 
-__all__                         = ["automata"]
+# These submodules are utilites used by cpppo; retain their namespaces
+__all__                         = ["greenery", "misc"]
+
+# These modules form the public interface of cpppo; load them into the main
+# cpppo namespace
+from automata import *
+from dotdict  import *

@@ -14,21 +14,32 @@
 # A PARTICULAR PURPOSE.  See the GNU General Public License for more details.
 # 
 
+from __future__ import absolute_import
+from __future__ import print_function
+from __future__ import division
+
 __author__                      = "Perry Kundert"
 __email__                       = "perry@hardconsulting.com"
 __copyright__                   = "Copyright (c) 2013 Hard Consulting Corporation"
 __license__                     = "GNU General Public License, Version 3 (or later)"
 
 import array
-import exceptions
-import struct
-import traceback
+try:
+    import exceptions
+except ImportError:
+    pass # No exceptions module for python3
 import logging
+import struct
+import sys
+import traceback
 
 _log				= logging.getLogger( "cpppo" )
 
 def reprargs( *args, **kwds ):
-    from repr import repr as repr
+    try:
+        from repr import repr as repr
+    except ImportError:
+        from reprlib import repr as repr
     return ", ".join(   [ repr( x ) for x in args ]
                       + [ "%s=%s" % ( k, repr(v) )
                           for k,v in kwds.items() ])
@@ -127,17 +138,20 @@ class peeking( object ):
         """Returns the next item (if any), otherwise None."""
         if not self._back:
             try:
-                self._back.append( self.next() )
+                self._back.append( next( self ))
             except StopIteration:
                 return None
         return self._back[-1]
 
     def next( self ):
+        return self.__next__()
+
+    def __next__( self ):
         """Returns any items restored by a previous push, then any available
         from the current iterator."""
         if self._back:
             return self._back.pop()
-        return self._iter.next()
+        return next( self._iter )
 
 
 class chaining( peeking ):
@@ -153,28 +167,30 @@ class chaining( peeking ):
         self._chain.insert( 0, iterable )
 
     def next( self ):
+        return self.__next__()
+
+    def __next__( self ):
         """Returns any items restored by a previous push, then any available
         from the current iterator, then attempts to queue up the next iterator(s)
         and return an item from it.  Will continue to raise StopIteration while
         no more iterables are available.  Load a non-iterable (eg. None) to
-        terminate any usering gaining input from self.next() with a TypeError,
+        terminate any user gaining input from next( self ) with a TypeError,
         including self.peek().  The failing non-iterable will persist."""
         if self._back:
             return self._back.pop()
         try:
-            return self._iter.next()
+            return next( self._iter )
         except StopIteration:
             # Try next chained iterable 'til we find one with something to return
             while self._chain:
                 self._iter	= iter( self._chain[-1] )
                 self._chain.pop() # iff no exception; else non-iterable persists!
                 try:
-                    return self._iter.next()
+                    return next( self._iter )
                 except StopIteration:
                     pass
             # We've run out of iterables, and still no items; re-raise StopIteration
             raise
-
 
 class state( dict ):
     """The foundation state class.  A basic Null (no-input) state, which does
@@ -198,15 +214,15 @@ class state( dict ):
     source input generator, discard the sub-machines and supply the remaining
     input to a new one, ...)
     """
-    def __init__( self, name, terminal=False ):
+    def __init__( self, name, terminal=False, alphabet=type(next(iter( b'a' )))):
         super( state, self ).__init__()
         self.name		= name
         self.terminal		= terminal
         self.recognizers	= []
+        self.alphabet		= alphabet # type or predicate
 
     def __str__( self ):
-        brackets		= 2 if self.terminal else 1
-        return '(' * brackets + self.name + ')' * brackets
+        return '(' * ( 1 + self.terminal ) + self.name + ')' * ( 1 + self.terminal )
 
     def __repr__( self ):
         return '<' + str( self ) + '>'
@@ -271,15 +287,31 @@ class state( dict ):
     # process		-- Process the upcoming input symbol
     # 
     def validate( self, inp ):
-        """Test input for validity to process."""
-        return True
+        """Test input for validity to process.  The base implementation support
+        Null (no-input) by accepting None.  Otherwise, the symbol must be
+        consistent with the supplied alphabet; a type, a set/list/tuple of
+        symbols, or a predicate."""
+        result			= False
+        if inp is None:
+            result		= True
+        elif type( self.alphabet ) is type:
+            result		= isinstance( inp, self.alphabet )
+        elif hasattr( self.alphabet, '__contains__' ):
+            result		= inp in self.alphabet
+        elif hasattr( self.alphabet, '__call__' ):
+            result		= self.alphabet( inp )
+        else:
+            raise TypeError("Unknown alphabet: %r" % ( self.alphabet ))
+        _log.debug( "%10.10s.%-15.15s   [%-10.10r]=%s=%r",
+                    "", self, inp, ( "~" if result else "!" ), self.alphabet )
+        return result
 
     def accepts( self, source, machine=None ):
         """If input valid returning True, or False to be re-invoked (later) when
         appropriate input is available; default impleentation logs."""
         inp			= source.peek()
         valid			= self.validate( inp )
-        _log.debug( "%10.10s.%-15.15s    %-10.10r: %s",
+        _log.debug( "%10.10s.%-15.15s    %-10.10r:%s",
                 machine, self, inp, "accepted" if valid else "rejected" )
         return valid
 
@@ -350,7 +382,7 @@ class state( dict ):
         while not self.accepts( source=source, machine=machine ):
             _log.debug( "%10.10s.%-15.15s<x- %-10.10r", machine, self, source.peek() )
             yield machine,None
-        _log.debug( "%10.10s.%-15.15s<-- %-10.10r", machine, self, source.peek() )
+        _log.debug( "%10.10s.%-15.15s <- %-10.10r", machine, self, source.peek() )
         self.process( source=source, machine=machine )
 
         target			= None
@@ -387,21 +419,21 @@ class state( dict ):
         """Generate (input,state) tuples for all outgoing edges."""
         for pred,target in self.recognizers:
             yield (pred,target)
-        for inp,target in self.iteritems():
+        for inp,target in self.items():
             yield (inp,target)
 
 
 class state_input( state ):
     """A state that consumes and saves its input, by appending it to the
     provided machine's 'data' attribute."""
-
     def validate( self, inp ):
         """Requires a character of input."""
-        return inp is not None and isinstance( inp, basestring )
+        return ( inp is not None 
+                 and super( state_input, self ).validate( inp ))
 
     def process( self, source, machine=None ):
-        inp			= source.next()
-        _log.info( "%10.10s.%-15.15s :  %-10.10r: saved", machine, self, inp )
+        inp			= next( source )
+        _log.info( "%10.10s.%-15.15s :  %-10.10r:saved", machine, self, inp )
         machine.data.append( inp )
 
 
@@ -436,15 +468,21 @@ class state_struct( state ):
 class dfa( object ):
     """Implements a Deterministic Finite Automata, described by the provided set
     of states, rooted at initial.  All input symbols processed since the last
-    reset are appended to 'data'."""
-    def __init__( self, name=None, initial=None ):
+    reset are appended to 'data'.  The input symbol data type defaults to the
+    individual character type of the Python platform 'str': Python3: 'u'
+    (unicode character), Python2: 'c' (character)"""
+    def __init__( self, name=None, initial=None, datatype=None ):
         self.initial		= initial
+        self.datatype		= ( datatype if datatype is not None
+                                    else 'u' if sys.version_info.major == 3
+                                    else 'c' )
         self._name		= name or self.__class__.__name__
         self.reset()
 
     def reset( self ):
         self.current		= None
-        self.data		= array.array('c')	# characters
+        self.data		= array.array( self.datatype )
+
 
     def __str__( self ):
         return self.name
@@ -525,35 +563,44 @@ def natural( string ):
 
 
 class fsm( dfa ):
-    """Takes a regex or greenery.lego/fsm, and converts it to a dfa."""  
-    def __init__( self, name=None, initial=None ):
-        import greenery
+    """Takes a regex or greenery.lego/fsm, and converts it to a dfa.  We need to
+    specify what type of characters our greenery.fsm operates on; typically,
+    normal string.  The semantics for alphabet differs from the greenery
+    alphabet (the exact set of characters used in the greenery.lego/fsm)."""
+    def __init__( self, name, initial=None, alphabet=str, datatype=None ):
+        super( fsm, self ).__init__( name=name, initial=None, datatype=datatype )
+
+        import cpppo.greenery as greenery
+        import cpppo.misc as misc
         machine			= initial
-        if isinstance( machine, basestring ):
+        if isinstance( machine, type( 'a' )):
+            _log.debug( "Converting Regex to greenery.lego: %s", machine )
             machine		= greenery.parse( machine )
         if isinstance( machine, greenery.lego ):
+            _log.debug( "Converting greenery.lego to   fsm: %s", machine )
             machine		= machine.fsm()
         if not isinstance( machine, greenery.fsm ):
-            raise TypeError("Provide a regular expression, or a greenery.lego/fsm")
+            raise TypeError("Provide a regular expression, or a greenery.lego/fsm, not: %s %r" % (
+                    type( machine ), machine ))
 
         # Create a state machine identical to the greenery.fsm 'machine'.  There
         # are no "no-input" (NULL) transitions in a greenery.fsm; the None
         # transition is equivalent to the default "True" transition.
-        _log.debug( lazystr( lambda: "\n%s" % str( machine )))
+        _log.debug( "greenery.fsm:\n%s", machine )
         states			= {}
         for pre in machine.map:
             states[pre]		= state_input( name=str( pre ),
-                                               terminal=( pre in machine.finals ))
+                                               terminal=( pre in machine.finals ),
+                                               alphabet=alphabet )
         for pre in machine.map:
             for sym,nxt in machine.map[pre].items():
                 states[pre][True if sym is None else sym] \
                     		= states[nxt]
 
-        initial			= states[machine.initial]
-        _log.info( "DFA:" )
-        for sta in sorted( initial.nodes(), key=lambda s: natural( s.name )):
+        self.initial		= states[machine.initial]
+        _log.info( "cpppo.dfa:" )
+        for sta in sorted( self.initial.nodes(), key=lambda s: misc.natural( s.name )):
             for inp,dst in sta.edges():
-                _log.info( "           %-15.15s <- %-10.10r -> %s" % ( sta, inp, dst ))
-
-        super( fsm, self ).__init__( name=name, initial=initial )
+                _log.info( "           %-15.15s <- %-10.10r -> %s", sta, inp, dst )
+        
 
