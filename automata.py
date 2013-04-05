@@ -32,6 +32,8 @@ import struct
 import sys
 import traceback
 
+from . import misc
+
 _log				= logging.getLogger( "cpppo" )
 
 def reprargs( *args, **kwds ):
@@ -40,7 +42,7 @@ def reprargs( *args, **kwds ):
     except ImportError:
         from reprlib import repr as repr
     return ", ".join(   [ repr( x ) for x in args ]
-                      + [ "%s=%s" % ( k, repr(v) )
+                      + [ "%s=%s" % ( k, repr( v ))
                           for k,v in kwds.items() ])
 
 def logresult( prefix=None, log=logging ):
@@ -191,6 +193,7 @@ class chaining( peeking ):
             # We've run out of iterables, and still no items; re-raise StopIteration
             raise
 
+
 class state( dict ):
     """The foundation state class.  A basic Null (no-input) state, which does
     not consume an input value, but simply transitions to the next appropriate
@@ -216,14 +219,20 @@ class state( dict ):
     def __init__( self, name, terminal=False, alphabet=type(next(iter( b'a' ))),
                   context=None ):
         super( state, self ).__init__()
-        self.name		= name
+        self._name		= name
         self.terminal		= terminal
         self.recognizers	= []
         self._context		= context  # Context added to path to place product into data
         self.alphabet		= alphabet # type, container or predicate
 
+    @property
+    def name( self ):
+        return self._name
+
     def __str__( self ):
-        return '(' * ( 1 + self.terminal ) + self.name + ( 1 + self.terminal ) * ')'
+        return ( '(' + ( '(' if self.terminal else ' ' ) 
+                     + self.name 
+                     + ( ')' if self.terminal else ' ' ) + ')' )
 
     def __repr__( self ):
         return '<%s>' % ( self )
@@ -264,28 +273,28 @@ class state( dict ):
         target			= None
         try:
             target		= super( state, self ).__getitem__( inp )
-            _log.debug( "%10.10s.%-15.15s   [%-10.10r]--> %s", "", self, inp, target )
+            _log.debug( "%s   [%-10.10r]--> %s", misc.centeraxis( self, 25, clip=True ), inp, target )
             return target
         except KeyError:
             pass
         if inp is not None:
             for pred,target in self.recognizers:
                 if pred( inp ):
-                    _log.debug( "%10.10s.%-15.15s   [%-10.10r]--> %s", "", self, pred, target )
+                    _log.debug( "%s   [%-10.10r]--> %s", misc.centeraxis( self, 25, clip=True ), pred, target )
                     return target
             try:
                 target		= super( state, self ).__getitem__( True )
-                _log.debug( "%10.10s.%-15.15s   [%-10.10r]--> %s", "", self, True, target )
+                _log.debug( "%s   [%-10.10r]--> %s", misc.centeraxis( self, 25, clip=True ), True, target )
                 return target
             except KeyError:
                 pass
 
         try:
             target		= super( state, self ).__getitem__( None )
-            _log.debug( "%10.10s.%-15.15s   [%-10.10r]--> %s", "", self, None, target )
+            _log.debug( "%s   [%-10.10r]--> %s", misc.centeraxis( self, 25, clip=True ), None, target )
             return target
         except KeyError:
-            _log.debug( "%10.10s.%-15.15s   [%-10.10r]-x>", "", self, inp )
+            _log.debug( "%s   [%-10.10r]-x>", misc.centeraxis( self, 25, clip=True ), inp )
             raise
 
     def get( self, inp, default=None ):
@@ -315,8 +324,8 @@ class state( dict ):
             result		= self.alphabet( inp )
         else:
             raise TypeError("Unknown alphabet: %r" % ( self.alphabet ))
-        _log.debug( "%10.10s.%-15.15s   [%-10.10r]=%s=%r",
-                    "", self, inp, ( "~" if result else "!" ), self.alphabet )
+        _log.debug( "%s   [%-10.10r]=%s=%r", misc.centeraxis( self, 25, clip=True ),
+                    inp, ( "~" if result else "!" ), self.alphabet )
         return result
 
     def accepts( self, source, machine=None, path=None, data=None ):
@@ -324,8 +333,8 @@ class state( dict ):
         appropriate input is available; default impleentation logs."""
         inp			= source.peek()
         valid			= self.validate( inp )
-        _log.debug( "%10.10s.%-15.15s    %-10.10r:%s",
-                machine, self, inp, "accepted" if valid else "rejected" )
+        _log.debug( "%s    %-10.10r:%s", misc.centeraxis( machine, 25, clip=True ),
+                inp, "accepted" if valid else "rejected" )
         return valid
 
     def process( self, source, machine=None, path=None, data=None ):
@@ -392,9 +401,7 @@ class state( dict ):
           TypeError -- if a non-iterable has been provided to source chainable
             iterator, to force termination of the state machinery."""
         while not self.accepts( source=source, machine=machine, path=path, data=data ):
-            _log.debug( "%10.10s.%-15.15s<x- %-10.10r", machine, self, source.peek() )
             yield machine,None
-        _log.debug( "%10.10s.%-15.15s <- %-10.10r", machine, self, source.peek() )
         self.process( source=source, machine=machine, path=path, data=data )
 
         target			= None
@@ -407,9 +414,6 @@ class state( dict ):
                 # inputs/edges are available.
                 if self.terminal:
                     break
-                _log.debug( "%10.10s.%-15.15s   [%-10.10r]-x>",    machine, self, inp )
-            else:
-                _log.debug( "%10.10s.%-15.15s   [%-10.10r]--> %s", machine, self, inp, target )
             yield machine,target
         # StopIteration after yielding a transition, or if self is a terminal state
 
@@ -453,8 +457,8 @@ class state_input( state ):
         """The raw data is saved to: path.context_"""
         inp			= next( source )
         path			= self.context( path=path, extension='_' )
-        _log.info( "%10.10s.%-15.15s :  %-10.10r => %s", machine, self, inp, path )
         if data is not None and path:
+            _log.info( "%s :  %-10.10r => %s", misc.centeraxis( self, 25, clip=True ), inp, path )
             if path not in data:
                 data[path]	= array.array( self.datatype )
             data[path].append( inp )
@@ -477,33 +481,28 @@ class state_struct( state ):
         path			= self.context( path=path )
         buf			= data[path+'_'][-self._offset:]
         val		        = self._struct.unpack_from( buffer=buf )[0]
-        _log.info( "%10.10s.%-15.15s :  .%s=%r", machine, self, path, val )
+        _log.info( "%s :  .%s=%r",  misc.centeraxis( self, 25, clip=True ), path, val )
         data[path]		= val
 
 
-class dfa( object ):
-    """Implements a Deterministic Finite Automata, described by the provided set
-    of states, rooted at initial.  All input symbols processed since the last
-    reset are appended to 'data'.  The input symbol data type defaults to the
-    individual character type of the Python platform 'str': Python3: 'u'
-    (unicode character), Python2: 'c' (character)"""
-    def __init__( self, name=None, initial=None ):
+class dfa( state ):
+    """A state which implements a Deterministic Finite Automata, described by
+    the provided 'initial' state machine (eg. a graph of state objects).  After
+    running the specified state machine to termination for the specified number
+    of repetitions (default 1), performs its own transition for its own parent
+    state machine."""
+    def __init__( self, name=None, initial=None, **kwds ):
+        super( dfa, self ).__init__( name or self.__class__.__name__, **kwds )
         self.initial		= initial
-        self._name		= name or self.__class__.__name__
         self.reset()
-
-    def reset( self ):
-        self.current		= None
-
-    def __str__( self ):
-        return self.name
-
-    def __repr__( self ):
-        return '<' + str( self.name ) + '.' + str( self.current ) + '>'
 
     @property
     def name( self ):
-        return self._name
+        """A dfa's name is its name and a representation of its state."""
+        return super( dfa, self ).name + '.' + str( self.current )
+
+    def reset( self ):
+        self.current		= None
 
     def run( self, source, machine=None, path=None, data=None ):
         """Yield state transitions until a terminal state is reached (yields
@@ -516,15 +515,11 @@ class dfa( object ):
         if self.current is None:
             self.current	= self.initial
 
-        _log.debug( "%10.10s.%-15.15s <- %-10.10r run begins",
-                self, self.current, source.peek() )
         yield self,self.current
         armed			= None
 
         # Loop 'til we end up in the same terminal state, making no transitions.
         while armed is not self.current:
-            _log.debug( "%10.10s.%-15.15s <- %-10.10r loop (armed: %r)",
-                    self, self.current, source.peek(), armed )
             # Try to process input in this state, and get target state.  This
             # may yield an endless stream of (machine,None) if there is no input
             # available and the state has processed; the caller must be prepared
@@ -535,8 +530,6 @@ class dfa( object ):
             armed		= self.current if self.current.terminal else None
             for machine,target in self.current.transition(
                 source=source, machine=self, path=path, data=data ):
-                _log.debug( "%10.10s.%-15.15s <- %-10.10r received",
-                        machine, target, source.peek() )
                 if machine is self and target is not None:
                     # This machine made a transition (even if into the same
                     # state!); no longer armed for termination.
@@ -545,33 +538,6 @@ class dfa( object ):
                 yield machine,target
 
         # No more state transitions available on given input iff state is None
-        _log.debug( "%10.10s.%-15.15s <- %-10.10r complete",
-                self, self.current, source.peek())
-
-
-def natural( string ):
-    '''
-    A natural sort key helper function for sort() and sorted() without
-    using regular expressions or exceptions.
-
-    >>> items = ('Z', 'a', '10th', '1st', '9')
-    >>> sorted(items)
-    ['10th', '1st', '9', 'Z', 'a']
-    >>> sorted(items, key=natural)
-    ['1st', '9', '10th', 'a', 'Z']    
-    '''
-    it = type( 1 )
-    r = []
-    for c in string:
-        if c.isdigit():
-            d = int( c )
-            if r and type( r[-1] ) == it: 
-                r[-1] = r[-1] * 10 + d
-            else: 
-                r.append( d )
-        else:
-            r.append( c.lower() )
-    return r
 
 
 class fsm( dfa ):
@@ -579,11 +545,11 @@ class fsm( dfa ):
     specify what type of characters our greenery.fsm operates on; typically,
     normal string.  The semantics for alphabet differs from the greenery
     alphabet (the exact set of characters used in the greenery.lego/fsm)."""
-    def __init__( self, name, initial=None, alphabet=str ):
-        super( fsm, self ).__init__( name=name, initial=None )
+    def __init__( self, name, initial=None, alphabet=str, **kwds ):
+        super( fsm, self ).__init__( name=name, initial=None, **kwds )
 
-        import cpppo.greenery as greenery
-        import cpppo.misc as misc
+        from . import greenery
+        from . import misc
         machine			= initial
         if isinstance( machine, type( 'a' )):
             _log.debug( "Converting Regex to greenery.lego: %s", machine )
@@ -613,6 +579,6 @@ class fsm( dfa ):
         _log.info( "cpppo.dfa:" )
         for sta in sorted( self.initial.nodes(), key=lambda s: misc.natural( s.name )):
             for inp,dst in sta.edges():
-                _log.info( "           %-15.15s <- %-10.10r -> %s", sta, inp, dst )
+                _log.info( "%s <- %-10.10r -> %s", misc.centeraxis( sta, 25, clip=True ), inp, dst )
         
 

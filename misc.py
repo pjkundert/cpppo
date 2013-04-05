@@ -14,6 +14,11 @@
 # A PARTICULAR PURPOSE.  See the GNU General Public License for more details.
 # 
 
+
+from __future__ import absolute_import
+from __future__ import print_function
+from __future__ import division
+
 __author__                      = "Perry Kundert"
 __email__                       = "perry@hardconsulting.com"
 __copyright__                   = "Copyright (c) 2013 Hard Consulting Corporation"
@@ -170,3 +175,29 @@ def nan_last( number ):
     if non_value( number ):
         return inf
     return number
+
+# 
+# centeraxis	-- center string in width around a (rightmost) axis character
+# 
+def centeraxis( string, width, axis='.', fillchar=' ', reverse=False, clip=False ):
+    string		= str( string )
+    pos			= string.find( axis ) if reverse else string.rfind( axis )
+    if pos < 0:
+        # No axis cahr
+        if reverse:
+            pos, string	= len( string ), string
+        else:
+            # ... but it would normally be on the right
+            pos, string	= 0,             fillchar + string
+    left, rght		= string[0:pos], string[pos:] # axis char will be on rght
+    lwid, rwid		= width // 2, width - width // 2
+    #print("left: %s (%d), rght: %s (%d)" % ( left, lwid, rght, rwid ))
+    if len( left ) < lwid:
+        left		= fillchar * ( lwid - len( left )) + left
+    elif clip:
+        left		= left[-lwid:]
+    if len( rght ) < rwid:
+        rght	       += fillchar * ( rwid - len( rght ))
+    elif clip:
+        rght		= rght[:rwid]
+    return left+rght

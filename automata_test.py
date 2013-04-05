@@ -11,9 +11,9 @@ import timeit
 sys.path.insert( 0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import cpppo
-import cpppo.greenery
+from . import misc
 
-logging.basicConfig( level=logging.DEBUG, datefmt='%m-%d %H:%M'  ,
+logging.basicConfig( level=logging.INFO, datefmt='%m-%d %H:%M'  ,
     format='%(asctime)s.%(msecs)3.3s %(name)-6.6s %(levelname)-6.6s %(funcName)-10.10s %(message)s' )
 _log				= logging.getLogger()
 _lognot				= _log.level-1
@@ -136,7 +136,7 @@ def test_dfa():
     _log.info( "DFA:" )
     for initial in machine.initial.nodes():
         for inp,target in initial.edges():
-            _log.info( "           %-15.15s <- %-10.10r -> %s" % ( initial, inp, target ))
+            _log.info( "%s <- %-10.10r -> %s" % ( misc.centeraxis( initial, 25, clip=True ), inp, target ))
 
     # Running with no input will yield the initial state, with None input; since
     # it is a NULL state (no input processed), it will simply attempt to
@@ -154,7 +154,7 @@ def test_dfa():
             sequence		= None
             break
         inp			= source.peek()
-        _log.info( "%10.10s.%-15.15s <- %r" % ( mch, sta, inp ))
+        _log.info( "%s <- %r" % ( misc.centeraxis( mch, 25, clip=True ), inp ))
         if num == 0: assert inp is None; assert sta.name == "Initial"
         if num == 1: assert inp is None; assert sta.name == "Middle"
         if num == 2: assert inp is None; assert sta is None	# And no more no-input transitions
@@ -178,7 +178,7 @@ def test_dfa():
         except StopIteration:
             break
         inp			= source.peek()
-        _log.info( "%10.10s.%-15.15s <- %r", mch, sta, inp )
+        _log.info( "%s <- %r", misc.centeraxis( mch, 25, clip=True ), inp )
         if num == 0: assert inp == next(iter(b'a')); assert sta.name == "Terminal"
     assert num == 1
     assert inp == next(iter(b'a'))
@@ -210,19 +210,19 @@ def test_struct():
             inp			= source.peek()
         except StopIteration:
             inp			= source.peek()
-            _log.info( "%10.10s.%-15.15s <- %-10.10r test done", mch, sta, inp )
+            _log.info( "%s <- %-10.10r test done", misc.centeraxis( mch, 25, clip=True ), inp )
             break
-        _log.info( "%10.10s.%-15.15s <- %-10.10r test rcvd", mch, sta, inp )
+        _log.info( "%s <- %-10.10r test rcvd", misc.centeraxis( mch, 25, clip=True ), inp )
         if sta is None:
-            _log.info( "%10.10s.%-15.15s <- %-10.10r test no next state", mch, sta, inp )
+            _log.info( "%s <- %-10.10r test no next state", misc.centeraxis( mch, 25, clip=True ), inp )
         if inp is None:
             if not material:
-                _log.info( "%10.10s.%-15.15s <- %-10.10r test source finished", mch, sta, inp )
+                _log.info( "%s <- %-10.10r test source finished", misc.centeraxis( mch, 25, clip=True ), inp )
             # Will load consecutive empty iterables; chainable must handle
             source.chain( material[:segment] )
             material		= material[segment:]
             inp			= source.peek()
-            _log.info( "%10.10s.%-15.15s <- %-10.10r test chain", mch, sta, inp )
+            _log.info( "%s <- %-10.10r test chain", misc.centeraxis( mch, 25, clip=True ), inp )
 
         if num == 0: assert inp == next(iter(b'\x01')); assert sta.name == "First"
         if num == 1: assert inp == next(iter(b'\x02')); assert sta.name == "Second"
@@ -248,13 +248,13 @@ def test_fsm():
             inp			= source.peek()
         except StopIteration:
             inp			= source.peek()
-            _log.info( "%10.10s.%-15.15s <- %-10.10r test done", mch, sta, inp )
+            _log.info( "%s <- %-10.10r test done", misc.centeraxis( mch, 25, clip=True ), inp )
             break
-        _log.info( "%10.10s.%-15.15s <- %-10.10r test rcvd", mch, sta, inp )
+        _log.info( "%s <- %-10.10r test rcvd", misc.centeraxis( mch, 25, clip=True ), inp )
         if sta is None:
-            _log.info( "%10.10s.%-15.15s <- %-10.10r test no next state", mch, sta, inp )
+            _log.info( "%s <- %-10.10r test no next state", misc.centeraxis( mch, 25, clip=True ), inp )
         if inp is None:
-            _log.info( "%10.10s.%-15.15s <- %-10.10r test source finished", mch, sta, inp )
+            _log.info( "%s <- %-10.10r test source finished", misc.centeraxis( mch, 25, clip=True ), inp )
 
         if num == 0: assert inp == next(iter('a')); assert sta.name == "0"
         if num == 1: assert inp == next(iter('a')); assert sta.name == "0"
