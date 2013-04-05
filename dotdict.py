@@ -1,10 +1,11 @@
 
+import logging
 import sys
 
-class dotdict(dict):
-    """A dict supporting keys containing dots, to access a heirarchy of dicts.
-    Furthermore, if the keys form valid attribute names, values are also
-    accessible via dotted attribute name access:
+class dotdict( dict ):
+    """A dict supporting keys containing dots, to access a heirarchy of
+    dotdicts.  Furthermore, if the keys form valid attribute names, values are
+    also accessible via dotted attribute name access:
     
         >>> d = dotdict()
         >>> d["a.b"] = 1
@@ -12,36 +13,58 @@ class dotdict(dict):
         >>> 1
 
     Every '..' in the key back-tracks by one key element (these ignored elements
-    are not checked for validity):
+    are not checked for validity), much like a file-system:
 
-        >>> d['a.x..b'] # same as d['a.b']
+        >>> d['a.x..b']    # same as d['a.b']
         >>> 1
         >>> d['a.x.y...b'] # and works for multiple levels, one dot per level
+        >>> 1
+        >>> d['a.....a.b'] # and back-tracking past root is OK
+        >>> 1
+
+    Any string valid as an attribute name should be valid as a key (leading
+    '.' ignored):
+
+        >>> d.a.b
+        >>> 1
+        >>> d['.a.b']
+        >>> 1
+
+    While the key iterator only returns actual value keys:
+        >>> [k for k in d]
+        >>> []
     """
-    def __init__( self, value=None ):
-        if value is None:
-            pass
-        elif isinstance( value, dict ):
-            for key, val in value.items():
+    def __init__( self, *args, **kwds ):
+        """Load from args, update from kwds"""
+        dict.__init__( self )
+        if args:
+            for key, val in dict( *args ).items():
                 self.__setitem__( key, val )
-        else:
-            raise TypeError( 'expected dict' )
+        if kwds:
+            for key, val in kwds.items():
+                self.__setitem__( key, val )
 
     def _resolve( self, key ):
-        """Return next segment in key as (one, rest), solving for any '..'
+        """Return next segment in key as (mine, rest), solving for any '..'
         back-tracking.  If key begins/ends with ., or too many .. are used, the
         key will end up prefixed by ., 'mine' will end up '', raising KeyError."""
         mine, rest		= key, None
-        if '.' in mine:
-            while '..' in mine:
-                # 'a.b..c'     ==> 'a.c'  ; split == ['a.b',   'c'  ]
-                # 'a.b.c...d'  ==> 'a.d'  ; split == ['a.b.c', '.d' ]
-                front, back	= mine.split( '..', 1 )
-                front		= front[:front.rfind('.')]
-                mine		= front + '.' + back
+        # Process '..' back-tracking
+        #     'a.b..c'     ==> 'a.c'  ; split == ['a.b',   'c'  ]
+        #     'a.b.c...d'  ==> 'a.d'  ; split == ['a.b.c', '.d' ]
+        while '..' in mine:
+            front, back		= mine.split( '..', 1 )
+            trunc		= front[:max(0,front.rfind('.'))]
+            mine		= trunc + ( '.' if ( trunc and back ) else '' ) + back
+            #logging.info( '_resolve reduced "%s..%s" to "%s"' % ( front, back, mine ))
+        # Find leading non-. term
+        while '.' in mine:
             mine, rest		= mine.split( '.', 1 )
+            if mine:
+                break
+            mine		= rest
         if not mine:
-            raise KeyError('cannot index using key "%s"; no leading path element' % key)
+            raise KeyError('cannot resolve "%s" in "%s" from key "%s"' % ( rest, mine, key ))
         return mine, rest
 
     def __setitem__( self, key, value ):
@@ -59,20 +82,38 @@ class dotdict(dict):
     def __getitem__( self, key ):
         mine, rest              = self._resolve( key )
         if rest is None:
-            return dict.__getitem__( self, key )
+            return dict.__getitem__( self, mine )
         target                  = dict.__getitem__( self, mine )
         if not isinstance( target, dotdict ):
             raise KeyError( 'cannot get "%s" in "%s" (%r)' % ( rest, mine, target ))
         return target[rest]
 
     def __contains__( self, key ):
-        mine, rest              = self._resolve( key )
-        if rest is None:
-            return dict.__contains__( self, key )
-        target                  = dict.__getitem__( self, mine )
-        if not isinstance( target, dotdict ):
+        """In a normal dict b, 'a' in b True iff the indexed element exists and
+        is a value.  We would implement the same concept here (key is not
+        another layer of dotdict), like this:
+
+            try:
+                return not isinstance( self.__getitem__( key ), dotdict )
+            except KeyError:
+                return False
+                
+        However, for things like setdefault and equivalent code to work
+        sensibly, we need to return True even when a key exists, and its just
+        another layer of dotdict, to avoid wiping out layers of our dotdict with
+        code like:
+        
+            d = dotdict()
+            d.a.b.c = 1
+            if 'a.b' not in d:
+                d.a.b = "something" # just lost whole d.a.b dotdict()!
+
+        So, return True if anything exists in the dotdict at the given key."""
+        try:
+            self.__getitem__( key )
+            return True
+        except KeyError:
             return False
-        return rest in target
 
     def setdefault( self, key, default ):
         if key not in self:

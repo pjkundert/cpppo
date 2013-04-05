@@ -1,11 +1,12 @@
 * cpppo -- Communication Protocol Python Parser and Originator
 
-  Implements binary communications protocols, described in terms of state
-  machines which change state in response to input events, and produce output
-  events.
+  Cpppo (pronounced 'c'+3*'p'+'o' in Python) is use to implements binary
+  communications protocol parsers.  The protocol's communication elements are
+  described in terms of state machines which change state in response to input
+  events, collecting the data and producing output data artifacts.
 
 ** Deterministic Finite Automata
 
-   A dfa.process will consume its input source, yielding states 'til a terminal
+   A cpppo.dfa will consume its input source, yielding states 'til a terminal
    state is reached.
 

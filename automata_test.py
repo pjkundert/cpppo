@@ -1,6 +1,5 @@
 from __future__ import absolute_import
 from __future__ import print_function
-from __future__ import division
 
 import collections
 import logging
@@ -18,9 +17,6 @@ logging.basicConfig( level=logging.DEBUG, datefmt='%m-%d %H:%M'  ,
     format='%(asctime)s.%(msecs)3.3s %(name)-6.6s %(levelname)-6.6s %(funcName)-10.10s %(message)s' )
 _log				= logging.getLogger()
 _lognot				= _log.level-1
-
-def accept_any( i ):
-    return True
 
 def test_logging():
     # Test lazy log message evaluation, ensuring it is at least an order of
@@ -107,6 +103,13 @@ def test_iterators():
         assert False, "Expected TypeError, not %r" % ( e )
 
 
+def test_state():
+    # A state is expected to process its input (perhaps nothing, if its a
+    # no-input state), and then use the next input symbol to transition to
+    # another state.  Each state has a context into a data artifact, into which
+    # it will collect its results.
+    pass
+
 def test_dfa():
 
     # Simple DFA with states consuming no input.  A NULL (None) state transition
@@ -183,20 +186,24 @@ def test_dfa():
 
 
 def test_struct():
-    a				=     cpppo.state_input( "First"  )
-    a[True]			= b = cpppo.state_input( "Second" )
-    b[True]			= c = cpppo.state_input( "Third" )
-    c[True]			= d = cpppo.state_input( "Fourth" )
-    d[None] 			= e = cpppo.state_struct( 
-                                          "int32", format="<i", offset=4, terminal=True )
-    machine			= cpppo.dfa( initial=a, datatype=( 
-            'B' if sys.version_info.major == 3 else 'c' ))
+    dtp				= ( 'c' if sys.version_info.major < 3 else 'B' )
+    ctx				= 'val'
+    a				=     cpppo.state_input( "First",  datatype=dtp, context=ctx )
+    a[True]			= b = cpppo.state_input( "Second", datatype=dtp, context=ctx )
+    b[True]			= c = cpppo.state_input( "Third",  datatype=dtp, context=ctx )
+    c[True]			= d = cpppo.state_input( "Fourth", datatype=dtp, context=ctx )
+    d[None] 			= e = cpppo.state_struct( "int32", context=ctx,
+                                                          format="<i", offset=4,
+                                                          terminal=True )
+    machine			= cpppo.dfa( initial=a )
     material			= b'\x01\x02\x03\x80\x99'
     segment			= 3
     source			= cpppo.chainable()
     _log.info( "States; %r input, by %d", material, segment )
     inp				= None
-    sequence			= machine.run( source=source )
+    data			= cpppo.dotdict()
+    path			= "struct"
+    sequence			= machine.run( source=source, path=path, data=data )
     for num in range( 10 ):
         try:
             mch,sta		= next( sequence )
@@ -227,7 +234,7 @@ def test_struct():
     assert inp == next(iter(b'\x99'))
     assert num == 6
     assert sta.name == "int32"
-    assert machine.value == -2147286527
+    assert data.struct.val == -2147286527
 
 def test_fsm():
     regex			= 'a*b.*x'

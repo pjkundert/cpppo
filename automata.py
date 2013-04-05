@@ -16,7 +16,6 @@
 
 from __future__ import absolute_import
 from __future__ import print_function
-from __future__ import division
 
 __author__                      = "Perry Kundert"
 __email__                       = "perry@hardconsulting.com"
@@ -214,18 +213,32 @@ class state( dict ):
     source input generator, discard the sub-machines and supply the remaining
     input to a new one, ...)
     """
-    def __init__( self, name, terminal=False, alphabet=type(next(iter( b'a' )))):
+    def __init__( self, name, terminal=False, alphabet=type(next(iter( b'a' ))),
+                  context=None ):
         super( state, self ).__init__()
         self.name		= name
         self.terminal		= terminal
         self.recognizers	= []
-        self.alphabet		= alphabet # type or predicate
+        self._context		= context  # Context added to path to place product into data
+        self.alphabet		= alphabet # type, container or predicate
 
     def __str__( self ):
-        return '(' * ( 1 + self.terminal ) + self.name + ')' * ( 1 + self.terminal )
+        return '(' * ( 1 + self.terminal ) + self.name + ( 1 + self.terminal ) * ')'
 
     def __repr__( self ):
-        return '<' + str( self ) + '>'
+        return '<%s>' % ( self )
+
+    def context( self, path=None, extension=None ):
+        """Returns the context, optionally joined with the specified path and
+        extension, eg:
+
+            >>> s.context()
+            >>> "boo"
+            >>> s.context( path="a.b", extension='_' )
+            >>> "a.b.boo_"
+        """
+        return '.'.join(( [path] if path else [] )
+                        + [( self._context or '' ) + ( extension or '')])
 
     # 
     # [x] = <state>	-- Store an outgoing "edge" (input symbol 'x' and target <state>)
@@ -306,7 +319,7 @@ class state( dict ):
                     "", self, inp, ( "~" if result else "!" ), self.alphabet )
         return result
 
-    def accepts( self, source, machine=None ):
+    def accepts( self, source, machine=None, path=None, data=None ):
         """If input valid returning True, or False to be re-invoked (later) when
         appropriate input is available; default impleentation logs."""
         inp			= source.peek()
@@ -315,18 +328,18 @@ class state( dict ):
                 machine, self, inp, "accepted" if valid else "rejected" )
         return valid
 
-    def process( self, source, machine=None ):
-        """Process the validated input.  The base implementation is
-        a NULL (no input consumed) state, which ignores the input (but validates
-        that it is either a None or a character).  This is itself useful for
-        selecting one of N sub-machines based on an input, without consuming it.
-        It is still a DFA, because there is one edge for each input."""
+    def process( self, source, machine=None, path=None, data=None ):
+        """Process the validated input.  The base implementation is a NULL (no
+        input consumed) state, which ignores the input (but validates that it is
+        either a None or a character).  This is itself useful for selecting one
+        of N sub-machines based on an input, without consuming it.  It is still
+        a DFA, because there is one edge for each input."""
         pass
 
     # 
     # transition	-- Process input, yield next state/None 'til no more and terminal
     # 
-    def transition( self, source, machine=None ):
+    def transition( self, source, machine=None, path=None, data=None ):
         """A generator which will attempt to process input in the present state;
         if not acceptable (self.accepts/self.validate returns False), yields
         non-transition event, and then tries again to process an acceptable
@@ -378,12 +391,11 @@ class state( dict ):
 
           TypeError -- if a non-iterable has been provided to source chainable
             iterator, to force termination of the state machinery."""
-
-        while not self.accepts( source=source, machine=machine ):
+        while not self.accepts( source=source, machine=machine, path=path, data=data ):
             _log.debug( "%10.10s.%-15.15s<x- %-10.10r", machine, self, source.peek() )
             yield machine,None
         _log.debug( "%10.10s.%-15.15s <- %-10.10r", machine, self, source.peek() )
-        self.process( source=source, machine=machine )
+        self.process( source=source, machine=machine, path=path, data=data )
 
         target			= None
         while target is None:
@@ -424,45 +436,49 @@ class state( dict ):
 
 
 class state_input( state ):
-    """A state that consumes and saves its input, by appending it to the
-    provided machine's 'data' attribute."""
-    def validate( self, inp ):
-        """Requires a character of input."""
-        return ( inp is not None 
-                 and super( state_input, self ).validate( inp ))
+    """A state that consumes and saves its input symbol by appending it to the
+    specified path index/attribute in the supplied data artifact.  Creates an
+    array.array of the specified datatype, if no such path exists."""
+    def __init__( self, name, datatype=None, **kwds ):
+        super( state_input, self ).__init__( name, **kwds )
+        self.datatype		= ( datatype if datatype is not None
+                                    else 'c' if sys.version_info.major < 3
+                                    else 'u' )
 
-    def process( self, source, machine=None ):
+    def validate( self, inp ):
+        """Requires a symbol of input."""
+        return inp is not None and super( state_input, self ).validate( inp )
+
+    def process( self, source, machine=None, path=None, data=None ):
+        """The raw data is saved to: path.context_"""
         inp			= next( source )
-        _log.info( "%10.10s.%-15.15s :  %-10.10r:saved", machine, self, inp )
-        machine.data.append( inp )
+        path			= self.context( path=path, extension='_' )
+        _log.info( "%10.10s.%-15.15s :  %-10.10r => %s", machine, self, inp, path )
+        if data is not None and path:
+            if path not in data:
+                data[path]	= array.array( self.datatype )
+            data[path].append( inp )
 
 
 class state_struct( state ):
-    """A NULL (no input consumed) state that interprets the machine's preceding
-    states' saved data as the specified type.  The default is to assign one
-    unsigned byte, starting at offset 1 from the end of the collected data, and
-    assign the result to attribute 'machine.value'."""
-    def __init__( self, name, target="value", format="B", offset=1, **kwds ):
+    """A NULL (no-input) state that interprets the preceding states' saved
+    symbol data as the specified type format.  The default is to assign one
+    unsigned byte, starting at offset 1 from the end of the collected symbol
+    data.  The raw data is assumed to be """
+    def __init__( self, name, format="B", offset=1, **kwds ):
         super( state_struct, self ).__init__( name, **kwds )
-        self._target		= target	# property/attribute to get/set
-        self._format		= format	# 'struct' format, eg '<H' (little-endian uint16)
-        self._offset		= offset	# byte offset from end of data
-        assert self._target and self._format and self._offset
+        self._struct		= struct.Struct( format ) # eg '<H' (little-endian uint16)
+        self._offset		= offset		# byte offset back from end of data
+        assert self._offset
 
-    def validate( self, inp ):
-        return True
-
-    def accepts( self, source, machine=None ):
-        assert machine is not None
-        assert len( machine.data ) >= self._offset
-        return super( state_struct, self ).accepts( source=source, machine=machine )
-
-    def process( self, source, machine=None ):
-        value		        = struct.unpack_from(
-            self._format, buffer=machine.data[-self._offset:] )[0]
-        _log.info( "%10.10s.%-15.15s :  .%s=%r",
-                machine, self,  self._target, value )
-        setattr( machine, self._target, value )
+    def process( self, source, machine=None, path=None, data=None ):
+        """Decode a value from path.context_, and store it to path.context.
+        Will fail if insufficient data has been collected for struct unpack."""
+        path			= self.context( path=path )
+        buf			= data[path+'_'][-self._offset:]
+        val		        = self._struct.unpack_from( buffer=buf )[0]
+        _log.info( "%10.10s.%-15.15s :  .%s=%r", machine, self, path, val )
+        data[path]		= val
 
 
 class dfa( object ):
@@ -471,18 +487,13 @@ class dfa( object ):
     reset are appended to 'data'.  The input symbol data type defaults to the
     individual character type of the Python platform 'str': Python3: 'u'
     (unicode character), Python2: 'c' (character)"""
-    def __init__( self, name=None, initial=None, datatype=None ):
+    def __init__( self, name=None, initial=None ):
         self.initial		= initial
-        self.datatype		= ( datatype if datatype is not None
-                                    else 'u' if sys.version_info.major == 3
-                                    else 'c' )
         self._name		= name or self.__class__.__name__
         self.reset()
 
     def reset( self ):
         self.current		= None
-        self.data		= array.array( self.datatype )
-
 
     def __str__( self ):
         return self.name
@@ -494,7 +505,7 @@ class dfa( object ):
     def name( self ):
         return self._name
 
-    def run( self, source, machine=None ):
+    def run( self, source, machine=None, path=None, data=None ):
         """Yield state transitions until a terminal state is reached (yields
         something with a 'state' attribute), or no more state transitions can be
         processed.  Will end with a terminal state if successful, a None state
@@ -522,7 +533,8 @@ class dfa( object ):
             # input to the source chainable/peekable iterator, or discard this
             # generator)
             armed		= self.current if self.current.terminal else None
-            for machine,target in self.current.transition( source=source, machine=self ):
+            for machine,target in self.current.transition(
+                source=source, machine=self, path=path, data=data ):
                 _log.debug( "%10.10s.%-15.15s <- %-10.10r received",
                         machine, target, source.peek() )
                 if machine is self and target is not None:
@@ -567,8 +579,8 @@ class fsm( dfa ):
     specify what type of characters our greenery.fsm operates on; typically,
     normal string.  The semantics for alphabet differs from the greenery
     alphabet (the exact set of characters used in the greenery.lego/fsm)."""
-    def __init__( self, name, initial=None, alphabet=str, datatype=None ):
-        super( fsm, self ).__init__( name=name, initial=None, datatype=datatype )
+    def __init__( self, name, initial=None, alphabet=str ):
+        super( fsm, self ).__init__( name=name, initial=None )
 
         import cpppo.greenery as greenery
         import cpppo.misc as misc

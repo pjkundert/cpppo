@@ -25,5 +25,5 @@ __all__                         = ["greenery", "misc"]
 
 # These modules form the public interface of cpppo; load them into the main
 # cpppo namespace
-from automata import *
-from dotdict  import *
+from .automata import *
+from .dotdict  import *
