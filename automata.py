@@ -458,10 +458,11 @@ class state_input( state ):
         inp			= next( source )
         path			= self.context( path=path, extension='_' )
         if data is not None and path:
-            _log.info( "%s :  %-10.10r => %s", misc.centeraxis( self, 25, clip=True ), inp, path )
             if path not in data:
                 data[path]	= array.array( self.datatype )
             data[path].append( inp )
+            _log.info( "%s :  %-10.10r => %20s[%3d]=%r",  misc.centeraxis( self, 25, clip=True ),
+                       inp, path, len(data[path])-1, inp )
 
 
 class state_struct( state ):
@@ -477,12 +478,21 @@ class state_struct( state ):
 
     def process( self, source, machine=None, path=None, data=None ):
         """Decode a value from path.context_, and store it to path.context.
-        Will fail if insufficient data has been collected for struct unpack."""
+        Will fail if insufficient data has been collected for struct unpack.
+        We'll try first to append it, and then just assign it (creates, if
+        necessary)"""
         path			= self.context( path=path )
         buf			= data[path+'_'][-self._offset:]
         val		        = self._struct.unpack_from( buffer=buf )[0]
-        _log.info( "%s :  .%s=%r",  misc.centeraxis( self, 25, clip=True ), path, val )
-        data[path]		= val
+        try:
+            data[path].append( val )
+            _log.info( "%s :  %-10.10s => %20s[%3d]=%r",  misc.centeraxis( self, 25, clip=True ),
+                       "", path, len(data[path])-1, val )
+        except (AttributeError, KeyError):
+            # Target doesn't exist, or isn't a list/deque; just save value
+            data[path]		= val
+            _log.info( "%s :  %-10.10s => %20s     =%r",  misc.centeraxis( self, 25, clip=True ),
+                       "", path, val )
 
 
 class dfa( state ):
