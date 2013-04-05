@@ -14,16 +14,18 @@
 # A PARTICULAR PURPOSE.  See the GNU General Public License for more details.
 # 
 
+from __future__ import absolute_import
+from __future__ import print_function
+
 __author__                      = "Perry Kundert"
 __email__                       = "perry@hardconsulting.com"
 __copyright__                   = "Copyright (c) 2013 Hard Consulting Corporation"
 __license__                     = "GNU General Public License, Version 3 (or later)"
 __version__			= "0.01"
 
-# These submodules are utilites used by cpppo; retain their namespaces
-__all__                         = ["greenery", "misc"]
+__all__                         = ["automata", "dotdict", "greenery", "misc"]
 
-# These modules form the public interface of cpppo; load them into the main
-# cpppo namespace
+# These modules form the public interface of cpppo; always load them into the
+# main cpppo namespace
 from .automata import *
 from .dotdict  import *
