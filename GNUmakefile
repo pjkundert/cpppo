@@ -2,9 +2,14 @@
 # GNU 'make' file
 # 
 
-# PY is the target Python interpreter.  It must have pytest installed
-#PY=/cygdrive/c/Python27/python
+# PY is the target Python interpreter.  It must have pytest installed.  We''
+
+# 
+PYTHONPATH=/usr/local/lib/python2.7/site-packages
+export PYTHONPATH
 PY=python
+
+#PY=python3
 
 # PYTEST is the desired method of invoking py.test; either as a command, or
 # loading it as module, by directly invoking the target Python interpreter.
@@ -17,8 +22,7 @@ all:
 
 # Only run tests in this directory.
 test:
-	@py.test --version || echo "py.test not found; run 'sudo easy_install pytest'?"
-	$(PYTEST) *_test.py
+	$(PYTEST)
 
 # Run only tests with a prefix containing the target string, eg test-blah
 test-%:

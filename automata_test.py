@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 from __future__ import absolute_import
 from __future__ import print_function
 
@@ -13,22 +14,21 @@ sys.path.insert( 0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import cpppo
 from . import misc
 
-logging.basicConfig( level=logging.INFO, datefmt='%m-%d %H:%M'  ,
-    format='%(asctime)s.%(msecs)3.3s %(name)-6.6s %(levelname)-6.6s %(funcName)-10.10s %(message)s' )
-_log				= logging.getLogger()
-_lognot				= _log.level-1
+logging.basicConfig( **cpppo.log_cfg )
+log				= logging.getLogger()
+log_not				= log.level-1
 
 def test_logging():
     # Test lazy log message evaluation, ensuring it is at least an order of
     # magnitude better for log messages with format arguments that are expensive
     # to evaluate.
     rep, num = 3, 1000
-    t = timeit.Timer( lambda: _log.log( _lognot,
+    t = timeit.Timer( lambda: log.log( log_not,
                                         "%s", 
                                             " ".join( list( str( i ) for i in range( 100 )))))
     t1ms = 1000 * min( t.repeat( rep, num )) / num
 
-    t = timeit.Timer( lambda: _log.log( _lognot, cpppo.lazystr( lambda: \
+    t = timeit.Timer( lambda: log.log( log_not, cpppo.lazystr( lambda: \
                                         "%s" % (
                     			    " ".join( list( str( i ) for i in range( 100 )))))))
     t2ms = 1000 * min( t.repeat( rep, num )) / num
@@ -40,11 +40,11 @@ def test_logging():
     # simple args requiring only a tiny bit of processing you'd typically see in
     # even the simplest log (str/repr of objects)
     a 				=     object()
-    t = timeit.Timer( lambda: _log.log( _lognot,
+    t = timeit.Timer( lambda: log.log( log_not,
                                         "%s: %r %d %d %d %d %d", 
                                             str( a ), repr( a ), 1, 2, 3, 4, 5 ))
     t3ms = 1000 * min( t.repeat( rep, num )) / num
-    t = timeit.Timer( lambda: _log.log( _lognot, cpppo.lazystr( lambda: \
+    t = timeit.Timer( lambda: log.log( log_not, cpppo.lazystr( lambda: \
                                         "%s: %r %d %d %d %d %d" % (
                     			    str( a ), repr( a ), 1, 2, 3, 4, 5 ))))
     t4ms = 1000 * min( t.repeat( rep, num )) / num
@@ -54,11 +54,11 @@ def test_logging():
     # Only with no argument processing overhead at all is the overhead of the
     # lazy evaluation structure less performant than raw logging:
     a 				=     object()
-    t = timeit.Timer( lambda: _log.log( _lognot, 
+    t = timeit.Timer( lambda: log.log( log_not, 
                                         "%s: %r %d %d %d %d %d",
                                             a, a, 1, 2, 3, 4, 5 ))
     t5ms = 1000 * min( t.repeat( rep, num )) / num
-    t = timeit.Timer( lambda: _log.log( _lognot, cpppo.lazystr( lambda: \
+    t = timeit.Timer( lambda: log.log( log_not, cpppo.lazystr( lambda: \
                                         "%s: %r %d %d %d %d %d" % (
                     			    a, a, 1, 2, 3, 4, 5 ))))
     t6ms = 1000 * min( t.repeat( rep, num )) / num
@@ -133,10 +133,10 @@ def test_dfa():
 
     machine			= cpppo.dfa( initial=a )
 
-    _log.info( "DFA:" )
+    log.info( "DFA:" )
     for initial in machine.initial.nodes():
         for inp,target in initial.edges():
-            _log.info( "%s <- %-10.10r -> %s" % ( misc.centeraxis( initial, 25, clip=True ), inp, target ))
+            log.info( "%s <- %-10.10r -> %s" % ( misc.centeraxis( initial, 25, clip=True ), inp, target ))
 
     # Running with no input will yield the initial state, with None input; since
     # it is a NULL state (no input processed), it will simply attempt to
@@ -144,7 +144,7 @@ def test_dfa():
     # so it will return input,state=(None, None) indicating a non-terminal state
     # and no input left.  This gives the caller an opportunity to reload input
     # and try again.
-    _log.info( "States; No input" )
+    log.info( "States; No input" )
     source			= cpppo.chainable()
     sequence			= machine.run( source=source )
     for num in range( 10 ):
@@ -154,7 +154,7 @@ def test_dfa():
             sequence		= None
             break
         inp			= source.peek()
-        _log.info( "%s <- %r" % ( misc.centeraxis( mch, 25, clip=True ), inp ))
+        log.info( "%s <- %r" % ( misc.centeraxis( mch, 25, clip=True ), inp ))
         if num == 0: assert inp is None; assert sta.name == "Initial"
         if num == 1: assert inp is None; assert sta.name == "Middle"
         if num == 2: assert inp is None; assert sta is None	# And no more no-input transitions
@@ -168,7 +168,7 @@ def test_dfa():
     # sequence.  Only the first element is gotten, and is reused for every NULL
     # state transition, and is left over at the end.  We'll be continuing the
     # last sequence, so we'll immediately transition.
-    _log.info( "States; 'abc' input" )
+    log.info( "States; 'abc' input" )
     assert source.peek() is None
     source.chain( b'abc' )
     assert source.peek() == next(iter(b'a')) # python2: str, python3: int
@@ -178,7 +178,7 @@ def test_dfa():
         except StopIteration:
             break
         inp			= source.peek()
-        _log.info( "%s <- %r", misc.centeraxis( mch, 25, clip=True ), inp )
+        log.info( "%s <- %r", misc.centeraxis( mch, 25, clip=True ), inp )
         if num == 0: assert inp == next(iter(b'a')); assert sta.name == "Terminal"
     assert num == 1
     assert inp == next(iter(b'a'))
@@ -186,12 +186,13 @@ def test_dfa():
 
 
 def test_struct():
-    dtp				= ( 'c' if sys.version_info.major < 3 else 'B' )
+    dtp				= cpppo.type_bytes_array_symbol
+    abt				= cpppo.type_bytes_iter
     ctx				= 'val'
-    a				=     cpppo.state_input( "First",  datatype=dtp, context=ctx )
-    a[True]			= b = cpppo.state_input( "Second", datatype=dtp, context=ctx )
-    b[True]			= c = cpppo.state_input( "Third",  datatype=dtp, context=ctx )
-    c[True]			= d = cpppo.state_input( "Fourth", datatype=dtp, context=ctx )
+    a				=     cpppo.state_input( "First",  alphabet=abt, typecode=dtp, context=ctx )
+    a[True]			= b = cpppo.state_input( "Second", alphabet=abt, typecode=dtp, context=ctx )
+    b[True]			= c = cpppo.state_input( "Third",  alphabet=abt, typecode=dtp, context=ctx )
+    c[True]			= d = cpppo.state_input( "Fourth", alphabet=abt, typecode=dtp, context=ctx )
     d[None] 			= e = cpppo.state_struct( "int32", context=ctx,
                                                           format="<i", offset=4,
                                                           terminal=True )
@@ -199,7 +200,7 @@ def test_struct():
     material			= b'\x01\x02\x03\x80\x99'
     segment			= 3
     source			= cpppo.chainable()
-    _log.info( "States; %r input, by %d", material, segment )
+    log.info( "States; %r input, by %d", material, segment )
     inp				= None
     data			= cpppo.dotdict()
     path			= "struct"
@@ -210,19 +211,19 @@ def test_struct():
             inp			= source.peek()
         except StopIteration:
             inp			= source.peek()
-            _log.info( "%s <- %-10.10r test done", misc.centeraxis( mch, 25, clip=True ), inp )
+            log.info( "%s <- %-10.10r test done", misc.centeraxis( mch, 25, clip=True ), inp )
             break
-        _log.info( "%s <- %-10.10r test rcvd", misc.centeraxis( mch, 25, clip=True ), inp )
+        log.info( "%s <- %-10.10r test rcvd", misc.centeraxis( mch, 25, clip=True ), inp )
         if sta is None:
-            _log.info( "%s <- %-10.10r test no next state", misc.centeraxis( mch, 25, clip=True ), inp )
+            log.info( "%s <- %-10.10r test no next state", misc.centeraxis( mch, 25, clip=True ), inp )
         if inp is None:
             if not material:
-                _log.info( "%s <- %-10.10r test source finished", misc.centeraxis( mch, 25, clip=True ), inp )
+                log.info( "%s <- %-10.10r test source finished", misc.centeraxis( mch, 25, clip=True ), inp )
             # Will load consecutive empty iterables; chainable must handle
             source.chain( material[:segment] )
             material		= material[segment:]
             inp			= source.peek()
-            _log.info( "%s <- %-10.10r test chain", misc.centeraxis( mch, 25, clip=True ), inp )
+            log.info( "%s <- %-10.10r test chain", misc.centeraxis( mch, 25, clip=True ), inp )
 
         if num == 0: assert inp == next(iter(b'\x01')); assert sta.name == "First"
         if num == 1: assert inp == next(iter(b'\x02')); assert sta.name == "Second"
@@ -248,13 +249,13 @@ def test_fsm():
             inp			= source.peek()
         except StopIteration:
             inp			= source.peek()
-            _log.info( "%s <- %-10.10r test done", misc.centeraxis( mch, 25, clip=True ), inp )
+            log.info( "%s <- %-10.10r test done", misc.centeraxis( mch, 25, clip=True ), inp )
             break
-        _log.info( "%s <- %-10.10r test rcvd", misc.centeraxis( mch, 25, clip=True ), inp )
+        log.info( "%s <- %-10.10r test rcvd", misc.centeraxis( mch, 25, clip=True ), inp )
         if sta is None:
-            _log.info( "%s <- %-10.10r test no next state", misc.centeraxis( mch, 25, clip=True ), inp )
+            log.info( "%s <- %-10.10r test no next state", misc.centeraxis( mch, 25, clip=True ), inp )
         if inp is None:
-            _log.info( "%s <- %-10.10r test source finished", misc.centeraxis( mch, 25, clip=True ), inp )
+            log.info( "%s <- %-10.10r test source finished", misc.centeraxis( mch, 25, clip=True ), inp )
 
         if num == 0: assert inp == next(iter('a')); assert sta.name == "0"
         if num == 1: assert inp == next(iter('a')); assert sta.name == "0"
@@ -273,3 +274,84 @@ def test_fsm():
     assert inp is None
     assert num == 13
     assert sta.name == '3'
+
+
+import binascii
+import codecs
+def to_hex( data, nbytes ):
+    "Format bytes 'data' as a sequence of nbytes long values separated by spaces."
+    chars_per_item		= nbytes * 2
+    hex_version			= binascii.hexlify( data )
+    def chunkify():
+        for start in range( 0, len( hex_version ), chars_per_item ):
+            yield hex_version[start:start + chars_per_item]
+    return b' '.join( chunkify() )
+
+
+def test_codecs():
+    # In Python3, the greenery FSM is able to handle the Unicode str type; under
+    # Python2, it can sanely only handle the non-Unicode str type.
+    if sys.version_info.major < 3:
+        return
+
+    # Test parsing of greenery.fsm/lego regexes specified in Unicode.  Then,
+    # generate corresponding cpppo state machines that accept Unicode input
+    # symbols, and byte input symbols.
+
+    texts 			= [
+        u'pi: π',
+        u'abcdé\u4500123',
+        u'This contains π,π and more πs',
+        u'a 480Ω resistor',
+        ]
+    '''
+    for text in texts:
+        encoded = text.encode('utf-8')
+        decoded = encoded.decode('utf-8')
+        
+        print( 'Original : "%s"' % text, repr( text ))
+        print( 'Encoded  : ', to_hex( encoded, 1 ), type( encoded ))
+        print( 'Decoded  : "%s"' % decoded, repr( decoded ), type( decoded ))
+    '''
+
+    for text in texts:
+        # First, convert the unicode fsm to a state machine in unicode symbols.
+        pies			= cpppo.fsm( name="pies", initial=".*π.*" )
+        
+        source			= cpppo.chainable( text )
+        data			= cpppo.dotdict()
+        for mch, sta in pies.run( source=source, data=data, greedy=True ):
+            if sta is None:
+                log.info( "%sr done", misc.centeraxis( mch, 25, clip=True ))
+                break
+            log.info( "%s reports %s", misc.centeraxis( mch, 25, clip=True ), sta )
+        log.info( "%s ends in %s: %s: %r", misc.centeraxis( mch, 25, clip=True ), sta,
+                  "string accepted" if sta and sta.terminal else "string rejected", data )
+
+        # Each of these are greedy, and so run 'til the end of input (next state
+        # is None); they collect the full input string.
+        assert ( sta is not None and sta.terminal ) == ( u"π" in text )
+        assert data._.tounicode() == text
+
+    for text in texts:
+        # Then convert the unicode fsm to a state machine in bytes symbols.
+        # Our encoder generates 1 or more bytes for each unicode symbol.
+
+        pies			= cpppo.fsm( name="pies", initial=".*π.*", 
+                                             fsm_alphabet=int,
+                                             fsm_typecode='B',
+                                             fsm_encoder=lambda s: ( b for b in s.encode( 'utf-8' )))
+        
+        source			= cpppo.chainable( text.encode( 'utf-8' ))
+        data			= cpppo.dotdict()
+
+        for mch, sta in pies.run( source=source, data=data, greedy=True ):
+            if sta is None:
+                log.info( "%sr done", misc.centeraxis( mch, 25, clip=True ))
+                break
+            log.info( "%s reports %s", misc.centeraxis( mch, 25, clip=True ), sta )
+        log.info( "%s ends in %s: %s: %r", misc.centeraxis( mch, 25, clip=True ), sta,
+                  "string accepted" if sta and sta.terminal else "string rejected", data )
+
+        assert ( sta is not None and sta.terminal ) == ( u"π" in text )
+        assert data._.tobytes().decode('utf-8') == text

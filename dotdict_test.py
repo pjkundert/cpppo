@@ -82,3 +82,27 @@ def test_dotdict():
     assert isinstance( d.keys(), list if sys.version_info.major < 3 else types.GeneratorType )
     assert isinstance( d.items(), list if sys.version_info.major < 3 else types.GeneratorType )
 
+
+    # Test deletion, including refusing partial keys (unless empty)
+    try:
+        del d["a.b.c"]
+    except KeyError as e:
+        assert "(partial key)" in str( e ) 
+    del d["a.b.c.d"]
+    # key iteration (ignores empty key layers)
+    assert list( sorted( k for k in d )) == ['a.x']
+    del d["a.b.c"]
+    assert list( sorted( k for k in d )) == ['a.x']
+    # We can dig down using attribute access
+    assert d.a.x == 3
+    try:
+        del d.a.x
+    except AttributeError as e:
+        assert "x" in str( e )
+    del d.a["x"]
+    assert list( sorted( k for k in d )) == []
+    assert "a" in d
+    assert "b" in d.a
+    assert "c" not in d.a.b
+    del d["a.b"]
+    del d["a"]

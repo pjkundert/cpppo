@@ -31,8 +31,20 @@ class dotdict( dict ):
         >>> 1
 
     While the key iterator only returns actual value keys:
+
         >>> [k for k in d]
-        >>> []
+        >>> ['a.b']
+
+    the test for 'in' returns partially specified keys (so setdefault works):
+
+        >>> 'a' in d
+        >>> True
+
+    but deletion won't allow deleting non-empty levels of the dotdict:
+
+        >>> del d['a']
+        Traceback ...
+        KeyError: 'cannot del "a" (partial key)'
     """
     def __init__( self, *args, **kwds ):
         """Load from args, update from kwds"""
@@ -89,8 +101,8 @@ class dotdict( dict ):
         return target[rest]
 
     def __contains__( self, key ):
-        """In a normal dict b, 'a' in b True iff the indexed element exists and
-        is a value.  We would implement the same concept here (key is not
+        """In a normal dict b, "'a' in b" is True iff the indexed element exists
+        and is a value.  We would implement the same concept here (key is not
         another layer of dotdict), like this:
 
             try:
@@ -114,6 +126,27 @@ class dotdict( dict ):
             return True
         except KeyError:
             return False
+
+    def __delitem__( self, key ):
+        """We are more strict for 'del d[key]' than for 'key in d'; we will only
+        delete keys that are not further layers of dotdict (ie. a partial key).
+        We could auto-del empty layers by adding, but this would probably be
+        unexpected (they don't show up in key iteration, anyway):
+
+            # Empty layers deleted 
+            if 0 == len( target ):
+                dict.__delitem__( self, mine )
+        """
+        mine, rest		= self._resolve( key )
+        #logging.debug("del %s, from: %s (in %r)", rest, mine, self )
+        # will raise KeyError if no such key...
+        target			= self[mine]
+        if rest is None:
+            # will raise KeyError if partial key (dotdict layer) not empty
+            if isinstance( target, dotdict ) and len( target ):
+                raise KeyError( 'cannot del "%s" (partial key)' % ( mine ))
+            return dict.__delitem__( self, mine )
+        del target[rest]
 
     def setdefault( self, key, default ):
         if key not in self:

@@ -31,12 +31,13 @@ Miscellaneous functionality used by various other modules.
 
 import math
 import timeit
+import sys
 
 # 
 # misc.timer
 # 
 # Select platform appropriate timer function
-timer = timeit.default_timer
+timer				= timeit.default_timer
 
 # 
 # misc.nan	-- IEEE NaN (Not a Number)
@@ -132,6 +133,7 @@ def magnitude( val, base = 10 ):
     return pow( base, round( math.log( val, base )) - 1 )
 
 
+
 # 
 # sort order key=... methods
 # 
@@ -141,8 +143,9 @@ def magnitude( val, base = 10 ):
 # 
 def natural( string ):
     '''
-    A natural sort key helper function for sort() and sorted() without
-    using regular expressions or exceptions.
+    A natural sort key helper function for sort() and sorted() without using
+    regular expressions or exceptions.  Non-string types are returned as-is in a
+    list, and are compared normally.
 
     >>> items = ('Z', 'a', '10th', '1st', '9')
     >>> sorted(items)
@@ -150,6 +153,8 @@ def natural( string ):
     >>> sorted(items, key=natural)
     ['1st', '9', '10th', 'a', 'Z']    
     '''
+    if not isinstance( string, basestring if sys.version_info.major < 3 else str  ):
+        return [ string ]
     it = type( 1 )
     r = []
     for c in string:

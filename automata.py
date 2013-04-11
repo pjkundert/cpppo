@@ -33,8 +33,38 @@ import sys
 import traceback
 
 from . import misc
+from . import greenery
+from .dotdict import *
 
-_log				= logging.getLogger( "cpppo" )
+log				= logging.getLogger( __package__ )
+log_cfg				= {
+    "level":	logging.INFO,
+    "datefmt":	'%m-%d %H:%M',
+    "format":	'%(asctime)s.%(msecs).03d %(name)-8.8s %(levelname)-8.8s %(funcName)-10.10s %(message)s',
+}
+
+# Python2/3 compatibility types, for ascii/unicode str type
+
+# Types produced by iterators over various input stream types
+type_bytes_iter			= str if sys.version_info.major < 3 else int
+type_str_iter			= str
+
+# The array.array typecode for iterated items of various input stream types
+type_str_array_symbol		= 'c' if sys.version_info.major < 3 else 'u'
+type_bytes_array_symbol		= 'c' if sys.version_info.major < 3 else 'B'
+
+
+# If a greenery.fsm (which generally has an alphabet of str symbols), and we
+# want to use it on a binary stream of those symbols, we need to encode the
+# symbols from the str to the corresponding binary symbol(s).  This will
+# basically be a no-op in Python2 (bytes is synonymous with str), but on Python3
+# will properly encode the Unicode str symbols to bytes, and then return an
+# iterable over the result.
+if sys.version_info.major < 3:
+    type_str_encoder		= None
+else:
+    type_str_encoder		= lambda s: ( b for b in s.encode( 'utf-8' ))
+
 
 def reprargs( *args, **kwds ):
     try:
@@ -195,9 +225,10 @@ class chaining( peeking ):
 
 
 class state( dict ):
-    """The foundation state class.  A basic Null (no-input) state, which does
-    not consume an input value, but simply transitions to the next appropriate
-    state.  Useful for "decision" points, eg:
+    """The foundation state class.  A basic Null (no-input) state, which neither
+    tests nor consumes an input value, but simply transitions to the next
+    appropriate state if a matching transition exists.  Useful for decision
+    points, eg:
 
         q		= state( "Quoted String" )
         q['"']		= quoted_double
@@ -216,14 +247,13 @@ class state( dict ):
     source input generator, discard the sub-machines and supply the remaining
     input to a new one, ...)
     """
-    def __init__( self, name, terminal=False, alphabet=type(next(iter( b'a' ))),
-                  context=None ):
+    def __init__( self, name, terminal=False, alphabet=None, context=None ):
         super( state, self ).__init__()
         self._name		= name
         self.terminal		= terminal
         self.recognizers	= []
         self._context		= context  # Context added to path to place product into data
-        self.alphabet		= alphabet # type, container or predicate
+        self.alphabet		= alphabet # None, type, container or predicate
 
     @property
     def name( self ):
@@ -245,9 +275,15 @@ class state( dict ):
             >>> "boo"
             >>> s.context( path="a.b", extension='_' )
             >>> "a.b.boo_"
+
+        If no context, any extension is just added to the base path.
         """
-        return '.'.join(( [path] if path else [] )
-                        + [( self._context or '' ) + ( extension or '')])
+        pre			= path or ''
+        add			= self._context or ''
+        dot			= '.' if ( pre and add ) else ''
+        ext			= extension or ''
+        return pre + dot + add + ext
+
 
     # 
     # [x] = <state>	-- Store an outgoing "edge" (input symbol 'x' and target <state>)
@@ -273,28 +309,28 @@ class state( dict ):
         target			= None
         try:
             target		= super( state, self ).__getitem__( inp )
-            _log.debug( "%s   [%-10.10r]--> %s", misc.centeraxis( self, 25, clip=True ), inp, target )
+            #log.debug( "%s   [%-10.10r]--> %s", misc.centeraxis( self, 25, clip=True ), inp, target )
             return target
         except KeyError:
             pass
         if inp is not None:
             for pred,target in self.recognizers:
                 if pred( inp ):
-                    _log.debug( "%s   [%-10.10r]--> %s", misc.centeraxis( self, 25, clip=True ), pred, target )
+                    #log.debug( "%s   [%-10.10r]--> %s", misc.centeraxis( self, 25, clip=True ), pred, target )
                     return target
             try:
                 target		= super( state, self ).__getitem__( True )
-                _log.debug( "%s   [%-10.10r]--> %s", misc.centeraxis( self, 25, clip=True ), True, target )
+                #log.debug( "%s   [%-10.10r]--> %s", misc.centeraxis( self, 25, clip=True ), True, target )
                 return target
             except KeyError:
                 pass
 
         try:
             target		= super( state, self ).__getitem__( None )
-            _log.debug( "%s   [%-10.10r]--> %s", misc.centeraxis( self, 25, clip=True ), None, target )
+            #log.debug( "%s   [%-10.10r]--> %s", misc.centeraxis( self, 25, clip=True ), None, target )
             return target
         except KeyError:
-            _log.debug( "%s   [%-10.10r]-x>", misc.centeraxis( self, 25, clip=True ), inp )
+            #log.debug( "%s   [%-10.10r]-x>", misc.centeraxis( self, 25, clip=True ), inp )
             raise
 
     def get( self, inp, default=None ):
@@ -311,10 +347,10 @@ class state( dict ):
     def validate( self, inp ):
         """Test input for validity to process.  The base implementation support
         Null (no-input) by accepting None.  Otherwise, the symbol must be
-        consistent with the supplied alphabet; a type, a set/list/tuple of
-        symbols, or a predicate."""
+        consistent with the supplied alphabet (if not None); a type, a
+        set/list/tuple of symbols, or a predicate."""
         result			= False
-        if inp is None:
+        if inp is None or self.alphabet is None:
             result		= True
         elif type( self.alphabet ) is type:
             result		= isinstance( inp, self.alphabet )
@@ -324,7 +360,7 @@ class state( dict ):
             result		= self.alphabet( inp )
         else:
             raise TypeError("Unknown alphabet: %r" % ( self.alphabet ))
-        _log.debug( "%s   [%-10.10r]=%s=%r", misc.centeraxis( self, 25, clip=True ),
+        log.debug( "%s   [%-10.10r]=%s=%r", misc.centeraxis( self, 25, clip=True ),
                     inp, ( "~" if result else "!" ), self.alphabet )
         return result
 
@@ -333,7 +369,7 @@ class state( dict ):
         appropriate input is available; default impleentation logs."""
         inp			= source.peek()
         valid			= self.validate( inp )
-        _log.debug( "%s    %-10.10r:%s", misc.centeraxis( machine, 25, clip=True ),
+        log.debug( "%s    %-10.10r:%s", misc.centeraxis( machine, 25, clip=True ),
                 inp, "accepted" if valid else "rejected" )
         return valid
 
@@ -348,16 +384,16 @@ class state( dict ):
     # 
     # transition	-- Process input, yield next state/None 'til no more and terminal
     # 
-    def transition( self, source, machine=None, path=None, data=None ):
+    def transition( self, source, machine=None, path=None, data=None, greedy=True ):
         """A generator which will attempt to process input in the present state;
         if not acceptable (self.accepts/self.validate returns False), yields
         non-transition event, and then tries again to process an acceptable
         input.
 
         Once processed successfully, computes and yields the outgoing state, or
-        None if no matching input available.  Raises KeyError if acceptable input is
-        available but no valid next state is provided (uses provided 'machine'
-        for logging only), or some other Exception raised by source iterator.
+        None if no matching input available, but current state is not terminal.
+        If greedy, will continue as long as input is available; otherwise, the
+        machine will stop as soon as a terminal state has been reached.
 
 
         Loops yielding non-transitions until we've found an input that passes
@@ -408,10 +444,11 @@ class state( dict ):
         while target is None:
             inp			= source.peek()		# May raise a TypeError
             target		= self.get( inp, None )
-            if target is None:
-                # No target state.  Iff we are in a terminal state, we're done!
-                # This allows us to transition through terminal states while
-                # inputs/edges are available.
+            if target is None or not greedy:
+                # Iff we are in a terminal state, we're done!  This allows us to
+                # transition through terminal states while inputs/edges are
+                # available, OR stop as soon as a terminal state is reached, if
+                # not greedy.
                 if self.terminal:
                     break
             yield machine,target
@@ -438,16 +475,117 @@ class state( dict ):
         for inp,target in self.items():
             yield (inp,target)
 
+    @classmethod
+    def from_fsm( cls, machine, encoder=None, **kwds ):
+        """Create a graph of instances of 'cls' (a state class), as specified by
+        the given greenery.fsm/lego machine.  All supplied keyword args are pass
+        to the 'cls' constructor (eg. context).
+
+        The FSM alphabet is usually native Python str symbols; convert to
+        symbols in the target state machine's alphabet when making the
+        transitions.  For example, if we want to deal in a stream of bytes, then
+        we need to convert the greenery.fsm transition symbols from str to
+        str/int (on Python 2/3).  If 'encoder' is supplied, then we can use this
+        for the conversion; it must be a generator that produces 1 or more
+        encoded symbol for each input symbol."""
+        if isinstance( machine, str ):
+            log.debug( "Converting Regex to greenery.lego: %s", machine )
+            machine		= greenery.parse( machine )
+        if isinstance( machine, greenery.lego ):
+            log.debug( "Converting greenery.lego to   fsm: %s", machine )
+            machine		= machine.fsm()
+        if not isinstance( machine, greenery.fsm ):
+            raise TypeError("Provide a regular expression, or a greenery.lego/fsm, not: %s %r" % (
+                    type( machine ), machine ))
+
+        # Create a state machine identical to the greenery.fsm 'machine'.  There
+        # are no "no-input" (NULL) transitions in a greenery.fsm; the None
+        # (./anychar) transition is equivalent to the default "True" transition.
+        log.debug( "greenery.fsm:\n%s", machine )
+        states			= {}
+        for pre in machine.map:
+            states[pre]		= cls( name=str( pre ),
+                                       terminal=( pre in machine.finals ),
+                                       **kwds )
+
+        # Now, apply the supplied encoder to convert the state machine's symbols
+        # (eg. utf-8) into some other input symbols (eg. bytes); if encoder is
+        # None, the input symbols are in the same alphabet as the state
+        # machine's transition symbols.  If a state machine symbols encode into
+        # multiple input symbols, extra (non-terminal) states will be added for
+        # each additional symbol.  Can only do this for states/symbols with
+        # either no other outgoing transitions, or one "None" (anychar)
+        # transition.  We ensure we process the None transition first, so its
+        # there in states[pre][True] before processing encoder.
+        for pre,tab in machine.map.items():
+            for sym in sorted( tab, key=lambda k: [] if k is None else [k] ):
+                nxt		= tab[sym]
+                if sym is None:
+                    sym		= True
+                elif encoder:
+                    # Add intervening states for Done; fall thru and link up the
+                    # last newly added state to the 'nxt'.  No new states added
+                    # or linked if only one symbol results.  We need to find an
+                    # unused state number (the map index may not be simple
+                    # increasing integers)
+                    xformed	= list( enumerate( encoder( sym )))
+                    assert len( xformed ) > 0
+                    log.debug( "%s <- %-10.10r: Encoded to %r" % (
+                                misc.centeraxis( states[pre], 25, clip=True ), sym, xformed ))
+                    if len( xformed ) > 1:
+                        assert ( 1 <= len( machine.map[pre] ) <= 2 ), \
+                            "Can only expand 1 (symbol) or 2 (symbol/anychar) transitions: %r" % ( machine.map[pre] )
+                        if len( machine.map[pre] ) == 2:
+                            assert ( None in machine.map[pre] ), \
+                                "If 2 transitions, one must be '.' (anychar): %r" % ( machine.map[pre] )
+
+                    # Add and link up additional required states; lst will index
+                    # last added one (if any; otherwise it will be pre)
+                    lst		= pre
+                    for num,enc in xformed[:-1]:
+                        add	= len( states )
+                        while add in machine.map:
+                            add += 1
+                        states[add] \
+                            	= cls( name=str( pre ) + '_' + str( num ),
+                                       terminal=False, **kwds )
+                        states[lst][enc] \
+                            	= states[add]
+                        log.debug( "%s <- %-10.10r -> %s (extra state)",
+                                   misc.centeraxis( states[lst], 25, clip=True ), enc, states[add] )
+                        if True in states[pre]:
+                            states[add][True] \
+                                = states[pre][True]
+                            log.debug( "%s <- %-10.10r -> %s (dup wild)",
+                                       misc.centeraxis( states[add], 25, clip=True ), True, states[pre][True] )
+                        lst	= add
+
+                    # If we added extra states, fall thru and link the last
+                    # added one (as 'pre') up to 'nxt'
+                    num,enc	= xformed[-1]
+                    if len( xformed ):
+                        pre	= lst
+                    sym		= enc
+                log.debug( "%s <- %-10.10r -> %s" % (
+                        misc.centeraxis( states[pre], 25, clip=True ), sym, states[nxt] ))
+                states[pre][sym]=states[nxt]
+
+        return states[machine.initial]
+
 
 class state_input( state ):
     """A state that consumes and saves its input symbol by appending it to the
     specified path index/attribute in the supplied data artifact.  Creates an
-    array.array of the specified datatype, if no such path exists."""
-    def __init__( self, name, datatype=None, **kwds ):
+    array.array of the specified typecode, if no such path exists.  
+
+    The input alphabet type, and the corresponding array typecode capable of
+    containing individual elements of the alphabet must be specified; default is
+    str/'c' or str/'u' as appropriate for Python2/3 (the alternative for a
+    binary datastream might be bytes/'c' or bytes/'B')"""
+    def __init__( self, name, typecode=None, **kwds ):
+        kwds.setdefault( "alphabet", type_str_iter )
+        self.typecode		= type_str_array_symbol if typecode is None else typecode
         super( state_input, self ).__init__( name, **kwds )
-        self.datatype		= ( datatype if datatype is not None
-                                    else 'c' if sys.version_info.major < 3
-                                    else 'u' )
 
     def validate( self, inp ):
         """Requires a symbol of input."""
@@ -459,9 +597,10 @@ class state_input( state ):
         path			= self.context( path=path, extension='_' )
         if data is not None and path:
             if path not in data:
-                data[path]	= array.array( self.datatype )
+                data[path]	= array.array( self.typecode )
             data[path].append( inp )
-            _log.info( "%s :  %-10.10r => %20s[%3d]=%r",  misc.centeraxis( self, 25, clip=True ),
+            log.info( "%s :  %-10.10r => %20s[%3d]=%r",
+                      misc.centeraxis( machine if machine is not None else self, 25, clip=True ),
                        inp, path, len(data[path])-1, inp )
 
 
@@ -470,8 +609,9 @@ class state_struct( state ):
     symbol data as the specified type format.  The default is to assign one
     unsigned byte, starting at offset 1 from the end of the collected symbol
     data.  The raw data is assumed to be """
-    def __init__( self, name, format="B", offset=1, **kwds ):
+    def __init__( self, name, format=None, offset=1, **kwds ):
         super( state_struct, self ).__init__( name, **kwds )
+        format			= 'B' if format is None else format
         self._struct		= struct.Struct( format ) # eg '<H' (little-endian uint16)
         self._offset		= offset		# byte offset back from end of data
         assert self._offset
@@ -486,12 +626,14 @@ class state_struct( state ):
         val		        = self._struct.unpack_from( buffer=buf )[0]
         try:
             data[path].append( val )
-            _log.info( "%s :  %-10.10s => %20s[%3d]=%r",  misc.centeraxis( self, 25, clip=True ),
+            log.info( "%s :  %-10.10s => %20s[%3d]=%r",
+                      misc.centeraxis(  machine if machine is not None else self, 25, clip=True ),
                        "", path, len(data[path])-1, val )
         except (AttributeError, KeyError):
             # Target doesn't exist, or isn't a list/deque; just save value
             data[path]		= val
-            _log.info( "%s :  %-10.10s => %20s     =%r",  misc.centeraxis( self, 25, clip=True ),
+            log.info( "%s :  %-10.10s => %20s     =%r",
+                      misc.centeraxis(  machine if machine is not None else self, 25, clip=True ),
                        "", path, val )
 
 
@@ -500,10 +642,16 @@ class dfa( state ):
     the provided 'initial' state machine (eg. a graph of state objects).  After
     running the specified state machine to termination for the specified number
     of repetitions (default 1), performs its own transition for its own parent
-    state machine."""
-    def __init__( self, name=None, initial=None, **kwds ):
-        super( dfa, self ).__init__( name or self.__class__.__name__, **kwds )
+    state machine.
+
+    By default, a dfa considers itself to be a terminal state; if its state
+    machine accepts the sentence, it accepts the sentence."""
+    def __init__( self, name=None, initial=None, terminal=True, **kwds ):
+        super( dfa, self ).__init__( name or self.__class__.__name__, terminal=terminal, **kwds )
         self.initial		= initial
+        for sta in sorted( self.initial.nodes(), key=lambda s: misc.natural( s.name )):
+            for inp,dst in sta.edges():
+                log.info( "%s <- %-10.10r -> %s", misc.centeraxis( sta, 25, clip=True ), inp, dst )
         self.reset()
 
     @property
@@ -514,11 +662,15 @@ class dfa( state ):
     def reset( self ):
         self.current		= None
 
-    def run( self, source, machine=None, path=None, data=None ):
+    def run( self, source, machine=None, path=None, data=None, greedy=True ):
         """Yield state transitions until a terminal state is reached (yields
         something with a 'state' attribute), or no more state transitions can be
         processed.  Will end with a terminal state if successful, a None state
-        if no more transitions are possible."""
+        if no more transitions are possible.
+        
+        A dfa adds its own context to the supplied path before passing it to
+        each state via its transition generator.
+        """
         source			= peekable( source )
 
         # Resume in the last state, or in the intial state if we've been reset
@@ -538,57 +690,44 @@ class dfa( state ):
             # input to the source chainable/peekable iterator, or discard this
             # generator)
             armed		= self.current if self.current.terminal else None
-            for machine,target in self.current.transition(
-                source=source, machine=self, path=path, data=data ):
-                if machine is self and target is not None:
+            for which,target in self.current.transition(
+                source=source, machine=self, path=self.context( path ),
+                data=data, greedy=greedy ):
+                if which is self and target is not None:
                     # This machine made a transition (even if into the same
                     # state!); no longer armed for termination.
                     self.current= target
                     armed	= None
-                yield machine,target
+                yield which,target
 
-        # No more state transitions available on given input iff state is None
+        # Our self.initial state machine has terminated (has ceased performing
+        # transitions, and is in a terminal state.)  Perform our own transition
+        # (if any).
+        for which,target in super( dfa, self ).transition(
+            source=source, machine=machine, path=path,
+            data=data, greedy=greedy ):
+            yield which,target
 
+        # Done all sub-machine transitions, and our own transition.
 
 class fsm( dfa ):
     """Takes a regex or greenery.lego/fsm, and converts it to a dfa.  We need to
     specify what type of characters our greenery.fsm operates on; typically,
     normal string.  The semantics for alphabet differs from the greenery
-    alphabet (the exact set of characters used in the greenery.lego/fsm)."""
-    def __init__( self, name, initial=None, alphabet=str, **kwds ):
-        super( fsm, self ).__init__( name=name, initial=None, **kwds )
+    alphabet (the exact set of characters used in the greenery.lego/fsm).
 
-        from . import greenery
-        from . import misc
-        machine			= initial
-        if isinstance( machine, type( 'a' )):
-            _log.debug( "Converting Regex to greenery.lego: %s", machine )
-            machine		= greenery.parse( machine )
-        if isinstance( machine, greenery.lego ):
-            _log.debug( "Converting greenery.lego to   fsm: %s", machine )
-            machine		= machine.fsm()
-        if not isinstance( machine, greenery.fsm ):
-            raise TypeError("Provide a regular expression, or a greenery.lego/fsm, not: %s %r" % (
-                    type( machine ), machine ))
+    When a terminal state is reached in the state machine, the fsm dfa (which
+    is, itself a 'state') will process the data, and yield its own transition.
+    """
+    def __init__( self, name, initial=None,
+                  fsm_states=state_input,
+                  fsm_alphabet=type_str_iter,
+                  fsm_encoder=None,
+                  fsm_typecode=type_str_array_symbol,
+                  fsm_context=None, **kwds ):
+        super( fsm, self ).__init__( name=name,
+            initial=fsm_states.from_fsm( initial, alphabet=fsm_alphabet, encoder=fsm_encoder, 
+                                         typecode=fsm_typecode, context=fsm_context ),
+                                     **kwds )
 
-        # Create a state machine identical to the greenery.fsm 'machine'.  There
-        # are no "no-input" (NULL) transitions in a greenery.fsm; the None
-        # transition is equivalent to the default "True" transition.
-        _log.debug( "greenery.fsm:\n%s", machine )
-        states			= {}
-        for pre in machine.map:
-            states[pre]		= state_input( name=str( pre ),
-                                               terminal=( pre in machine.finals ),
-                                               alphabet=alphabet )
-        for pre in machine.map:
-            for sym,nxt in machine.map[pre].items():
-                states[pre][True if sym is None else sym] \
-                    		= states[nxt]
-
-        self.initial		= states[machine.initial]
-        _log.info( "cpppo.dfa:" )
-        for sta in sorted( self.initial.nodes(), key=lambda s: misc.natural( s.name )):
-            for inp,dst in sta.edges():
-                _log.info( "%s <- %-10.10r -> %s", misc.centeraxis( sta, 25, clip=True ), inp, dst )
-        
 
