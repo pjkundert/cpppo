@@ -80,7 +80,7 @@ def echo_cli( number, reps ):
     # Count the number of success/failures reported by the Echo client threads
     success			= ( rcvd == sent )
     clisuccess[number]		= success
-    if ( success ):
+    if not success:
         log.warning( "%3d echo client failed: %s != %s sent", number, repr( rcvd ), repr( sent ))
     
     log.info( "%3d echo client exited", number )

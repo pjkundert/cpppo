@@ -487,16 +487,31 @@ class state( dict ):
         we need to convert the greenery.fsm transition symbols from str to
         str/int (on Python 2/3).  If 'encoder' is supplied, then we can use this
         for the conversion; it must be a generator that produces 1 or more
-        encoded symbol for each input symbol."""
+        encoded symbol for each input symbol.
+
+        Returns the resultant regular expression string and lego representation,
+        the fsm, and the initial state of the resultant state machine:
+
+            ('regex', <greenery.lego>, <greenery.fsm>, <state>)
+
+        """
+        # Accept any of regex/lego/fsm, and build the missing ones.
+        regex, lego, initial 	= None, None, None
         if isinstance( machine, str ):
-            log.debug( "Converting Regex to greenery.lego: %s", machine )
-            machine		= greenery.parse( machine )
+            log.debug( "Converting Regex to greenery.lego: %r", machine )
+            regex		= machine
+            machine		= greenery.parse( regex )
         if isinstance( machine, greenery.lego ):
-            log.debug( "Converting greenery.lego to   fsm: %s", machine )
-            machine		= machine.fsm()
+            log.debug( "Converting greenery.lego to   fsm: %r", machine )
+            lego		= machine
+            machine		= lego.fsm()
         if not isinstance( machine, greenery.fsm ):
             raise TypeError("Provide a regular expression, or a greenery.lego/fsm, not: %s %r" % (
                     type( machine ), machine ))
+        if lego is None:
+            lego		= machine.lego()
+        if regex is None:
+            regex		= str( lego )
 
         # Create a state machine identical to the greenery.fsm 'machine'.  There
         # are no "no-input" (NULL) transitions in a greenery.fsm; the None
@@ -570,7 +585,8 @@ class state( dict ):
                         misc.centeraxis( states[pre], 25, clip=True ), sym, states[nxt] ))
                 states[pre][sym]=states[nxt]
 
-        return states[machine.initial]
+        initial			= states[machine.initial]
+        return (regex, lego, machine, initial)
 
 
 class state_input( state ):
@@ -710,6 +726,7 @@ class dfa( state ):
 
         # Done all sub-machine transitions, and our own transition.
 
+
 class fsm( dfa ):
     """Takes a regex or greenery.lego/fsm, and converts it to a dfa.  We need to
     specify what type of characters our greenery.fsm operates on; typically,
@@ -718,16 +735,35 @@ class fsm( dfa ):
 
     When a terminal state is reached in the state machine, the fsm dfa (which
     is, itself a 'state') will process the data, and yield its own transition.
-    """
-    def __init__( self, name, initial=None,
+    If no name is supplied, defaults to the regex."""
+    def __init__( self, name=None, initial=None,
                   fsm_states=state_input,
                   fsm_alphabet=type_str_iter,
                   fsm_encoder=None,
                   fsm_typecode=type_str_array_symbol,
                   fsm_context=None, **kwds ):
-        super( fsm, self ).__init__( name=name,
-            initial=fsm_states.from_fsm( initial, alphabet=fsm_alphabet, encoder=fsm_encoder, 
-                                         typecode=fsm_typecode, context=fsm_context ),
-                                     **kwds )
+        assert initial
+        regex, lego, machine, initial = fsm_states.from_fsm(
+            initial, alphabet=fsm_alphabet, encoder=fsm_encoder, 
+            typecode=fsm_typecode, context=fsm_context )
+        super( fsm, self ).__init__( name or repr( regex ), initial=initial, **kwds )
 
+class fsm_bytes( fsm ):
+    """An fsm is described in str symbols; synonymous for bytes on Python2, but
+    utf-8 on Python3 so encode them to bytes, and transform the resultant state
+    machine to accept the equivalent sequence of bytes.  Cannot encode machines
+    with any more than a single outgoing transition matching any multi-byte
+    input symbol (unless the only other transition is '.' (anychar))."""
+    def __init__( self,
+                  fsm_states=state_input,
+                  fsm_alphabet=type_bytes_iter,
+                  fsm_encoder=type_str_encoder,
+                  fsm_typecode=type_bytes_array_symbol,
+                  fsm_context=None, **kwds ):
+        super( fsm_bytes, self ).__init__(
+                  fsm_states=fsm_states,
+                  fsm_alphabet=fsm_alphabet,
+                  fsm_encoder=fsm_encoder,
+                  fsm_typecode=fsm_typecode, 
+                  fsm_context=fsm_context, **kwds )
 

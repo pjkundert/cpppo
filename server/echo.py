@@ -56,12 +56,12 @@ if __name__ == "__main__":
 
 log				= logging.getLogger( "echo.srv" )
 
-class echo( cpppo.fsm ):
-    """Collects a line of data out of our state machine's data
-    path+self.context+scontext, into data artifact, at path.echo"""
-    def __init__( self, name=None, address=address, **kwds ):
-        super( echo, self ).__init__( name=name, **kwds )
-        self.address		= address
+class echo_fsm( cpppo.fsm_bytes ):
+    """Collects a line of bytes data out of our fsm's state_input data at
+    path.context_, and into data artifact, at path.context (default is
+    'echo')"""
+    def __init__( self, name=None, initial='.*\n', context="echo", **kwds ):
+        super( echo_fsm, self ).__init__( name=name, initial=initial, context=context, **kwds )
         
     def process( self, source, machine=None, path=None, data=None ):
         """Once our machine has accepted a sentence of the "echo" grammar and
@@ -74,20 +74,14 @@ class echo( cpppo.fsm ):
         data[ours]		= data[subs]
         del data[subs]
 
-# Our FSM is described in str symbols; synonymous for bytes on Python2, but
-# utf-8 on Python3 so encode them
 
-def echo_machine( name ):
-    """Accept a line of input, and then loop. Sub-machine terminates at earliest
-    match (non-greedy), causing echo.transition to trigger .process (which resets our
-    sub-machine to initial state), and then we move to the next state (loops),
-    allowing us to immediately run."""
-    machine			= echo( name=name, initial='.*\n', context="echo",
-                                        terminal=True,
-                                        alphabet=cpppo.type_bytes_iter,
-                                        fsm_alphabet=cpppo.type_bytes_iter,
-                                        fsm_encoder=cpppo.type_str_encoder,
-                                        fsm_typecode=cpppo.type_bytes_array_symbol )
+def echo_machine( name=None ):
+    """Accept a line of input bytes matching the given regular expression, and then
+    loop.  Sub-machine terminates at earliest match (non-greedy), causing
+    echo.transition to trigger .process (which resets our sub-machine to initial
+    state), and then we move to the next state (loops), allowing us to
+    immediately run."""
+    machine			= echo_fsm( name=name, terminal=True )
     machine[None]		= machine
     return machine
 
