@@ -35,8 +35,6 @@ USAGE
 import errno
 import logging
 import os
-import select
-import socket
 import sys
 import threading
 import time
@@ -47,7 +45,9 @@ except ImportError:
     from repr import repr as repr
 
 import cpppo
-from   cpppo import misc
+from   cpppo    import misc
+import cpppo.server
+from   .network import *
 
 address				= ('0.0.0.0', 8007)
 
@@ -91,68 +91,6 @@ def echo_machine( name ):
     machine[None]		= machine
     return machine
 
-# Decorates any function( sock, ..., timeout=, [...]), and waits for its sock
-# (must be the first positional arg) to report readable w/in timeout before
-# executing.  Returns None if not readable.  Supply the desired default timeout,
-# if other than 0.
-def readable( timeout=0 ):
-    def decorator( function ):
-        import functools
-        @functools.wraps( function )
-        def wrapper( *args, **kwds ):
-            if 'timeout' in kwds:
-                timeout			= kwds['timeout']
-                del kwds['timeout']
-            try:
-                r, w, e		= select.select( [args[0].fileno()], [], [], timeout )
-            except select.error as exc:
-                log.debug( "select: %r", exc )
-                if exc.arg[0] != errno.EINTR:
-                    raise
-            if r:
-                return function( *args, **kwds )
-            return None
-        return wrapper
-    return decorator
-        
-@readable()
-def recv( conn, maxlen=1024 ):
-    """Non-blocking recv via. select.  Return None if no data received within
-    timeout (default is immediate timeout).  Otherwise, the data payload; zero
-    length data implies EOF."""
-    try:
-        msg			= conn.recv( maxlen ) # b'' (EOF) or b'<data>'
-    except socket.error as exc: # No connection; same as EOF
-        log.debug( "recv %s: %r", conn, exc )
-        msg			= b''
-    return msg
-
-@readable(timeout=0)
-def accept( conn ):
-    return conn.accept()
-
-
-def drain( conn, timeout=.1 ):
-    """Send EOF, drain and close connection cleanly, returning any data
-    received.  Will immediately detect an incoming EOF on connection and close,
-    otherwise waits timeout for incoming EOF; if exception, assumes that the
-    connection is dead (same as EOF)"""
-    try:
-        conn.shutdown( socket.SHUT_WR )
-    except socket.error as exc: # No connection; same as EOF
-        log.debug( "shutdown %s: %r", conn, exc )
-        msg			= b''
-    else:
-        msg			= recv( conn, timeout=timeout )
-
-    try:
-        conn.close()
-    except socket.error as exc: # Already closed
-        log.debug( "close %s: %r", conn, exc )
-        pass
-
-    return msg
-
 
 def echo_server( conn, addr ):
     """Serve one echo client 'til EOF; then close the socket"""
@@ -163,10 +101,12 @@ def echo_server( conn, addr ):
     while True:
         msg			= recv( conn, timeout=None ) # blocking
         if not msg: # None or empty
-            log.info( "%s recv: %s", misc.centeraxis( echo_line, 25, clip=True ), repr( msg ) if msg else "EOF" )
+            log.info( "%s recv: %s", misc.centeraxis( echo_line, 25, clip=True ),
+                      repr( msg ) if msg else "EOF" )
             break
         source.chain( msg )
-        log.info( "%s recv: %5d: %s", misc.centeraxis( echo_line, 25, clip=True ), len( msg ), repr( msg ))
+        log.info( "%s recv: %5d: %s", misc.centeraxis( echo_line, 25, clip=True ), 
+                  len( msg ), repr( msg ))
 
         # See if a line has been recognized, stopping at terminal state
         for mch, sta in sequence:
@@ -198,7 +138,8 @@ class server_thread( threading.Thread ):
         try:
             super( server_thread, self ).run()
         except Exception as exc:
-            log.warning("%s.echo service failure: %r\n%s", __package__, exc, traceback.format_exc() )
+            log.warning( "%s.echo service failure: %r\n%s", __package__,
+                         exc, traceback.format_exc() )
         log.info("%s.echo service PID [%5d/%5d] stopping on %r",
                  __package__, os.getpid(), self.ident, self.addr )
 
@@ -233,7 +174,8 @@ def main():
             log.warning("%s.echo service termination: %r", __package__, exc )
             done		= True
         except Exception as exc:
-            log.warning("%s.echo service failure: %r\n%s", __package__, exc, traceback.format_exc() )
+            log.warning("%s.echo service failure: %r\n%s", __package__,
+                        exc, traceback.format_exc() )
             done		= True
         finally:
             for addr in list( threads ):

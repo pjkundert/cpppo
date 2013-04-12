@@ -21,7 +21,7 @@ if __name__ == "__main__" and __package__ is None:
     sys.path.insert( 0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 import cpppo
-from   cpppo.server import echo
+from   cpppo.server import *
 
 logging.basicConfig( **cpppo.log_cfg )
 log				= logging.getLogger( "echo.cli")
