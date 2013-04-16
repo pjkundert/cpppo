@@ -163,22 +163,22 @@ class dotdict( dict ):
     __setattr__			= __setitem__
     __getattr__			= __getitem__
 
-    def iterkeys( self ):
-        for key,val in dict.items( self ):
+    def iteritems( self ):
+        items			= dict.iteritems if sys.version_info.major < 3 else dict.items
+        for key,val in items( self ):
             if isinstance( val, dotdict ):
-                # A sub-dotdict; yield all its keys, prefixed with this key
-                for subkey in val.iterkeys():
-                    yield key + '.' + subkey
+                for subkey,subval in val.iteritems():
+                    yield key+'.'+subkey, subval
             else:
-                yield key # Not a sub-dotdict; just yield the key
+                yield key, val
 
     def itervalues( self ):
-        for key in self.iterkeys():
-            yield self[key]
+        for key,val in self.iteritems():
+            yield val
 
-    def iteritems( self ):
-        for key in self.iterkeys():
-            yield key, self[key]
+    def iterkeys( self ):
+        for key,val in self.iteritems():
+            yield key
 
     def __listkeys( self ):
         return list( self.iterkeys() )
