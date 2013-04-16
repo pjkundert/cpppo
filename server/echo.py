@@ -107,7 +107,7 @@ def echo_server( conn, addr ):
             if sta is None:
                 break # No more transitions available on source input, but not terminal
         if sta:
-            # Terminal state.  Echo, and carry on
+            # Terminal state.  Echo, and reset to recognize the next new line of input
             log.info( "%s: data: %r", misc.centeraxis( echo_line, 25, clip=True ), data )
             conn.send( data.echo )
             echo_line.reset()
