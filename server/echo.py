@@ -56,23 +56,12 @@ if __name__ == "__main__":
 
 log				= logging.getLogger( "echo.srv" )
 
-class echo_fsm( cpppo.fsm_bytes ):
+class echo_fsm( cpppo.fsm_bytes_input ):
     """Collects a line of bytes data out of our fsm's state_input data at
     path.context_, and into data artifact, at path.context (default is
     'echo')"""
     def __init__( self, name=None, initial='.*\n', context="echo", **kwds ):
         super( echo_fsm, self ).__init__( name=name, initial=initial, context=context, **kwds )
-        
-    def process( self, source, machine=None, path=None, data=None ):
-        """Once our machine has accepted a sentence of the "echo" grammar and
-        terminated, we process it.  It just copies the raw data collected by our
-        state machine (we'll use its context), and restarts our sub-machine for
-        the next line."""
-        ours			= self.context( path )
-        subs			= self.initial.context( ours, '_' )
-        log.info("recv: data[%s] = data[%s]: %r", ours, subs, data[subs] )
-        data[ours]		= data[subs]
-        del data[subs]
 
 
 def echo_machine( name=None ):

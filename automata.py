@@ -53,6 +53,9 @@ type_str_iter			= str
 type_str_array_symbol		= 'c' if sys.version_info.major < 3 else 'u'
 type_bytes_array_symbol		= 'c' if sys.version_info.major < 3 else 'B'
 
+# Various default data path contexts/extensions
+path_ext_input			= '_input'	# default destination input
+
 
 # If a greenery.fsm (which generally has an alphabet of str symbols), and we
 # want to use it on a binary stream of those symbols, we need to encode the
@@ -154,16 +157,23 @@ class chainable( object ):
 
 class peeking( object ):
     """An iterator with peek and push, allowing inspection of the upcoming
-    object, and push back of arbitrary numbers of objects."""
+    object, and push back of arbitrary numbers of objects.  Also remembers
+    how many objects (via next, net push) have been sent."""
     def __init__( self, iterable=None ):
         self._iter		= iter( [] if iterable is None else iterable )
         self._back		= []	# stack of input objects
+        self._sent		= 0     # how many objects returned (net)
+
+    @property
+    def sent( self ):
+        return self._sent
 
     def __iter__( self ):
         return self
 
     def push( self, item ):
         self._back.append( item )
+        self._sent	       -= 1
 
     def peek( self ):
         """Returns the next item (if any), otherwise None."""
@@ -180,9 +190,14 @@ class peeking( object ):
     def __next__( self ):
         """Returns any items restored by a previous push, then any available
         from the current iterator."""
-        if self._back:
-            return self._back.pop()
-        return next( self._iter )
+        try:
+            if self._back:
+                return self._back.pop()
+            return next( self._iter )
+        except:
+            raise
+        else:
+            self._sent	       += 1
 
 
 class chaining( peeking ):
@@ -197,9 +212,6 @@ class chaining( peeking ):
     def chain( self, iterable ):
         self._chain.insert( 0, iterable )
 
-    def next( self ):
-        return self.__next__()
-
     def __next__( self ):
         """Returns any items restored by a previous push, then any available
         from the current iterator, then attempts to queue up the next iterator(s)
@@ -207,9 +219,9 @@ class chaining( peeking ):
         no more iterables are available.  Load a non-iterable (eg. None) to
         terminate any user gaining input from next( self ) with a TypeError,
         including self.peek().  The failing non-iterable will persist."""
-        if self._back:
-            return self._back.pop()
         try:
+            if self._back:
+                return self._back.pop()
             return next( self._iter )
         except StopIteration:
             # Try next chained iterable 'til we find one with something to return
@@ -220,8 +232,12 @@ class chaining( peeking ):
                     return next( self._iter )
                 except StopIteration:
                     pass
+                else:
+                    self._sent += 1
             # We've run out of iterables, and still no items; re-raise StopIteration
             raise
+        else:
+            self._sent	       += 1
 
 
 class state( dict ):
@@ -247,13 +263,14 @@ class state( dict ):
     source input generator, discard the sub-machines and supply the remaining
     input to a new one, ...)
     """
-    def __init__( self, name, terminal=False, alphabet=None, context=None ):
+    def __init__( self, name, terminal=False, alphabet=None, context=None, extension=None ):
         super( state, self ).__init__()
         self._name		= name
         self.terminal		= terminal
         self.recognizers	= []
-        self._context		= context  # Context added to path to place product into data
-        self.alphabet		= alphabet # None, type, container or predicate
+        self._context		= context	# Context added to path with '.'
+        self._extension		= extension	#   plus extension, to place output in data
+        self.alphabet		= alphabet	# None, type, container or predicate
 
     @property
     def name( self ):
@@ -267,21 +284,26 @@ class state( dict ):
     def __repr__( self ):
         return '<%s>' % ( self )
 
+    @property
+    def extension( self ):
+        return self._extension or '' 
+
     def context( self, path=None, extension=None ):
-        """Returns the context, optionally joined with the specified path and
-        extension, eg:
+        """Yields: 
+        Returns the state's data context, optionally joined with the specified path and
+        extension "<path>[.<context>]<extension>", eg:
 
             >>> s.context()
             >>> "boo"
             >>> s.context( path="a.b", extension='_' )
             >>> "a.b.boo_"
 
-        If no context, any extension is just added to the base path.
-        """
+        Any path and context are joined with '.', and an extension is just added
+        to the base path plus any context."""
         pre			= path or ''
         add			= self._context or ''
         dot			= '.' if ( pre and add ) else ''
-        ext			= extension or ''
+        ext			= extension if extension is not None else self.extension
         return pre + dot + add + ext
 
 
@@ -472,7 +494,7 @@ class state( dict ):
         """Generate (input,state) tuples for all outgoing edges."""
         for pred,target in self.recognizers:
             yield (pred,target)
-        for inp,target in self.items():
+        for inp,target in sorted( self.items(), key=lambda tup: misc.natural( tup[0] )):
             yield (inp,target)
 
     @classmethod
@@ -549,10 +571,12 @@ class state( dict ):
                                 misc.centeraxis( states[pre], 25, clip=True ), sym, xformed ))
                     if len( xformed ) > 1:
                         assert ( 1 <= len( machine.map[pre] ) <= 2 ), \
-                            "Can only expand 1 (symbol) or 2 (symbol/anychar) transitions: %r" % ( machine.map[pre] )
+                            "Can only expand 1 (symbol) or 2 (symbol/anychar) transitions: %r" % (
+                                machine.map[pre] )
                         if len( machine.map[pre] ) == 2:
                             assert ( None in machine.map[pre] ), \
-                                "If 2 transitions, one must be '.' (anychar): %r" % ( machine.map[pre] )
+                                "If 2 transitions, one must be '.' (anychar): %r" % ( 
+                                    machine.map[pre] )
 
                     # Add and link up additional required states; lst will index
                     # last added one (if any; otherwise it will be pre)
@@ -591,16 +615,21 @@ class state( dict ):
 
 class state_input( state ):
     """A state that consumes and saves its input symbol by appending it to the
-    specified path index/attribute in the supplied data artifact.  Creates an
-    array.array of the specified typecode, if no such path exists.  
+    specified <path>.<context><extension> index/attribute in the supplied data
+    artifact.  Creates an array.array of the specified typecode, if no such path
+    exists.
 
     The input alphabet type, and the corresponding array typecode capable of
     containing individual elements of the alphabet must be specified; default is
     str/'c' or str/'u' as appropriate for Python2/3 (the alternative for a
-    binary datastream might be bytes/'c' or bytes/'B')"""
+    binary datastream might be bytes/'c' or bytes/'B')."""
     def __init__( self, name, typecode=None, **kwds ):
-        kwds.setdefault( "alphabet", type_str_iter )
-        self.typecode		= type_str_array_symbol if typecode is None else typecode
+        # overrides with default if keyword unset OR None
+        if kwds.get( "alphabet" ) is None:
+            kwds["alphabet"]	= type_str_iter
+        if kwds.get( "extension" ) is None:
+            kwds["extension"]	= path_ext_input
+        self._typecode		= typecode if typecode is not None else type_str_array_symbol
         super( state_input, self ).__init__( name, **kwds )
 
     def validate( self, inp ):
@@ -608,12 +637,14 @@ class state_input( state ):
         return inp is not None and super( state_input, self ).validate( inp )
 
     def process( self, source, machine=None, path=None, data=None ):
-        """The raw data is saved to: path.context_"""
+        """The raw data is saved to (default): <path>.<context>_input.  The target must
+        be an object with a .append() method; if it doesn't exist, an
+        array.array will be created with the supplied typecode."""
         inp			= next( source )
-        path			= self.context( path=path, extension='_' )
+        path			= self.context( path=path )
         if data is not None and path:
             if path not in data:
-                data[path]	= array.array( self.typecode )
+                data[path]	= array.array( self._typecode )
             data[path].append( inp )
             log.info( "%s :  %-10.10r => %20s[%3d]=%r",
                       misc.centeraxis( machine if machine is not None else self, 25, clip=True ),
@@ -621,15 +652,17 @@ class state_input( state ):
 
 
 class state_struct( state ):
-    """A NULL (no-input) state that interprets the preceding states' saved
-    symbol data as the specified type format.  The default is to assign one
-    unsigned byte, starting at offset 1 from the end of the collected symbol
-    data.  The raw data is assumed to be """
-    def __init__( self, name, format=None, offset=1, **kwds ):
+    """A NULL (no-input) state that interprets the preceding states' saved symbol
+    data as the specified type format.  The default is to assign one unsigned
+    byte, starting at offset 1 from the end of the collected symbol data.  The
+    raw data is assumed to be at <path>[.<context>]<input_extension> (default:
+    '_input', same as state_input)"""
+    def __init__( self, name, format=None, offset=1, input_extension=None, **kwds ):
         super( state_struct, self ).__init__( name, **kwds )
         format			= 'B' if format is None else format
         self._struct		= struct.Struct( format ) # eg '<H' (little-endian uint16)
         self._offset		= offset		# byte offset back from end of data
+        self._input		= input_extension if input_extension is not None else path_ext_input
         assert self._offset
 
     def process( self, source, machine=None, path=None, data=None ):
@@ -637,34 +670,36 @@ class state_struct( state ):
         Will fail if insufficient data has been collected for struct unpack.
         We'll try first to append it, and then just assign it (creates, if
         necessary)"""
-        path			= self.context( path=path )
-        buf			= data[path+'_'][-self._offset:]
+        ours			= self.context( path=path )
+        buf			= data[ours+self._input][-self._offset:]
         val		        = self._struct.unpack_from( buffer=buf )[0]
         try:
-            data[path].append( val )
+            data[ours].append( val )
             log.info( "%s :  %-10.10s => %20s[%3d]=%r",
                       misc.centeraxis(  machine if machine is not None else self, 25, clip=True ),
-                       "", path, len(data[path])-1, val )
+                      "", ours, len(data[ours])-1, val )
         except (AttributeError, KeyError):
             # Target doesn't exist, or isn't a list/deque; just save value
-            data[path]		= val
+            data[ours]		= val
             log.info( "%s :  %-10.10s => %20s     =%r",
                       misc.centeraxis(  machine if machine is not None else self, 25, clip=True ),
-                       "", path, val )
+                       "", ours, val )
 
 
 class dfa( state ):
     """A state which implements a Deterministic Finite Automata, described by
     the provided 'initial' state machine (eg. a graph of state objects).  After
     running the specified state machine to termination for the specified number
-    of repetitions (default 1), performs its own transition for its own parent
+    of repeat cycles (default: 1), performs its own transition for its own parent
     state machine.
 
     By default, a dfa considers itself to be a terminal state; if its state
-    machine accepts the sentence, it accepts the sentence."""
-    def __init__( self, name=None, initial=None, terminal=True, **kwds ):
+    sub-machine accepts the sentence, it accepts the sentence."""
+    def __init__( self, name=None, initial=None, terminal=True, repeat=None, **kwds ):
         super( dfa, self ).__init__( name or self.__class__.__name__, terminal=terminal, **kwds )
         self.initial		= initial
+        assert isinstance( repeat, (str, int, type(None)) )
+        self.repeat		= repeat
         for sta in sorted( self.initial.nodes(), key=lambda s: misc.natural( s.name )):
             for inp,dst in sta.edges():
                 log.info( "%s <- %-10.10r -> %s", misc.centeraxis( sta, 25, clip=True ), inp, dst )
@@ -676,7 +711,51 @@ class dfa( state ):
         return super( dfa, self ).name + '.' + str( self.current )
 
     def reset( self ):
+        """Invoke to force dfa to recognize a fresh sentence of its grammar."""
         self.current		= None
+
+    def initialize( self, machine=None, path=None, data=None ):
+        """Invoked on next loop after the dfa has been reset."""
+        self.current		= self.initial
+        
+        if self.repeat:
+            # If there has been a limit on repetitions specified, we need to
+            # count.  We'll use a private variable '_cycle' to keep count.
+            assert data
+            ours		= self.context( path, '_cycle' )
+            data[ours]		= 0
+
+    def loop( self, first, machine=None, path=None, data=None ):
+        """Determine whether or not to transition the sub-machine; first will be True on
+        the initial run, False thereafter.  Normally, this will make the initial
+        state the current state, and clear any data context."""
+        if self.current is None:
+            self.initialize( machine=machine, path=path, data=data )
+
+        if self.repeat:
+            # Must be an int, or address an int in our data artifact.  The
+            # repeat may resolve to 0, preventing even one loop.  If self.repeat
+            # was set, this determines the number of initial-->terminal loop
+            # cycles the dfa will execute.
+            limit		= self.repeat
+            if isinstance( limit, str ):
+                limit		= data[self.context( path, limit)]
+            assert isinstance( limit, int ), \
+                "Supplied repeat=%r must be (or reference) an int, not a %r" % ( self.repeat, limit )
+            cycle_path		= self.context( path, '_cycle' )
+            cycle		= data[cycle_path]
+            assert isinstance( cycle, int ), \
+                "Our repeat=%r must be (or reference) an int, not a %r" % ( self.repeat, repeats )
+            if cycle >= limit:
+                return False
+            data[cycle_path] 	= cycle+1
+            return True
+
+        # Not self.repeat limited; only execute the first cycle.
+        if first:
+            return True
+
+        return False
 
     def run( self, source, machine=None, path=None, data=None, greedy=True ):
         """Yield state transitions until a terminal state is reached (yields
@@ -690,31 +769,38 @@ class dfa( state ):
         source			= peekable( source )
 
         # Resume in the last state, or in the intial state if we've been reset
-        if self.current is None:
-            self.current	= self.initial
+        first			= True
+        while self.loop( first, machine=machine, path=path, data=data ):
+            first		= False	
 
-        yield self,self.current
-        armed			= None
+            yield self,self.current
+            armed		= None
+            
+            # Loop 'til we end up in the same terminal state, making no transitions.
+            while armed is not self.current:
+                # Try to process input in this state, and get target state.  This
+                # may yield an endless stream of (machine,None) if there is no input
+                # available and the state has processed; the caller must be prepared
+                # to handle this -- if a (_,None) is returned, the caller must
+                # either change the conditions (eg. consume an input or chain more
+                # input to the source chainable/peekable iterator, or discard this
+                # generator)
+                armed		= self.current if self.current.terminal else None
+                for which,target in self.current.transition(
+                    source=source, machine=self, path=self.context( path ),
+                    data=data, greedy=greedy ):
+                    if which is self and target is not None:
+                        # This machine made a transition (even if into the same
+                        # state!); no longer armed for termination.
+                        self.current= target
+                        armed	= None
+                    yield which,target
 
-        # Loop 'til we end up in the same terminal state, making no transitions.
-        while armed is not self.current:
-            # Try to process input in this state, and get target state.  This
-            # may yield an endless stream of (machine,None) if there is no input
-            # available and the state has processed; the caller must be prepared
-            # to handle this -- if a (_,None) is returned, the caller must
-            # either change the conditions (eg. consume an input or chain more
-            # input to the source chainable/peekable iterator, or discard this
-            # generator)
-            armed		= self.current if self.current.terminal else None
-            for which,target in self.current.transition(
-                source=source, machine=self, path=self.context( path ),
-                data=data, greedy=greedy ):
-                if which is self and target is not None:
-                    # This machine made a transition (even if into the same
-                    # state!); no longer armed for termination.
-                    self.current= target
-                    armed	= None
-                yield which,target
+            # The sub-machine has reached a terminal state.  We'll leave it in
+            # that state, so that if we are re-entered without reset(), we'll
+            # continue on transitioning.  For example, if run with greedy=False,
+            # we will exit as soon as we first hit a terminal state.
+
 
         # Our self.initial state machine has terminated (has ceased performing
         # transitions, and is in a terminal state.)  Perform our own transition
@@ -730,12 +816,14 @@ class dfa( state ):
 class fsm( dfa ):
     """Takes a regex or greenery.lego/fsm, and converts it to a dfa.  We need to
     specify what type of characters our greenery.fsm operates on; typically,
-    normal string.  The semantics for alphabet differs from the greenery
-    alphabet (the exact set of characters used in the greenery.lego/fsm).
+    normal string.  The semantics of alphabet (an container/type/predicate)
+    differs from the greenery alphabet (the exact set of characters used in the
+    greenery.lego/fsm).
 
     When a terminal state is reached in the state machine, the fsm dfa (which
     is, itself a 'state') will process the data, and yield its own transition.
-    If no name is supplied, defaults to the regex."""
+    If no name is supplied, defaults to the greenery.fsm's regex.
+    """
     def __init__( self, name=None, initial=None,
                   fsm_states=state_input,
                   fsm_alphabet=type_str_iter,
@@ -767,3 +855,15 @@ class fsm_bytes( fsm ):
                   fsm_typecode=fsm_typecode, 
                   fsm_context=fsm_context, **kwds )
 
+class fsm_bytes_input( fsm_bytes ):
+    """Copy the collected data at path.sub-machine.context_ to our path.context"""
+    def process( self, source, machine=None, path=None, data=None ):
+        """Once our machine has accepted a sentence of the "echo" grammar and
+        terminated, we process it.  It just copies the raw data collected by our
+        state machine (we'll use its context), and restarts our sub-machine for
+        the next line."""
+        ours			= self.context( path )
+        subs			= self.initial.context( ours )
+        log.info("recv: data[%s] = data[%s]: %r", ours, subs, data[subs] if subs in data else data)
+        data[ours]		= data[subs]
+        del data[subs]

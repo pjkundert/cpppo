@@ -22,7 +22,7 @@ __email__                       = "perry@hardconsulting.com"
 __copyright__                   = "Copyright (c) 2013 Hard Consulting Corporation"
 __license__                     = "GNU General Public License, Version 3 (or later)"
 
-__all__				= ["network", "echo"]
+__all__				= ["network", "echo", "tnet"]
 
 # These modules form the public interface of cpppo.server; always load them into
 # the main cpppo.server namespace
