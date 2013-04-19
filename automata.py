@@ -404,9 +404,9 @@ class state( dict ):
         pass
 
     # 
-    # transition	-- Process input, yield next state/None 'til no more and terminal
+    # run		-- Process input, yield next state/None 'til no more and terminal
     # 
-    def transition( self, source, machine=None, path=None, data=None, greedy=True ):
+    def run( self, source, machine=None, path=None, data=None, greedy=True ):
         """A generator which will attempt to process input in the present state;
         if not acceptable (self.accepts/self.validate returns False), yields
         non-transition event, and then tries again to process an acceptable
@@ -786,7 +786,7 @@ class dfa( state ):
                 # input to the source chainable/peekable iterator, or discard this
                 # generator)
                 armed		= self.current if self.current.terminal else None
-                for which,target in self.current.transition(
+                for which,target in self.current.run(
                     source=source, machine=self, path=self.context( path ),
                     data=data, greedy=greedy ):
                     if which is self and target is not None:
@@ -805,7 +805,7 @@ class dfa( state ):
         # Our self.initial state machine has terminated (has ceased performing
         # transitions, and is in a terminal state.)  Perform our own transition
         # (if any).
-        for which,target in super( dfa, self ).transition(
+        for which,target in super( dfa, self ).run(
             source=source, machine=machine, path=path,
             data=data, greedy=greedy ):
             yield which,target

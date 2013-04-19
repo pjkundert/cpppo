@@ -121,7 +121,7 @@ def test_dfa():
     b[True]			= c = cpppo.state( "Terminal", terminal=True )
 
     source			= cpppo.chainable()
-    i				= a.transition( source=source )
+    i				= a.run( source=source )
     m,s				= next( i )
     assert m is None
     assert s is not None and s.name == "Middle"
