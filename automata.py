@@ -31,6 +31,10 @@ import logging
 import struct
 import sys
 import traceback
+try:
+    import reprlib
+except ImportError:
+    import repr as reprlib
 
 from . import misc
 from . import greenery
@@ -70,12 +74,8 @@ else:
 
 
 def reprargs( *args, **kwds ):
-    try:
-        from repr import repr as repr
-    except ImportError:
-        from reprlib import repr as repr
-    return ", ".join(   [ repr( x ) for x in args ]
-                      + [ "%s=%s" % ( k, repr( v ))
+    return ", ".join(   [ reprlib.repr( x ) for x in args ]
+                      + [ "%s=%s" % ( k, reprlib.repr( v ))
                           for k,v in kwds.items() ])
 
 def logresult( prefix=None, log=logging ):
@@ -179,7 +179,7 @@ class peeking( object ):
         """Returns the next item (if any), otherwise None."""
         if not self._back:
             try:
-                self._back.append( next( self ))
+                self.push( next( self ))
             except StopIteration:
                 return None
         return self._back[-1]
@@ -191,14 +191,12 @@ class peeking( object ):
         """Returns any items restored by a previous push, then any available
         from the current iterator."""
         try:
-            if self._back:
-                return self._back.pop()
-            return next( self._iter )
+            item = self._back.pop() if self._back else next( self._iter )
         except:
             raise
         else:
             self._sent	       += 1
-
+        return item
 
 class chaining( peeking ):
     """An peekable iterator also allowing the chaining of iterables for input.
@@ -220,25 +218,24 @@ class chaining( peeking ):
         terminate any user gaining input from next( self ) with a TypeError,
         including self.peek().  The failing non-iterable will persist."""
         try:
-            if self._back:
-                return self._back.pop()
-            return next( self._iter )
+            result = self._back.pop() if self._back else next( self._iter )
         except StopIteration:
             # Try next chained iterable 'til we find one with something to return
             while self._chain:
                 self._iter	= iter( self._chain[-1] )
                 self._chain.pop() # iff no exception; else non-iterable persists!
                 try:
-                    return next( self._iter )
+                    result	= next( self._iter )
                 except StopIteration:
-                    pass
+                    continue
                 else:
                     self._sent += 1
+                return result
             # We've run out of iterables, and still no items; re-raise StopIteration
             raise
         else:
             self._sent	       += 1
-
+        return result
 
 class state( dict ):
     """The foundation state class.  A basic Null (no-input) state, which neither
@@ -467,12 +464,21 @@ class state( dict ):
             inp			= source.peek()		# May raise a TypeError
             target		= self.get( inp, None )
             if target is None or not greedy:
-                # Iff we are in a terminal state, we're done!  This allows us to
+                # No more transitions, or we have more but we aren't greedy: Iff
+                # we are in a terminal state, we're done!  This allows us to
                 # transition through terminal states while inputs/edges are
                 # available, OR stop as soon as a terminal state is reached, if
                 # not greedy.
                 if self.terminal:
                     break
+            '''
+            elif target and greedy:
+                # If we're greedy and are about to transition from a terminal to
+                # a non-terminal state, we are done...  No, we want to eliminate any
+                # fsm ransitions going into "dead" states, instead.
+                if self.terminal and not target.terminal:
+                    break
+            '''
             yield machine,target
         # StopIteration after yielding a transition, or if self is a terminal state
 
@@ -511,6 +517,10 @@ class state( dict ):
         for the conversion; it must be a generator that produces 1 or more
         encoded symbol for each input symbol.
 
+        An FSM is also designed to be greedy on failure; it will accept and
+        consume any unaccepted characters in a final non-terminal state.
+        Recognize these states and discard them.
+
         Returns the resultant regular expression string and lego representation,
         the fsm, and the initial state of the resultant state machine:
 
@@ -540,7 +550,15 @@ class state( dict ):
         # (./anychar) transition is equivalent to the default "True" transition.
         log.debug( "greenery.fsm:\n%s", machine )
         states			= {}
-        for pre in machine.map:
+        for pre,tab in machine.map.items():
+            terminal		= pre in machine.finals
+            log.info( "(%s%s%s) --> %r", 
+                      '(' if terminal else ' ', pre, ')' if terminal else ' ', tab.values() )
+            if not terminal and all( dst == pre for dst in tab.values() ):
+                # Dead state; must check in mapping below...
+                log.debug( "dead state %s", pre )
+                continue
+
             states[pre]		= cls( name=str( pre ),
                                        terminal=( pre in machine.finals ),
                                        **kwds )
@@ -557,6 +575,10 @@ class state( dict ):
         for pre,tab in machine.map.items():
             for sym in sorted( tab, key=lambda k: [] if k is None else [k] ):
                 nxt		= tab[sym]
+                if nxt not in states:
+                    log.debug( "dead trans %s <- %-10.10r --> %s", pre, sym, nxt )
+                    continue
+                
                 if sym is None:
                     sym		= True
                 elif encoder:
@@ -649,6 +671,15 @@ class state_input( state ):
             log.info( "%s :  %-10.10r => %20s[%3d]=%r",
                       misc.centeraxis( machine if machine is not None else self, 25, clip=True ),
                        inp, path, len(data[path])-1, inp )
+
+
+class state_discard( state_input ):
+    """Validate and discard a symbol."""
+    def process( self, source, machine=None, path=None, data=None ):
+        inp			= next( source )
+        log.info( "%s :  %-10.10r =x",
+                  misc.centeraxis( machine if machine is not None else self, 25, clip=True ),
+                  inp )
 
 
 class state_struct( state ):

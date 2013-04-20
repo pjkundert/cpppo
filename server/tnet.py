@@ -63,6 +63,8 @@ TYPE     A character indicating what type the DATA is.  Each TYPE is used to
 
 """
 
+import array
+import codecs
 import errno
 import logging
 import os
@@ -71,9 +73,9 @@ import threading
 import time
 import traceback
 try:
-    from reprlib import repr as repr
+    import reprlib
 except ImportError:
-    from repr import repr as repr
+    import repr as reprlib
 
 import cpppo
 from   cpppo    import misc
@@ -98,7 +100,7 @@ class integer_parser( cpppo.fsm_bytes ):
         'value_'), convert to an integer and store in 'value'"""
         ours			= self.context( path )
         subs			= self.initial.context( ours )
-        log.info("recv: data[%s] = data[%s]: %r", ours, subs, data[subs] if subs in data else data)
+        log.info("recv: data[%s] = int( data[%s]: %r)", ours, subs, data[subs] if subs in data else data)
         data[ours]		= int( data[subs].tostring() )
         del data[subs]
 
@@ -125,32 +127,34 @@ def tnet_machine( name=None ):
     state), and then we move to the next state (loops), allowing us to
     immediately run."""
 
-    class tnet_type( cpppo.state_input ):
-
-        codes			= ('#', '}', ']', ',', '!', '~', '^')
+    class tnet_parser( cpppo.state_input ):
+        codes			= ('#', '}', ']', ',', '$', '!', '~', '^')
 
         def process( self, source, machine=None, path=None, data=None ):
             """Convert the collected data according to the type"""
             tntype		= next( source )
             ours		= self.context( path )
-            subs		= self.initial.context( ours, '_' )
-            src			= data[subs]
+            raw			= self.context( ours, '...data_input' )
+            src			= data[raw].tostring() if sys.version_info.major < 3 else data[raw].tobytes()
 
             if tntype == ',':
-                log.info("%5d bytes raw data: %s", len( src ), repr( src ) )
-                data[ours]	= src.tobytes()
+                log.info("%5d bytes  data: %s", len( src ), reprlib.repr( src ))
+                data[ours]	= src
+            elif tntype == '$':
+                log.info("%5d string data: %s", len( src ), reprlib.repr( src ))
+                data[ours]	= src.decode( 'utf-8' )
             elif tntype == '#':
-                data[ours]	= int( src.tostring() )
-                log.info("%5d bytes int data: %s == ", len( src ), repr( src ), repr( data[ours] ))
+                data[ours]	= int( src )
+                log.info("%5d int    data: %s == %d", len( src ), reprlib.repr( src ),
+                         reprlib.repr( data[ours] ))
             elif tntype == '~':
-                assert 0 == len( data[src] )
+                assert 0 == len( src )
                 data[ours]	= None
             else:
                 assert False, "Invalid tnetstring type: %s" % tntype
                 
 
     class tnet_main( cpppo.dfa ):
-
         def process( self, source, machine=None, path=None, data=None ):
             self.reset()
 
@@ -158,13 +162,16 @@ def tnet_machine( name=None ):
         "alphabet":	cpppo.type_bytes_iter,
         "typecode":	cpppo.type_bytes_array_symbol,
     }
+
     SIZE			= integer_parser( name="SIZE", context="size" )
+    COLON			= cpppo.state_discard( name="COLON", **bytes_conf )
     DATA			= data_parser( name="DATA", context="data", repeat="..size" )
+    TYPE			= tnet_parser( name="TYPE", context="type", terminal=True,
+                                                     **bytes_conf )
 
-    TYPE			= tnet_type( name="TYPE", context="type", terminal=True, **bytes_conf )
-
-    SIZE[':']			= DATA
-    for t in tnet_type.codes:
+    SIZE[':']			= COLON
+    COLON[None]			= DATA
+    for t in tnet_parser.codes:
         DATA[t]			= TYPE
 
     machine			= tnet_main( name="TNET", context="tnet", initial=SIZE )
@@ -183,11 +190,11 @@ def echo_server( conn, addr ):
         msg			= recv( conn, timeout=None ) # blocking
         if not msg: # None or empty
             log.info( "%s recv: %s", misc.centeraxis( echo_line, 25, clip=True ),
-                      repr( msg ) if msg else "EOF" )
+                      reprlib.repr( msg ) if msg else "EOF" )
             break
         source.chain( msg )
         log.info( "%s recv: %5d: %s", misc.centeraxis( echo_line, 25, clip=True ), 
-                  len( msg ), repr( msg ))
+                  len( msg ), reprlib.repr( msg ))
 
         # See if a line has been recognized, stopping at terminal state
         for mch, sta in sequence:
@@ -203,7 +210,7 @@ def echo_server( conn, addr ):
             # Out of input, no complete line of echo input acquired.  Wait for more.
             log.debug( "%s: end of input", misc.centeraxis( echo_line, 25, clip=True ))
  
-    log.info( "%s done: %s" % ( misc.centeraxis( echo_line, 25, clip=True ), repr( data )))
+    log.info( "%s done: %s" % ( misc.centeraxis( echo_line, 25, clip=True ), reprlib.repr( data )))
 
 class server_thread( threading.Thread ):
     """A generic server handler.  Supply a handler taking an open socket

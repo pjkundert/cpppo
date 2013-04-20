@@ -15,10 +15,10 @@ def dump(data, encoding='utf-8'):
     suppoed).  All internally generated numeric str data and dictionary keys
     must be simple 'ascii' encoded (non-multibyte, 7-bit clean)."""
     if type(data) in ((int,long) if sys.version_info.major < 3 else (int,)):
-        out = ('%d' % data).encode('ascii')
+        out = str(data).encode('ascii')
         typ = b'#'
     elif type(data) is float:
-        out = ('%f' % data).encode('ascii')
+        out = str(data).encode('ascii')
         typ = b'^'
     elif type(data) is bytes: # =~= str in Python2, bytes in Python3
         out = data
@@ -30,7 +30,7 @@ def dump(data, encoding='utf-8'):
         typ = b'$'
     elif type(data) is bool:
         out = repr(data).lower().encode('ascii')
-        typ = '!'
+        typ = b'!'
     elif type(data) is dict:
         return dump_dict(data, encoding=encoding)
     elif type(data) in (list, tuple):
@@ -100,11 +100,12 @@ def parse_dict(data, encoding=None):
     result = {}
     extra = data
     while extra:
-        key, extra = parse(extra, encoding='ascii')
+        key, extra = parse(extra)
         assert extra, "Unbalanced dictionary store."
-        assert type(key) is str, "Keys can only be ascii-encoded character data."
-        value, extra = parse_pair(extra, encoding=encoding)
-        result[key] = value
+        assert type(key) is bytes, "Keys can only be ascii-encoded character data, not %r: %r." % (
+            type(key), key)
+        value, extra = parse(extra, encoding=encoding)
+        result[key.decode('ascii')] = value
   
     return result
     
@@ -113,8 +114,8 @@ def parse_dict(data, encoding=None):
 def dump_dict(data, encoding=None):
     result = []
     for k,v in data.items():
-        result.append(dump(str(k), encoding='ascii'))
-        result.append(dump(v), encoding=encoding)
+        result.append(dump(str(k).encode('ascii')))
+        result.append(dump(v,      encoding=encoding))
 
     payload = b''.join(result)
     return ('%d:' % len(payload)).encode('ascii') + payload + b'}'

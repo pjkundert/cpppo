@@ -107,6 +107,7 @@ def echo_server( conn, addr ):
  
     log.info( "%s done: %s" % ( misc.centeraxis( echo_line, 25, clip=True ), repr( data )))
 
+
 class server_thread( threading.Thread ):
     """A generic server handler.  Supply a handler taking an open socket
     connection to target=... Assumes at least one or two arg=(conn,[addr,[...]])"""

@@ -80,14 +80,22 @@ def test_iterators():
     assert isinstance( k, cpppo.chaining )
 
     assert cpppo.peekable( i ) is i
-    p				= cpppo.peekable()
+    p				= cpppo.peekable( '123' )
     assert cpppo.peekable( p ) is p
     assert cpppo.chainable( p ) is not p
+    assert list( p ) == ['1', '2', '3']
+    assert p.sent == 3
+    p.push('x')
+    assert p.sent == 2
+    assert list( p ) == ['x']
+    assert list( p ) == []
+
 
     i.chain('abc')
     i.chain('')
     i.chain( '123' )
     assert list( i ) == ['a','b','c','1','2','3']
+    assert i.sent == 6
 
     i.chain( 'y' )
     i.push( 'x' )

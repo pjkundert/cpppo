@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 from __future__ import absolute_import
 from __future__ import print_function
 
@@ -12,9 +13,9 @@ import time
 import traceback
 
 try:
-    from reprlib import repr as repr
+    import reprlib
 except ImportError:
-    from repr import repr as repr
+    import repr as reprlib
 
 if __name__ == "__main__" and __package__ is None:
     # Allow relative imports when executing within package directory, for
@@ -34,9 +35,9 @@ log				= logging.getLogger( "tnet.cli")
 def test_tnet_machinery():
     # parsing integers
     path			= "machinery"
-    SIZE			= tnet.integer_parser( name="SIZE", context="size")
+    SIZE			= tnet.integer_parser( name="SIZE", context="size" )
     data			= cpppo.dotdict()
-    source			= cpppo.chainable( "123" )
+    source			= cpppo.chainable( b'123' )
     for m,s in SIZE.run( source=source, data=data, path=path ):
         if s is None:
             break
@@ -56,30 +57,30 @@ def test_tnet_machinery():
 
 def test_tnet():
     tv				= [
-        "Hello, world!",
-        None,
+        u"The π character is called pi",
     ]
 
     for t in tv:
+        path			= "tnet"
         tns			= tnetstrings.dump( t )
 
         tnsmach			= tnet.tnet_machine()
         data			= cpppo.dotdict()
         source			= cpppo.peekable( tns )
 
-        sequence		= tnsmach.run( source=source, data=data, path="decode" )
-
         try:
-            for mch, sta in sequence:
+            for mch, sta in tnsmach.run( source=source, data=data, path=path ):
                 log.info( "%s byte %5d: data: %r",
                           misc.centeraxis( mch, 25, clip=True ), source.sent, data )
+                log.info("Parsing tnetstring:\n%s\n%s (byte %d)", repr(bytes(tns)),
+                         '-' * (len(repr(bytes(tns[:source.sent])))-1) + '^', source.sent )
                 if sta is None:
                     break
             if sta:
                 log.info( "%s byte %5d: data: %r", 
-                          misc.centeraxis( echo_line, 25, clip=True ), source.sent, data )
+                          misc.centeraxis( tnsmach, 25, clip=True ), source.sent, data )
         finally:
-            log.info("Parsing tnetstring:\n%s\n%s", tns, '-' * (source.sent-1) + '^')
+            log.info("Parsing tnetstring:\n%r", data )
 
 
 '''
@@ -100,7 +101,7 @@ def tnet_cli( number, reps ):
     try:
         for r in range( reps ):
             msg			= ("Client %3d, rep %d\r\n" % ( number, r )).encode()
-            log.info("%3d echo send: %5d: %s", number, len( msg ), repr( msg ))
+            log.info("%3d echo send: %5d: %s", number, len( msg ), reprlib.repr( msg ))
             sent	       += msg
             while msg:
                 out		= min( len( msg ), random.randrange( *charrange ))
@@ -114,7 +115,7 @@ def tnet_cli( number, reps ):
                 # before delivering the last of the data.
                 rpy		= echo.recv( conn, timeout=chardelay if msg else draindelay )
                 if rpy is not None:
-                    log.info("%3d echo recv: %5d: %s", number, len( rpy ), repr( rpy ) if rpy else "EOF" )
+                    log.info("%3d echo recv: %5d: %s", number, len( rpy ), reprlib.repr( rpy ) if rpy else "EOF" )
                     if not rpy:
                         raise Exception( "Server closed connection" )
                     rcvd       += rpy
@@ -129,14 +130,14 @@ def tnet_cli( number, reps ):
         while rpy: # neither None (timeout) nor b'' (EOF)
             rpy			= echo.drain( conn, timeout=draindelay )
             if rpy is not None:
-                log.info("%3d echo drain %5d: %s", number, len( rpy ), repr( rpy ) if rpy else "EOF" )
+                log.info("%3d echo drain %5d: %s", number, len( rpy ), reprlib.repr( rpy ) if rpy else "EOF" )
                 rcvd   	       += rpy
 
     # Count the number of success/failures reported by the Echo client threads
     success			= ( rcvd == sent )
     clisuccess[number]		= success
     if not success:
-        log.warning( "%3d echo client failed: %s != %s sent", number, repr( rcvd ), repr( sent ))
+        log.warning( "%3d echo client failed: %s != %s sent", number, reprlib.repr( rcvd ), reprlib.repr( sent ))
     
     log.info( "%3d echo client exited", number )
 
@@ -166,8 +167,7 @@ def test_tnet():
     finally:
         server.terminate()
         server.join()
-'''
 
 if __name__ == "__main__":
-    # test_echo()
     test_tnet()
+'''
