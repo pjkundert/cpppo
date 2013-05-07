@@ -2,34 +2,32 @@
 # GNU 'make' file
 # 
 
-# PY is the target Python interpreter.  It must have pytest installed.  We''
+# PY[23] is the target Python interpreter.  It must have pytest installed.
 
-# 
-PYTHONPATH=/usr/local/lib/python2.7/site-packages
-export PYTHONPATH
-PY=python
+PY2=python
+PY3=python3
 
-#PY=python3
-
-# PYTEST is the desired method of invoking py.test; either as a command, or
+# PY[23]TEST is the desired method of invoking py.test; either as a command, or
 # loading it as module, by directly invoking the target Python interpreter.
-PYTEST=py.test
-PYTEST=$(PY) -m pytest
-PYTEST=$(PY) -m pytest --capture=no
+PY2TEST=PYTHONPATH=/usr/local/lib/python2.7/site-packages $(PY2) -m pytest
+PY3TEST=$(PY3) -m pytest
 
 .PHONY: all test
 all:
 
 # Only run tests in this directory.
 test:
-	$(PYTEST)
+	$(PY2TEST)
+	$(PY3TEST)
 
 # Run only tests with a prefix containing the target string, eg test-blah
 test-%:
-	$(PYTEST) *$*_test.py
+	$(PY2TEST) *$*_test.py
+	$(PY3TEST) *$*_test.py
 
 unit-%:
-	$(PYTEST) -k $*
+	$(PY2TEST) -k $*
+	$(PY3TEST) -k $*
 
 #
 # Target to allow the printing of 'make' variables, eg:

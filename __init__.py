@@ -29,3 +29,4 @@ __all__                         = ["automata", "dotdict", "greenery", "misc"]
 # main cpppo namespace
 from .automata import *
 from .dotdict  import *
+from .misc     import *

@@ -29,9 +29,14 @@ __version__			= "0.01"
 Miscellaneous functionality used by various other modules.
 """
 
+import logging
 import math
-import timeit
 import sys
+import timeit
+try:
+    import reprlib
+except ImportError:
+    import repr as reprlib
 
 # 
 # misc.timer
@@ -133,6 +138,49 @@ def magnitude( val, base = 10 ):
     return pow( base, round( math.log( val, base )) - 1 )
 
 
+# 
+# reprargs(args,kwds)	-- log args/kwds in sensible fashion
+# @logresult(prefix,log)-- decorator to log results/exception of function
+# lazystr		-- lazily evaluate expensive string formatting
+# 
+def reprargs( *args, **kwds ):
+    return ", ".join(   [ reprlib.repr( x ) for x in args ]
+                      + [ "%s=%s" % ( k, reprlib.repr( v ))
+                          for k,v in kwds.items() ])
+
+
+def logresult( prefix=None, log=logging ):
+    import functools
+    def decorator( function ):
+        @functools.wraps( function )
+        def wrapper( *args, **kwds ):
+            try:
+                result		= function( *args, **kwds )
+                log.debug( "%s-->%r" % (
+                        prefix or function.__name__+'('+reprargs( *args, **kwds )+')', result ))
+                return result
+            except Exception as e:
+                log.debug( "%s-->%r" % (
+                        prefix or function.__name__+'('+reprargs( *args, **kwds )+')', e ))
+                raise
+        return wrapper
+    return decorator
+
+
+class lazystr( object ):
+    """Evaluates the given function returning a str lazily, eg:
+           logging.debug( lazystr( lambda: \
+               "Some expensive operation: %d" % ( obj.expensive() )))
+       vs.:
+           logging.debug(
+               "Some expensive operation: %d", obj.expensive() )
+    """
+    __slots__ = '_function'
+    def __init__( self, function ):
+        self._function		= function
+    def __str__( self ):
+        return self._function()
+
 
 # 
 # sort order key=... methods
@@ -141,11 +189,15 @@ def magnitude( val, base = 10 ):
 # nan_first	-- NaN/None sorts lower than any number
 # nan_last	-- NaN/None sorts higher than any number
 # 
-def natural( string ):
-    '''
-    A natural sort key helper function for sort() and sorted() without using
-    regular expressions or exceptions.  Non-string types are returned as-is in a
-    list, and are compared normally.
+# 
+def natural( string, fmt="%9s", ):
+    '''A natural sort key helper function for sort() and sorted() without using
+    regular expressions or exceptions. 
+
+    In python2, incomparable types (eg. str and bool) were compared based on
+    (arbitrary) conventions (eg. type name, object ID).  In Python3,
+    incomparable types raise exceptions.  So, all types must be converted to a
+    common comparable type; str, and non-numeric types are 
 
     >>> items = ('Z', 'a', '10th', '1st', '9')
     >>> sorted(items)
@@ -153,20 +205,35 @@ def natural( string ):
     >>> sorted(items, key=natural)
     ['1st', '9', '10th', 'a', 'Z']    
     '''
-    if not isinstance( string, basestring if sys.version_info.major < 3 else str  ):
-        return [ string ]
-    it = type( 1 )
-    r = []
-    for c in string:
-        if c.isdigit():
-            d = int( c )
-            if r and type( r[-1] ) == it: 
-                r[-1] = r[-1] * 10 + d
-            else: 
-                r.append( d )
-        else:
-            r.append( c.lower() )
-    return r
+    if type( string ) in natural.num_types:
+        # Convert numerics to string; sorts 9.3 and '9.3' as equivalent
+        string = str(string)
+    if not isinstance( string, natural.str_type ):
+        # Convert remaining types compare as ('',<type name>,<hash>/<id>), to
+        # sorts objects of same type in an orderly fashion.   If __has__ exists
+        # but is None, indicates not hash-able.
+        res = ('', string.__class__.__name__, 
+               hash( string ) if hasattr( string, '__hash__' ) and string.__hash__ is not None
+               else id( string ))
+    else:
+        res = []
+        for c in string:
+            if c.isdigit():
+                if res and type( res[-1] ) in natural.num_types:
+                    res[-1] = res[-1] * 10 + int( c )
+                else:
+                    res.append( int( c ))
+            else:
+                res.append( c.lower() )
+    return tuple( (( fmt % itm ) if type( itm ) in natural.num_types
+                   else itm )
+                  for itm in res )
+
+natural.str_type 	= ( basestring if sys.version_info.major < 3
+                            else str )
+natural.num_types	= ( (float, int, long) if sys.version_info.major < 3
+                            else (float, int))
+
 
 def non_value( number ):
     return number is None or isnan( number )

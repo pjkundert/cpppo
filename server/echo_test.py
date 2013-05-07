@@ -31,7 +31,7 @@ log				= logging.getLogger( "echo.cli")
 clisuccess			= {}		# One entry per client number expected
 clicount, clireps		= 5, 10
 charrange, chardelay		= (2,10), .01	# split/delay outgoing msgs
-draindelay			= 1   		# long in case server slow, but immediately upon EOF
+draindelay			= 2.   		# long in case server slow, but immediately upon EOF
 
 
 def echo_cli( number, reps ):

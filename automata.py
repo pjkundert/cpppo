@@ -31,10 +31,6 @@ import logging
 import struct
 import sys
 import traceback
-try:
-    import reprlib
-except ImportError:
-    import repr as reprlib
 
 from . import misc
 from . import greenery
@@ -42,7 +38,7 @@ from .dotdict import *
 
 log				= logging.getLogger( __package__ )
 log_cfg				= {
-    "level":	logging.INFO,
+    "level":	logging.DEBUG,
     "datefmt":	'%m-%d %H:%M',
     "format":	'%(asctime)s.%(msecs).03d %(name)-8.8s %(levelname)-8.8s %(funcName)-10.10s %(message)s',
 }
@@ -72,43 +68,6 @@ if sys.version_info.major < 3:
 else:
     type_str_encoder		= lambda s: ( b for b in s.encode( 'utf-8' ))
 
-
-def reprargs( *args, **kwds ):
-    return ", ".join(   [ reprlib.repr( x ) for x in args ]
-                      + [ "%s=%s" % ( k, reprlib.repr( v ))
-                          for k,v in kwds.items() ])
-
-def logresult( prefix=None, log=logging ):
-    import functools
-    def decorator( function ):
-        @functools.wraps( function )
-        def wrapper( *args, **kwds ):
-            try:
-                result		= function( *args, **kwds )
-                log.debug( "%s-->%r" % (
-                        prefix or function.__name__+'('+reprargs( *args, **kwds )+')', result ))
-                return result
-            except Exception as e:
-                log.debug( "%s-->%r" % (
-                        prefix or function.__name__+'('+reprargs( *args, **kwds )+')', e ))
-                raise
-        return wrapper
-    return decorator
-
-
-class lazystr( object ):
-    """Evaluates the given function returning a str lazily, eg:
-           logging.debug( lazystr( lambda: \
-               "Some expensive operation: %d" % ( obj.expensive() )))
-       vs.:
-           logging.debug(
-               "Some expensive operation: %d", obj.expensive() )
-    """
-    __slots__ = '_function'
-    def __init__( self, function ):
-        self._function		= function
-    def __str__( self ):
-        return self._function()
 
 # 
 # peekable/peeking

@@ -339,7 +339,7 @@ def test_codecs():
         # Each of these are greedy, and so run 'til the end of input (next state
         # is None); they collect the full input string.
         assert ( sta is not None and sta.terminal ) == ( u"π" in text )
-        assert data._.tounicode() == text
+        assert data._input.tounicode() == text
 
     for text in texts:
         # Then convert the unicode fsm to a state machine in bytes symbols.
@@ -362,4 +362,4 @@ def test_codecs():
                   "string accepted" if sta and sta.terminal else "string rejected", data )
 
         assert ( sta is not None and sta.terminal ) == ( u"π" in text )
-        assert data._.tobytes().decode('utf-8') == text
+        assert data._input.tobytes().decode('utf-8') == text
