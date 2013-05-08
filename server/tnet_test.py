@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 from __future__ import absolute_import
 from __future__ import print_function
+from __future__ import unicode_literals
 
 import logging
 import multiprocessing
@@ -57,7 +58,7 @@ def test_tnet_machinery():
 
 def test_tnet():
     tv				= [
-        u"The π character is called pi",
+        "The π character is called pi",
     ]
 
     for t in tv:

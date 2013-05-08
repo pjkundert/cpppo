@@ -488,7 +488,7 @@ class state( dict ):
         """
         # Accept any of regex/lego/fsm, and build the missing ones.
         regex, lego, initial 	= None, None, None
-        if isinstance( machine, str ):
+        if isinstance( machine, basestring if sys.version_info.major < 3 else str ):
             log.debug( "Converting Regex to greenery.lego: %r", machine )
             regex		= machine
             machine		= greenery.parse( regex )
@@ -688,7 +688,7 @@ class dfa( state ):
     def __init__( self, name=None, initial=None, terminal=True, repeat=None, **kwds ):
         super( dfa, self ).__init__( name or self.__class__.__name__, terminal=terminal, **kwds )
         self.initial		= initial
-        assert isinstance( repeat, (str, int, type(None)) )
+        assert isinstance( repeat, (basestring if sys.version_info.major < 3 else str, int, type(None)) )
         self.repeat		= repeat
         for sta in sorted( self.initial.nodes(), key=lambda s: misc.natural( s.name )):
             for inp,dst in sta.edges():
@@ -728,7 +728,7 @@ class dfa( state ):
             # was set, this determines the number of initial-->terminal loop
             # cycles the dfa will execute.
             limit		= self.repeat
-            if isinstance( limit, str ):
+            if isinstance( limit, basestring if sys.version_info.major < 3 else str ):
                 limit		= data[self.context( path, limit)]
             assert isinstance( limit, int ), \
                 "Supplied repeat=%r must be (or reference) an int, not a %r" % ( self.repeat, limit )

@@ -1,6 +1,13 @@
 # -*- coding: utf-8 -*-
+
+# Since 3.2 doesn't accept u'...' strings, we cannot test mixed string/unicode literals in the same
+# file, without explicitly "casting" to str in 2.x with str('...').  Without from __future__ import
+# unicode_literals, we cannot have any literals at all with unicode characters under 2.x, while
+# maintaining 3.2 compatibilty.  This is unfortunate.
+
 from __future__ import absolute_import
 from __future__ import print_function
+from __future__ import unicode_literals
 
 import collections
 import logging
@@ -202,7 +209,7 @@ def test_struct():
     b[True]			= c = cpppo.state_input( "Third",  alphabet=abt, typecode=dtp, context=ctx )
     c[True]			= d = cpppo.state_input( "Fourth", alphabet=abt, typecode=dtp, context=ctx )
     d[None] 			= e = cpppo.state_struct( "int32", context=ctx,
-                                                          format="<i", offset=4,
+                                                          format=str("<i"), offset=4,
                                                           terminal=True )
     machine			= cpppo.dfa( initial=a )
     material			= b'\x01\x02\x03\x80\x99'
@@ -246,10 +253,11 @@ def test_struct():
     assert data.struct.val == -2147286527
 
 def test_fsm():
-    regex			= 'a*b.*x'
-    machine			= cpppo.fsm( name="test1", initial=regex, alphabet=str )
+    # This forces plain strings in 2.x, unicode in 3.x
+    regex			= str('a*b.*x')
+    machine			= cpppo.fsm( name=str('test1'), initial=regex )
 
-    source			= cpppo.chainable( 'aaaab1230xoxx' )
+    source			= cpppo.chainable( str('aaaab1230xoxx') )
     sequence			= machine.run( source=source )
     for num in range( 20 ):
         try:
@@ -307,10 +315,10 @@ def test_codecs():
     # symbols, and byte input symbols.
 
     texts 			= [
-        u'pi: π',
-        u'abcdé\u4500123',
-        u'This contains π,π and more πs',
-        u'a 480Ω resistor',
+        'pi: π',
+        'abcdé\u4500123',
+        'This contains π,π and more πs',
+        'a 480Ω resistor',
         ]
     '''
     for text in texts:
@@ -324,7 +332,7 @@ def test_codecs():
 
     for text in texts:
         # First, convert the unicode fsm to a state machine in unicode symbols.
-        pies			= cpppo.fsm( name="pies", initial=".*π.*" )
+        pies			= cpppo.fsm( name='pies', initial='.*π.*' )
         
         source			= cpppo.chainable( text )
         data			= cpppo.dotdict()
@@ -338,14 +346,14 @@ def test_codecs():
 
         # Each of these are greedy, and so run 'til the end of input (next state
         # is None); they collect the full input string.
-        assert ( sta is not None and sta.terminal ) == ( u"π" in text )
+        assert ( sta is not None and sta.terminal ) == ( 'π' in text )
         assert data._input.tounicode() == text
 
     for text in texts:
         # Then convert the unicode fsm to a state machine in bytes symbols.
         # Our encoder generates 1 or more bytes for each unicode symbol.
 
-        pies			= cpppo.fsm( name="pies", initial=".*π.*", 
+        pies			= cpppo.fsm( name='pies', initial='.*π.*', 
                                              fsm_alphabet=int,
                                              fsm_typecode='B',
                                              fsm_encoder=lambda s: ( b for b in s.encode( 'utf-8' )))
@@ -361,5 +369,5 @@ def test_codecs():
         log.info( "%s ends in %s: %s: %r", misc.centeraxis( mch, 25, clip=True ), sta,
                   "string accepted" if sta and sta.terminal else "string rejected", data )
 
-        assert ( sta is not None and sta.terminal ) == ( u"π" in text )
+        assert ( sta is not None and sta.terminal ) == ( 'π' in text )
         assert data._input.tobytes().decode('utf-8') == text

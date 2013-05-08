@@ -37,9 +37,9 @@ def test_natural():
     assert natural('10th')	== ('       10', 't', 'h')
     for itm in [ None, [1], {'a':1} ]:
         assert natural(itm)	== ('', itm.__class__.__name__,
-                                    str( hash( itm )
-                                         if hasattr( itm, '__hash__' ) and itm.__hash__ is not None
-                                         else id( itm )))
+                                    "%9d" % ( hash( itm )
+                                              if hasattr( itm, '__hash__' ) and itm.__hash__ is not None
+                                              else id( itm )))
 
     l = ['10th', '1st', '9', 9, 'Z', 'a', 9.0, "9.1", None ]
     ls1 = ['None', "'1st'", "'9'", "9", "9.0", "'9.1'", "'10th'", "'a'", "'Z'"]
