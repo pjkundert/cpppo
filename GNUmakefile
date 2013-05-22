@@ -33,10 +33,9 @@ PY3=python3
 #     LANG=en_CA.UTF-8
 #     LC_ALL=en_CA.UTF-8
 # 
-PY2TEST=PYTHONPATH=/usr/local/lib/python2.7/site-packages $(PY2) -m pytest
-PY2TEST=$(PY2) -m pytest
-PY3TEST=PYTHONIOENCODING=UTF-8 $(PY3) -m pytest # --capture=no
-PY3TEST=$(PY3) -m pytest # --capture=no
+#PYTESTOPTS=--capture=no
+PY2TEST=$(PY2) -m pytest $(PYTESTOPTS)
+PY3TEST=$(PY3) -m pytest $(PYTESTOPTS)
 
 .PHONY: all test
 all:

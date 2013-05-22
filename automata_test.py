@@ -12,6 +12,7 @@ from __future__ import unicode_literals
 import collections
 import logging
 import os
+import pytest
 import sys
 import timeit
 
@@ -19,7 +20,6 @@ import timeit
 sys.path.insert( 0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import cpppo
-from . import misc
 
 logging.basicConfig( **cpppo.log_cfg )
 log				= logging.getLogger()
@@ -118,15 +118,137 @@ def test_iterators():
         assert False, "Expected TypeError, not %r" % ( e )
 
 
+def test_readme():
+    """The basic examples in the README"""
+
+    # Basic DFA that accepts ab+
+    E			= cpppo.state( "E" )
+    A			= cpppo.state_input( "A" )
+    B			= cpppo.state_input( "B", terminal=True )
+    E['a']		= A
+    A['b']		= B
+    B['b']		= B
+
+    data		= cpppo.dotdict()
+    source		= cpppo.peekable( str( 'abbbb,ab' ))
+    with cpppo.dfa( initial=E ) as abplus:
+        for i,(m,s) in enumerate( abplus.run( source=source, path="ab+", data=data )):
+            log.info( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r", m.name_centered(),
+                      i, s, source.sent, source.peek(), data )
+        assert i == 5
+    assert source.peek() == str(',')
+    
+    # Composite state machine accepting ab+, ignoring ,[ ]* separators
+    CSV			= cpppo.dfa( "CSV", initial=E )
+    SEP			= cpppo.state_discard( "SEP" )
+
+    CSV[',']		= SEP
+    SEP[' ']		= SEP
+    SEP[None]		= CSV
+
+    source		= cpppo.peekable( str( 'abbbb, ab' ))
+    with cpppo.dfa( initial=CSV ) as r2:
+        for i,(m,s) in enumerate( r2.run( source=source, path="readme_CSV", data=data )):
+            log.info( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r", m.name_centered(),
+                      i, s, source.sent, source.peek(), data )
+        assert i == 12
+    assert source.peek() is None
+    
+
 def test_state():
-    # A state is expected to process its input (perhaps nothing, if its a
-    # no-input state), and then use the next input symbol to transition to
-    # another state.  Each state has a context into a data artifact, into which
-    # it will collect its results.
-    pass
+    """A state is expected to process its input (perhaps nothing, if its a no-input state), and then use
+    the next input symbol to transition to another state.  Each state has a context into a data
+    artifact, into which it will collect its results.
+
+    We must ensure that all state transitions are configured in the target alphabet; if an encoder
+    is supplied, then all input symbols and all transition symbols will be encoded using it.  In
+    this test, all string literals are Unicode (in both Python 2 and 3), so we use a unicode encoder
+    to convert them to symbols.
+
+    """
+
+    unicodekwds			= {
+        'alphabet':	unicode if sys.version_info.major < 3 else str,
+        'encoder':	cpppo.type_unicode_encoder,
+    }
+    s1				= cpppo.state(
+        'one', **unicodekwds )
+    s2				= cpppo.state_discard(
+        'two', **unicodekwds )
+
+    s1['a']			= s2
+    assert s1['a'] is s2
+
+    source			= cpppo.peeking( 'abc' )
+
+    # We can run state instances with/without acquisition
+    g				= s1.run( source=source )
+    assert next( g ) == (None, s2)
+    assert source.peek() == 'a'
+    with pytest.raises(StopIteration):
+        next( g )
+    with s2:
+        g			= s2.run( source=source )
+        assert source.peek() == 'a'
+        assert next( g ) == (None, None)
+        assert source.peek() == 'b'
+        assert next( g ) == (None, None)
+        assert source.peek() == 'b'
+
+    # but dfa's, not so much
+    source			= cpppo.peeking( 'aπc' )
+    data			= cpppo.dotdict()
+    with cpppo.dfa( initial=s1 ) as s3:
+        for i,(m,s) in enumerate( s3.run( source=source, path="s", data=data )):
+            log.info( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r", m.name_centered(),
+                      i, s, source.sent, source.peek(), data )
+    
+            if i == 0: assert s is s1  ; assert source.peek() == 'a' # processes no symbol
+            if i == 1: assert s is s2  ; assert source.peek() == 'a' # we'll process it next
+            if i == 2: assert s is None; assert source.peek() == 'π'
+            if s is None:
+                break
+        assert i == 2
+        assert len( data ) == 0
+    
+    # A state machine accepting a sequence of unicode a's
+    a_s				= cpppo.state( 		"a_s", **unicodekwds )
+    an_a			= cpppo.state_input(	"a",   terminal=True, typecode=cpppo.type_unicode_array_symbol, **unicodekwds )
+    a_s['a']			= an_a
+    an_a['a']			= an_a
+
+    source			= cpppo.peeking( 'aaaa' )
+    data			= cpppo.dotdict()
+
+    with cpppo.dfa( initial=a_s ) as aplus:
+        for i,(m,s) in enumerate( aplus.run( source=source )):
+            log.info( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r", m.name_centered(),
+                      i, s, source.sent, source.peek(), data )
+        assert i == 4
+        assert source.peek() is None
+        assert len( data ) == 0
+
+    # Accepting a's separated by comma and space/pi (for kicks).  When the lower level a's machine
+    # doesn't recognize the symbol, then the higher level machine will recognize and discard
+    sep				= cpppo.state_discard(	"sep", **unicodekwds )
+    csv				= cpppo.dfa(		"csv", initial=a_s , **unicodekwds )
+    csv[',']			= sep
+    sep[' ']			= sep
+    sep['π']			= sep
+    sep[None]			= csv
+    
+    source			= cpppo.peeking( 'aaaa, a,π a' )
+    data			= cpppo.dotdict()
+
+    with cpppo.dfa( initial=csv ) as csvaplus:
+        for i,(m,s) in enumerate( csvaplus.run( source=source, path="csv", data=data )):
+            log.info( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r", m.name_centered(),
+                i, s, source.sent, source.peek(), data )
+        assert i == 16
+        assert source.peek() is None
+    assert data.csv_input.tounicode() == 'aaaaaa'
 
 def test_dfa():
-
     # Simple DFA with states consuming no input.  A NULL (None) state transition
     # doesn't require input for state change.  The Default (True) transition
     # requires input to make the transition, but none of these states consume
@@ -148,56 +270,67 @@ def test_dfa():
 
     machine			= cpppo.dfa( initial=a )
 
-    log.info( "DFA:" )
-    for initial in machine.initial.nodes():
-        for inp,target in initial.edges():
-            log.info( "%s <- %-10.10r -> %s" % ( misc.centeraxis( initial, 25, clip=True ), inp, target ))
+    with machine:
+        log.info( "DFA:" )
+        for initial in machine.initial.nodes():
+            for inp,target in initial.edges():
+                log.info( "%s <- %-10.10r -> %s" % ( cpppo.centeraxis( initial, 25, clip=True ), inp, target ))
 
-    # Running with no input will yield the initial state, with None input; since
-    # it is a NULL state (no input processed), it will simply attempt to
-    # transition.  This will require the next input from source, which is empty,
-    # so it will return input,state=(None, None) indicating a non-terminal state
-    # and no input left.  This gives the caller an opportunity to reload input
-    # and try again.
-    log.info( "States; No input" )
-    source			= cpppo.chainable()
-    sequence			= machine.run( source=source )
-    for num in range( 10 ):
-        try:
-            mch,sta		= next( sequence )
-        except StopIteration:
-            sequence		= None
-            break
-        inp			= source.peek()
-        log.info( "%s <- %r" % ( misc.centeraxis( mch, 25, clip=True ), inp ))
-        if num == 0: assert inp is None; assert sta.name == "Initial"
-        if num == 1: assert inp is None; assert sta.name == "Middle"
-        if num == 2: assert inp is None; assert sta is None	# And no more no-input transitions
-    assert num == 9
-    # since the iterator did not stop cleanly (after processing a state's input,
-    # and then trying to determine the next state), it'll continue indefinitely
-    assert sta is None
-    assert sequence is not None
+        # Running with no input will yield the initial state, with None input; since it is a NULL
+        # state (no input processed), it will simply attempt to transition.  This will require the
+        # next input from source, which is empty, so it will return input,state=(None, None)
+        # indicating a non-terminal state and no input left.  This gives the caller an opportunity
+        # to reload input and try again.  If a loop is detected (same state and input conditions
+        # seen repeatedly), the DFA will terminate; if not in a terminal state, an exception will be
+        # raised.
+        log.info( "States; No input" )
+        source			= cpppo.chainable()
+        sequence		= machine.run( source=source )
+        for num in range( 10 ):
+            try:
+                mch,sta		= next( sequence )
+            except StopIteration:
+                sequence	= None
+                break
+            except AssertionError as e:
+                assert "non-terminal state" in str( e )
+                break
 
-    # Try with some input loaded into source stream, using the same generator
-    # sequence.  Only the first element is gotten, and is reused for every NULL
-    # state transition, and is left over at the end.  We'll be continuing the
-    # last sequence, so we'll immediately transition.
-    log.info( "States; 'abc' input" )
-    assert source.peek() is None
-    source.chain( b'abc' )
-    assert source.peek() == next(iter(b'a')) # python2: str, python3: int
-    for num in range( 10 ):
-        try:
-            mch,sta		= next( sequence )
-        except StopIteration:
-            break
-        inp			= source.peek()
-        log.info( "%s <- %r", misc.centeraxis( mch, 25, clip=True ), inp )
-        if num == 0: assert inp == next(iter(b'a')); assert sta.name == "Terminal"
-    assert num == 1
-    assert inp == next(iter(b'a'))
-    assert sta.name == "Terminal"
+            inp			= source.peek()
+            log.info( "%s <- %r" % ( cpppo.centeraxis( mch, 25, clip=True ), inp ))
+            if num == 0: assert inp is None; assert sta.name == "Initial"
+            if num == 1: assert inp is None; assert sta.name == "Middle"
+            if num == 2: assert inp is None; assert sta is None	# And no more no-input transitions
+            assert num < 3 # If we get here, we didn't detect loop
+        assert num == 3
+
+        # since the iterator did not stop cleanly (after processing a state's input,
+        # and then trying to determine the next state), it'll continue indefinitely
+        assert sta is None
+        assert sequence is not None
+    
+        # Try with some input loaded into source stream, using an identical generator sequence.
+        # Only the first element is gotten, and is reused for every NULL state transition, and is
+        # left over at the end.
+        log.info( "States; 'abc' input" )
+        assert source.peek() is None
+        source.chain( b'abc' )
+        assert source.peek() == next(iter(b'a')) # python2: str, python3: int
+        sequence		= machine.run( source=source )
+        for num in range( 10 ):
+            try:
+                mch,sta		= next( sequence )
+            except StopIteration:
+                break
+            inp			= source.peek()
+            log.info( "%s <- %r", cpppo.centeraxis( mch, 25, clip=True ), inp )
+            if num == 0: assert inp == b'a'[0]; assert sta.name == "Initial"
+            if num == 1: assert inp == b'a'[0]; assert sta.name == "Middle"
+            if num == 2: assert inp == b'a'[0]; assert sta.name == "Terminal"
+            assert num < 3
+        assert num == 3
+        assert inp == b'a'[0]
+        assert sta.name == "Terminal"
 
 
 def test_struct():
@@ -212,84 +345,86 @@ def test_struct():
                                                           format=str("<i"), offset=4,
                                                           terminal=True )
     machine			= cpppo.dfa( initial=a )
-    material			= b'\x01\x02\x03\x80\x99'
-    segment			= 3
-    source			= cpppo.chainable()
-    log.info( "States; %r input, by %d", material, segment )
-    inp				= None
-    data			= cpppo.dotdict()
-    path			= "struct"
-    sequence			= machine.run( source=source, path=path, data=data )
-    for num in range( 10 ):
-        try:
-            mch,sta		= next( sequence )
-            inp			= source.peek()
-        except StopIteration:
-            inp			= source.peek()
-            log.info( "%s <- %-10.10r test done", misc.centeraxis( mch, 25, clip=True ), inp )
-            break
-        log.info( "%s <- %-10.10r test rcvd", misc.centeraxis( mch, 25, clip=True ), inp )
-        if sta is None:
-            log.info( "%s <- %-10.10r test no next state", misc.centeraxis( mch, 25, clip=True ), inp )
-        if inp is None:
-            if not material:
-                log.info( "%s <- %-10.10r test source finished", misc.centeraxis( mch, 25, clip=True ), inp )
-            # Will load consecutive empty iterables; chainable must handle
-            source.chain( material[:segment] )
-            material		= material[segment:]
-            inp			= source.peek()
-            log.info( "%s <- %-10.10r test chain", misc.centeraxis( mch, 25, clip=True ), inp )
+    with machine:
+        material		= b'\x01\x02\x03\x80\x99'
+        segment			= 3
+        source			= cpppo.chainable()
+        log.info( "States; %r input, by %d", material, segment )
+        inp			= None
+        data			= cpppo.dotdict()
+        path			= "struct"
+        sequence		= machine.run( source=source, path=path, data=data )
+        for num in range( 10 ):
+            try:
+                mch,sta		= next( sequence )
+                inp		= source.peek()
+            except StopIteration:
+                inp		= source.peek()
+                log.info( "%s <- %-10.10r test done", cpppo.centeraxis( mch, 25, clip=True ), inp )
+                break
+            log.info( "%s <- %-10.10r test rcvd", cpppo.centeraxis( mch, 25, clip=True ), inp )
+            if sta is None:
+                log.info( "%s <- %-10.10r test no next state", cpppo.centeraxis( mch, 25, clip=True ), inp )
+            if inp is None:
+                if not material:
+                    log.info( "%s <- %-10.10r test source finished", cpppo.centeraxis( mch, 25, clip=True ), inp )
+                # Will load consecutive empty iterables; chainable must handle
+                source.chain( material[:segment] )
+                material		= material[segment:]
+                inp			= source.peek()
+                log.info( "%s <- %-10.10r test chain", cpppo.centeraxis( mch, 25, clip=True ), inp )
+    
+            if num == 0: assert inp == next(iter(b'\x01')); assert sta.name == "First"
+            if num == 1: assert inp == next(iter(b'\x02')); assert sta.name == "Second"
+            if num == 2: assert inp == next(iter(b'\x03')); assert sta.name == "Third"
+            if num == 3: assert inp == next(iter(b'\x80')); assert sta is None
+            if num == 4: assert inp == next(iter(b'\x80')); assert sta.name == "Fourth"
+            if num == 5: assert inp == next(iter(b'\x99')); assert sta.name == "int32"
+            if num == 6: assert inp == next(iter(b'\x99')); assert sta.name == "int32"
+        assert inp == next(iter(b'\x99'))
+        assert num == 6
+        assert sta.name == "int32"
+        assert data.struct.val == -2147286527
 
-        if num == 0: assert inp == next(iter(b'\x01')); assert sta.name == "First"
-        if num == 1: assert inp == next(iter(b'\x02')); assert sta.name == "Second"
-        if num == 2: assert inp == next(iter(b'\x03')); assert sta.name == "Third"
-        if num == 3: assert inp == next(iter(b'\x80')); assert sta is None
-        if num == 4: assert inp == next(iter(b'\x80')); assert sta.name == "Fourth"
-        if num == 5: assert inp == next(iter(b'\x99')); assert sta.name == "int32"
-        if num == 6: assert inp == next(iter(b'\x99')); assert sta.name == "int32"
-    assert inp == next(iter(b'\x99'))
-    assert num == 6
-    assert sta.name == "int32"
-    assert data.struct.val == -2147286527
-
-def test_fsm():
-    # This forces plain strings in 2.x, unicode in 3.x
+def test_regex():
+    # This forces plain strings in 2.x, unicode in 3.x (counteracts import unicode_literals above)
     regex			= str('a*b.*x')
-    machine			= cpppo.fsm( name=str('test1'), initial=regex )
-
-    source			= cpppo.chainable( str('aaaab1230xoxx') )
-    sequence			= machine.run( source=source )
-    for num in range( 20 ):
-        try:
-            mch,sta		= next( sequence )
-            inp			= source.peek()
-        except StopIteration:
-            inp			= source.peek()
-            log.info( "%s <- %-10.10r test done", misc.centeraxis( mch, 25, clip=True ), inp )
-            break
-        log.info( "%s <- %-10.10r test rcvd", misc.centeraxis( mch, 25, clip=True ), inp )
-        if sta is None:
-            log.info( "%s <- %-10.10r test no next state", misc.centeraxis( mch, 25, clip=True ), inp )
-        if inp is None:
-            log.info( "%s <- %-10.10r test source finished", misc.centeraxis( mch, 25, clip=True ), inp )
-
-        if num == 0: assert inp == next(iter('a')); assert sta.name == "0"
-        if num == 1: assert inp == next(iter('a')); assert sta.name == "0"
-        if num == 2: assert inp == next(iter('a')); assert sta.name == "0"
-        if num == 3: assert inp == next(iter('a')); assert sta.name == "0"
-        if num == 4: assert inp == next(iter('b')); assert sta.name == "2"
-        if num == 5: assert inp == next(iter('1')); assert sta.name == "2"
-        if num == 6: assert inp == next(iter('2')); assert sta.name == "2"
-        if num == 7: assert inp == next(iter('3')); assert sta.name == "2"
-        if num == 8: assert inp == next(iter('0')); assert sta.name == "2"
-        if num == 9: assert inp == next(iter('x')); assert sta.name == "3"
-        if num ==10: assert inp == next(iter('o')); assert sta.name == "2" # Trans. from term. to non-term. state!))
-        if num ==11: assert inp == next(iter('x')); assert sta.name == "3"
-        if num ==12: assert inp == next(iter('x')); assert sta.name == "3"
-        if num ==13: assert inp ==None; assert sta is None
-    assert inp is None
-    assert num == 13
-    assert sta.name == '3'
+    machine			= cpppo.regex( name=str('test1'), initial=regex )
+    with machine:
+        source			= cpppo.chainable( str('aaab1230xoxx') )
+        sequence		= machine.run( source=source )
+        for num in range( 20 ):
+            try:
+                mch,sta		= next( sequence )
+                inp		= source.peek()
+            except StopIteration:
+                inp		= source.peek()
+                log.info( "%s <- %-10.10r test done", cpppo.centeraxis( mch, 25, clip=True ), inp )
+                break
+            log.info( "%s <- %-10.10r test rcvd", cpppo.centeraxis( mch, 25, clip=True ), inp )
+            if sta is None:
+                log.info( "%s <- %-10.10r test no next state", cpppo.centeraxis( mch, 25, clip=True ), inp )
+            if inp is None:
+                log.info( "%s <- %-10.10r test source finished", cpppo.centeraxis( mch, 25, clip=True ), inp )
+    
+            # Initial state does *not* consume a source symbol
+            if num == 0: assert inp == next(iter('a')); assert sta.name == "0'"; assert source.sent == 0
+            if num == 1: assert inp == next(iter('a')); assert sta.name == "0";  assert source.sent == 0
+            if num == 2: assert inp == next(iter('a')); assert sta.name == "0";  assert source.sent == 1
+            if num == 3: assert inp == next(iter('a')); assert sta.name == "0";  assert source.sent == 2
+            if num == 4: assert inp == next(iter('b')); assert sta.name == "2"
+            if num == 5: assert inp == next(iter('1')); assert sta.name == "2"
+            if num == 6: assert inp == next(iter('2')); assert sta.name == "2"
+            if num == 7: assert inp == next(iter('3')); assert sta.name == "2"
+            if num == 8: assert inp == next(iter('0')); assert sta.name == "2"
+            if num == 9: assert inp == next(iter('x')); assert sta.name == "3"
+            if num ==10: assert inp == next(iter('o')); assert sta.name == "2" # Trans. from term. to non-term. state!))
+            if num ==11: assert inp == next(iter('x')); assert sta.name == "3"
+            if num ==12: assert inp == next(iter('x')); assert sta.name == "3"
+            if num ==13: assert inp ==None; assert sta is None
+        assert inp is None
+        assert num == 13
+        assert sta.name == '3'
 
 
 import binascii
@@ -305,7 +440,7 @@ def to_hex( data, nbytes ):
 
 
 def test_codecs():
-    # In Python3, the greenery FSM is able to handle the Unicode str type; under
+    # In Python3, the greenery.fsm is able to handle the Unicode str type; under
     # Python2, it can sanely only handle the non-Unicode str type.
     if sys.version_info.major < 3:
         return
@@ -320,54 +455,45 @@ def test_codecs():
         'This contains π,π and more πs',
         'a 480Ω resistor',
         ]
-    '''
+
     for text in texts:
-        encoded = text.encode('utf-8')
-        decoded = encoded.decode('utf-8')
+        # First, convert the unicode regex to a state machine in unicode symbols.
+        with cpppo.regex( name='pies', initial='.*π.*' ) as pies:
+            source			= cpppo.chainable( text )
+            data			= cpppo.dotdict()
+            for mch, sta in pies.run( source=source, data=data ):
+                if sta is None:
+                    log.info( "%sr done", cpppo.centeraxis( mch, 25, clip=True ))
+                    break
+                log.info( "%s reports %s", cpppo.centeraxis( mch, 25, clip=True ), sta )
+            log.info( "%s ends in %s: %s: %r", cpppo.centeraxis( mch, 25, clip=True ), sta,
+                      "string accepted" if sta and sta.terminal else "string rejected", data )
         
-        print( 'Original : "%s"' % text, repr( text ))
-        print( 'Encoded  : ', to_hex( encoded, 1 ), type( encoded ))
-        print( 'Decoded  : "%s"' % decoded, repr( decoded ), type( decoded ))
-    '''
+            # Each of these are greedy, and so run 'til the end of input (next state
+            # is None); they collect the full input string.
+            assert ( sta is not None and sta.terminal ) == ( 'π' in text )
+            assert data._input.tounicode() == text
 
     for text in texts:
-        # First, convert the unicode fsm to a state machine in unicode symbols.
-        pies			= cpppo.fsm( name='pies', initial='.*π.*' )
-        
-        source			= cpppo.chainable( text )
-        data			= cpppo.dotdict()
-        for mch, sta in pies.run( source=source, data=data, greedy=True ):
-            if sta is None:
-                log.info( "%sr done", misc.centeraxis( mch, 25, clip=True ))
-                break
-            log.info( "%s reports %s", misc.centeraxis( mch, 25, clip=True ), sta )
-        log.info( "%s ends in %s: %s: %r", misc.centeraxis( mch, 25, clip=True ), sta,
-                  "string accepted" if sta and sta.terminal else "string rejected", data )
-
-        # Each of these are greedy, and so run 'til the end of input (next state
-        # is None); they collect the full input string.
-        assert ( sta is not None and sta.terminal ) == ( 'π' in text )
-        assert data._input.tounicode() == text
-
-    for text in texts:
-        # Then convert the unicode fsm to a state machine in bytes symbols.
+        # Then convert the unicode regex to a state machine in bytes symbols.
         # Our encoder generates 1 or more bytes for each unicode symbol.
 
-        pies			= cpppo.fsm( name='pies', initial='.*π.*', 
-                                             fsm_alphabet=int,
-                                             fsm_typecode='B',
-                                             fsm_encoder=lambda s: ( b for b in s.encode( 'utf-8' )))
+        pies			= cpppo.regex( name='pies', initial='.*π.*', 
+                                               regex_alphabet=int,
+                                               regex_typecode='B',
+                                               regex_encoder=lambda s: ( b for b in s.encode( 'utf-8' )))
         
         source			= cpppo.chainable( text.encode( 'utf-8' ))
         data			= cpppo.dotdict()
 
-        for mch, sta in pies.run( source=source, data=data, greedy=True ):
-            if sta is None:
-                log.info( "%sr done", misc.centeraxis( mch, 25, clip=True ))
-                break
-            log.info( "%s reports %s", misc.centeraxis( mch, 25, clip=True ), sta )
-        log.info( "%s ends in %s: %s: %r", misc.centeraxis( mch, 25, clip=True ), sta,
-                  "string accepted" if sta and sta.terminal else "string rejected", data )
-
-        assert ( sta is not None and sta.terminal ) == ( 'π' in text )
-        assert data._input.tobytes().decode('utf-8') == text
+        with pies:
+            for mch, sta in pies.run( source=source, data=data ):
+                if sta is None:
+                    log.info( "%sr done", cpppo.centeraxis( mch, 25, clip=True ))
+                    break
+                log.info( "%s reports %s", cpppo.centeraxis( mch, 25, clip=True ), sta )
+            log.info( "%s ends in %s: %s: %r", cpppo.centeraxis( mch, 25, clip=True ), sta,
+                      "string accepted" if sta and sta.terminal else "string rejected", data )
+            
+            assert ( sta is not None and sta.terminal ) == ( 'π' in text )
+            assert data._input.tobytes().decode('utf-8') == text
