@@ -44,7 +44,7 @@ from .dotdict import *
 
 log				= logging.getLogger( __package__ )
 log_cfg				= {
-    "level":	logging.DEBUG,
+    "level":	logging.INFO,
     "datefmt":	'%m-%d %H:%M',
     "format":	'%(asctime)s.%(msecs).03d %(name)-8.8s %(levelname)-8.8s %(funcName)-10.10s %(message)s',
 }
