@@ -7,6 +7,82 @@
 
 ** Deterministic Finite Automata
 
-   A cpppo.dfa will consume its input source, yielding states 'til a terminal
-   state is reached.
+   A cpppo.dfa will consume symbols from its source iterable, and yield
+   (machine,state) transitions 'til a terminal state is reached.  If 'greedy',
+   it will transition 'til we reach a terminal state and the next symbol does
+   not product a transition.
 
+   For example, if 'abbb,ab' is presented to the following machine with a
+   no-input state E, and input processing states A and (terminal) B, it will
+   accept 'ab' and terminate, unless greedy is specified in which case it will
+   accept 'abbb' and terminate.
+
+   #+BEGIN_EXAMPLE
+       +-----+ 'a' +-----+ 'b' +=====+  'b'
+       |  E  |---->|  A  |---->|| B || ----+
+       +-----+     +-----+     +=====+     |
+                                  ^        |
+                                  +--------+
+   #+END_EXAMPLE
+
+   This machine is easily created like this:
+
+   #+BEGIN_SRC python
+   # Basic DFA that accepts ab+
+   E			= cpppo.state( "E" )
+   A			= cpppo.state_input( "A" )
+   B			= cpppo.state_input( "B", terminal=True )
+   E['a']		= A
+   A['b']		= B
+   B['b']		= B
+   #+END_SRC
+
+
+   A higher-level DFA can be produced by wrapping this one in a cpppo.dfa, and
+   giving it some of its own transitions.  For example, lets make a machine that
+   accepts 'ab+' separated by ',[ ]*'.
+
+   #+BEGIN_EXAMPLE
+                          +------------------------------+    
+                          v                              |
+       +----------------------------------------+        | None
+       | CSV                                    |        |
+       |  +-----+ 'a' +-----+ 'b' +=====+  'b'  | ',' +-----+ ' '
+       |  |  E  |---->|  A  |---->|| B ||----+  |---->| SEP |----+
+       |  +-----+     +-----+     +=====+    |  |     +-----+    |
+       |                             ^       |  |        ^       |
+       |                             +-------+  |        +-------+
+       +----------------------------------------+
+   #+END_EXAMPLE
+
+   This is implemented:
+
+   #+BEGIN_SRC python
+   # Composite state machine accepting ab+, ignoring ,[ ]* separators
+   CSV			= cpppo.dfa( "CSV", initial=E )
+   SEP			= cpppo.state_discard( "SEP" )
+   CSV[',']		= SEP
+   SEP[' ']		= SEP
+   SEP[None]		= CSV
+   #+END_SRC
+
+   When the lower level state machine doesn't recognize the input symbol for a
+   transition, the higher level machine is given a chance to recognize them; in
+   this case, a ',' followed by any number of spaces leads to a state_discard
+   instance, which throws away the symbol.  Finally, it uses an "epsilon"
+   (no-input) transition (indicated by a transition on None) to re-enter the
+   main CSV machine to process subsequent symbols.
+    
+   These state machines define the grammar for a language which can be run
+   against a sentence of input:
+
+   #+BEGIN_SRC python
+   for initial in (E, CSV):
+       data		= cpppo.dotdict()
+       source		= cpppo.peekable( str( 'abbbb, ab' ))
+       with cpppo.dfa( initial=initial ) as machine:
+           for i,(m,s) in enumerate( machine.run( source=source, path="DFA", data=data )):
+               print( "%s #%3d; next byte %3d: %-10.10r: %r" % (
+                      m.name_centered(), i, source.sent, source.peek(), data ))
+       print( "Accepted: %r; remaining: %r\n" % ( data, ''.join( source )))
+    #+END_SRC

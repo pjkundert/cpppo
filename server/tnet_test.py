@@ -3,6 +3,7 @@ from __future__ import absolute_import
 from __future__ import print_function
 from __future__ import unicode_literals
 
+import json
 import logging
 import multiprocessing
 import os
@@ -25,9 +26,10 @@ if __name__ == "__main__" and __package__ is None:
 
 import cpppo
 from   cpppo        import misc
-from   cpppo.server import *
-
-from   .            import tnetstrings # reference implementation
+import cpppo.server
+from   cpppo.server import network
+from   cpppo.server import tnet
+from   cpppo.server import tnetstrings # reference implementation
 
 logging.basicConfig( **cpppo.log_cfg )
 log				= logging.getLogger( "tnet.cli")
@@ -38,10 +40,11 @@ def test_tnet_machinery():
     path			= "machinery"
     SIZE			= tnet.integer_parser( name="SIZE", context="size" )
     data			= cpppo.dotdict()
-    source			= cpppo.chainable( b'123' )
-    for m,s in SIZE.run( source=source, data=data, path=path ):
-        if s is None:
-            break
+    source			= cpppo.chainable( b'123:' )
+    with SIZE:
+        for m,s in SIZE.run( source=source, data=data, path=path ):
+            if s is None:
+                break
     log.info( "After SIZE: %r", data )
     assert s and s.terminal
     assert data.machinery.size == 123
@@ -50,60 +53,77 @@ def test_tnet_machinery():
     DATA			= tnet.data_parser(
         name="DATA", context="data", repeat="..size" )
     source.chain( b"abc" * 123 )
-    for m,s in DATA.run( source=source, data=data, path=path ):
-        if s is None:
-            break
+    with DATA:
+        for m,s in DATA.run( source=source, data=data, path=path ):
+            if s is None:
+                break
     log.info( "After DATA: %r", data )
     
 
 def test_tnet():
-    tv				= [
+    testvec			= [
         "The π character is called pi",
     ]
 
-    for t in tv:
-        path			= "tnet"
+    successes			= 0
+    for t in testvec:
+      with tnet.tnet_machine() as tnsmach:
+        path			= "test_tnet"
         tns			= tnetstrings.dump( t )
 
-        tnsmach			= tnet.tnet_machine()
         data			= cpppo.dotdict()
         source			= cpppo.peekable( tns )
 
-        try:
-            for mch, sta in tnsmach.run( source=source, data=data, path=path ):
-                log.info( "%s byte %5d: data: %r",
-                          misc.centeraxis( mch, 25, clip=True ), source.sent, data )
-                log.info("Parsing tnetstring:\n%s\n%s (byte %d)", repr(bytes(tns)),
-                         '-' * (len(repr(bytes(tns[:source.sent])))-1) + '^', source.sent )
-                if sta is None:
-                    break
-            if sta:
-                log.info( "%s byte %5d: data: %r", 
+        for mch, sta in tnsmach.run( source=source, data=data, path=path ):
+            log.info( "%s byte %5d: data: %r",
+                      misc.centeraxis( mch, 25, clip=True ), source.sent, data )
+            log.info("Parsing tnetstring:\n%s\n%s (byte %d)", repr(bytes(tns)),
+                     '-' * (len(repr(bytes(tns[:source.sent])))-1) + '^', source.sent )
+            if sta is None:
+                break
+        if sta is None:
+            # Ended in a non-terminal state
+            log.info( "%s byte %5d: failure: data: %r; Not terminal; unrecognized", 
+                      misc.centeraxis( tnsmach, 25, clip=True ), source.sent, data )
+        else:
+            # Ended in a terminal state.
+            if source.peek() is None:
+                log.info( "%s byte %5d: success: data: %r", 
                           misc.centeraxis( tnsmach, 25, clip=True ), source.sent, data )
-        finally:
-            log.info("Parsing tnetstring:\n%r", data )
+                successes      += 1
+            else:
+                log.info( "%s byte %5d: failure: data: %r; Terminal, but TNET string input wasn't consumed",
+                          misc.centeraxis( tnsmach, 25, clip=True ), source.sent, data )
+
+    assert successes == len( testvec )
 
 
-'''
-clisuccess			= {}		# One entry per client number expected
-clicount, clireps		= 5, 10
+
+client_count			= 1
 charrange, chardelay		= (2,10), .01	# split/delay outgoing msgs
-draindelay			= 1   		# long in case server slow, but immediately upon EOF
+draindelay			= 2.0  		# long in case server slow, but immediately upon EOF
 
-def tnet_cli( number, reps ):
-    global clisuccess
-    log.info( "%3d tnet client connecting... PID [%5d]", number, os.getpid() )
+tnet_cli_kwds			= {
+    "tests": [
+        1,
+        "a",
+        str("a"),
+    ],
+}
+
+def tnet_cli( number, tests=None ):
+    log.info( "%3d client connecting... PID [%5d]", number, os.getpid() )
     conn			= socket.socket( socket.AF_INET, socket.SOCK_STREAM )
     conn.connect( tnet.address )
-    log.info( "%3d tnet client connected", number )
+    log.info( "%3d client connected", number )
         
-    sent			= b''
-    rcvd			= b''
+    rcvd			= ''
     try:
-        for r in range( reps ):
-            msg			= ("Client %3d, rep %d\r\n" % ( number, r )).encode()
-            log.info("%3d echo send: %5d: %s", number, len( msg ), reprlib.repr( msg ))
-            sent	       += msg
+        for t in tests:
+            msg			= tnetstrings.dump( t )
+
+            log.info( "%3d test %32s == %5d: %s", number, reprlib.repr( t ), len( msg ), reprlib.repr( msg ))
+
             while msg:
                 out		= min( len( msg ), random.randrange( *charrange ))
                 conn.send( msg[:out] )
@@ -114,61 +134,56 @@ def tnet_cli( number, reps ):
                 # If we drop out immediately and send a socket.shutdown, it'll
                 # sometimes deliver a reset to the server end of the socket,
                 # before delivering the last of the data.
-                rpy		= echo.recv( conn, timeout=chardelay if msg else draindelay )
+                rpy		= network.recv( conn, timeout=chardelay if msg else draindelay )
                 if rpy is not None:
-                    log.info("%3d echo recv: %5d: %s", number, len( rpy ), reprlib.repr( rpy ) if rpy else "EOF" )
+                    log.info( "%3d recv: %5d: %s", number, len( rpy ), reprlib.repr( rpy ) if rpy else "EOF" )
                     if not rpy:
                         raise Exception( "Server closed connection" )
-                    rcvd       += rpy
+                    rcvd       += rpy.decode( "utf-8" )
 
     except KeyboardInterrupt as exc:
-        log.warning( "%3d echo client terminated: %r", number, exc )
+        log.warning( "%3d client terminated: %r", number, exc )
     except Exception as exc:
-        log.warning( "%3d echo client failed: %r\n%s", number, exc, traceback.format_exc() )
+        log.warning( "%3d client failed: %r\n%s", number, exc, traceback.format_exc() )
     finally:
         # One or more packets may be in flight; wait 'til we timeout/EOF
         rpy			= True
         while rpy: # neither None (timeout) nor b'' (EOF)
-            rpy			= echo.drain( conn, timeout=draindelay )
+            rpy			= network.drain( conn, timeout=draindelay )
             if rpy is not None:
-                log.info("%3d echo drain %5d: %s", number, len( rpy ), reprlib.repr( rpy ) if rpy else "EOF" )
-                rcvd   	       += rpy
+                log.info( "%3d drain %5d: %s", number, len( rpy ), reprlib.repr( rpy ) if rpy else "EOF" )
+                rcvd   	       += rpy.decode( "utf-8" )
 
-    # Count the number of success/failures reported by the Echo client threads
-    success			= ( rcvd == sent )
-    clisuccess[number]		= success
-    if not success:
-        log.warning( "%3d echo client failed: %s != %s sent", number, reprlib.repr( rcvd ), reprlib.repr( sent ))
+    # Count the number of successfully matched JSON decodes
+    successes			= 0
+    i 				= 0
+    for i, (t, r) in enumerate( zip( tests, rcvd.split( '\n\n' ))):
+        e			= json.dumps( t )
+        log.info( "%3d test #%3d: %32s --> %s", number, i, reprlib.repr( t ), reprlib.repr( e ))
+        if r == e:
+            successes	       += 1
+        else:
+            log.warning( "%3d test #%3d: %32s got %s", number, i, reprlib.repr( t ), reprlib.repr( e ))
+        
+    failed			= successes != len( tests )
+    if failed:
+        log.warning( "%3d client failed: %d/%d tests succeeded", number, successes, len( tests ))
     
-    log.info( "%3d echo client exited", number )
+    log.info( "%3d client exited", number )
+    return failed
 
 
-def test_tnet():
-    # Tries to start  a server; will fail if one already bound to port
-    log.info( "Server startup..." )
-    server			= multiprocessing.Process( target=tnet.main )
-    server.start()
-    time.sleep( .25 )
+def test_bench():
+    failed			= cpppo.server.network.bench( server_func=tnet.main,
+                                                 client_func=tnet_cli, client_count=client_count, 
+                                                 client_kwds=tnet_cli_kwds )
+    if failed:
+        log.warning( "Failure" )
+    else:
+        log.info( "Succeeded" )
 
-    try:
-        log.info( "Client tests: %d", clicount )
-        threads			= []
-        for i in range( clicount ):
-            threads.append( threading.Thread( target=tnet_cli, args=(i,clireps) ))
-        
-        [ t.start() for t in threads ]
-        
-        [ t.join() for t in threads ]
-        assert len( clisuccess ) == clicount
-        failures		= clicount - sum( clisuccess.values() )
-        assert not failures, "%d tnet clients reported mismatching results" % failures
+    return failed
 
-        log.info( "Client tests done" )
-
-    finally:
-        server.terminate()
-        server.join()
 
 if __name__ == "__main__":
-    test_tnet()
-'''
+    sys.exit( test_bench() )

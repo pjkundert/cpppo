@@ -56,12 +56,12 @@ if __name__ == "__main__":
 
 log				= logging.getLogger( "echo.srv" )
 
-class echo_fsm( cpppo.fsm_bytes_input ):
-    """Collects a line of bytes data out of our fsm's state_input data at
+class echo_regex( cpppo.regex_bytes_input ):
+    """Collects a line of bytes data out of our regex dfa's state_input data at
     path.context_, and into data artifact, at path.context (default is
     'echo')"""
     def __init__( self, name=None, initial='.*\n', context="echo", **kwds ):
-        super( echo_fsm, self ).__init__( name=name, initial=initial, context=context, **kwds )
+        super( echo_regex, self ).__init__( name=name, initial=initial, context=context, **kwds )
 
 
 def echo_machine( name=None ):
@@ -70,8 +70,7 @@ def echo_machine( name=None ):
     echo.transition to trigger .process (which resets our sub-machine to initial
     state), and then we move to the next state (loops), allowing us to
     immediately run."""
-    machine			= echo_fsm( name=name, terminal=True )
-    machine[None]		= machine
+    machine			= echo_regex( name=name )
     return machine
 
 
@@ -79,97 +78,36 @@ def echo_server( conn, addr ):
     """Serve one echo client 'til EOF; then close the socket"""
     source			= cpppo.chainable()
     data			= cpppo.dotdict()
-    echo_line			= echo_machine( "echo_%s" % addr[1] )
-    sequence			= echo_line.run( source=source, data=data, greedy=False )
-    while True:
-        msg			= recv( conn, timeout=None ) # blocking
-        if not msg: # None or empty
-            log.info( "%s recv: %s", misc.centeraxis( echo_line, 25, clip=True ),
-                      repr( msg ) if msg else "EOF" )
-            break
-        source.chain( msg )
-        log.info( "%s recv: %5d: %s", misc.centeraxis( echo_line, 25, clip=True ), 
-                  len( msg ), repr( msg ))
-
-        # See if a line has been recognized, stopping at terminal state
-        for mch, sta in sequence:
-            if sta is None:
-                break # No more transitions available on source input, but not terminal
-        if sta:
-            # Terminal state.  Echo, and reset to recognize the next new line of input
-            log.info( "%s: data: %r", misc.centeraxis( echo_line, 25, clip=True ), data )
-            conn.send( data.echo )
-            echo_line.reset()
-            sequence		= echo_line.run( source=source, data=data, greedy=False )
-        else:
-            # Out of input, no complete line of echo input acquired.  Wait for more.
-            log.debug( "%s: end of input", misc.centeraxis( echo_line, 25, clip=True ))
- 
-    log.info( "%s done: %s" % ( misc.centeraxis( echo_line, 25, clip=True ), repr( data )))
-
-
-class server_thread( threading.Thread ):
-    """A generic server handler.  Supply a handler taking an open socket
-    connection to target=... Assumes at least one or two arg=(conn,[addr,[...]])"""
-    def __init__( self, **kwds ):
-        super( server_thread, self ).__init__( **kwds )
-        self.conn		= kwds['args'][0]
-        self.addr	        = kwds['args'][1] if len( kwds['args'] ) > 1 else None
-
-    def run( self ):
-        log.info("%s.echo service PID [%5d/%5d] starting on %r",
-                 __package__, os.getpid(), self.ident, self.addr )
-        try:
-            super( server_thread, self ).run()
-        except Exception as exc:
-            log.warning( "%s.echo service failure: %r\n%s", __package__,
-                         exc, traceback.format_exc() )
-        log.info("%s.echo service PID [%5d/%5d] stopping on %r",
-                 __package__, os.getpid(), self.ident, self.addr )
-
-    def join( self ):
-        try:
-            self.conn.shutdown( socket.SHUT_WR )
-        except:
-            pass
-        result			= super( server_thread, self ).join()
-        if not self.is_alive():
-            log.info("%s.echo service PID [%5d/%5d] complete on %r", 
-                     __package__, os.getpid(), self.ident, self.addr )
+    with echo_machine( "echo_%s" % addr[1] ) as echo_line:
+        sequence		= echo_line.run( source=source, data=data, greedy=False )
+        while True:
+            msg			= recv( conn, timeout=None ) # blocking
+            log.info( "%s recv: %5d: %s", misc.centeraxis( echo_line, 25, clip=True ), 
+                      len( msg ), repr( msg ) if msg else "EOF" )
+            if not msg: # None or empty
+                break
+            source.chain( msg )
+        
+            # See if a line has been recognized, stopping at terminal state
+            for mch, sta in sequence:
+                if sta is None:
+                    break # No more transitions available on source input, but not terminal
+            if sta:
+                # Terminal state.  Echo, and reset to recognize the next new line of input
+                log.info( "%s: data: %r", misc.centeraxis( echo_line, 25, clip=True ), data )
+                conn.send( data.echo )
+                echo_line.reset()
+                sequence	= echo_line.run( source=source, data=data, greedy=False )
+            else:
+                # Out of input, no complete line of echo input acquired.  Wait for more.
+                log.debug( "%s: end of input", misc.centeraxis( echo_line, 25, clip=True ))
+        
+        log.info( "%s done: %s" % ( misc.centeraxis( echo_line, 25, clip=True ), repr( data )))
 
 
 def main():
-    sock			= socket.socket( socket.AF_INET, socket.SOCK_STREAM )
-    sock.setsockopt( socket.SOL_SOCKET, socket.SO_REUSEADDR, 1 ) # Avoid delay on next bind due to TIME_WAIT
-    sock.bind( address )
-    sock.listen( 100 ) # How may simultaneous unaccepted connection requests
+    return server_main( address, echo_server )
 
-    threads			= {}
-    log.info("%s.echo service PID [%5d] running on %r", __package__, os.getpid(), address )
-    done			= False
-    while not done:
-        try:
-            acceptable		= accept( sock, timeout=.1 )
-            if acceptable:
-                conn, addr	= acceptable
-                threads[addr]	= server_thread( target=echo_server, args=(conn, addr) )
-                threads[addr].start()
-        except KeyboardInterrupt as exc:
-            log.warning("%s.echo service termination: %r", __package__, exc )
-            done		= True
-        except Exception as exc:
-            log.warning("%s.echo service failure: %r\n%s", __package__,
-                        exc, traceback.format_exc() )
-            done		= True
-        finally:
-            for addr in list( threads ):
-                if done or not threads[addr].is_alive():
-                    threads[addr].join()
-                    del threads[addr]
-
-    sock.close()
-    log.info("%s.echo service PID [%5d] shutting down", __package__, os.getpid() )
-    return 0
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit( main() )
