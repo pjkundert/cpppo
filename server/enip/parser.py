@@ -54,55 +54,71 @@ if __name__ == "__main__":
 
 log				= logging.getLogger( "enip.srv" )
 
+# 
+# octets_base	-- A dfa_base mixin that defaults to scan octets from bytes data
+# 
+# octets	-- Scans octets to <context>_input, but does nothing with them
+# octets_struct	-- Scans octets sufficient to fulfill struct 'format', and parses
+# 
 class octets_base( cpppo.dfa_base ):
-    """Parses 'repeat' octets (default: 1).  """
+    """Scan 'repeat' octets (default: 1), using an instance of the provided octets_state class as the
+    sub-machine 'initial' state."""
     def __init__( self, name, initial=None,
                   octets_state=cpppo.state_input,
                   octets_alphabet=cpppo.type_bytes_iter,
                   octets_encoder=None,
-                  octets_typecode=cpppo.type_bytes_array_symbol,
-                  context=None, **kwds ):
+                  octets_typecode=cpppo.type_bytes_array_symbol, **kwds ):
         assert initial is None, "Cannot specify a sub-machine for %s.%s" % (
             __package__, self.__class__.__name__ )
-        super( octets_base, self ).__init__( name=name, context=context, initial=octets_state(
+        super( octets_base, self ).__init__( name=name, initial=octets_state(
             name="scan", terminal=True, alphabet=octets_alphabet, encoder=octets_encoder,
             typecode=octets_typecode ), **kwds )
    
 
 class octets( octets_base, cpppo.state ):
+    """Scans octets, but doesn't itself perform any processing."""
     pass
 
 class octets_struct( octets_base, cpppo.state_struct ):
-    """Scans octets sufficient to satisfy the spcified struct 'format', and then parses it."""
+    """Scans octets sufficient to satisfy the specified struct 'format', and then parses it."""
     def __init__( self, name, format=None, **kwds ):
         assert isinstance( format, str ), "Expected a struct 'format', found: %r" % format
         super( octets_struct, self ).__init__( name=name, repeat=struct.calcsize( format ),
                                                format=format, **kwds )
 
+
+
+class uint( octets_struct ):
+    """An EtherNet/IP UINT; 16-bit little-endian unsigned integer"""
+    def __init__( self, name, **kwds ):
+        super( uint, self ).__init__( name=name, format='<H', **kwds )
+
+class udint( octets_struct ):
+    """An EtherNet/IP UDINT; 32-bit little-endian unsigned integer"""
+    def __init__( self, name, **kwds ):
+        super( udint, self ).__init__( name=name, format='<I', **kwds )
+        
+class array( octets_struct ):
+    def __init__( self, name, repeat=None, **kwds ):
+        assert repeat is not None, "Must specify octet array size in 'repeat'"
+        super( array, self ).__init__( name=name, format=cpppo.type_bytes_array_symbol, **kwds )
     
-'''
-class octet( cpppo.dfa ):
-    """Parses the specified count of octets into <context>_input.  Default to parse a raw bytes source alphabet."""
-    def __init__( self, name, count=None, context=None, alphabet=cpppo.type_bytes_iter,
-                  **kwds):
-        assert count is not None, "Must specify a count of octets to parse"
-        read		= cpppo.dfa(   "read",
-                                       initial=state_input( "byte", context=context, terminal=True ),
-                                       repeat=count )
-        final		= cpppo.state( "done", terminal=True )
-        read[None]	= final
-        super( octets, self ).__init__( name, initial=read, **kwds )
+class enip_header( cpppo.dfa ):
+    """Scans an EtherNet/IP encapsulation header:
+    
+        data.<context>.command		uint
+        data.<context>.length		uint
+        data.<context>.session_handle	udint
+        data.<context>.status		udint
+        data.<context>.sender_context	array[8]
+        data.<context>.options		udint
 
-
-class struct( cpppo.dfa ):
-    """From the size of the specified struct format, parses and then converts the
-    required number of octets.
-
-    """
-    def __init__( self, name, format, **kwds ):
-        count		= struct
-        convert		= cpppo.state_struct( "convert", format )
-
-
-
-'''
+    Does *not* scan the command-specific data which (normally) follows the header."""
+    def __init__( self, name, **kwds ):
+        cmnd			= uint(  "command",		context="command" )
+        cmnd[None] = leng	= uint(  "length",		context="length" )
+        leng[None] = sess	= udint( "session_handle",	context="session_handle" )
+        sess[None] = ctxt	= array( "sender_context",	context="sender_context", repeat=8 )
+        ctxt[None] = opts	= udint( "options",		context="options" )
+        opts[None]		= cpppo.state( "done", terminal=True )
+        super( enip_header, self ).__init__( name=name, initial=cmnd, **kwds )

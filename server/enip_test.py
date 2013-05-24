@@ -48,8 +48,8 @@ def test_octets_struct():
 
     data			= cpppo.dotdict()
     source			= cpppo.chainable( b'abc123' )
-    name			= "ushort"
-    format			= "<H"
+    name			= 'ushort'
+    format			= '<H'
     with enip.octets_struct( name, format=format, context=name ) as machine:
         for i,(m,s) in enumerate( machine.run( source=source, path='octets_struct', data=data )):
             log.info( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r", m.name_centered(),
@@ -59,3 +59,24 @@ def test_octets_struct():
 
     assert data.octets_struct.ushort_input.tostring() == b'ab'
     assert data.octets_struct.ushort == 25185
+
+def test_enip():
+    reg_ses_request 		= bytes(bytearray([
+                                            0x65, 0x00, #/* 9.....e. */
+        0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, #/* ........ */
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, #/* ........ */
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, #/* ........ */
+        0x00, 0x00                                      #/* .. */
+    ]))
+
+    data			= cpppo.dotdict()
+    source			= cpppo.chainable( reg_ses_request )
+    name			= 'header'
+    with enip.enip_header( name, context=name ) as machine:
+        for i,(m,s) in enumerate( machine.run( source=source, path='enip', data=data )):
+            log.info( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r", m.name_centered(),
+                      i, s, source.sent, source.peek(), data )
+        assert i == 18
+    assert source.peek() == b'\x00'[0]
+
+    assert data.enip.header.command	== 0x0065
