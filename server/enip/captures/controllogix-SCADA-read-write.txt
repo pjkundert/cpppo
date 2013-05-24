@@ -1,0 +1,3006 @@
+No.     Time           Source                Destination           Protocol Length Info
+      1 0.000000000    192.168.222.128       10.220.104.180        TCP      74     44180 > EtherNet-IP-2 [SYN] Seq=0 Win=14600 Len=0 MSS=1460 SACK_PERM=1 TSval=95848 TSecr=0 WS=16
+
+Frame 1: 74 bytes on wire (592 bits), 74 bytes captured (592 bits) on interface 0
+    Interface id: 0
+    WTAP_ENCAP: 1
+    Arrival Time: May  7, 2013 11:27:17.492381000 MST
+    [Time shift for this packet: 0.000000000 seconds]
+    Epoch Time: 1367951237.492381000 seconds
+    [Time delta from previous captured frame: 0.000000000 seconds]
+    [Time delta from previous displayed frame: 0.000000000 seconds]
+    [Time since reference or first frame: 0.000000000 seconds]
+    Frame Number: 1
+    Frame Length: 74 bytes (592 bits)
+    Capture Length: 74 bytes (592 bits)
+    [Frame is marked: False]
+    [Frame is ignored: False]
+    [Protocols in frame: eth:ip:tcp]
+    [Coloring Rule Name: TCP SYN/FIN]
+    [Coloring Rule String: tcp.flags & 0x02 || tcp.flags.fin == 1]
+Ethernet II, Src: Vmware_7a:e2:23 (00:0c:29:7a:e2:23), Dst: Vmware_fb:35:e0 (00:50:56:fb:35:e0)
+    Destination: Vmware_fb:35:e0 (00:50:56:fb:35:e0)
+        Address: Vmware_fb:35:e0 (00:50:56:fb:35:e0)
+        .... ..0. .... .... .... .... = LG bit: Globally unique address (factory default)
+        .... ...0 .... .... .... .... = IG bit: Individual address (unicast)
+    Source: Vmware_7a:e2:23 (00:0c:29:7a:e2:23)
+        Address: Vmware_7a:e2:23 (00:0c:29:7a:e2:23)
+        .... ..0. .... .... .... .... = LG bit: Globally unique address (factory default)
+        .... ...0 .... .... .... .... = IG bit: Individual address (unicast)
+    Type: IP (0x0800)
+Internet Protocol Version 4, Src: 192.168.222.128 (192.168.222.128), Dst: 10.220.104.180 (10.220.104.180)
+    Version: 4
+    Header length: 20 bytes
+    Differentiated Services Field: 0x00 (DSCP 0x00: Default; ECN: 0x00: Not-ECT (Not ECN-Capable Transport))
+        0000 00.. = Differentiated Services Codepoint: Default (0x00)
+        .... ..00 = Explicit Congestion Notification: Not-ECT (Not ECN-Capable Transport) (0x00)
+    Total Length: 60
+    Identification: 0xac5a (44122)
+    Flags: 0x02 (Don't Fragment)
+        0... .... = Reserved bit: Not set
+        .1.. .... = Don't fragment: Set
+        ..0. .... = More fragments: Not set
+    Fragment offset: 0
+    Time to live: 64
+    Protocol: TCP (6)
+    Header checksum: 0x7ba8 [correct]
+        [Good: True]
+        [Bad: False]
+    Source: 192.168.222.128 (192.168.222.128)
+    Destination: 10.220.104.180 (10.220.104.180)
+    [Source GeoIP: Unknown]
+    [Destination GeoIP: Unknown]
+Transmission Control Protocol, Src Port: 44180 (44180), Dst Port: EtherNet-IP-2 (44818), Seq: 0, Len: 0
+    Source port: 44180 (44180)
+    Destination port: EtherNet-IP-2 (44818)
+    [Stream index: 0]
+    Sequence number: 0    (relative sequence number)
+    Header length: 40 bytes
+    Flags: 0x002 (SYN)
+        000. .... .... = Reserved: Not set
+        ...0 .... .... = Nonce: Not set
+        .... 0... .... = Congestion Window Reduced (CWR): Not set
+        .... .0.. .... = ECN-Echo: Not set
+        .... ..0. .... = Urgent: Not set
+        .... ...0 .... = Acknowledgment: Not set
+        .... .... 0... = Push: Not set
+        .... .... .0.. = Reset: Not set
+        .... .... ..1. = Syn: Set
+            [Expert Info (Chat/Sequence): Connection establish request (SYN): server port EtherNet-IP-2]
+                [Message: Connection establish request (SYN): server port EtherNet-IP-2]
+                [Severity level: Chat]
+                [Group: Sequence]
+        .... .... ...0 = Fin: Not set
+    Window size value: 14600
+    [Calculated window size: 14600]
+    Checksum: 0x12e8 [validation disabled]
+        [Good Checksum: False]
+        [Bad Checksum: False]
+    Options: (20 bytes), Maximum segment size, SACK permitted, Timestamps, No-Operation (NOP), Window scale
+        Maximum segment size: 1460 bytes
+            Kind: MSS size (2)
+            Length: 4
+            MSS Value: 1460
+        TCP SACK Permitted Option: True
+            Kind: SACK Permission (4)
+            Length: 2
+        Timestamps: TSval 95848, TSecr 0
+            Kind: Timestamp (8)
+            Length: 10
+            Timestamp value: 95848
+            Timestamp echo reply: 0
+        No-Operation (NOP)
+            Type: 1
+                0... .... = Copy on fragmentation: No
+                .00. .... = Class: Control (0)
+                ...0 0001 = Number: No-Operation (NOP) (1)
+        Window scale: 4 (multiply by 16)
+            Kind: Window Scale (3)
+            Length: 3
+            Shift count: 4
+            [Multiplier: 16]
+
+0000  00 50 56 fb 35 e0 00 0c 29 7a e2 23 08 00 45 00   .PV.5...)z.#..E.
+0010  00 3c ac 5a 40 00 40 06 7b a8 c0 a8 de 80 0a dc   .<.Z@.@.{.......
+0020  68 b4 ac 94 af 12 98 18 da 32 00 00 00 00 a0 02   h........2......
+0030  39 08 12 e8 00 00 02 04 05 b4 04 02 08 0a 00 01   9...............
+0040  76 68 00 00 00 00 01 03 03 04                     vh........
+
+No.     Time           Source                Destination           Protocol Length Info
+      2 0.000349000    10.220.104.180        192.168.222.128       TCP      60     EtherNet-IP-2 > 44180 [SYN, ACK] Seq=0 Ack=1 Win=64240 Len=0 MSS=1460
+
+Frame 2: 60 bytes on wire (480 bits), 60 bytes captured (480 bits) on interface 0
+    Interface id: 0
+    WTAP_ENCAP: 1
+    Arrival Time: May  7, 2013 11:27:17.492730000 MST
+    [Time shift for this packet: 0.000000000 seconds]
+    Epoch Time: 1367951237.492730000 seconds
+    [Time delta from previous captured frame: 0.000349000 seconds]
+    [Time delta from previous displayed frame: 0.000349000 seconds]
+    [Time since reference or first frame: 0.000349000 seconds]
+    Frame Number: 2
+    Frame Length: 60 bytes (480 bits)
+    Capture Length: 60 bytes (480 bits)
+    [Frame is marked: False]
+    [Frame is ignored: False]
+    [Protocols in frame: eth:ip:tcp]
+    [Coloring Rule Name: TCP SYN/FIN]
+    [Coloring Rule String: tcp.flags & 0x02 || tcp.flags.fin == 1]
+Ethernet II, Src: Vmware_fb:35:e0 (00:50:56:fb:35:e0), Dst: Vmware_7a:e2:23 (00:0c:29:7a:e2:23)
+    Destination: Vmware_7a:e2:23 (00:0c:29:7a:e2:23)
+        Address: Vmware_7a:e2:23 (00:0c:29:7a:e2:23)
+        .... ..0. .... .... .... .... = LG bit: Globally unique address (factory default)
+        .... ...0 .... .... .... .... = IG bit: Individual address (unicast)
+    Source: Vmware_fb:35:e0 (00:50:56:fb:35:e0)
+        Address: Vmware_fb:35:e0 (00:50:56:fb:35:e0)
+        .... ..0. .... .... .... .... = LG bit: Globally unique address (factory default)
+        .... ...0 .... .... .... .... = IG bit: Individual address (unicast)
+    Type: IP (0x0800)
+    Padding: 0000
+Internet Protocol Version 4, Src: 10.220.104.180 (10.220.104.180), Dst: 192.168.222.128 (192.168.222.128)
+    Version: 4
+    Header length: 20 bytes
+    Differentiated Services Field: 0x00 (DSCP 0x00: Default; ECN: 0x00: Not-ECT (Not ECN-Capable Transport))
+        0000 00.. = Differentiated Services Codepoint: Default (0x00)
+        .... ..00 = Explicit Congestion Notification: Not-ECT (Not ECN-Capable Transport) (0x00)
+    Total Length: 44
+    Identification: 0x8320 (33568)
+    Flags: 0x00
+        0... .... = Reserved bit: Not set
+        .0.. .... = Don't fragment: Not set
+        ..0. .... = More fragments: Not set
+    Fragment offset: 0
+    Time to live: 128
+    Protocol: TCP (6)
+    Header checksum: 0xa4f2 [correct]
+        [Good: True]
+        [Bad: False]
+    Source: 10.220.104.180 (10.220.104.180)
+    Destination: 192.168.222.128 (192.168.222.128)
+    [Source GeoIP: Unknown]
+    [Destination GeoIP: Unknown]
+Transmission Control Protocol, Src Port: EtherNet-IP-2 (44818), Dst Port: 44180 (44180), Seq: 0, Ack: 1, Len: 0
+    Source port: EtherNet-IP-2 (44818)
+    Destination port: 44180 (44180)
+    [Stream index: 0]
+    Sequence number: 0    (relative sequence number)
+    Acknowledgment number: 1    (relative ack number)
+    Header length: 24 bytes
+    Flags: 0x012 (SYN, ACK)
+        000. .... .... = Reserved: Not set
+        ...0 .... .... = Nonce: Not set
+        .... 0... .... = Congestion Window Reduced (CWR): Not set
+        .... .0.. .... = ECN-Echo: Not set
+        .... ..0. .... = Urgent: Not set
+        .... ...1 .... = Acknowledgment: Set
+        .... .... 0... = Push: Not set
+        .... .... .0.. = Reset: Not set
+        .... .... ..1. = Syn: Set
+            [Expert Info (Chat/Sequence): Connection establish acknowledge (SYN+ACK): server port EtherNet-IP-2]
+                [Message: Connection establish acknowledge (SYN+ACK): server port EtherNet-IP-2]
+                [Severity level: Chat]
+                [Group: Sequence]
+        .... .... ...0 = Fin: Not set
+    Window size value: 64240
+    [Calculated window size: 64240]
+    Checksum: 0x2c50 [validation disabled]
+        [Good Checksum: False]
+        [Bad Checksum: False]
+    Options: (4 bytes), Maximum segment size
+        Maximum segment size: 1460 bytes
+            Kind: MSS size (2)
+            Length: 4
+            MSS Value: 1460
+    [SEQ/ACK analysis]
+        [This is an ACK to the segment in frame: 1]
+        [The RTT to ACK the segment was: 0.000349000 seconds]
+
+0000  00 0c 29 7a e2 23 00 50 56 fb 35 e0 08 00 45 00   ..)z.#.PV.5...E.
+0010  00 2c 83 20 00 00 80 06 a4 f2 0a dc 68 b4 c0 a8   .,. ........h...
+0020  de 80 af 12 ac 94 02 ab 8d 7d 98 18 da 33 60 12   .........}...3`.
+0030  fa f0 2c 50 00 00 02 04 05 b4 00 00               ..,P........
+
+No.     Time           Source                Destination           Protocol Length Info
+      3 0.000426000    192.168.222.128       10.220.104.180        TCP      54     44180 > EtherNet-IP-2 [ACK] Seq=1 Ack=1 Win=14600 Len=0
+
+Frame 3: 54 bytes on wire (432 bits), 54 bytes captured (432 bits) on interface 0
+    Interface id: 0
+    WTAP_ENCAP: 1
+    Arrival Time: May  7, 2013 11:27:17.492807000 MST
+    [Time shift for this packet: 0.000000000 seconds]
+    Epoch Time: 1367951237.492807000 seconds
+    [Time delta from previous captured frame: 0.000077000 seconds]
+    [Time delta from previous displayed frame: 0.000077000 seconds]
+    [Time since reference or first frame: 0.000426000 seconds]
+    Frame Number: 3
+    Frame Length: 54 bytes (432 bits)
+    Capture Length: 54 bytes (432 bits)
+    [Frame is marked: False]
+    [Frame is ignored: False]
+    [Protocols in frame: eth:ip:tcp]
+    [Coloring Rule Name: TCP]
+    [Coloring Rule String: tcp]
+Ethernet II, Src: Vmware_7a:e2:23 (00:0c:29:7a:e2:23), Dst: Vmware_fb:35:e0 (00:50:56:fb:35:e0)
+    Destination: Vmware_fb:35:e0 (00:50:56:fb:35:e0)
+        Address: Vmware_fb:35:e0 (00:50:56:fb:35:e0)
+        .... ..0. .... .... .... .... = LG bit: Globally unique address (factory default)
+        .... ...0 .... .... .... .... = IG bit: Individual address (unicast)
+    Source: Vmware_7a:e2:23 (00:0c:29:7a:e2:23)
+        Address: Vmware_7a:e2:23 (00:0c:29:7a:e2:23)
+        .... ..0. .... .... .... .... = LG bit: Globally unique address (factory default)
+        .... ...0 .... .... .... .... = IG bit: Individual address (unicast)
+    Type: IP (0x0800)
+Internet Protocol Version 4, Src: 192.168.222.128 (192.168.222.128), Dst: 10.220.104.180 (10.220.104.180)
+    Version: 4
+    Header length: 20 bytes
+    Differentiated Services Field: 0x00 (DSCP 0x00: Default; ECN: 0x00: Not-ECT (Not ECN-Capable Transport))
+        0000 00.. = Differentiated Services Codepoint: Default (0x00)
+        .... ..00 = Explicit Congestion Notification: Not-ECT (Not ECN-Capable Transport) (0x00)
+    Total Length: 40
+    Identification: 0xac5b (44123)
+    Flags: 0x02 (Don't Fragment)
+        0... .... = Reserved bit: Not set
+        .1.. .... = Don't fragment: Set
+        ..0. .... = More fragments: Not set
+    Fragment offset: 0
+    Time to live: 64
+    Protocol: TCP (6)
+    Header checksum: 0x7bbb [correct]
+        [Good: True]
+        [Bad: False]
+    Source: 192.168.222.128 (192.168.222.128)
+    Destination: 10.220.104.180 (10.220.104.180)
+    [Source GeoIP: Unknown]
+    [Destination GeoIP: Unknown]
+Transmission Control Protocol, Src Port: 44180 (44180), Dst Port: EtherNet-IP-2 (44818), Seq: 1, Ack: 1, Len: 0
+    Source port: 44180 (44180)
+    Destination port: EtherNet-IP-2 (44818)
+    [Stream index: 0]
+    Sequence number: 1    (relative sequence number)
+    Acknowledgment number: 1    (relative ack number)
+    Header length: 20 bytes
+    Flags: 0x010 (ACK)
+        000. .... .... = Reserved: Not set
+        ...0 .... .... = Nonce: Not set
+        .... 0... .... = Congestion Window Reduced (CWR): Not set
+        .... .0.. .... = ECN-Echo: Not set
+        .... ..0. .... = Urgent: Not set
+        .... ...1 .... = Acknowledgment: Set
+        .... .... 0... = Push: Not set
+        .... .... .0.. = Reset: Not set
+        .... .... ..0. = Syn: Not set
+        .... .... ...0 = Fin: Not set
+    Window size value: 14600
+    [Calculated window size: 14600]
+    [Window size scaling factor: -2 (no window scaling used)]
+    Checksum: 0x12d4 [validation disabled]
+        [Good Checksum: False]
+        [Bad Checksum: False]
+    [SEQ/ACK analysis]
+        [This is an ACK to the segment in frame: 2]
+        [The RTT to ACK the segment was: 0.000077000 seconds]
+
+0000  00 50 56 fb 35 e0 00 0c 29 7a e2 23 08 00 45 00   .PV.5...)z.#..E.
+0010  00 28 ac 5b 40 00 40 06 7b bb c0 a8 de 80 0a dc   .(.[@.@.{.......
+0020  68 b4 ac 94 af 12 98 18 da 33 02 ab 8d 7e 50 10   h........3...~P.
+0030  39 08 12 d4 00 00                                 9.....
+
+No.     Time           Source                Destination           Protocol Length Info
+      4 0.000863000    192.168.222.128       10.220.104.180        ENIP     82     Register Session (Req), Session: 0x00000000
+
+Frame 4: 82 bytes on wire (656 bits), 82 bytes captured (656 bits) on interface 0
+    Interface id: 0
+    WTAP_ENCAP: 1
+    Arrival Time: May  7, 2013 11:27:17.493244000 MST
+    [Time shift for this packet: 0.000000000 seconds]
+    Epoch Time: 1367951237.493244000 seconds
+    [Time delta from previous captured frame: 0.000437000 seconds]
+    [Time delta from previous displayed frame: 0.000437000 seconds]
+    [Time since reference or first frame: 0.000863000 seconds]
+    Frame Number: 4
+    Frame Length: 82 bytes (656 bits)
+    Capture Length: 82 bytes (656 bits)
+    [Frame is marked: False]
+    [Frame is ignored: False]
+    [Protocols in frame: eth:ip:tcp:enip]
+    [Coloring Rule Name: TCP]
+    [Coloring Rule String: tcp]
+Ethernet II, Src: Vmware_7a:e2:23 (00:0c:29:7a:e2:23), Dst: Vmware_fb:35:e0 (00:50:56:fb:35:e0)
+    Destination: Vmware_fb:35:e0 (00:50:56:fb:35:e0)
+        Address: Vmware_fb:35:e0 (00:50:56:fb:35:e0)
+        .... ..0. .... .... .... .... = LG bit: Globally unique address (factory default)
+        .... ...0 .... .... .... .... = IG bit: Individual address (unicast)
+    Source: Vmware_7a:e2:23 (00:0c:29:7a:e2:23)
+        Address: Vmware_7a:e2:23 (00:0c:29:7a:e2:23)
+        .... ..0. .... .... .... .... = LG bit: Globally unique address (factory default)
+        .... ...0 .... .... .... .... = IG bit: Individual address (unicast)
+    Type: IP (0x0800)
+Internet Protocol Version 4, Src: 192.168.222.128 (192.168.222.128), Dst: 10.220.104.180 (10.220.104.180)
+    Version: 4
+    Header length: 20 bytes
+    Differentiated Services Field: 0x00 (DSCP 0x00: Default; ECN: 0x00: Not-ECT (Not ECN-Capable Transport))
+        0000 00.. = Differentiated Services Codepoint: Default (0x00)
+        .... ..00 = Explicit Congestion Notification: Not-ECT (Not ECN-Capable Transport) (0x00)
+    Total Length: 68
+    Identification: 0xac5c (44124)
+    Flags: 0x02 (Don't Fragment)
+        0... .... = Reserved bit: Not set
+        .1.. .... = Don't fragment: Set
+        ..0. .... = More fragments: Not set
+    Fragment offset: 0
+    Time to live: 64
+    Protocol: TCP (6)
+    Header checksum: 0x7b9e [correct]
+        [Good: True]
+        [Bad: False]
+    Source: 192.168.222.128 (192.168.222.128)
+    Destination: 10.220.104.180 (10.220.104.180)
+    [Source GeoIP: Unknown]
+    [Destination GeoIP: Unknown]
+Transmission Control Protocol, Src Port: 44180 (44180), Dst Port: EtherNet-IP-2 (44818), Seq: 1, Ack: 1, Len: 28
+    Source port: 44180 (44180)
+    Destination port: EtherNet-IP-2 (44818)
+    [Stream index: 0]
+    Sequence number: 1    (relative sequence number)
+    [Next sequence number: 29    (relative sequence number)]
+    Acknowledgment number: 1    (relative ack number)
+    Header length: 20 bytes
+    Flags: 0x018 (PSH, ACK)
+        000. .... .... = Reserved: Not set
+        ...0 .... .... = Nonce: Not set
+        .... 0... .... = Congestion Window Reduced (CWR): Not set
+        .... .0.. .... = ECN-Echo: Not set
+        .... ..0. .... = Urgent: Not set
+        .... ...1 .... = Acknowledgment: Set
+        .... .... 1... = Push: Set
+        .... .... .0.. = Reset: Not set
+        .... .... ..0. = Syn: Not set
+        .... .... ...0 = Fin: Not set
+    Window size value: 14600
+    [Calculated window size: 14600]
+    [Window size scaling factor: -2 (no window scaling used)]
+    Checksum: 0x9bd1 [validation disabled]
+        [Good Checksum: False]
+        [Bad Checksum: False]
+    [SEQ/ACK analysis]
+        [Bytes in flight: 28]
+    [PDU Size: 28]
+EtherNet/IP (Industrial Protocol), Session: 0x00000000, Register Session
+    Encapsulation Header
+        Command: Register Session (0x0065)
+        Length: 4
+        Session Handle: 0x00000000
+        Status: Success (0x00000000)
+        Sender Context: 0000000000000000
+        Options: 0x00000000
+    Command Specific Data
+        Protocol Version: 1
+        Option Flags: 0x0000
+
+0000  00 50 56 fb 35 e0 00 0c 29 7a e2 23 08 00 45 00   .PV.5...)z.#..E.
+0010  00 44 ac 5c 40 00 40 06 7b 9e c0 a8 de 80 0a dc   .D.\@.@.{.......
+0020  68 b4 ac 94 af 12 98 18 da 33 02 ab 8d 7e 50 18   h........3...~P.
+0030  39 08 9b d1 00 00 65 00 04 00 00 00 00 00 00 00   9.....e.........
+0040  00 00 00 00 00 00 00 00 00 00 00 00 00 00 01 00   ................
+0050  00 00                                             ..
+
+No.     Time           Source                Destination           Protocol Length Info
+      5 0.001030000    10.220.104.180        192.168.222.128       TCP      60     EtherNet-IP-2 > 44180 [ACK] Seq=1 Ack=29 Win=64240 Len=0
+
+Frame 5: 60 bytes on wire (480 bits), 60 bytes captured (480 bits) on interface 0
+    Interface id: 0
+    WTAP_ENCAP: 1
+    Arrival Time: May  7, 2013 11:27:17.493411000 MST
+    [Time shift for this packet: 0.000000000 seconds]
+    Epoch Time: 1367951237.493411000 seconds
+    [Time delta from previous captured frame: 0.000167000 seconds]
+    [Time delta from previous displayed frame: 0.000167000 seconds]
+    [Time since reference or first frame: 0.001030000 seconds]
+    Frame Number: 5
+    Frame Length: 60 bytes (480 bits)
+    Capture Length: 60 bytes (480 bits)
+    [Frame is marked: False]
+    [Frame is ignored: False]
+    [Protocols in frame: eth:ip:tcp]
+    [Coloring Rule Name: TCP]
+    [Coloring Rule String: tcp]
+Ethernet II, Src: Vmware_fb:35:e0 (00:50:56:fb:35:e0), Dst: Vmware_7a:e2:23 (00:0c:29:7a:e2:23)
+    Destination: Vmware_7a:e2:23 (00:0c:29:7a:e2:23)
+        Address: Vmware_7a:e2:23 (00:0c:29:7a:e2:23)
+        .... ..0. .... .... .... .... = LG bit: Globally unique address (factory default)
+        .... ...0 .... .... .... .... = IG bit: Individual address (unicast)
+    Source: Vmware_fb:35:e0 (00:50:56:fb:35:e0)
+        Address: Vmware_fb:35:e0 (00:50:56:fb:35:e0)
+        .... ..0. .... .... .... .... = LG bit: Globally unique address (factory default)
+        .... ...0 .... .... .... .... = IG bit: Individual address (unicast)
+    Type: IP (0x0800)
+    Padding: 000000000000
+Internet Protocol Version 4, Src: 10.220.104.180 (10.220.104.180), Dst: 192.168.222.128 (192.168.222.128)
+    Version: 4
+    Header length: 20 bytes
+    Differentiated Services Field: 0x00 (DSCP 0x00: Default; ECN: 0x00: Not-ECT (Not ECN-Capable Transport))
+        0000 00.. = Differentiated Services Codepoint: Default (0x00)
+        .... ..00 = Explicit Congestion Notification: Not-ECT (Not ECN-Capable Transport) (0x00)
+    Total Length: 40
+    Identification: 0x8321 (33569)
+    Flags: 0x00
+        0... .... = Reserved bit: Not set
+        .0.. .... = Don't fragment: Not set
+        ..0. .... = More fragments: Not set
+    Fragment offset: 0
+    Time to live: 128
+    Protocol: TCP (6)
+    Header checksum: 0xa4f5 [correct]
+        [Good: True]
+        [Bad: False]
+    Source: 10.220.104.180 (10.220.104.180)
+    Destination: 192.168.222.128 (192.168.222.128)
+    [Source GeoIP: Unknown]
+    [Destination GeoIP: Unknown]
+Transmission Control Protocol, Src Port: EtherNet-IP-2 (44818), Dst Port: 44180 (44180), Seq: 1, Ack: 29, Len: 0
+    Source port: EtherNet-IP-2 (44818)
+    Destination port: 44180 (44180)
+    [Stream index: 0]
+    Sequence number: 1    (relative sequence number)
+    Acknowledgment number: 29    (relative ack number)
+    Header length: 20 bytes
+    Flags: 0x010 (ACK)
+        000. .... .... = Reserved: Not set
+        ...0 .... .... = Nonce: Not set
+        .... 0... .... = Congestion Window Reduced (CWR): Not set
+        .... .0.. .... = ECN-Echo: Not set
+        .... ..0. .... = Urgent: Not set
+        .... ...1 .... = Acknowledgment: Set
+        .... .... 0... = Push: Not set
+        .... .... .0.. = Reset: Not set
+        .... .... ..0. = Syn: Not set
+        .... .... ...0 = Fin: Not set
+    Window size value: 64240
+    [Calculated window size: 64240]
+    [Window size scaling factor: -2 (no window scaling used)]
+    Checksum: 0x43f1 [validation disabled]
+        [Good Checksum: False]
+        [Bad Checksum: False]
+    [SEQ/ACK analysis]
+        [This is an ACK to the segment in frame: 4]
+        [The RTT to ACK the segment was: 0.000167000 seconds]
+
+0000  00 0c 29 7a e2 23 00 50 56 fb 35 e0 08 00 45 00   ..)z.#.PV.5...E.
+0010  00 28 83 21 00 00 80 06 a4 f5 0a dc 68 b4 c0 a8   .(.!........h...
+0020  de 80 af 12 ac 94 02 ab 8d 7e 98 18 da 4f 50 10   .........~...OP.
+0030  fa f0 43 f1 00 00 00 00 00 00 00 00               ..C.........
+
+No.     Time           Source                Destination           Protocol Length Info
+      6 0.152924000    10.220.104.180        192.168.222.128       ENIP     82     Register Session (Rsp), Session: 0x11021E01
+
+Frame 6: 82 bytes on wire (656 bits), 82 bytes captured (656 bits) on interface 0
+    Interface id: 0
+    WTAP_ENCAP: 1
+    Arrival Time: May  7, 2013 11:27:17.645305000 MST
+    [Time shift for this packet: 0.000000000 seconds]
+    Epoch Time: 1367951237.645305000 seconds
+    [Time delta from previous captured frame: 0.151894000 seconds]
+    [Time delta from previous displayed frame: 0.151894000 seconds]
+    [Time since reference or first frame: 0.152924000 seconds]
+    Frame Number: 6
+    Frame Length: 82 bytes (656 bits)
+    Capture Length: 82 bytes (656 bits)
+    [Frame is marked: False]
+    [Frame is ignored: False]
+    [Protocols in frame: eth:ip:tcp:enip]
+    [Coloring Rule Name: TCP]
+    [Coloring Rule String: tcp]
+Ethernet II, Src: Vmware_fb:35:e0 (00:50:56:fb:35:e0), Dst: Vmware_7a:e2:23 (00:0c:29:7a:e2:23)
+    Destination: Vmware_7a:e2:23 (00:0c:29:7a:e2:23)
+        Address: Vmware_7a:e2:23 (00:0c:29:7a:e2:23)
+        .... ..0. .... .... .... .... = LG bit: Globally unique address (factory default)
+        .... ...0 .... .... .... .... = IG bit: Individual address (unicast)
+    Source: Vmware_fb:35:e0 (00:50:56:fb:35:e0)
+        Address: Vmware_fb:35:e0 (00:50:56:fb:35:e0)
+        .... ..0. .... .... .... .... = LG bit: Globally unique address (factory default)
+        .... ...0 .... .... .... .... = IG bit: Individual address (unicast)
+    Type: IP (0x0800)
+Internet Protocol Version 4, Src: 10.220.104.180 (10.220.104.180), Dst: 192.168.222.128 (192.168.222.128)
+    Version: 4
+    Header length: 20 bytes
+    Differentiated Services Field: 0x00 (DSCP 0x00: Default; ECN: 0x00: Not-ECT (Not ECN-Capable Transport))
+        0000 00.. = Differentiated Services Codepoint: Default (0x00)
+        .... ..00 = Explicit Congestion Notification: Not-ECT (Not ECN-Capable Transport) (0x00)
+    Total Length: 68
+    Identification: 0x8322 (33570)
+    Flags: 0x00
+        0... .... = Reserved bit: Not set
+        .0.. .... = Don't fragment: Not set
+        ..0. .... = More fragments: Not set
+    Fragment offset: 0
+    Time to live: 128
+    Protocol: TCP (6)
+    Header checksum: 0xa4d8 [correct]
+        [Good: True]
+        [Bad: False]
+    Source: 10.220.104.180 (10.220.104.180)
+    Destination: 192.168.222.128 (192.168.222.128)
+    [Source GeoIP: Unknown]
+    [Destination GeoIP: Unknown]
+Transmission Control Protocol, Src Port: EtherNet-IP-2 (44818), Dst Port: 44180 (44180), Seq: 1, Ack: 29, Len: 28
+    Source port: EtherNet-IP-2 (44818)
+    Destination port: 44180 (44180)
+    [Stream index: 0]
+    Sequence number: 1    (relative sequence number)
+    [Next sequence number: 29    (relative sequence number)]
+    Acknowledgment number: 29    (relative ack number)
+    Header length: 20 bytes
+    Flags: 0x018 (PSH, ACK)
+        000. .... .... = Reserved: Not set
+        ...0 .... .... = Nonce: Not set
+        .... 0... .... = Congestion Window Reduced (CWR): Not set
+        .... .0.. .... = ECN-Echo: Not set
+        .... ..0. .... = Urgent: Not set
+        .... ...1 .... = Acknowledgment: Set
+        .... .... 1... = Push: Set
+        .... .... .0.. = Reset: Not set
+        .... .... ..0. = Syn: Not set
+        .... .... ...0 = Fin: Not set
+    Window size value: 64240
+    [Calculated window size: 64240]
+    [Window size scaling factor: -2 (no window scaling used)]
+    Checksum: 0xd69d [validation disabled]
+        [Good Checksum: False]
+        [Bad Checksum: False]
+    [SEQ/ACK analysis]
+        [Bytes in flight: 28]
+    [PDU Size: 28]
+EtherNet/IP (Industrial Protocol), Session: 0x11021E01, Register Session
+    Encapsulation Header
+        Command: Register Session (0x0065)
+        Length: 4
+        Session Handle: 0x11021e01
+        Status: Success (0x00000000)
+        Sender Context: 0000000000000000
+        Options: 0x00000000
+    Command Specific Data
+        Protocol Version: 1
+        Option Flags: 0x0000
+
+0000  00 0c 29 7a e2 23 00 50 56 fb 35 e0 08 00 45 00   ..)z.#.PV.5...E.
+0010  00 44 83 22 00 00 80 06 a4 d8 0a dc 68 b4 c0 a8   .D."........h...
+0020  de 80 af 12 ac 94 02 ab 8d 7e 98 18 da 4f 50 18   .........~...OP.
+0030  fa f0 d6 9d 00 00 65 00 04 00 01 1e 02 11 00 00   ......e.........
+0040  00 00 00 00 00 00 00 00 00 00 00 00 00 00 01 00   ................
+0050  00 00                                             ..
+
+No.     Time           Source                Destination           Protocol Length Info
+      7 0.152949000    192.168.222.128       10.220.104.180        TCP      54     44180 > EtherNet-IP-2 [ACK] Seq=29 Ack=29 Win=14600 Len=0
+
+Frame 7: 54 bytes on wire (432 bits), 54 bytes captured (432 bits) on interface 0
+    Interface id: 0
+    WTAP_ENCAP: 1
+    Arrival Time: May  7, 2013 11:27:17.645330000 MST
+    [Time shift for this packet: 0.000000000 seconds]
+    Epoch Time: 1367951237.645330000 seconds
+    [Time delta from previous captured frame: 0.000025000 seconds]
+    [Time delta from previous displayed frame: 0.000025000 seconds]
+    [Time since reference or first frame: 0.152949000 seconds]
+    Frame Number: 7
+    Frame Length: 54 bytes (432 bits)
+    Capture Length: 54 bytes (432 bits)
+    [Frame is marked: False]
+    [Frame is ignored: False]
+    [Protocols in frame: eth:ip:tcp]
+    [Coloring Rule Name: TCP]
+    [Coloring Rule String: tcp]
+Ethernet II, Src: Vmware_7a:e2:23 (00:0c:29:7a:e2:23), Dst: Vmware_fb:35:e0 (00:50:56:fb:35:e0)
+    Destination: Vmware_fb:35:e0 (00:50:56:fb:35:e0)
+        Address: Vmware_fb:35:e0 (00:50:56:fb:35:e0)
+        .... ..0. .... .... .... .... = LG bit: Globally unique address (factory default)
+        .... ...0 .... .... .... .... = IG bit: Individual address (unicast)
+    Source: Vmware_7a:e2:23 (00:0c:29:7a:e2:23)
+        Address: Vmware_7a:e2:23 (00:0c:29:7a:e2:23)
+        .... ..0. .... .... .... .... = LG bit: Globally unique address (factory default)
+        .... ...0 .... .... .... .... = IG bit: Individual address (unicast)
+    Type: IP (0x0800)
+Internet Protocol Version 4, Src: 192.168.222.128 (192.168.222.128), Dst: 10.220.104.180 (10.220.104.180)
+    Version: 4
+    Header length: 20 bytes
+    Differentiated Services Field: 0x00 (DSCP 0x00: Default; ECN: 0x00: Not-ECT (Not ECN-Capable Transport))
+        0000 00.. = Differentiated Services Codepoint: Default (0x00)
+        .... ..00 = Explicit Congestion Notification: Not-ECT (Not ECN-Capable Transport) (0x00)
+    Total Length: 40
+    Identification: 0xac5d (44125)
+    Flags: 0x02 (Don't Fragment)
+        0... .... = Reserved bit: Not set
+        .1.. .... = Don't fragment: Set
+        ..0. .... = More fragments: Not set
+    Fragment offset: 0
+    Time to live: 64
+    Protocol: TCP (6)
+    Header checksum: 0x7bb9 [correct]
+        [Good: True]
+        [Bad: False]
+    Source: 192.168.222.128 (192.168.222.128)
+    Destination: 10.220.104.180 (10.220.104.180)
+    [Source GeoIP: Unknown]
+    [Destination GeoIP: Unknown]
+Transmission Control Protocol, Src Port: 44180 (44180), Dst Port: EtherNet-IP-2 (44818), Seq: 29, Ack: 29, Len: 0
+    Source port: 44180 (44180)
+    Destination port: EtherNet-IP-2 (44818)
+    [Stream index: 0]
+    Sequence number: 29    (relative sequence number)
+    Acknowledgment number: 29    (relative ack number)
+    Header length: 20 bytes
+    Flags: 0x010 (ACK)
+        000. .... .... = Reserved: Not set
+        ...0 .... .... = Nonce: Not set
+        .... 0... .... = Congestion Window Reduced (CWR): Not set
+        .... .0.. .... = ECN-Echo: Not set
+        .... ..0. .... = Urgent: Not set
+        .... ...1 .... = Acknowledgment: Set
+        .... .... 0... = Push: Not set
+        .... .... .0.. = Reset: Not set
+        .... .... ..0. = Syn: Not set
+        .... .... ...0 = Fin: Not set
+    Window size value: 14600
+    [Calculated window size: 14600]
+    [Window size scaling factor: -2 (no window scaling used)]
+    Checksum: 0x12d4 [validation disabled]
+        [Good Checksum: False]
+        [Bad Checksum: False]
+    [SEQ/ACK analysis]
+        [This is an ACK to the segment in frame: 6]
+        [The RTT to ACK the segment was: 0.000025000 seconds]
+
+0000  00 50 56 fb 35 e0 00 0c 29 7a e2 23 08 00 45 00   .PV.5...)z.#..E.
+0010  00 28 ac 5d 40 00 40 06 7b b9 c0 a8 de 80 0a dc   .(.]@.@.{.......
+0020  68 b4 ac 94 af 12 98 18 da 4f 02 ab 8d 9a 50 10   h........O....P.
+0030  39 08 12 d4 00 00                                 9.....
+
+No.     Time           Source                Destination           Protocol Length Info
+      8 0.153249000    192.168.222.128       10.220.104.180        CIP      100    Get Attribute All
+
+Frame 8: 100 bytes on wire (800 bits), 100 bytes captured (800 bits) on interface 0
+    Interface id: 0
+    WTAP_ENCAP: 1
+    Arrival Time: May  7, 2013 11:27:17.645630000 MST
+    [Time shift for this packet: 0.000000000 seconds]
+    Epoch Time: 1367951237.645630000 seconds
+    [Time delta from previous captured frame: 0.000300000 seconds]
+    [Time delta from previous displayed frame: 0.000300000 seconds]
+    [Time since reference or first frame: 0.153249000 seconds]
+    Frame Number: 8
+    Frame Length: 100 bytes (800 bits)
+    Capture Length: 100 bytes (800 bits)
+    [Frame is marked: False]
+    [Frame is ignored: False]
+    [Protocols in frame: eth:ip:tcp:enip:cip]
+    [Coloring Rule Name: TCP]
+    [Coloring Rule String: tcp]
+Ethernet II, Src: Vmware_7a:e2:23 (00:0c:29:7a:e2:23), Dst: Vmware_fb:35:e0 (00:50:56:fb:35:e0)
+    Destination: Vmware_fb:35:e0 (00:50:56:fb:35:e0)
+        Address: Vmware_fb:35:e0 (00:50:56:fb:35:e0)
+        .... ..0. .... .... .... .... = LG bit: Globally unique address (factory default)
+        .... ...0 .... .... .... .... = IG bit: Individual address (unicast)
+    Source: Vmware_7a:e2:23 (00:0c:29:7a:e2:23)
+        Address: Vmware_7a:e2:23 (00:0c:29:7a:e2:23)
+        .... ..0. .... .... .... .... = LG bit: Globally unique address (factory default)
+        .... ...0 .... .... .... .... = IG bit: Individual address (unicast)
+    Type: IP (0x0800)
+Internet Protocol Version 4, Src: 192.168.222.128 (192.168.222.128), Dst: 10.220.104.180 (10.220.104.180)
+    Version: 4
+    Header length: 20 bytes
+    Differentiated Services Field: 0x00 (DSCP 0x00: Default; ECN: 0x00: Not-ECT (Not ECN-Capable Transport))
+        0000 00.. = Differentiated Services Codepoint: Default (0x00)
+        .... ..00 = Explicit Congestion Notification: Not-ECT (Not ECN-Capable Transport) (0x00)
+    Total Length: 86
+    Identification: 0xac5e (44126)
+    Flags: 0x02 (Don't Fragment)
+        0... .... = Reserved bit: Not set
+        .1.. .... = Don't fragment: Set
+        ..0. .... = More fragments: Not set
+    Fragment offset: 0
+    Time to live: 64
+    Protocol: TCP (6)
+    Header checksum: 0x7b8a [correct]
+        [Good: True]
+        [Bad: False]
+    Source: 192.168.222.128 (192.168.222.128)
+    Destination: 10.220.104.180 (10.220.104.180)
+    [Source GeoIP: Unknown]
+    [Destination GeoIP: Unknown]
+Transmission Control Protocol, Src Port: 44180 (44180), Dst Port: EtherNet-IP-2 (44818), Seq: 29, Ack: 29, Len: 46
+    Source port: 44180 (44180)
+    Destination port: EtherNet-IP-2 (44818)
+    [Stream index: 0]
+    Sequence number: 29    (relative sequence number)
+    [Next sequence number: 75    (relative sequence number)]
+    Acknowledgment number: 29    (relative ack number)
+    Header length: 20 bytes
+    Flags: 0x018 (PSH, ACK)
+        000. .... .... = Reserved: Not set
+        ...0 .... .... = Nonce: Not set
+        .... 0... .... = Congestion Window Reduced (CWR): Not set
+        .... .0.. .... = ECN-Echo: Not set
+        .... ..0. .... = Urgent: Not set
+        .... ...1 .... = Acknowledgment: Set
+        .... .... 1... = Push: Set
+        .... .... .0.. = Reset: Not set
+        .... .... ..0. = Syn: Not set
+        .... .... ...0 = Fin: Not set
+    Window size value: 14600
+    [Calculated window size: 14600]
+    [Window size scaling factor: -2 (no window scaling used)]
+    Checksum: 0x77ee [validation disabled]
+        [Good Checksum: False]
+        [Bad Checksum: False]
+    [SEQ/ACK analysis]
+        [Bytes in flight: 46]
+    [PDU Size: 46]
+EtherNet/IP (Industrial Protocol), Session: 0x11021E01, Send RR Data
+    Encapsulation Header
+        Command: Send RR Data (0x006f)
+        Length: 22
+        Session Handle: 0x11021e01
+        Status: Success (0x00000000)
+        Sender Context: 0100000000000000
+        Options: 0x00000000
+    Command Specific Data
+        Interface Handle: CIP (0x00000000)
+        Timeout: 5
+        Item Count: 2
+            Type ID: Null Address Item (0x0000)
+                Length: 0
+            Type ID: Unconnected Data Item (0x00b2)
+                Length: 6
+        [Response In: 10]
+Common Industrial Protocol
+    Service: Get Attribute All (Request)
+        0... .... = Request/Response: Request (0x00)
+        .000 0001 = Service: Get Attribute All (0x01)
+    Request Path Size: 2 (words)
+    Request Path: Class: 0x66, Instance: 0x01
+        Path Segment: 0x20 (8-Bit Class Segment)
+            001. .... = Path Segment Type: Logical Segment (1)
+            ...0 00.. = Logical Segment Type: Class ID (0)
+            .... ..00 = Logical Segment Format: 8-bit Logical Segment (0)
+            8-Bit Class Segment
+                Class: Unknown (0x66)
+        Path Segment: 0x24 (8-Bit Instance Segment)
+            001. .... = Path Segment Type: Logical Segment (1)
+            ...0 01.. = Logical Segment Type: Instance ID (1)
+            .... ..00 = Logical Segment Format: 8-bit Logical Segment (0)
+            8-Bit Instance Segment
+                Instance: 0x01
+    Get Attribute All (Request)
+
+0000  00 50 56 fb 35 e0 00 0c 29 7a e2 23 08 00 45 00   .PV.5...)z.#..E.
+0010  00 56 ac 5e 40 00 40 06 7b 8a c0 a8 de 80 0a dc   .V.^@.@.{.......
+0020  68 b4 ac 94 af 12 98 18 da 4f 02 ab 8d 9a 50 18   h........O....P.
+0030  39 08 77 ee 00 00 6f 00 16 00 01 1e 02 11 00 00   9.w...o.........
+0040  00 00 01 00 00 00 00 00 00 00 00 00 00 00 00 00   ................
+0050  00 00 05 00 02 00 00 00 00 00 b2 00 06 00 01 02   ................
+0060  20 66 24 01                                        f$.
+
+No.     Time           Source                Destination           Protocol Length Info
+      9 0.153377000    10.220.104.180        192.168.222.128       TCP      60     EtherNet-IP-2 > 44180 [ACK] Seq=29 Ack=75 Win=64240 Len=0
+
+Frame 9: 60 bytes on wire (480 bits), 60 bytes captured (480 bits) on interface 0
+    Interface id: 0
+    WTAP_ENCAP: 1
+    Arrival Time: May  7, 2013 11:27:17.645758000 MST
+    [Time shift for this packet: 0.000000000 seconds]
+    Epoch Time: 1367951237.645758000 seconds
+    [Time delta from previous captured frame: 0.000128000 seconds]
+    [Time delta from previous displayed frame: 0.000128000 seconds]
+    [Time since reference or first frame: 0.153377000 seconds]
+    Frame Number: 9
+    Frame Length: 60 bytes (480 bits)
+    Capture Length: 60 bytes (480 bits)
+    [Frame is marked: False]
+    [Frame is ignored: False]
+    [Protocols in frame: eth:ip:tcp]
+    [Coloring Rule Name: TCP]
+    [Coloring Rule String: tcp]
+Ethernet II, Src: Vmware_fb:35:e0 (00:50:56:fb:35:e0), Dst: Vmware_7a:e2:23 (00:0c:29:7a:e2:23)
+    Destination: Vmware_7a:e2:23 (00:0c:29:7a:e2:23)
+        Address: Vmware_7a:e2:23 (00:0c:29:7a:e2:23)
+        .... ..0. .... .... .... .... = LG bit: Globally unique address (factory default)
+        .... ...0 .... .... .... .... = IG bit: Individual address (unicast)
+    Source: Vmware_fb:35:e0 (00:50:56:fb:35:e0)
+        Address: Vmware_fb:35:e0 (00:50:56:fb:35:e0)
+        .... ..0. .... .... .... .... = LG bit: Globally unique address (factory default)
+        .... ...0 .... .... .... .... = IG bit: Individual address (unicast)
+    Type: IP (0x0800)
+    Padding: 000000000000
+Internet Protocol Version 4, Src: 10.220.104.180 (10.220.104.180), Dst: 192.168.222.128 (192.168.222.128)
+    Version: 4
+    Header length: 20 bytes
+    Differentiated Services Field: 0x00 (DSCP 0x00: Default; ECN: 0x00: Not-ECT (Not ECN-Capable Transport))
+        0000 00.. = Differentiated Services Codepoint: Default (0x00)
+        .... ..00 = Explicit Congestion Notification: Not-ECT (Not ECN-Capable Transport) (0x00)
+    Total Length: 40
+    Identification: 0x8323 (33571)
+    Flags: 0x00
+        0... .... = Reserved bit: Not set
+        .0.. .... = Don't fragment: Not set
+        ..0. .... = More fragments: Not set
+    Fragment offset: 0
+    Time to live: 128
+    Protocol: TCP (6)
+    Header checksum: 0xa4f3 [correct]
+        [Good: True]
+        [Bad: False]
+    Source: 10.220.104.180 (10.220.104.180)
+    Destination: 192.168.222.128 (192.168.222.128)
+    [Source GeoIP: Unknown]
+    [Destination GeoIP: Unknown]
+Transmission Control Protocol, Src Port: EtherNet-IP-2 (44818), Dst Port: 44180 (44180), Seq: 29, Ack: 75, Len: 0
+    Source port: EtherNet-IP-2 (44818)
+    Destination port: 44180 (44180)
+    [Stream index: 0]
+    Sequence number: 29    (relative sequence number)
+    Acknowledgment number: 75    (relative ack number)
+    Header length: 20 bytes
+    Flags: 0x010 (ACK)
+        000. .... .... = Reserved: Not set
+        ...0 .... .... = Nonce: Not set
+        .... 0... .... = Congestion Window Reduced (CWR): Not set
+        .... .0.. .... = ECN-Echo: Not set
+        .... ..0. .... = Urgent: Not set
+        .... ...1 .... = Acknowledgment: Set
+        .... .... 0... = Push: Not set
+        .... .... .0.. = Reset: Not set
+        .... .... ..0. = Syn: Not set
+        .... .... ...0 = Fin: Not set
+    Window size value: 64240
+    [Calculated window size: 64240]
+    [Window size scaling factor: -2 (no window scaling used)]
+    Checksum: 0x43a7 [validation disabled]
+        [Good Checksum: False]
+        [Bad Checksum: False]
+    [SEQ/ACK analysis]
+        [This is an ACK to the segment in frame: 8]
+        [The RTT to ACK the segment was: 0.000128000 seconds]
+
+0000  00 0c 29 7a e2 23 00 50 56 fb 35 e0 08 00 45 00   ..)z.#.PV.5...E.
+0010  00 28 83 23 00 00 80 06 a4 f3 0a dc 68 b4 c0 a8   .(.#........h...
+0020  de 80 af 12 ac 94 02 ab 8d 9a 98 18 da 7d 50 10   .............}P.
+0030  fa f0 43 a7 00 00 00 00 00 00 00 00               ..C.........
+
+No.     Time           Source                Destination           Protocol Length Info
+     10 0.247332000    10.220.104.180        192.168.222.128       CIP      116    Success
+
+Frame 10: 116 bytes on wire (928 bits), 116 bytes captured (928 bits) on interface 0
+    Interface id: 0
+    WTAP_ENCAP: 1
+    Arrival Time: May  7, 2013 11:27:17.739713000 MST
+    [Time shift for this packet: 0.000000000 seconds]
+    Epoch Time: 1367951237.739713000 seconds
+    [Time delta from previous captured frame: 0.093955000 seconds]
+    [Time delta from previous displayed frame: 0.093955000 seconds]
+    [Time since reference or first frame: 0.247332000 seconds]
+    Frame Number: 10
+    Frame Length: 116 bytes (928 bits)
+    Capture Length: 116 bytes (928 bits)
+    [Frame is marked: False]
+    [Frame is ignored: False]
+    [Protocols in frame: eth:ip:tcp:enip:cip]
+    [Coloring Rule Name: TCP]
+    [Coloring Rule String: tcp]
+Ethernet II, Src: Vmware_fb:35:e0 (00:50:56:fb:35:e0), Dst: Vmware_7a:e2:23 (00:0c:29:7a:e2:23)
+    Destination: Vmware_7a:e2:23 (00:0c:29:7a:e2:23)
+        Address: Vmware_7a:e2:23 (00:0c:29:7a:e2:23)
+        .... ..0. .... .... .... .... = LG bit: Globally unique address (factory default)
+        .... ...0 .... .... .... .... = IG bit: Individual address (unicast)
+    Source: Vmware_fb:35:e0 (00:50:56:fb:35:e0)
+        Address: Vmware_fb:35:e0 (00:50:56:fb:35:e0)
+        .... ..0. .... .... .... .... = LG bit: Globally unique address (factory default)
+        .... ...0 .... .... .... .... = IG bit: Individual address (unicast)
+    Type: IP (0x0800)
+Internet Protocol Version 4, Src: 10.220.104.180 (10.220.104.180), Dst: 192.168.222.128 (192.168.222.128)
+    Version: 4
+    Header length: 20 bytes
+    Differentiated Services Field: 0x00 (DSCP 0x00: Default; ECN: 0x00: Not-ECT (Not ECN-Capable Transport))
+        0000 00.. = Differentiated Services Codepoint: Default (0x00)
+        .... ..00 = Explicit Congestion Notification: Not-ECT (Not ECN-Capable Transport) (0x00)
+    Total Length: 102
+    Identification: 0x8324 (33572)
+    Flags: 0x00
+        0... .... = Reserved bit: Not set
+        .0.. .... = Don't fragment: Not set
+        ..0. .... = More fragments: Not set
+    Fragment offset: 0
+    Time to live: 128
+    Protocol: TCP (6)
+    Header checksum: 0xa4b4 [correct]
+        [Good: True]
+        [Bad: False]
+    Source: 10.220.104.180 (10.220.104.180)
+    Destination: 192.168.222.128 (192.168.222.128)
+    [Source GeoIP: Unknown]
+    [Destination GeoIP: Unknown]
+Transmission Control Protocol, Src Port: EtherNet-IP-2 (44818), Dst Port: 44180 (44180), Seq: 29, Ack: 75, Len: 62
+    Source port: EtherNet-IP-2 (44818)
+    Destination port: 44180 (44180)
+    [Stream index: 0]
+    Sequence number: 29    (relative sequence number)
+    [Next sequence number: 91    (relative sequence number)]
+    Acknowledgment number: 75    (relative ack number)
+    Header length: 20 bytes
+    Flags: 0x018 (PSH, ACK)
+        000. .... .... = Reserved: Not set
+        ...0 .... .... = Nonce: Not set
+        .... 0... .... = Congestion Window Reduced (CWR): Not set
+        .... .0.. .... = ECN-Echo: Not set
+        .... ..0. .... = Urgent: Not set
+        .... ...1 .... = Acknowledgment: Set
+        .... .... 1... = Push: Set
+        .... .... .0.. = Reset: Not set
+        .... .... ..0. = Syn: Not set
+        .... .... ...0 = Fin: Not set
+    Window size value: 64240
+    [Calculated window size: 64240]
+    [Window size scaling factor: -2 (no window scaling used)]
+    Checksum: 0x54fc [validation disabled]
+        [Good Checksum: False]
+        [Bad Checksum: False]
+    [SEQ/ACK analysis]
+        [Bytes in flight: 62]
+    [PDU Size: 62]
+EtherNet/IP (Industrial Protocol), Session: 0x11021E01, Send RR Data
+    Encapsulation Header
+        Command: Send RR Data (0x006f)
+        Length: 38
+        Session Handle: 0x11021e01
+        Status: Success (0x00000000)
+        Sender Context: 0100000000000000
+        Options: 0x00000000
+    Command Specific Data
+        Interface Handle: CIP (0x00000000)
+        Timeout: 5
+        Item Count: 2
+            Type ID: Null Address Item (0x0000)
+                Length: 0
+            Type ID: Unconnected Data Item (0x00b2)
+                Length: 22
+        [Request In: 8]
+        [Time: 0.094083000 seconds]
+Common Industrial Protocol
+    Service: Get Attribute All (Response)
+        1... .... = Request/Response: Response (0x01)
+        .000 0001 = Service: Get Attribute All (0x01)
+    Status: Success
+        General Status: Success (0x00)
+        Additional Status Size: 0 (words)
+    [Request Path Size: 2 (words)]
+    [Request Path: Class: 0x66, Instance: 0x01]
+        [Path Segment: 0x20 (8-Bit Class Segment)]
+            [001. .... = Path Segment Type: Logical Segment (1)]
+            [...0 00.. = Logical Segment Type: Class ID (0)]
+            [.... ..00 = Logical Segment Format: 8-bit Logical Segment (0)]
+            [8-Bit Class Segment]
+                [Class: Unknown (0x66)]
+        [Path Segment: 0x24 (8-Bit Instance Segment)]
+            [001. .... = Path Segment Type: Logical Segment (1)]
+            [...0 01.. = Logical Segment Type: Instance ID (1)]
+            [.... ..00 = Logical Segment Format: 8-bit Logical Segment (0)]
+            [8-Bit Instance Segment]
+                [Instance: 0x01]
+    Get Attribute All (Response)
+        Data: 0008000000002d0001000101b12a1b000a00
+
+0000  00 0c 29 7a e2 23 00 50 56 fb 35 e0 08 00 45 00   ..)z.#.PV.5...E.
+0010  00 66 83 24 00 00 80 06 a4 b4 0a dc 68 b4 c0 a8   .f.$........h...
+0020  de 80 af 12 ac 94 02 ab 8d 9a 98 18 da 7d 50 18   .............}P.
+0030  fa f0 54 fc 00 00 6f 00 26 00 01 1e 02 11 00 00   ..T...o.&.......
+0040  00 00 01 00 00 00 00 00 00 00 00 00 00 00 00 00   ................
+0050  00 00 05 00 02 00 00 00 00 00 b2 00 16 00 81 00   ................
+0060  00 00 00 08 00 00 00 00 2d 00 01 00 01 01 b1 2a   ........-......*
+0070  1b 00 0a 00                                       ....
+
+No.     Time           Source                Destination           Protocol Length Info
+     11 0.247477000    192.168.222.128       10.220.104.180        CIP CM   114    Unconnected Send: Get Attribute All
+
+Frame 11: 114 bytes on wire (912 bits), 114 bytes captured (912 bits) on interface 0
+    Interface id: 0
+    WTAP_ENCAP: 1
+    Arrival Time: May  7, 2013 11:27:17.739858000 MST
+    [Time shift for this packet: 0.000000000 seconds]
+    Epoch Time: 1367951237.739858000 seconds
+    [Time delta from previous captured frame: 0.000145000 seconds]
+    [Time delta from previous displayed frame: 0.000145000 seconds]
+    [Time since reference or first frame: 0.247477000 seconds]
+    Frame Number: 11
+    Frame Length: 114 bytes (912 bits)
+    Capture Length: 114 bytes (912 bits)
+    [Frame is marked: False]
+    [Frame is ignored: False]
+    [Protocols in frame: eth:ip:tcp:enip:cip:cipcm]
+    [Coloring Rule Name: TCP]
+    [Coloring Rule String: tcp]
+Ethernet II, Src: Vmware_7a:e2:23 (00:0c:29:7a:e2:23), Dst: Vmware_fb:35:e0 (00:50:56:fb:35:e0)
+    Destination: Vmware_fb:35:e0 (00:50:56:fb:35:e0)
+        Address: Vmware_fb:35:e0 (00:50:56:fb:35:e0)
+        .... ..0. .... .... .... .... = LG bit: Globally unique address (factory default)
+        .... ...0 .... .... .... .... = IG bit: Individual address (unicast)
+    Source: Vmware_7a:e2:23 (00:0c:29:7a:e2:23)
+        Address: Vmware_7a:e2:23 (00:0c:29:7a:e2:23)
+        .... ..0. .... .... .... .... = LG bit: Globally unique address (factory default)
+        .... ...0 .... .... .... .... = IG bit: Individual address (unicast)
+    Type: IP (0x0800)
+Internet Protocol Version 4, Src: 192.168.222.128 (192.168.222.128), Dst: 10.220.104.180 (10.220.104.180)
+    Version: 4
+    Header length: 20 bytes
+    Differentiated Services Field: 0x00 (DSCP 0x00: Default; ECN: 0x00: Not-ECT (Not ECN-Capable Transport))
+        0000 00.. = Differentiated Services Codepoint: Default (0x00)
+        .... ..00 = Explicit Congestion Notification: Not-ECT (Not ECN-Capable Transport) (0x00)
+    Total Length: 100
+    Identification: 0xac5f (44127)
+    Flags: 0x02 (Don't Fragment)
+        0... .... = Reserved bit: Not set
+        .1.. .... = Don't fragment: Set
+        ..0. .... = More fragments: Not set
+    Fragment offset: 0
+    Time to live: 64
+    Protocol: TCP (6)
+    Header checksum: 0x7b7b [correct]
+        [Good: True]
+        [Bad: False]
+    Source: 192.168.222.128 (192.168.222.128)
+    Destination: 10.220.104.180 (10.220.104.180)
+    [Source GeoIP: Unknown]
+    [Destination GeoIP: Unknown]
+Transmission Control Protocol, Src Port: 44180 (44180), Dst Port: EtherNet-IP-2 (44818), Seq: 75, Ack: 91, Len: 60
+    Source port: 44180 (44180)
+    Destination port: EtherNet-IP-2 (44818)
+    [Stream index: 0]
+    Sequence number: 75    (relative sequence number)
+    [Next sequence number: 135    (relative sequence number)]
+    Acknowledgment number: 91    (relative ack number)
+    Header length: 20 bytes
+    Flags: 0x018 (PSH, ACK)
+        000. .... .... = Reserved: Not set
+        ...0 .... .... = Nonce: Not set
+        .... 0... .... = Congestion Window Reduced (CWR): Not set
+        .... .0.. .... = ECN-Echo: Not set
+        .... ..0. .... = Urgent: Not set
+        .... ...1 .... = Acknowledgment: Set
+        .... .... 1... = Push: Set
+        .... .... .0.. = Reset: Not set
+        .... .... ..0. = Syn: Not set
+        .... .... ...0 = Fin: Not set
+    Window size value: 14600
+    [Calculated window size: 14600]
+    [Window size scaling factor: -2 (no window scaling used)]
+    Checksum: 0xbad5 [validation disabled]
+        [Good Checksum: False]
+        [Bad Checksum: False]
+    [SEQ/ACK analysis]
+        [This is an ACK to the segment in frame: 10]
+        [The RTT to ACK the segment was: 0.000145000 seconds]
+        [Bytes in flight: 60]
+    [PDU Size: 60]
+EtherNet/IP (Industrial Protocol), Session: 0x11021E01, Send RR Data
+    Encapsulation Header
+        Command: Send RR Data (0x006f)
+        Length: 36
+        Session Handle: 0x11021e01
+        Status: Success (0x00000000)
+        Sender Context: 0200000000000000
+        Options: 0x00000000
+    Command Specific Data
+        Interface Handle: CIP (0x00000000)
+        Timeout: 5
+        Item Count: 2
+            Type ID: Null Address Item (0x0000)
+                Length: 0
+            Type ID: Unconnected Data Item (0x00b2)
+                Length: 20
+        [Response In: 13]
+Common Industrial Protocol
+    Service: Unknown Service (0x52) (Request)
+        0... .... = Request/Response: Request (0x00)
+        .101 0010 = Service: Unknown (0x52)
+    Request Path Size: 2 (words)
+    Request Path: Connection Manager, Instance: 0x01
+        Path Segment: 0x20 (8-Bit Class Segment)
+            001. .... = Path Segment Type: Logical Segment (1)
+            ...0 00.. = Logical Segment Type: Class ID (0)
+            .... ..00 = Logical Segment Format: 8-bit Logical Segment (0)
+            8-Bit Class Segment
+                Class: Connection Manager (0x06)
+        Path Segment: 0x24 (8-Bit Instance Segment)
+            001. .... = Path Segment Type: Logical Segment (1)
+            ...0 01.. = Logical Segment Type: Instance ID (1)
+            .... ..00 = Logical Segment Format: 8-bit Logical Segment (0)
+            8-Bit Instance Segment
+                Instance: 0x01
+CIP Connection Manager
+    Service: Unconnected Send (Request)
+        0... .... = Request/Response: Request (0x00)
+        .101 0010 = Service: Unconnected Send (0x52)
+    Command Specific Data
+        ...0 .... = Priority: 0
+        .... 0001 = Tick time: 1
+        Time-out ticks: 250
+        Actual Time Out: 500ms
+        Message Request Size: 6
+        Message Request
+            Common Industrial Protocol
+                Service: Get Attribute All (Request)
+                    0... .... = Request/Response: Request (0x00)
+                    .000 0001 = Service: Get Attribute All (0x01)
+                Request Path Size: 2 (words)
+                Request Path: Identity Object, Instance: 0x01
+                    Path Segment: 0x20 (8-Bit Class Segment)
+                        001. .... = Path Segment Type: Logical Segment (1)
+                        ...0 00.. = Logical Segment Type: Class ID (0)
+                        .... ..00 = Logical Segment Format: 8-bit Logical Segment (0)
+                        8-Bit Class Segment
+                            Class: Identity Object (0x01)
+                    Path Segment: 0x24 (8-Bit Instance Segment)
+                        001. .... = Path Segment Type: Logical Segment (1)
+                        ...0 01.. = Logical Segment Type: Instance ID (1)
+                        .... ..00 = Logical Segment Format: 8-bit Logical Segment (0)
+                        8-Bit Instance Segment
+                            Instance: 0x01
+                Get Attribute All (Request)
+        Route Path Size: 1 (words)
+        Reserved: 0x00
+        Route Path: Port: 1, Address: 0
+            Path Segment: 0x01 (Port Segment)
+                000. .... = Path Segment Type: Port Segment (0)
+                ...0 .... = Extended Link Address: False
+                .... 0001 = Port: 1
+                Port Segment
+                    Link Address: 0
+
+0000  00 50 56 fb 35 e0 00 0c 29 7a e2 23 08 00 45 00   .PV.5...)z.#..E.
+0010  00 64 ac 5f 40 00 40 06 7b 7b c0 a8 de 80 0a dc   .d._@.@.{{......
+0020  68 b4 ac 94 af 12 98 18 da 7d 02 ab 8d d8 50 18   h........}....P.
+0030  39 08 ba d5 00 00 6f 00 24 00 01 1e 02 11 00 00   9.....o.$.......
+0040  00 00 02 00 00 00 00 00 00 00 00 00 00 00 00 00   ................
+0050  00 00 05 00 02 00 00 00 00 00 b2 00 14 00 52 02   ..............R.
+0060  20 06 24 01 01 fa 06 00 01 02 20 01 24 01 01 00    .$....... .$...
+0070  01 00                                             ..
+
+No.     Time           Source                Destination           Protocol Length Info
+     12 0.247619000    10.220.104.180        192.168.222.128       TCP      60     EtherNet-IP-2 > 44180 [ACK] Seq=91 Ack=135 Win=64240 Len=0
+
+Frame 12: 60 bytes on wire (480 bits), 60 bytes captured (480 bits) on interface 0
+    Interface id: 0
+    WTAP_ENCAP: 1
+    Arrival Time: May  7, 2013 11:27:17.740000000 MST
+    [Time shift for this packet: 0.000000000 seconds]
+    Epoch Time: 1367951237.740000000 seconds
+    [Time delta from previous captured frame: 0.000142000 seconds]
+    [Time delta from previous displayed frame: 0.000142000 seconds]
+    [Time since reference or first frame: 0.247619000 seconds]
+    Frame Number: 12
+    Frame Length: 60 bytes (480 bits)
+    Capture Length: 60 bytes (480 bits)
+    [Frame is marked: False]
+    [Frame is ignored: False]
+    [Protocols in frame: eth:ip:tcp]
+    [Coloring Rule Name: TCP]
+    [Coloring Rule String: tcp]
+Ethernet II, Src: Vmware_fb:35:e0 (00:50:56:fb:35:e0), Dst: Vmware_7a:e2:23 (00:0c:29:7a:e2:23)
+    Destination: Vmware_7a:e2:23 (00:0c:29:7a:e2:23)
+        Address: Vmware_7a:e2:23 (00:0c:29:7a:e2:23)
+        .... ..0. .... .... .... .... = LG bit: Globally unique address (factory default)
+        .... ...0 .... .... .... .... = IG bit: Individual address (unicast)
+    Source: Vmware_fb:35:e0 (00:50:56:fb:35:e0)
+        Address: Vmware_fb:35:e0 (00:50:56:fb:35:e0)
+        .... ..0. .... .... .... .... = LG bit: Globally unique address (factory default)
+        .... ...0 .... .... .... .... = IG bit: Individual address (unicast)
+    Type: IP (0x0800)
+    Padding: 000000000000
+Internet Protocol Version 4, Src: 10.220.104.180 (10.220.104.180), Dst: 192.168.222.128 (192.168.222.128)
+    Version: 4
+    Header length: 20 bytes
+    Differentiated Services Field: 0x00 (DSCP 0x00: Default; ECN: 0x00: Not-ECT (Not ECN-Capable Transport))
+        0000 00.. = Differentiated Services Codepoint: Default (0x00)
+        .... ..00 = Explicit Congestion Notification: Not-ECT (Not ECN-Capable Transport) (0x00)
+    Total Length: 40
+    Identification: 0x8325 (33573)
+    Flags: 0x00
+        0... .... = Reserved bit: Not set
+        .0.. .... = Don't fragment: Not set
+        ..0. .... = More fragments: Not set
+    Fragment offset: 0
+    Time to live: 128
+    Protocol: TCP (6)
+    Header checksum: 0xa4f1 [correct]
+        [Good: True]
+        [Bad: False]
+    Source: 10.220.104.180 (10.220.104.180)
+    Destination: 192.168.222.128 (192.168.222.128)
+    [Source GeoIP: Unknown]
+    [Destination GeoIP: Unknown]
+Transmission Control Protocol, Src Port: EtherNet-IP-2 (44818), Dst Port: 44180 (44180), Seq: 91, Ack: 135, Len: 0
+    Source port: EtherNet-IP-2 (44818)
+    Destination port: 44180 (44180)
+    [Stream index: 0]
+    Sequence number: 91    (relative sequence number)
+    Acknowledgment number: 135    (relative ack number)
+    Header length: 20 bytes
+    Flags: 0x010 (ACK)
+        000. .... .... = Reserved: Not set
+        ...0 .... .... = Nonce: Not set
+        .... 0... .... = Congestion Window Reduced (CWR): Not set
+        .... .0.. .... = ECN-Echo: Not set
+        .... ..0. .... = Urgent: Not set
+        .... ...1 .... = Acknowledgment: Set
+        .... .... 0... = Push: Not set
+        .... .... .0.. = Reset: Not set
+        .... .... ..0. = Syn: Not set
+        .... .... ...0 = Fin: Not set
+    Window size value: 64240
+    [Calculated window size: 64240]
+    [Window size scaling factor: -2 (no window scaling used)]
+    Checksum: 0x432d [validation disabled]
+        [Good Checksum: False]
+        [Bad Checksum: False]
+    [SEQ/ACK analysis]
+        [This is an ACK to the segment in frame: 11]
+        [The RTT to ACK the segment was: 0.000142000 seconds]
+
+0000  00 0c 29 7a e2 23 00 50 56 fb 35 e0 08 00 45 00   ..)z.#.PV.5...E.
+0010  00 28 83 25 00 00 80 06 a4 f1 0a dc 68 b4 c0 a8   .(.%........h...
+0020  de 80 af 12 ac 94 02 ab 8d d8 98 18 da b9 50 10   ..............P.
+0030  fa f0 43 2d 00 00 00 00 00 00 00 00               ..C-........
+
+No.     Time           Source                Destination           Protocol Length Info
+     13 0.336669000    10.220.104.180        192.168.222.128       CIP      133    Success
+
+Frame 13: 133 bytes on wire (1064 bits), 133 bytes captured (1064 bits) on interface 0
+    Interface id: 0
+    WTAP_ENCAP: 1
+    Arrival Time: May  7, 2013 11:27:17.829050000 MST
+    [Time shift for this packet: 0.000000000 seconds]
+    Epoch Time: 1367951237.829050000 seconds
+    [Time delta from previous captured frame: 0.089050000 seconds]
+    [Time delta from previous displayed frame: 0.089050000 seconds]
+    [Time since reference or first frame: 0.336669000 seconds]
+    Frame Number: 13
+    Frame Length: 133 bytes (1064 bits)
+    Capture Length: 133 bytes (1064 bits)
+    [Frame is marked: False]
+    [Frame is ignored: False]
+    [Protocols in frame: eth:ip:tcp:enip:cip]
+    [Coloring Rule Name: TCP]
+    [Coloring Rule String: tcp]
+Ethernet II, Src: Vmware_fb:35:e0 (00:50:56:fb:35:e0), Dst: Vmware_7a:e2:23 (00:0c:29:7a:e2:23)
+    Destination: Vmware_7a:e2:23 (00:0c:29:7a:e2:23)
+        Address: Vmware_7a:e2:23 (00:0c:29:7a:e2:23)
+        .... ..0. .... .... .... .... = LG bit: Globally unique address (factory default)
+        .... ...0 .... .... .... .... = IG bit: Individual address (unicast)
+    Source: Vmware_fb:35:e0 (00:50:56:fb:35:e0)
+        Address: Vmware_fb:35:e0 (00:50:56:fb:35:e0)
+        .... ..0. .... .... .... .... = LG bit: Globally unique address (factory default)
+        .... ...0 .... .... .... .... = IG bit: Individual address (unicast)
+    Type: IP (0x0800)
+Internet Protocol Version 4, Src: 10.220.104.180 (10.220.104.180), Dst: 192.168.222.128 (192.168.222.128)
+    Version: 4
+    Header length: 20 bytes
+    Differentiated Services Field: 0x00 (DSCP 0x00: Default; ECN: 0x00: Not-ECT (Not ECN-Capable Transport))
+        0000 00.. = Differentiated Services Codepoint: Default (0x00)
+        .... ..00 = Explicit Congestion Notification: Not-ECT (Not ECN-Capable Transport) (0x00)
+    Total Length: 119
+    Identification: 0x8326 (33574)
+    Flags: 0x00
+        0... .... = Reserved bit: Not set
+        .0.. .... = Don't fragment: Not set
+        ..0. .... = More fragments: Not set
+    Fragment offset: 0
+    Time to live: 128
+    Protocol: TCP (6)
+    Header checksum: 0xa4a1 [correct]
+        [Good: True]
+        [Bad: False]
+    Source: 10.220.104.180 (10.220.104.180)
+    Destination: 192.168.222.128 (192.168.222.128)
+    [Source GeoIP: Unknown]
+    [Destination GeoIP: Unknown]
+Transmission Control Protocol, Src Port: EtherNet-IP-2 (44818), Dst Port: 44180 (44180), Seq: 91, Ack: 135, Len: 79
+    Source port: EtherNet-IP-2 (44818)
+    Destination port: 44180 (44180)
+    [Stream index: 0]
+    Sequence number: 91    (relative sequence number)
+    [Next sequence number: 170    (relative sequence number)]
+    Acknowledgment number: 135    (relative ack number)
+    Header length: 20 bytes
+    Flags: 0x018 (PSH, ACK)
+        000. .... .... = Reserved: Not set
+        ...0 .... .... = Nonce: Not set
+        .... 0... .... = Congestion Window Reduced (CWR): Not set
+        .... .0.. .... = ECN-Echo: Not set
+        .... ..0. .... = Urgent: Not set
+        .... ...1 .... = Acknowledgment: Set
+        .... .... 1... = Push: Set
+        .... .... .0.. = Reset: Not set
+        .... .... ..0. = Syn: Not set
+        .... .... ...0 = Fin: Not set
+    Window size value: 64240
+    [Calculated window size: 64240]
+    [Window size scaling factor: -2 (no window scaling used)]
+    Checksum: 0x6444 [validation disabled]
+        [Good Checksum: False]
+        [Bad Checksum: False]
+    [SEQ/ACK analysis]
+        [Bytes in flight: 79]
+    [PDU Size: 79]
+EtherNet/IP (Industrial Protocol), Session: 0x11021E01, Send RR Data
+    Encapsulation Header
+        Command: Send RR Data (0x006f)
+        Length: 55
+        Session Handle: 0x11021e01
+        Status: Success (0x00000000)
+        Sender Context: 0200000000000000
+        Options: 0x00000000
+    Command Specific Data
+        Interface Handle: CIP (0x00000000)
+        Timeout: 5
+        Item Count: 2
+            Type ID: Null Address Item (0x0000)
+                Length: 0
+            Type ID: Unconnected Data Item (0x00b2)
+                Length: 39
+        [Request In: 11]
+        [Time: 0.089192000 seconds]
+Common Industrial Protocol
+    Service: Get Attribute All (Response)
+        1... .... = Request/Response: Response (0x01)
+        .000 0001 = Service: Get Attribute All (0x01)
+    Status: Success
+        General Status: Success (0x00)
+        Additional Status Size: 0 (words)
+    [Request Path Size: 2 (words)]
+    [Request Path: Connection Manager, Instance: 0x01]
+        [Path Segment: 0x20 (8-Bit Class Segment)]
+            [001. .... = Path Segment Type: Logical Segment (1)]
+            [...0 00.. = Logical Segment Type: Class ID (0)]
+            [.... ..00 = Logical Segment Format: 8-bit Logical Segment (0)]
+            [8-Bit Class Segment]
+                [Class: Connection Manager (0x06)]
+        [Path Segment: 0x24 (8-Bit Instance Segment)]
+            [001. .... = Path Segment Type: Logical Segment (1)]
+            [...0 01.. = Logical Segment Type: Instance ID (1)]
+            [.... ..00 = Logical Segment Format: 8-bit Logical Segment (0)]
+            [8-Bit Instance Segment]
+                [Instance: 0x01]
+    Get Attribute All (Response)
+        Data: 01000e003600140b60311a066c0014313735362d4c36312f...
+
+0000  00 0c 29 7a e2 23 00 50 56 fb 35 e0 08 00 45 00   ..)z.#.PV.5...E.
+0010  00 77 83 26 00 00 80 06 a4 a1 0a dc 68 b4 c0 a8   .w.&........h...
+0020  de 80 af 12 ac 94 02 ab 8d d8 98 18 da b9 50 18   ..............P.
+0030  fa f0 64 44 00 00 6f 00 37 00 01 1e 02 11 00 00   ..dD..o.7.......
+0040  00 00 02 00 00 00 00 00 00 00 00 00 00 00 00 00   ................
+0050  00 00 05 00 02 00 00 00 00 00 b2 00 27 00 81 00   ............'...
+0060  00 00 01 00 0e 00 36 00 14 0b 60 31 1a 06 6c 00   ......6...`1..l.
+0070  14 31 37 35 36 2d 4c 36 31 2f 42 20 4c 4f 47 49   .1756-L61/B LOGI
+0080  58 35 35 36 31                                    X5561
+
+No.     Time           Source                Destination           Protocol Length Info
+     14 0.337357000    192.168.222.128       10.220.104.180        CIP CM   124    Unconnected Send: Unknown Service (0x52)
+
+Frame 14: 124 bytes on wire (992 bits), 124 bytes captured (992 bits) on interface 0
+    Interface id: 0
+    WTAP_ENCAP: 1
+    Arrival Time: May  7, 2013 11:27:17.829738000 MST
+    [Time shift for this packet: 0.000000000 seconds]
+    Epoch Time: 1367951237.829738000 seconds
+    [Time delta from previous captured frame: 0.000688000 seconds]
+    [Time delta from previous displayed frame: 0.000688000 seconds]
+    [Time since reference or first frame: 0.337357000 seconds]
+    Frame Number: 14
+    Frame Length: 124 bytes (992 bits)
+    Capture Length: 124 bytes (992 bits)
+    [Frame is marked: False]
+    [Frame is ignored: False]
+    [Protocols in frame: eth:ip:tcp:enip:cip:cipcm:cipcls]
+    [Coloring Rule Name: TCP]
+    [Coloring Rule String: tcp]
+Ethernet II, Src: Vmware_7a:e2:23 (00:0c:29:7a:e2:23), Dst: Vmware_fb:35:e0 (00:50:56:fb:35:e0)
+    Destination: Vmware_fb:35:e0 (00:50:56:fb:35:e0)
+        Address: Vmware_fb:35:e0 (00:50:56:fb:35:e0)
+        .... ..0. .... .... .... .... = LG bit: Globally unique address (factory default)
+        .... ...0 .... .... .... .... = IG bit: Individual address (unicast)
+    Source: Vmware_7a:e2:23 (00:0c:29:7a:e2:23)
+        Address: Vmware_7a:e2:23 (00:0c:29:7a:e2:23)
+        .... ..0. .... .... .... .... = LG bit: Globally unique address (factory default)
+        .... ...0 .... .... .... .... = IG bit: Individual address (unicast)
+    Type: IP (0x0800)
+Internet Protocol Version 4, Src: 192.168.222.128 (192.168.222.128), Dst: 10.220.104.180 (10.220.104.180)
+    Version: 4
+    Header length: 20 bytes
+    Differentiated Services Field: 0x00 (DSCP 0x00: Default; ECN: 0x00: Not-ECT (Not ECN-Capable Transport))
+        0000 00.. = Differentiated Services Codepoint: Default (0x00)
+        .... ..00 = Explicit Congestion Notification: Not-ECT (Not ECN-Capable Transport) (0x00)
+    Total Length: 110
+    Identification: 0xac60 (44128)
+    Flags: 0x02 (Don't Fragment)
+        0... .... = Reserved bit: Not set
+        .1.. .... = Don't fragment: Set
+        ..0. .... = More fragments: Not set
+    Fragment offset: 0
+    Time to live: 64
+    Protocol: TCP (6)
+    Header checksum: 0x7b70 [correct]
+        [Good: True]
+        [Bad: False]
+    Source: 192.168.222.128 (192.168.222.128)
+    Destination: 10.220.104.180 (10.220.104.180)
+    [Source GeoIP: Unknown]
+    [Destination GeoIP: Unknown]
+Transmission Control Protocol, Src Port: 44180 (44180), Dst Port: EtherNet-IP-2 (44818), Seq: 135, Ack: 170, Len: 70
+    Source port: 44180 (44180)
+    Destination port: EtherNet-IP-2 (44818)
+    [Stream index: 0]
+    Sequence number: 135    (relative sequence number)
+    [Next sequence number: 205    (relative sequence number)]
+    Acknowledgment number: 170    (relative ack number)
+    Header length: 20 bytes
+    Flags: 0x018 (PSH, ACK)
+        000. .... .... = Reserved: Not set
+        ...0 .... .... = Nonce: Not set
+        .... 0... .... = Congestion Window Reduced (CWR): Not set
+        .... .0.. .... = ECN-Echo: Not set
+        .... ..0. .... = Urgent: Not set
+        .... ...1 .... = Acknowledgment: Set
+        .... .... 1... = Push: Set
+        .... .... .0.. = Reset: Not set
+        .... .... ..0. = Syn: Not set
+        .... .... ...0 = Fin: Not set
+    Window size value: 14600
+    [Calculated window size: 14600]
+    [Window size scaling factor: -2 (no window scaling used)]
+    Checksum: 0x2310 [validation disabled]
+        [Good Checksum: False]
+        [Bad Checksum: False]
+    [SEQ/ACK analysis]
+        [This is an ACK to the segment in frame: 13]
+        [The RTT to ACK the segment was: 0.000688000 seconds]
+        [Bytes in flight: 70]
+    [PDU Size: 70]
+EtherNet/IP (Industrial Protocol), Session: 0x11021E01, Send RR Data
+    Encapsulation Header
+        Command: Send RR Data (0x006f)
+        Length: 46
+        Session Handle: 0x11021e01
+        Status: Success (0x00000000)
+        Sender Context: 0300000000000000
+        Options: 0x00000000
+    Command Specific Data
+        Interface Handle: CIP (0x00000000)
+        Timeout: 5
+        Item Count: 2
+            Type ID: Null Address Item (0x0000)
+                Length: 0
+            Type ID: Unconnected Data Item (0x00b2)
+                Length: 30
+        [Response In: 16]
+Common Industrial Protocol
+    Service: Unknown Service (0x52) (Request)
+        0... .... = Request/Response: Request (0x00)
+        .101 0010 = Service: Unknown (0x52)
+    Request Path Size: 2 (words)
+    Request Path: Connection Manager, Instance: 0x01
+        Path Segment: 0x20 (8-Bit Class Segment)
+            001. .... = Path Segment Type: Logical Segment (1)
+            ...0 00.. = Logical Segment Type: Class ID (0)
+            .... ..00 = Logical Segment Format: 8-bit Logical Segment (0)
+            8-Bit Class Segment
+                Class: Connection Manager (0x06)
+        Path Segment: 0x24 (8-Bit Instance Segment)
+            001. .... = Path Segment Type: Logical Segment (1)
+            ...0 01.. = Logical Segment Type: Instance ID (1)
+            .... ..00 = Logical Segment Format: 8-bit Logical Segment (0)
+            8-Bit Instance Segment
+                Instance: 0x01
+CIP Connection Manager
+    Service: Unconnected Send (Request)
+        0... .... = Request/Response: Request (0x00)
+        .101 0010 = Service: Unconnected Send (0x52)
+    Command Specific Data
+        ...0 .... = Priority: 0
+        .... 0101 = Tick time: 5
+        Time-out ticks: 157
+        Actual Time Out: 5024ms
+        Message Request Size: 16
+        Message Request
+            Common Industrial Protocol
+                Service: Unknown Service (0x52) (Request)
+                    0... .... = Request/Response: Request (0x00)
+                    .101 0010 = Service: Unknown (0x52)
+                Request Path Size: 4 (words)
+                Request Path: SCADA
+                    Path Segment: 0x91 (ANSI Extended Symbol Segment)
+                        100. .... = Path Segment Type: Data Segment (4)
+                        ...1 0001 = Data Segment Type: ANSI Extended Symbol Segment (17)
+                        ANSI Extended Symbol Segment
+                            Data Size: 5
+                            Symbol: SCADA
+            CIP Class Generic
+                Command Specific Data
+                    Data: 010000000000
+        Route Path Size: 1 (words)
+        Reserved: 0x00
+        Route Path: Port: 1, Address: 0
+            Path Segment: 0x01 (Port Segment)
+                000. .... = Path Segment Type: Port Segment (0)
+                ...0 .... = Extended Link Address: False
+                .... 0001 = Port: 1
+                Port Segment
+                    Link Address: 0
+
+0000  00 50 56 fb 35 e0 00 0c 29 7a e2 23 08 00 45 00   .PV.5...)z.#..E.
+0010  00 6e ac 60 40 00 40 06 7b 70 c0 a8 de 80 0a dc   .n.`@.@.{p......
+0020  68 b4 ac 94 af 12 98 18 da b9 02 ab 8e 27 50 18   h............'P.
+0030  39 08 23 10 00 00 6f 00 2e 00 01 1e 02 11 00 00   9.#...o.........
+0040  00 00 03 00 00 00 00 00 00 00 00 00 00 00 00 00   ................
+0050  00 00 05 00 02 00 00 00 00 00 b2 00 1e 00 52 02   ..............R.
+0060  20 06 24 01 05 9d 10 00 52 04 91 05 53 43 41 44    .$.....R...SCAD
+0070  41 00 01 00 00 00 00 00 01 00 01 00               A...........
+
+No.     Time           Source                Destination           Protocol Length Info
+     15 0.337513000    10.220.104.180        192.168.222.128       TCP      60     EtherNet-IP-2 > 44180 [ACK] Seq=170 Ack=205 Win=64240 Len=0
+
+Frame 15: 60 bytes on wire (480 bits), 60 bytes captured (480 bits) on interface 0
+    Interface id: 0
+    WTAP_ENCAP: 1
+    Arrival Time: May  7, 2013 11:27:17.829894000 MST
+    [Time shift for this packet: 0.000000000 seconds]
+    Epoch Time: 1367951237.829894000 seconds
+    [Time delta from previous captured frame: 0.000156000 seconds]
+    [Time delta from previous displayed frame: 0.000156000 seconds]
+    [Time since reference or first frame: 0.337513000 seconds]
+    Frame Number: 15
+    Frame Length: 60 bytes (480 bits)
+    Capture Length: 60 bytes (480 bits)
+    [Frame is marked: False]
+    [Frame is ignored: False]
+    [Protocols in frame: eth:ip:tcp]
+    [Coloring Rule Name: TCP]
+    [Coloring Rule String: tcp]
+Ethernet II, Src: Vmware_fb:35:e0 (00:50:56:fb:35:e0), Dst: Vmware_7a:e2:23 (00:0c:29:7a:e2:23)
+    Destination: Vmware_7a:e2:23 (00:0c:29:7a:e2:23)
+        Address: Vmware_7a:e2:23 (00:0c:29:7a:e2:23)
+        .... ..0. .... .... .... .... = LG bit: Globally unique address (factory default)
+        .... ...0 .... .... .... .... = IG bit: Individual address (unicast)
+    Source: Vmware_fb:35:e0 (00:50:56:fb:35:e0)
+        Address: Vmware_fb:35:e0 (00:50:56:fb:35:e0)
+        .... ..0. .... .... .... .... = LG bit: Globally unique address (factory default)
+        .... ...0 .... .... .... .... = IG bit: Individual address (unicast)
+    Type: IP (0x0800)
+    Padding: 000000000000
+Internet Protocol Version 4, Src: 10.220.104.180 (10.220.104.180), Dst: 192.168.222.128 (192.168.222.128)
+    Version: 4
+    Header length: 20 bytes
+    Differentiated Services Field: 0x00 (DSCP 0x00: Default; ECN: 0x00: Not-ECT (Not ECN-Capable Transport))
+        0000 00.. = Differentiated Services Codepoint: Default (0x00)
+        .... ..00 = Explicit Congestion Notification: Not-ECT (Not ECN-Capable Transport) (0x00)
+    Total Length: 40
+    Identification: 0x8327 (33575)
+    Flags: 0x00
+        0... .... = Reserved bit: Not set
+        .0.. .... = Don't fragment: Not set
+        ..0. .... = More fragments: Not set
+    Fragment offset: 0
+    Time to live: 128
+    Protocol: TCP (6)
+    Header checksum: 0xa4ef [correct]
+        [Good: True]
+        [Bad: False]
+    Source: 10.220.104.180 (10.220.104.180)
+    Destination: 192.168.222.128 (192.168.222.128)
+    [Source GeoIP: Unknown]
+    [Destination GeoIP: Unknown]
+Transmission Control Protocol, Src Port: EtherNet-IP-2 (44818), Dst Port: 44180 (44180), Seq: 170, Ack: 205, Len: 0
+    Source port: EtherNet-IP-2 (44818)
+    Destination port: 44180 (44180)
+    [Stream index: 0]
+    Sequence number: 170    (relative sequence number)
+    Acknowledgment number: 205    (relative ack number)
+    Header length: 20 bytes
+    Flags: 0x010 (ACK)
+        000. .... .... = Reserved: Not set
+        ...0 .... .... = Nonce: Not set
+        .... 0... .... = Congestion Window Reduced (CWR): Not set
+        .... .0.. .... = ECN-Echo: Not set
+        .... ..0. .... = Urgent: Not set
+        .... ...1 .... = Acknowledgment: Set
+        .... .... 0... = Push: Not set
+        .... .... .0.. = Reset: Not set
+        .... .... ..0. = Syn: Not set
+        .... .... ...0 = Fin: Not set
+    Window size value: 64240
+    [Calculated window size: 64240]
+    [Window size scaling factor: -2 (no window scaling used)]
+    Checksum: 0x4298 [validation disabled]
+        [Good Checksum: False]
+        [Bad Checksum: False]
+    [SEQ/ACK analysis]
+        [This is an ACK to the segment in frame: 14]
+        [The RTT to ACK the segment was: 0.000156000 seconds]
+
+0000  00 0c 29 7a e2 23 00 50 56 fb 35 e0 08 00 45 00   ..)z.#.PV.5...E.
+0010  00 28 83 27 00 00 80 06 a4 ef 0a dc 68 b4 c0 a8   .(.'........h...
+0020  de 80 af 12 ac 94 02 ab 8e 27 98 18 da ff 50 10   .........'....P.
+0030  fa f0 42 98 00 00 00 00 00 00 00 00               ..B.........
+
+No.     Time           Source                Destination           Protocol Length Info
+     16 0.423402000    10.220.104.180        192.168.222.128       CIP      102    Success
+
+Frame 16: 102 bytes on wire (816 bits), 102 bytes captured (816 bits) on interface 0
+    Interface id: 0
+    WTAP_ENCAP: 1
+    Arrival Time: May  7, 2013 11:27:17.915783000 MST
+    [Time shift for this packet: 0.000000000 seconds]
+    Epoch Time: 1367951237.915783000 seconds
+    [Time delta from previous captured frame: 0.085889000 seconds]
+    [Time delta from previous displayed frame: 0.085889000 seconds]
+    [Time since reference or first frame: 0.423402000 seconds]
+    Frame Number: 16
+    Frame Length: 102 bytes (816 bits)
+    Capture Length: 102 bytes (816 bits)
+    [Frame is marked: False]
+    [Frame is ignored: False]
+    [Protocols in frame: eth:ip:tcp:enip:cip:cipcm:cipcls]
+    [Coloring Rule Name: TCP]
+    [Coloring Rule String: tcp]
+Ethernet II, Src: Vmware_fb:35:e0 (00:50:56:fb:35:e0), Dst: Vmware_7a:e2:23 (00:0c:29:7a:e2:23)
+    Destination: Vmware_7a:e2:23 (00:0c:29:7a:e2:23)
+        Address: Vmware_7a:e2:23 (00:0c:29:7a:e2:23)
+        .... ..0. .... .... .... .... = LG bit: Globally unique address (factory default)
+        .... ...0 .... .... .... .... = IG bit: Individual address (unicast)
+    Source: Vmware_fb:35:e0 (00:50:56:fb:35:e0)
+        Address: Vmware_fb:35:e0 (00:50:56:fb:35:e0)
+        .... ..0. .... .... .... .... = LG bit: Globally unique address (factory default)
+        .... ...0 .... .... .... .... = IG bit: Individual address (unicast)
+    Type: IP (0x0800)
+Internet Protocol Version 4, Src: 10.220.104.180 (10.220.104.180), Dst: 192.168.222.128 (192.168.222.128)
+    Version: 4
+    Header length: 20 bytes
+    Differentiated Services Field: 0x00 (DSCP 0x00: Default; ECN: 0x00: Not-ECT (Not ECN-Capable Transport))
+        0000 00.. = Differentiated Services Codepoint: Default (0x00)
+        .... ..00 = Explicit Congestion Notification: Not-ECT (Not ECN-Capable Transport) (0x00)
+    Total Length: 88
+    Identification: 0x8328 (33576)
+    Flags: 0x00
+        0... .... = Reserved bit: Not set
+        .0.. .... = Don't fragment: Not set
+        ..0. .... = More fragments: Not set
+    Fragment offset: 0
+    Time to live: 128
+    Protocol: TCP (6)
+    Header checksum: 0xa4be [correct]
+        [Good: True]
+        [Bad: False]
+    Source: 10.220.104.180 (10.220.104.180)
+    Destination: 192.168.222.128 (192.168.222.128)
+    [Source GeoIP: Unknown]
+    [Destination GeoIP: Unknown]
+Transmission Control Protocol, Src Port: EtherNet-IP-2 (44818), Dst Port: 44180 (44180), Seq: 170, Ack: 205, Len: 48
+    Source port: EtherNet-IP-2 (44818)
+    Destination port: 44180 (44180)
+    [Stream index: 0]
+    Sequence number: 170    (relative sequence number)
+    [Next sequence number: 218    (relative sequence number)]
+    Acknowledgment number: 205    (relative ack number)
+    Header length: 20 bytes
+    Flags: 0x018 (PSH, ACK)
+        000. .... .... = Reserved: Not set
+        ...0 .... .... = Nonce: Not set
+        .... 0... .... = Congestion Window Reduced (CWR): Not set
+        .... .0.. .... = ECN-Echo: Not set
+        .... ..0. .... = Urgent: Not set
+        .... ...1 .... = Acknowledgment: Set
+        .... .... 1... = Push: Set
+        .... .... .0.. = Reset: Not set
+        .... .... ..0. = Syn: Not set
+        .... .... ...0 = Fin: Not set
+    Window size value: 64240
+    [Calculated window size: 64240]
+    [Window size scaling factor: -2 (no window scaling used)]
+    Checksum: 0x37ae [validation disabled]
+        [Good Checksum: False]
+        [Bad Checksum: False]
+    [SEQ/ACK analysis]
+        [Bytes in flight: 48]
+    [PDU Size: 48]
+EtherNet/IP (Industrial Protocol), Session: 0x11021E01, Send RR Data
+    Encapsulation Header
+        Command: Send RR Data (0x006f)
+        Length: 24
+        Session Handle: 0x11021e01
+        Status: Success (0x00000000)
+        Sender Context: 0300000000000000
+        Options: 0x00000000
+    Command Specific Data
+        Interface Handle: CIP (0x00000000)
+        Timeout: 5
+        Item Count: 2
+            Type ID: Null Address Item (0x0000)
+                Length: 0
+            Type ID: Unconnected Data Item (0x00b2)
+                Length: 8
+        [Request In: 14]
+        [Time: 0.086045000 seconds]
+Common Industrial Protocol
+    Service: Unknown Service (0x52) (Response)
+        1... .... = Request/Response: Response (0x01)
+        .101 0010 = Service: Unknown (0x52)
+    Status: Success
+        General Status: Success (0x00)
+        Additional Status Size: 0 (words)
+    [Request Path Size: 2 (words)]
+    [Request Path: Connection Manager, Instance: 0x01]
+        [Path Segment: 0x20 (8-Bit Class Segment)]
+            [001. .... = Path Segment Type: Logical Segment (1)]
+            [...0 00.. = Logical Segment Type: Class ID (0)]
+            [.... ..00 = Logical Segment Format: 8-bit Logical Segment (0)]
+            [8-Bit Class Segment]
+                [Class: Connection Manager (0x06)]
+        [Path Segment: 0x24 (8-Bit Instance Segment)]
+            [001. .... = Path Segment Type: Logical Segment (1)]
+            [...0 01.. = Logical Segment Type: Instance ID (1)]
+            [.... ..00 = Logical Segment Format: 8-bit Logical Segment (0)]
+            [8-Bit Instance Segment]
+                [Instance: 0x01]
+CIP Connection Manager
+    (Service: Unconnected Send (Response))
+    CIP Class Generic
+        Command Specific Data
+            Data: c3002780
+
+0000  00 0c 29 7a e2 23 00 50 56 fb 35 e0 08 00 45 00   ..)z.#.PV.5...E.
+0010  00 58 83 28 00 00 80 06 a4 be 0a dc 68 b4 c0 a8   .X.(........h...
+0020  de 80 af 12 ac 94 02 ab 8e 27 98 18 da ff 50 18   .........'....P.
+0030  fa f0 37 ae 00 00 6f 00 18 00 01 1e 02 11 00 00   ..7...o.........
+0040  00 00 03 00 00 00 00 00 00 00 00 00 00 00 00 00   ................
+0050  00 00 05 00 02 00 00 00 00 00 b2 00 08 00 d2 00   ................
+0060  00 00 c3 00 27 80                                 ....'.
+
+No.     Time           Source                Destination           Protocol Length Info
+     17 0.423597000    192.168.222.128       10.220.104.180        CIP CM   124    Unconnected Send: Unknown Service (0x52)
+
+Frame 17: 124 bytes on wire (992 bits), 124 bytes captured (992 bits) on interface 0
+    Interface id: 0
+    WTAP_ENCAP: 1
+    Arrival Time: May  7, 2013 11:27:17.915978000 MST
+    [Time shift for this packet: 0.000000000 seconds]
+    Epoch Time: 1367951237.915978000 seconds
+    [Time delta from previous captured frame: 0.000195000 seconds]
+    [Time delta from previous displayed frame: 0.000195000 seconds]
+    [Time since reference or first frame: 0.423597000 seconds]
+    Frame Number: 17
+    Frame Length: 124 bytes (992 bits)
+    Capture Length: 124 bytes (992 bits)
+    [Frame is marked: False]
+    [Frame is ignored: False]
+    [Protocols in frame: eth:ip:tcp:enip:cip:cipcm:cipcls]
+    [Coloring Rule Name: TCP]
+    [Coloring Rule String: tcp]
+Ethernet II, Src: Vmware_7a:e2:23 (00:0c:29:7a:e2:23), Dst: Vmware_fb:35:e0 (00:50:56:fb:35:e0)
+    Destination: Vmware_fb:35:e0 (00:50:56:fb:35:e0)
+        Address: Vmware_fb:35:e0 (00:50:56:fb:35:e0)
+        .... ..0. .... .... .... .... = LG bit: Globally unique address (factory default)
+        .... ...0 .... .... .... .... = IG bit: Individual address (unicast)
+    Source: Vmware_7a:e2:23 (00:0c:29:7a:e2:23)
+        Address: Vmware_7a:e2:23 (00:0c:29:7a:e2:23)
+        .... ..0. .... .... .... .... = LG bit: Globally unique address (factory default)
+        .... ...0 .... .... .... .... = IG bit: Individual address (unicast)
+    Type: IP (0x0800)
+Internet Protocol Version 4, Src: 192.168.222.128 (192.168.222.128), Dst: 10.220.104.180 (10.220.104.180)
+    Version: 4
+    Header length: 20 bytes
+    Differentiated Services Field: 0x00 (DSCP 0x00: Default; ECN: 0x00: Not-ECT (Not ECN-Capable Transport))
+        0000 00.. = Differentiated Services Codepoint: Default (0x00)
+        .... ..00 = Explicit Congestion Notification: Not-ECT (Not ECN-Capable Transport) (0x00)
+    Total Length: 110
+    Identification: 0xac61 (44129)
+    Flags: 0x02 (Don't Fragment)
+        0... .... = Reserved bit: Not set
+        .1.. .... = Don't fragment: Set
+        ..0. .... = More fragments: Not set
+    Fragment offset: 0
+    Time to live: 64
+    Protocol: TCP (6)
+    Header checksum: 0x7b6f [correct]
+        [Good: True]
+        [Bad: False]
+    Source: 192.168.222.128 (192.168.222.128)
+    Destination: 10.220.104.180 (10.220.104.180)
+    [Source GeoIP: Unknown]
+    [Destination GeoIP: Unknown]
+Transmission Control Protocol, Src Port: 44180 (44180), Dst Port: EtherNet-IP-2 (44818), Seq: 205, Ack: 218, Len: 70
+    Source port: 44180 (44180)
+    Destination port: EtherNet-IP-2 (44818)
+    [Stream index: 0]
+    Sequence number: 205    (relative sequence number)
+    [Next sequence number: 275    (relative sequence number)]
+    Acknowledgment number: 218    (relative ack number)
+    Header length: 20 bytes
+    Flags: 0x018 (PSH, ACK)
+        000. .... .... = Reserved: Not set
+        ...0 .... .... = Nonce: Not set
+        .... 0... .... = Congestion Window Reduced (CWR): Not set
+        .... .0.. .... = ECN-Echo: Not set
+        .... ..0. .... = Urgent: Not set
+        .... ...1 .... = Acknowledgment: Set
+        .... .... 1... = Push: Set
+        .... .... .0.. = Reset: Not set
+        .... .... ..0. = Syn: Not set
+        .... .... ...0 = Fin: Not set
+    Window size value: 14600
+    [Calculated window size: 14600]
+    [Window size scaling factor: -2 (no window scaling used)]
+    Checksum: 0x0c9a [validation disabled]
+        [Good Checksum: False]
+        [Bad Checksum: False]
+    [SEQ/ACK analysis]
+        [This is an ACK to the segment in frame: 16]
+        [The RTT to ACK the segment was: 0.000195000 seconds]
+        [Bytes in flight: 70]
+    [PDU Size: 70]
+EtherNet/IP (Industrial Protocol), Session: 0x11021E01, Send RR Data
+    Encapsulation Header
+        Command: Send RR Data (0x006f)
+        Length: 46
+        Session Handle: 0x11021e01
+        Status: Success (0x00000000)
+        Sender Context: 0400000000000000
+        Options: 0x00000000
+    Command Specific Data
+        Interface Handle: CIP (0x00000000)
+        Timeout: 5
+        Item Count: 2
+            Type ID: Null Address Item (0x0000)
+                Length: 0
+            Type ID: Unconnected Data Item (0x00b2)
+                Length: 30
+        [Response In: 19]
+Common Industrial Protocol
+    Service: Unknown Service (0x52) (Request)
+        0... .... = Request/Response: Request (0x00)
+        .101 0010 = Service: Unknown (0x52)
+    Request Path Size: 2 (words)
+    Request Path: Connection Manager, Instance: 0x01
+        Path Segment: 0x20 (8-Bit Class Segment)
+            001. .... = Path Segment Type: Logical Segment (1)
+            ...0 00.. = Logical Segment Type: Class ID (0)
+            .... ..00 = Logical Segment Format: 8-bit Logical Segment (0)
+            8-Bit Class Segment
+                Class: Connection Manager (0x06)
+        Path Segment: 0x24 (8-Bit Instance Segment)
+            001. .... = Path Segment Type: Logical Segment (1)
+            ...0 01.. = Logical Segment Type: Instance ID (1)
+            .... ..00 = Logical Segment Format: 8-bit Logical Segment (0)
+            8-Bit Instance Segment
+                Instance: 0x01
+CIP Connection Manager
+    Service: Unconnected Send (Request)
+        0... .... = Request/Response: Request (0x00)
+        .101 0010 = Service: Unconnected Send (0x52)
+    Command Specific Data
+        ...0 .... = Priority: 0
+        .... 0101 = Tick time: 5
+        Time-out ticks: 157
+        Actual Time Out: 5024ms
+        Message Request Size: 16
+        Message Request
+            Common Industrial Protocol
+                Service: Unknown Service (0x52) (Request)
+                    0... .... = Request/Response: Request (0x00)
+                    .101 0010 = Service: Unknown (0x52)
+                Request Path Size: 4 (words)
+                Request Path: SCADA
+                    Path Segment: 0x91 (ANSI Extended Symbol Segment)
+                        100. .... = Path Segment Type: Data Segment (4)
+                        ...1 0001 = Data Segment Type: ANSI Extended Symbol Segment (17)
+                        ANSI Extended Symbol Segment
+                            Data Size: 5
+                            Symbol: SCADA
+            CIP Class Generic
+                Command Specific Data
+                    Data: 140002000000
+        Route Path Size: 1 (words)
+        Reserved: 0x00
+        Route Path: Port: 1, Address: 0
+            Path Segment: 0x01 (Port Segment)
+                000. .... = Path Segment Type: Port Segment (0)
+                ...0 .... = Extended Link Address: False
+                .... 0001 = Port: 1
+                Port Segment
+                    Link Address: 0
+
+0000  00 50 56 fb 35 e0 00 0c 29 7a e2 23 08 00 45 00   .PV.5...)z.#..E.
+0010  00 6e ac 61 40 00 40 06 7b 6f c0 a8 de 80 0a dc   .n.a@.@.{o......
+0020  68 b4 ac 94 af 12 98 18 da ff 02 ab 8e 57 50 18   h............WP.
+0030  39 08 0c 9a 00 00 6f 00 2e 00 01 1e 02 11 00 00   9.....o.........
+0040  00 00 04 00 00 00 00 00 00 00 00 00 00 00 00 00   ................
+0050  00 00 05 00 02 00 00 00 00 00 b2 00 1e 00 52 02   ..............R.
+0060  20 06 24 01 05 9d 10 00 52 04 91 05 53 43 41 44    .$.....R...SCAD
+0070  41 00 14 00 02 00 00 00 01 00 01 00               A...........
+
+No.     Time           Source                Destination           Protocol Length Info
+     18 0.423763000    10.220.104.180        192.168.222.128       TCP      60     EtherNet-IP-2 > 44180 [ACK] Seq=218 Ack=275 Win=64240 Len=0
+
+Frame 18: 60 bytes on wire (480 bits), 60 bytes captured (480 bits) on interface 0
+    Interface id: 0
+    WTAP_ENCAP: 1
+    Arrival Time: May  7, 2013 11:27:17.916144000 MST
+    [Time shift for this packet: 0.000000000 seconds]
+    Epoch Time: 1367951237.916144000 seconds
+    [Time delta from previous captured frame: 0.000166000 seconds]
+    [Time delta from previous displayed frame: 0.000166000 seconds]
+    [Time since reference or first frame: 0.423763000 seconds]
+    Frame Number: 18
+    Frame Length: 60 bytes (480 bits)
+    Capture Length: 60 bytes (480 bits)
+    [Frame is marked: False]
+    [Frame is ignored: False]
+    [Protocols in frame: eth:ip:tcp]
+    [Coloring Rule Name: TCP]
+    [Coloring Rule String: tcp]
+Ethernet II, Src: Vmware_fb:35:e0 (00:50:56:fb:35:e0), Dst: Vmware_7a:e2:23 (00:0c:29:7a:e2:23)
+    Destination: Vmware_7a:e2:23 (00:0c:29:7a:e2:23)
+        Address: Vmware_7a:e2:23 (00:0c:29:7a:e2:23)
+        .... ..0. .... .... .... .... = LG bit: Globally unique address (factory default)
+        .... ...0 .... .... .... .... = IG bit: Individual address (unicast)
+    Source: Vmware_fb:35:e0 (00:50:56:fb:35:e0)
+        Address: Vmware_fb:35:e0 (00:50:56:fb:35:e0)
+        .... ..0. .... .... .... .... = LG bit: Globally unique address (factory default)
+        .... ...0 .... .... .... .... = IG bit: Individual address (unicast)
+    Type: IP (0x0800)
+    Padding: 000000000000
+Internet Protocol Version 4, Src: 10.220.104.180 (10.220.104.180), Dst: 192.168.222.128 (192.168.222.128)
+    Version: 4
+    Header length: 20 bytes
+    Differentiated Services Field: 0x00 (DSCP 0x00: Default; ECN: 0x00: Not-ECT (Not ECN-Capable Transport))
+        0000 00.. = Differentiated Services Codepoint: Default (0x00)
+        .... ..00 = Explicit Congestion Notification: Not-ECT (Not ECN-Capable Transport) (0x00)
+    Total Length: 40
+    Identification: 0x8329 (33577)
+    Flags: 0x00
+        0... .... = Reserved bit: Not set
+        .0.. .... = Don't fragment: Not set
+        ..0. .... = More fragments: Not set
+    Fragment offset: 0
+    Time to live: 128
+    Protocol: TCP (6)
+    Header checksum: 0xa4ed [correct]
+        [Good: True]
+        [Bad: False]
+    Source: 10.220.104.180 (10.220.104.180)
+    Destination: 192.168.222.128 (192.168.222.128)
+    [Source GeoIP: Unknown]
+    [Destination GeoIP: Unknown]
+Transmission Control Protocol, Src Port: EtherNet-IP-2 (44818), Dst Port: 44180 (44180), Seq: 218, Ack: 275, Len: 0
+    Source port: EtherNet-IP-2 (44818)
+    Destination port: 44180 (44180)
+    [Stream index: 0]
+    Sequence number: 218    (relative sequence number)
+    Acknowledgment number: 275    (relative ack number)
+    Header length: 20 bytes
+    Flags: 0x010 (ACK)
+        000. .... .... = Reserved: Not set
+        ...0 .... .... = Nonce: Not set
+        .... 0... .... = Congestion Window Reduced (CWR): Not set
+        .... .0.. .... = ECN-Echo: Not set
+        .... ..0. .... = Urgent: Not set
+        .... ...1 .... = Acknowledgment: Set
+        .... .... 0... = Push: Not set
+        .... .... .0.. = Reset: Not set
+        .... .... ..0. = Syn: Not set
+        .... .... ...0 = Fin: Not set
+    Window size value: 64240
+    [Calculated window size: 64240]
+    [Window size scaling factor: -2 (no window scaling used)]
+    Checksum: 0x4222 [validation disabled]
+        [Good Checksum: False]
+        [Bad Checksum: False]
+    [SEQ/ACK analysis]
+        [This is an ACK to the segment in frame: 17]
+        [The RTT to ACK the segment was: 0.000166000 seconds]
+
+0000  00 0c 29 7a e2 23 00 50 56 fb 35 e0 08 00 45 00   ..)z.#.PV.5...E.
+0010  00 28 83 29 00 00 80 06 a4 ed 0a dc 68 b4 c0 a8   .(.)........h...
+0020  de 80 af 12 ac 94 02 ab 8e 57 98 18 db 45 50 10   .........W...EP.
+0030  fa f0 42 22 00 00 00 00 00 00 00 00               ..B"........
+
+No.     Time           Source                Destination           Protocol Length Info
+     19 0.515458000    10.220.104.180        192.168.222.128       CIP      138    Success
+
+Frame 19: 138 bytes on wire (1104 bits), 138 bytes captured (1104 bits) on interface 0
+    Interface id: 0
+    WTAP_ENCAP: 1
+    Arrival Time: May  7, 2013 11:27:18.007839000 MST
+    [Time shift for this packet: 0.000000000 seconds]
+    Epoch Time: 1367951238.007839000 seconds
+    [Time delta from previous captured frame: 0.091695000 seconds]
+    [Time delta from previous displayed frame: 0.091695000 seconds]
+    [Time since reference or first frame: 0.515458000 seconds]
+    Frame Number: 19
+    Frame Length: 138 bytes (1104 bits)
+    Capture Length: 138 bytes (1104 bits)
+    [Frame is marked: False]
+    [Frame is ignored: False]
+    [Protocols in frame: eth:ip:tcp:enip:cip:cipcm:cipcls]
+    [Coloring Rule Name: TCP]
+    [Coloring Rule String: tcp]
+Ethernet II, Src: Vmware_fb:35:e0 (00:50:56:fb:35:e0), Dst: Vmware_7a:e2:23 (00:0c:29:7a:e2:23)
+    Destination: Vmware_7a:e2:23 (00:0c:29:7a:e2:23)
+        Address: Vmware_7a:e2:23 (00:0c:29:7a:e2:23)
+        .... ..0. .... .... .... .... = LG bit: Globally unique address (factory default)
+        .... ...0 .... .... .... .... = IG bit: Individual address (unicast)
+    Source: Vmware_fb:35:e0 (00:50:56:fb:35:e0)
+        Address: Vmware_fb:35:e0 (00:50:56:fb:35:e0)
+        .... ..0. .... .... .... .... = LG bit: Globally unique address (factory default)
+        .... ...0 .... .... .... .... = IG bit: Individual address (unicast)
+    Type: IP (0x0800)
+Internet Protocol Version 4, Src: 10.220.104.180 (10.220.104.180), Dst: 192.168.222.128 (192.168.222.128)
+    Version: 4
+    Header length: 20 bytes
+    Differentiated Services Field: 0x00 (DSCP 0x00: Default; ECN: 0x00: Not-ECT (Not ECN-Capable Transport))
+        0000 00.. = Differentiated Services Codepoint: Default (0x00)
+        .... ..00 = Explicit Congestion Notification: Not-ECT (Not ECN-Capable Transport) (0x00)
+    Total Length: 124
+    Identification: 0x832a (33578)
+    Flags: 0x00
+        0... .... = Reserved bit: Not set
+        .0.. .... = Don't fragment: Not set
+        ..0. .... = More fragments: Not set
+    Fragment offset: 0
+    Time to live: 128
+    Protocol: TCP (6)
+    Header checksum: 0xa498 [correct]
+        [Good: True]
+        [Bad: False]
+    Source: 10.220.104.180 (10.220.104.180)
+    Destination: 192.168.222.128 (192.168.222.128)
+    [Source GeoIP: Unknown]
+    [Destination GeoIP: Unknown]
+Transmission Control Protocol, Src Port: EtherNet-IP-2 (44818), Dst Port: 44180 (44180), Seq: 218, Ack: 275, Len: 84
+    Source port: EtherNet-IP-2 (44818)
+    Destination port: 44180 (44180)
+    [Stream index: 0]
+    Sequence number: 218    (relative sequence number)
+    [Next sequence number: 302    (relative sequence number)]
+    Acknowledgment number: 275    (relative ack number)
+    Header length: 20 bytes
+    Flags: 0x018 (PSH, ACK)
+        000. .... .... = Reserved: Not set
+        ...0 .... .... = Nonce: Not set
+        .... 0... .... = Congestion Window Reduced (CWR): Not set
+        .... .0.. .... = ECN-Echo: Not set
+        .... ..0. .... = Urgent: Not set
+        .... ...1 .... = Acknowledgment: Set
+        .... .... 1... = Push: Set
+        .... .... .0.. = Reset: Not set
+        .... .... ..0. = Syn: Not set
+        .... .... ...0 = Fin: Not set
+    Window size value: 64240
+    [Calculated window size: 64240]
+    [Window size scaling factor: -2 (no window scaling used)]
+    Checksum: 0x6a7a [validation disabled]
+        [Good Checksum: False]
+        [Bad Checksum: False]
+    [SEQ/ACK analysis]
+        [Bytes in flight: 84]
+    [PDU Size: 84]
+EtherNet/IP (Industrial Protocol), Session: 0x11021E01, Send RR Data
+    Encapsulation Header
+        Command: Send RR Data (0x006f)
+        Length: 60
+        Session Handle: 0x11021e01
+        Status: Success (0x00000000)
+        Sender Context: 0400000000000000
+        Options: 0x00000000
+    Command Specific Data
+        Interface Handle: CIP (0x00000000)
+        Timeout: 5
+        Item Count: 2
+            Type ID: Null Address Item (0x0000)
+                Length: 0
+            Type ID: Unconnected Data Item (0x00b2)
+                Length: 44
+        [Request In: 17]
+        [Time: 0.091861000 seconds]
+Common Industrial Protocol
+    Service: Unknown Service (0x52) (Response)
+        1... .... = Request/Response: Response (0x01)
+        .101 0010 = Service: Unknown (0x52)
+    Status: Success
+        General Status: Success (0x00)
+        Additional Status Size: 0 (words)
+    [Request Path Size: 2 (words)]
+    [Request Path: Connection Manager, Instance: 0x01]
+        [Path Segment: 0x20 (8-Bit Class Segment)]
+            [001. .... = Path Segment Type: Logical Segment (1)]
+            [...0 00.. = Logical Segment Type: Class ID (0)]
+            [.... ..00 = Logical Segment Format: 8-bit Logical Segment (0)]
+            [8-Bit Class Segment]
+                [Class: Connection Manager (0x06)]
+        [Path Segment: 0x24 (8-Bit Instance Segment)]
+            [001. .... = Path Segment Type: Logical Segment (1)]
+            [...0 01.. = Logical Segment Type: Instance ID (1)]
+            [.... ..00 = Logical Segment Format: 8-bit Logical Segment (0)]
+            [8-Bit Instance Segment]
+                [Instance: 0x01]
+CIP Connection Manager
+    (Service: Unconnected Send (Response))
+    CIP Class Generic
+        Command Specific Data
+            Data: c3004c10080003000200020002000e0000000000e6420700...
+
+0000  00 0c 29 7a e2 23 00 50 56 fb 35 e0 08 00 45 00   ..)z.#.PV.5...E.
+0010  00 7c 83 2a 00 00 80 06 a4 98 0a dc 68 b4 c0 a8   .|.*........h...
+0020  de 80 af 12 ac 94 02 ab 8e 57 98 18 db 45 50 18   .........W...EP.
+0030  fa f0 6a 7a 00 00 6f 00 3c 00 01 1e 02 11 00 00   ..jz..o.<.......
+0040  00 00 04 00 00 00 00 00 00 00 00 00 00 00 00 00   ................
+0050  00 00 05 00 02 00 00 00 00 00 b2 00 2c 00 d2 00   ............,...
+0060  00 00 c3 00 4c 10 08 00 03 00 02 00 02 00 02 00   ....L...........
+0070  0e 00 00 00 00 00 e6 42 07 00 c8 40 c8 40 00 00   .......B...@.@..
+0080  e4 00 00 00 64 00 b2 02 c8 40                     ....d....@
+
+No.     Time           Source                Destination           Protocol Length Info
+     20 0.515830000    192.168.222.128       10.220.104.180        CIP CM   130    Unconnected Send: Unknown Service (0x53)
+
+Frame 20: 130 bytes on wire (1040 bits), 130 bytes captured (1040 bits) on interface 0
+    Interface id: 0
+    WTAP_ENCAP: 1
+    Arrival Time: May  7, 2013 11:27:18.008211000 MST
+    [Time shift for this packet: 0.000000000 seconds]
+    Epoch Time: 1367951238.008211000 seconds
+    [Time delta from previous captured frame: 0.000372000 seconds]
+    [Time delta from previous displayed frame: 0.000372000 seconds]
+    [Time since reference or first frame: 0.515830000 seconds]
+    Frame Number: 20
+    Frame Length: 130 bytes (1040 bits)
+    Capture Length: 130 bytes (1040 bits)
+    [Frame is marked: False]
+    [Frame is ignored: False]
+    [Protocols in frame: eth:ip:tcp:enip:cip:cipcm:cipcls]
+    [Coloring Rule Name: TCP]
+    [Coloring Rule String: tcp]
+Ethernet II, Src: Vmware_7a:e2:23 (00:0c:29:7a:e2:23), Dst: Vmware_fb:35:e0 (00:50:56:fb:35:e0)
+    Destination: Vmware_fb:35:e0 (00:50:56:fb:35:e0)
+        Address: Vmware_fb:35:e0 (00:50:56:fb:35:e0)
+        .... ..0. .... .... .... .... = LG bit: Globally unique address (factory default)
+        .... ...0 .... .... .... .... = IG bit: Individual address (unicast)
+    Source: Vmware_7a:e2:23 (00:0c:29:7a:e2:23)
+        Address: Vmware_7a:e2:23 (00:0c:29:7a:e2:23)
+        .... ..0. .... .... .... .... = LG bit: Globally unique address (factory default)
+        .... ...0 .... .... .... .... = IG bit: Individual address (unicast)
+    Type: IP (0x0800)
+Internet Protocol Version 4, Src: 192.168.222.128 (192.168.222.128), Dst: 10.220.104.180 (10.220.104.180)
+    Version: 4
+    Header length: 20 bytes
+    Differentiated Services Field: 0x00 (DSCP 0x00: Default; ECN: 0x00: Not-ECT (Not ECN-Capable Transport))
+        0000 00.. = Differentiated Services Codepoint: Default (0x00)
+        .... ..00 = Explicit Congestion Notification: Not-ECT (Not ECN-Capable Transport) (0x00)
+    Total Length: 116
+    Identification: 0xac62 (44130)
+    Flags: 0x02 (Don't Fragment)
+        0... .... = Reserved bit: Not set
+        .1.. .... = Don't fragment: Set
+        ..0. .... = More fragments: Not set
+    Fragment offset: 0
+    Time to live: 64
+    Protocol: TCP (6)
+    Header checksum: 0x7b68 [correct]
+        [Good: True]
+        [Bad: False]
+    Source: 192.168.222.128 (192.168.222.128)
+    Destination: 10.220.104.180 (10.220.104.180)
+    [Source GeoIP: Unknown]
+    [Destination GeoIP: Unknown]
+Transmission Control Protocol, Src Port: 44180 (44180), Dst Port: EtherNet-IP-2 (44818), Seq: 275, Ack: 302, Len: 76
+    Source port: 44180 (44180)
+    Destination port: EtherNet-IP-2 (44818)
+    [Stream index: 0]
+    Sequence number: 275    (relative sequence number)
+    [Next sequence number: 351    (relative sequence number)]
+    Acknowledgment number: 302    (relative ack number)
+    Header length: 20 bytes
+    Flags: 0x018 (PSH, ACK)
+        000. .... .... = Reserved: Not set
+        ...0 .... .... = Nonce: Not set
+        .... 0... .... = Congestion Window Reduced (CWR): Not set
+        .... .0.. .... = ECN-Echo: Not set
+        .... ..0. .... = Urgent: Not set
+        .... ...1 .... = Acknowledgment: Set
+        .... .... 1... = Push: Set
+        .... .... .0.. = Reset: Not set
+        .... .... ..0. = Syn: Not set
+        .... .... ...0 = Fin: Not set
+    Window size value: 14600
+    [Calculated window size: 14600]
+    [Window size scaling factor: -2 (no window scaling used)]
+    Checksum: 0x58ab [validation disabled]
+        [Good Checksum: False]
+        [Bad Checksum: False]
+    [SEQ/ACK analysis]
+        [This is an ACK to the segment in frame: 19]
+        [The RTT to ACK the segment was: 0.000372000 seconds]
+        [Bytes in flight: 76]
+    [PDU Size: 76]
+EtherNet/IP (Industrial Protocol), Session: 0x11021E01, Send RR Data
+    Encapsulation Header
+        Command: Send RR Data (0x006f)
+        Length: 52
+        Session Handle: 0x11021e01
+        Status: Success (0x00000000)
+        Sender Context: 0500000000000000
+        Options: 0x00000000
+    Command Specific Data
+        Interface Handle: CIP (0x00000000)
+        Timeout: 5
+        Item Count: 2
+            Type ID: Null Address Item (0x0000)
+                Length: 0
+            Type ID: Unconnected Data Item (0x00b2)
+                Length: 36
+        [Response In: 22]
+Common Industrial Protocol
+    Service: Unknown Service (0x52) (Request)
+        0... .... = Request/Response: Request (0x00)
+        .101 0010 = Service: Unknown (0x52)
+    Request Path Size: 2 (words)
+    Request Path: Connection Manager, Instance: 0x01
+        Path Segment: 0x20 (8-Bit Class Segment)
+            001. .... = Path Segment Type: Logical Segment (1)
+            ...0 00.. = Logical Segment Type: Class ID (0)
+            .... ..00 = Logical Segment Format: 8-bit Logical Segment (0)
+            8-Bit Class Segment
+                Class: Connection Manager (0x06)
+        Path Segment: 0x24 (8-Bit Instance Segment)
+            001. .... = Path Segment Type: Logical Segment (1)
+            ...0 01.. = Logical Segment Type: Instance ID (1)
+            .... ..00 = Logical Segment Format: 8-bit Logical Segment (0)
+            8-Bit Instance Segment
+                Instance: 0x01
+CIP Connection Manager
+    Service: Unconnected Send (Request)
+        0... .... = Request/Response: Request (0x00)
+        .101 0010 = Service: Unconnected Send (0x52)
+    Command Specific Data
+        ...0 .... = Priority: 0
+        .... 0101 = Tick time: 5
+        Time-out ticks: 157
+        Actual Time Out: 5024ms
+        Message Request Size: 22
+        Message Request
+            Common Industrial Protocol
+                Service: Unknown Service (0x53) (Request)
+                    0... .... = Request/Response: Request (0x00)
+                    .101 0011 = Service: Unknown (0x53)
+                Request Path Size: 5 (words)
+                Request Path: SCADA, Member: 0x0C
+                    Path Segment: 0x91 (ANSI Extended Symbol Segment)
+                        100. .... = Path Segment Type: Data Segment (4)
+                        ...1 0001 = Data Segment Type: ANSI Extended Symbol Segment (17)
+                        ANSI Extended Symbol Segment
+                            Data Size: 5
+                            Symbol: SCADA
+                    Path Segment: 0x28 (8-Bit Member Segment)
+                        001. .... = Path Segment Type: Logical Segment (1)
+                        ...0 10.. = Logical Segment Type: Member ID (2)
+                        .... ..00 = Logical Segment Format: 8-bit Logical Segment (0)
+                        8-Bit Member Segment
+                            Member: 0x0c
+            CIP Class Generic
+                Command Specific Data
+                    Data: c300010000000000c940
+        Route Path Size: 1 (words)
+        Reserved: 0x00
+        Route Path: Port: 1, Address: 0
+            Path Segment: 0x01 (Port Segment)
+                000. .... = Path Segment Type: Port Segment (0)
+                ...0 .... = Extended Link Address: False
+                .... 0001 = Port: 1
+                Port Segment
+                    Link Address: 0
+
+0000  00 50 56 fb 35 e0 00 0c 29 7a e2 23 08 00 45 00   .PV.5...)z.#..E.
+0010  00 74 ac 62 40 00 40 06 7b 68 c0 a8 de 80 0a dc   .t.b@.@.{h......
+0020  68 b4 ac 94 af 12 98 18 db 45 02 ab 8e ab 50 18   h........E....P.
+0030  39 08 58 ab 00 00 6f 00 34 00 01 1e 02 11 00 00   9.X...o.4.......
+0040  00 00 05 00 00 00 00 00 00 00 00 00 00 00 00 00   ................
+0050  00 00 05 00 02 00 00 00 00 00 b2 00 24 00 52 02   ............$.R.
+0060  20 06 24 01 05 9d 16 00 53 05 91 05 53 43 41 44    .$.....S...SCAD
+0070  41 00 28 0c c3 00 01 00 00 00 00 00 c9 40 01 00   A.(..........@..
+0080  01 00                                             ..
+
+No.     Time           Source                Destination           Protocol Length Info
+     21 0.516366000    10.220.104.180        192.168.222.128       TCP      60     EtherNet-IP-2 > 44180 [ACK] Seq=302 Ack=351 Win=64240 Len=0
+
+Frame 21: 60 bytes on wire (480 bits), 60 bytes captured (480 bits) on interface 0
+    Interface id: 0
+    WTAP_ENCAP: 1
+    Arrival Time: May  7, 2013 11:27:18.008747000 MST
+    [Time shift for this packet: 0.000000000 seconds]
+    Epoch Time: 1367951238.008747000 seconds
+    [Time delta from previous captured frame: 0.000536000 seconds]
+    [Time delta from previous displayed frame: 0.000536000 seconds]
+    [Time since reference or first frame: 0.516366000 seconds]
+    Frame Number: 21
+    Frame Length: 60 bytes (480 bits)
+    Capture Length: 60 bytes (480 bits)
+    [Frame is marked: False]
+    [Frame is ignored: False]
+    [Protocols in frame: eth:ip:tcp]
+    [Coloring Rule Name: TCP]
+    [Coloring Rule String: tcp]
+Ethernet II, Src: Vmware_fb:35:e0 (00:50:56:fb:35:e0), Dst: Vmware_7a:e2:23 (00:0c:29:7a:e2:23)
+    Destination: Vmware_7a:e2:23 (00:0c:29:7a:e2:23)
+        Address: Vmware_7a:e2:23 (00:0c:29:7a:e2:23)
+        .... ..0. .... .... .... .... = LG bit: Globally unique address (factory default)
+        .... ...0 .... .... .... .... = IG bit: Individual address (unicast)
+    Source: Vmware_fb:35:e0 (00:50:56:fb:35:e0)
+        Address: Vmware_fb:35:e0 (00:50:56:fb:35:e0)
+        .... ..0. .... .... .... .... = LG bit: Globally unique address (factory default)
+        .... ...0 .... .... .... .... = IG bit: Individual address (unicast)
+    Type: IP (0x0800)
+    Padding: 000000000000
+Internet Protocol Version 4, Src: 10.220.104.180 (10.220.104.180), Dst: 192.168.222.128 (192.168.222.128)
+    Version: 4
+    Header length: 20 bytes
+    Differentiated Services Field: 0x00 (DSCP 0x00: Default; ECN: 0x00: Not-ECT (Not ECN-Capable Transport))
+        0000 00.. = Differentiated Services Codepoint: Default (0x00)
+        .... ..00 = Explicit Congestion Notification: Not-ECT (Not ECN-Capable Transport) (0x00)
+    Total Length: 40
+    Identification: 0x832b (33579)
+    Flags: 0x00
+        0... .... = Reserved bit: Not set
+        .0.. .... = Don't fragment: Not set
+        ..0. .... = More fragments: Not set
+    Fragment offset: 0
+    Time to live: 128
+    Protocol: TCP (6)
+    Header checksum: 0xa4eb [correct]
+        [Good: True]
+        [Bad: False]
+    Source: 10.220.104.180 (10.220.104.180)
+    Destination: 192.168.222.128 (192.168.222.128)
+    [Source GeoIP: Unknown]
+    [Destination GeoIP: Unknown]
+Transmission Control Protocol, Src Port: EtherNet-IP-2 (44818), Dst Port: 44180 (44180), Seq: 302, Ack: 351, Len: 0
+    Source port: EtherNet-IP-2 (44818)
+    Destination port: 44180 (44180)
+    [Stream index: 0]
+    Sequence number: 302    (relative sequence number)
+    Acknowledgment number: 351    (relative ack number)
+    Header length: 20 bytes
+    Flags: 0x010 (ACK)
+        000. .... .... = Reserved: Not set
+        ...0 .... .... = Nonce: Not set
+        .... 0... .... = Congestion Window Reduced (CWR): Not set
+        .... .0.. .... = ECN-Echo: Not set
+        .... ..0. .... = Urgent: Not set
+        .... ...1 .... = Acknowledgment: Set
+        .... .... 0... = Push: Not set
+        .... .... .0.. = Reset: Not set
+        .... .... ..0. = Syn: Not set
+        .... .... ...0 = Fin: Not set
+    Window size value: 64240
+    [Calculated window size: 64240]
+    [Window size scaling factor: -2 (no window scaling used)]
+    Checksum: 0x4182 [validation disabled]
+        [Good Checksum: False]
+        [Bad Checksum: False]
+    [SEQ/ACK analysis]
+        [This is an ACK to the segment in frame: 20]
+        [The RTT to ACK the segment was: 0.000536000 seconds]
+
+0000  00 0c 29 7a e2 23 00 50 56 fb 35 e0 08 00 45 00   ..)z.#.PV.5...E.
+0010  00 28 83 2b 00 00 80 06 a4 eb 0a dc 68 b4 c0 a8   .(.+........h...
+0020  de 80 af 12 ac 94 02 ab 8e ab 98 18 db 91 50 10   ..............P.
+0030  fa f0 41 82 00 00 00 00 00 00 00 00               ..A.........
+
+No.     Time           Source                Destination           Protocol Length Info
+     22 0.602090000    10.220.104.180        192.168.222.128       CIP      98     Success
+
+Frame 22: 98 bytes on wire (784 bits), 98 bytes captured (784 bits) on interface 0
+    Interface id: 0
+    WTAP_ENCAP: 1
+    Arrival Time: May  7, 2013 11:27:18.094471000 MST
+    [Time shift for this packet: 0.000000000 seconds]
+    Epoch Time: 1367951238.094471000 seconds
+    [Time delta from previous captured frame: 0.085724000 seconds]
+    [Time delta from previous displayed frame: 0.085724000 seconds]
+    [Time since reference or first frame: 0.602090000 seconds]
+    Frame Number: 22
+    Frame Length: 98 bytes (784 bits)
+    Capture Length: 98 bytes (784 bits)
+    [Frame is marked: False]
+    [Frame is ignored: False]
+    [Protocols in frame: eth:ip:tcp:enip:cip:cipcm:cipcls]
+    [Coloring Rule Name: TCP]
+    [Coloring Rule String: tcp]
+Ethernet II, Src: Vmware_fb:35:e0 (00:50:56:fb:35:e0), Dst: Vmware_7a:e2:23 (00:0c:29:7a:e2:23)
+    Destination: Vmware_7a:e2:23 (00:0c:29:7a:e2:23)
+        Address: Vmware_7a:e2:23 (00:0c:29:7a:e2:23)
+        .... ..0. .... .... .... .... = LG bit: Globally unique address (factory default)
+        .... ...0 .... .... .... .... = IG bit: Individual address (unicast)
+    Source: Vmware_fb:35:e0 (00:50:56:fb:35:e0)
+        Address: Vmware_fb:35:e0 (00:50:56:fb:35:e0)
+        .... ..0. .... .... .... .... = LG bit: Globally unique address (factory default)
+        .... ...0 .... .... .... .... = IG bit: Individual address (unicast)
+    Type: IP (0x0800)
+Internet Protocol Version 4, Src: 10.220.104.180 (10.220.104.180), Dst: 192.168.222.128 (192.168.222.128)
+    Version: 4
+    Header length: 20 bytes
+    Differentiated Services Field: 0x00 (DSCP 0x00: Default; ECN: 0x00: Not-ECT (Not ECN-Capable Transport))
+        0000 00.. = Differentiated Services Codepoint: Default (0x00)
+        .... ..00 = Explicit Congestion Notification: Not-ECT (Not ECN-Capable Transport) (0x00)
+    Total Length: 84
+    Identification: 0x832c (33580)
+    Flags: 0x00
+        0... .... = Reserved bit: Not set
+        .0.. .... = Don't fragment: Not set
+        ..0. .... = More fragments: Not set
+    Fragment offset: 0
+    Time to live: 128
+    Protocol: TCP (6)
+    Header checksum: 0xa4be [correct]
+        [Good: True]
+        [Bad: False]
+    Source: 10.220.104.180 (10.220.104.180)
+    Destination: 192.168.222.128 (192.168.222.128)
+    [Source GeoIP: Unknown]
+    [Destination GeoIP: Unknown]
+Transmission Control Protocol, Src Port: EtherNet-IP-2 (44818), Dst Port: 44180 (44180), Seq: 302, Ack: 351, Len: 44
+    Source port: EtherNet-IP-2 (44818)
+    Destination port: 44180 (44180)
+    [Stream index: 0]
+    Sequence number: 302    (relative sequence number)
+    [Next sequence number: 346    (relative sequence number)]
+    Acknowledgment number: 351    (relative ack number)
+    Header length: 20 bytes
+    Flags: 0x018 (PSH, ACK)
+        000. .... .... = Reserved: Not set
+        ...0 .... .... = Nonce: Not set
+        .... 0... .... = Congestion Window Reduced (CWR): Not set
+        .... .0.. .... = ECN-Echo: Not set
+        .... ..0. .... = Urgent: Not set
+        .... ...1 .... = Acknowledgment: Set
+        .... .... 1... = Push: Set
+        .... .... .0.. = Reset: Not set
+        .... .... ..0. = Syn: Not set
+        .... .... ...0 = Fin: Not set
+    Window size value: 64240
+    [Calculated window size: 64240]
+    [Window size scaling factor: -2 (no window scaling used)]
+    Checksum: 0x261d [validation disabled]
+        [Good Checksum: False]
+        [Bad Checksum: False]
+    [SEQ/ACK analysis]
+        [Bytes in flight: 44]
+    [PDU Size: 44]
+EtherNet/IP (Industrial Protocol), Session: 0x11021E01, Send RR Data
+    Encapsulation Header
+        Command: Send RR Data (0x006f)
+        Length: 20
+        Session Handle: 0x11021e01
+        Status: Success (0x00000000)
+        Sender Context: 0500000000000000
+        Options: 0x00000000
+    Command Specific Data
+        Interface Handle: CIP (0x00000000)
+        Timeout: 5
+        Item Count: 2
+            Type ID: Null Address Item (0x0000)
+                Length: 0
+            Type ID: Unconnected Data Item (0x00b2)
+                Length: 4
+        [Request In: 20]
+        [Time: 0.086260000 seconds]
+Common Industrial Protocol
+    Service: Unknown Service (0x53) (Response)
+        1... .... = Request/Response: Response (0x01)
+        .101 0011 = Service: Unknown (0x53)
+    Status: Success
+        General Status: Success (0x00)
+        Additional Status Size: 0 (words)
+    [Request Path Size: 2 (words)]
+    [Request Path: Connection Manager, Instance: 0x01]
+        [Path Segment: 0x20 (8-Bit Class Segment)]
+            [001. .... = Path Segment Type: Logical Segment (1)]
+            [...0 00.. = Logical Segment Type: Class ID (0)]
+            [.... ..00 = Logical Segment Format: 8-bit Logical Segment (0)]
+            [8-Bit Class Segment]
+                [Class: Connection Manager (0x06)]
+        [Path Segment: 0x24 (8-Bit Instance Segment)]
+            [001. .... = Path Segment Type: Logical Segment (1)]
+            [...0 01.. = Logical Segment Type: Instance ID (1)]
+            [.... ..00 = Logical Segment Format: 8-bit Logical Segment (0)]
+            [8-Bit Instance Segment]
+                [Instance: 0x01]
+CIP Connection Manager
+    (Service: Unconnected Send (Response))
+
+0000  00 0c 29 7a e2 23 00 50 56 fb 35 e0 08 00 45 00   ..)z.#.PV.5...E.
+0010  00 54 83 2c 00 00 80 06 a4 be 0a dc 68 b4 c0 a8   .T.,........h...
+0020  de 80 af 12 ac 94 02 ab 8e ab 98 18 db 91 50 18   ..............P.
+0030  fa f0 26 1d 00 00 6f 00 14 00 01 1e 02 11 00 00   ..&...o.........
+0040  00 00 05 00 00 00 00 00 00 00 00 00 00 00 00 00   ................
+0050  00 00 05 00 02 00 00 00 00 00 b2 00 04 00 d3 00   ................
+0060  00 00                                             ..
+
+No.     Time           Source                Destination           Protocol Length Info
+     23 0.602331000    192.168.222.128       10.220.104.180        CIP CM   126    Unconnected Send: Unknown Service (0x52)
+
+Frame 23: 126 bytes on wire (1008 bits), 126 bytes captured (1008 bits) on interface 0
+    Interface id: 0
+    WTAP_ENCAP: 1
+    Arrival Time: May  7, 2013 11:27:18.094712000 MST
+    [Time shift for this packet: 0.000000000 seconds]
+    Epoch Time: 1367951238.094712000 seconds
+    [Time delta from previous captured frame: 0.000241000 seconds]
+    [Time delta from previous displayed frame: 0.000241000 seconds]
+    [Time since reference or first frame: 0.602331000 seconds]
+    Frame Number: 23
+    Frame Length: 126 bytes (1008 bits)
+    Capture Length: 126 bytes (1008 bits)
+    [Frame is marked: False]
+    [Frame is ignored: False]
+    [Protocols in frame: eth:ip:tcp:enip:cip:cipcm:cipcls]
+    [Coloring Rule Name: TCP]
+    [Coloring Rule String: tcp]
+Ethernet II, Src: Vmware_7a:e2:23 (00:0c:29:7a:e2:23), Dst: Vmware_fb:35:e0 (00:50:56:fb:35:e0)
+    Destination: Vmware_fb:35:e0 (00:50:56:fb:35:e0)
+        Address: Vmware_fb:35:e0 (00:50:56:fb:35:e0)
+        .... ..0. .... .... .... .... = LG bit: Globally unique address (factory default)
+        .... ...0 .... .... .... .... = IG bit: Individual address (unicast)
+    Source: Vmware_7a:e2:23 (00:0c:29:7a:e2:23)
+        Address: Vmware_7a:e2:23 (00:0c:29:7a:e2:23)
+        .... ..0. .... .... .... .... = LG bit: Globally unique address (factory default)
+        .... ...0 .... .... .... .... = IG bit: Individual address (unicast)
+    Type: IP (0x0800)
+Internet Protocol Version 4, Src: 192.168.222.128 (192.168.222.128), Dst: 10.220.104.180 (10.220.104.180)
+    Version: 4
+    Header length: 20 bytes
+    Differentiated Services Field: 0x00 (DSCP 0x00: Default; ECN: 0x00: Not-ECT (Not ECN-Capable Transport))
+        0000 00.. = Differentiated Services Codepoint: Default (0x00)
+        .... ..00 = Explicit Congestion Notification: Not-ECT (Not ECN-Capable Transport) (0x00)
+    Total Length: 112
+    Identification: 0xac63 (44131)
+    Flags: 0x02 (Don't Fragment)
+        0... .... = Reserved bit: Not set
+        .1.. .... = Don't fragment: Set
+        ..0. .... = More fragments: Not set
+    Fragment offset: 0
+    Time to live: 64
+    Protocol: TCP (6)
+    Header checksum: 0x7b6b [correct]
+        [Good: True]
+        [Bad: False]
+    Source: 192.168.222.128 (192.168.222.128)
+    Destination: 10.220.104.180 (10.220.104.180)
+    [Source GeoIP: Unknown]
+    [Destination GeoIP: Unknown]
+Transmission Control Protocol, Src Port: 44180 (44180), Dst Port: EtherNet-IP-2 (44818), Seq: 351, Ack: 346, Len: 72
+    Source port: 44180 (44180)
+    Destination port: EtherNet-IP-2 (44818)
+    [Stream index: 0]
+    Sequence number: 351    (relative sequence number)
+    [Next sequence number: 423    (relative sequence number)]
+    Acknowledgment number: 346    (relative ack number)
+    Header length: 20 bytes
+    Flags: 0x018 (PSH, ACK)
+        000. .... .... = Reserved: Not set
+        ...0 .... .... = Nonce: Not set
+        .... 0... .... = Congestion Window Reduced (CWR): Not set
+        .... .0.. .... = ECN-Echo: Not set
+        .... ..0. .... = Urgent: Not set
+        .... ...1 .... = Acknowledgment: Set
+        .... .... 1... = Push: Set
+        .... .... .0.. = Reset: Not set
+        .... .... ..0. = Syn: Not set
+        .... .... ...0 = Fin: Not set
+    Window size value: 14600
+    [Calculated window size: 14600]
+    [Window size scaling factor: -2 (no window scaling used)]
+    Checksum: 0xf078 [validation disabled]
+        [Good Checksum: False]
+        [Bad Checksum: False]
+    [SEQ/ACK analysis]
+        [This is an ACK to the segment in frame: 22]
+        [The RTT to ACK the segment was: 0.000241000 seconds]
+        [Bytes in flight: 72]
+    [PDU Size: 72]
+EtherNet/IP (Industrial Protocol), Session: 0x11021E01, Send RR Data
+    Encapsulation Header
+        Command: Send RR Data (0x006f)
+        Length: 48
+        Session Handle: 0x11021e01
+        Status: Success (0x00000000)
+        Sender Context: 0600000000000000
+        Options: 0x00000000
+    Command Specific Data
+        Interface Handle: CIP (0x00000000)
+        Timeout: 5
+        Item Count: 2
+            Type ID: Null Address Item (0x0000)
+                Length: 0
+            Type ID: Unconnected Data Item (0x00b2)
+                Length: 32
+        [Response In: 25]
+Common Industrial Protocol
+    Service: Unknown Service (0x52) (Request)
+        0... .... = Request/Response: Request (0x00)
+        .101 0010 = Service: Unknown (0x52)
+    Request Path Size: 2 (words)
+    Request Path: Connection Manager, Instance: 0x01
+        Path Segment: 0x20 (8-Bit Class Segment)
+            001. .... = Path Segment Type: Logical Segment (1)
+            ...0 00.. = Logical Segment Type: Class ID (0)
+            .... ..00 = Logical Segment Format: 8-bit Logical Segment (0)
+            8-Bit Class Segment
+                Class: Connection Manager (0x06)
+        Path Segment: 0x24 (8-Bit Instance Segment)
+            001. .... = Path Segment Type: Logical Segment (1)
+            ...0 01.. = Logical Segment Type: Instance ID (1)
+            .... ..00 = Logical Segment Format: 8-bit Logical Segment (0)
+            8-Bit Instance Segment
+                Instance: 0x01
+CIP Connection Manager
+    Service: Unconnected Send (Request)
+        0... .... = Request/Response: Request (0x00)
+        .101 0010 = Service: Unconnected Send (0x52)
+    Command Specific Data
+        ...0 .... = Priority: 0
+        .... 0101 = Tick time: 5
+        Time-out ticks: 157
+        Actual Time Out: 5024ms
+        Message Request Size: 18
+        Message Request
+            Common Industrial Protocol
+                Service: Unknown Service (0x52) (Request)
+                    0... .... = Request/Response: Request (0x00)
+                    .101 0010 = Service: Unknown (0x52)
+                Request Path Size: 5 (words)
+                Request Path: SCADA, Member: 0x0C
+                    Path Segment: 0x91 (ANSI Extended Symbol Segment)
+                        100. .... = Path Segment Type: Data Segment (4)
+                        ...1 0001 = Data Segment Type: ANSI Extended Symbol Segment (17)
+                        ANSI Extended Symbol Segment
+                            Data Size: 5
+                            Symbol: SCADA
+                    Path Segment: 0x28 (8-Bit Member Segment)
+                        001. .... = Path Segment Type: Logical Segment (1)
+                        ...0 10.. = Logical Segment Type: Member ID (2)
+                        .... ..00 = Logical Segment Format: 8-bit Logical Segment (0)
+                        8-Bit Member Segment
+                            Member: 0x0c
+            CIP Class Generic
+                Command Specific Data
+                    Data: 010000000000
+        Route Path Size: 1 (words)
+        Reserved: 0x00
+        Route Path: Port: 1, Address: 0
+            Path Segment: 0x01 (Port Segment)
+                000. .... = Path Segment Type: Port Segment (0)
+                ...0 .... = Extended Link Address: False
+                .... 0001 = Port: 1
+                Port Segment
+                    Link Address: 0
+
+0000  00 50 56 fb 35 e0 00 0c 29 7a e2 23 08 00 45 00   .PV.5...)z.#..E.
+0010  00 70 ac 63 40 00 40 06 7b 6b c0 a8 de 80 0a dc   .p.c@.@.{k......
+0020  68 b4 ac 94 af 12 98 18 db 91 02 ab 8e d7 50 18   h.............P.
+0030  39 08 f0 78 00 00 6f 00 30 00 01 1e 02 11 00 00   9..x..o.0.......
+0040  00 00 06 00 00 00 00 00 00 00 00 00 00 00 00 00   ................
+0050  00 00 05 00 02 00 00 00 00 00 b2 00 20 00 52 02   ............ .R.
+0060  20 06 24 01 05 9d 12 00 52 05 91 05 53 43 41 44    .$.....R...SCAD
+0070  41 00 28 0c 01 00 00 00 00 00 01 00 01 00         A.(...........
+
+No.     Time           Source                Destination           Protocol Length Info
+     24 0.602478000    10.220.104.180        192.168.222.128       TCP      60     EtherNet-IP-2 > 44180 [ACK] Seq=346 Ack=423 Win=64240 Len=0
+
+Frame 24: 60 bytes on wire (480 bits), 60 bytes captured (480 bits) on interface 0
+    Interface id: 0
+    WTAP_ENCAP: 1
+    Arrival Time: May  7, 2013 11:27:18.094859000 MST
+    [Time shift for this packet: 0.000000000 seconds]
+    Epoch Time: 1367951238.094859000 seconds
+    [Time delta from previous captured frame: 0.000147000 seconds]
+    [Time delta from previous displayed frame: 0.000147000 seconds]
+    [Time since reference or first frame: 0.602478000 seconds]
+    Frame Number: 24
+    Frame Length: 60 bytes (480 bits)
+    Capture Length: 60 bytes (480 bits)
+    [Frame is marked: False]
+    [Frame is ignored: False]
+    [Protocols in frame: eth:ip:tcp]
+    [Coloring Rule Name: TCP]
+    [Coloring Rule String: tcp]
+Ethernet II, Src: Vmware_fb:35:e0 (00:50:56:fb:35:e0), Dst: Vmware_7a:e2:23 (00:0c:29:7a:e2:23)
+    Destination: Vmware_7a:e2:23 (00:0c:29:7a:e2:23)
+        Address: Vmware_7a:e2:23 (00:0c:29:7a:e2:23)
+        .... ..0. .... .... .... .... = LG bit: Globally unique address (factory default)
+        .... ...0 .... .... .... .... = IG bit: Individual address (unicast)
+    Source: Vmware_fb:35:e0 (00:50:56:fb:35:e0)
+        Address: Vmware_fb:35:e0 (00:50:56:fb:35:e0)
+        .... ..0. .... .... .... .... = LG bit: Globally unique address (factory default)
+        .... ...0 .... .... .... .... = IG bit: Individual address (unicast)
+    Type: IP (0x0800)
+    Padding: 000000000000
+Internet Protocol Version 4, Src: 10.220.104.180 (10.220.104.180), Dst: 192.168.222.128 (192.168.222.128)
+    Version: 4
+    Header length: 20 bytes
+    Differentiated Services Field: 0x00 (DSCP 0x00: Default; ECN: 0x00: Not-ECT (Not ECN-Capable Transport))
+        0000 00.. = Differentiated Services Codepoint: Default (0x00)
+        .... ..00 = Explicit Congestion Notification: Not-ECT (Not ECN-Capable Transport) (0x00)
+    Total Length: 40
+    Identification: 0x832d (33581)
+    Flags: 0x00
+        0... .... = Reserved bit: Not set
+        .0.. .... = Don't fragment: Not set
+        ..0. .... = More fragments: Not set
+    Fragment offset: 0
+    Time to live: 128
+    Protocol: TCP (6)
+    Header checksum: 0xa4e9 [correct]
+        [Good: True]
+        [Bad: False]
+    Source: 10.220.104.180 (10.220.104.180)
+    Destination: 192.168.222.128 (192.168.222.128)
+    [Source GeoIP: Unknown]
+    [Destination GeoIP: Unknown]
+Transmission Control Protocol, Src Port: EtherNet-IP-2 (44818), Dst Port: 44180 (44180), Seq: 346, Ack: 423, Len: 0
+    Source port: EtherNet-IP-2 (44818)
+    Destination port: 44180 (44180)
+    [Stream index: 0]
+    Sequence number: 346    (relative sequence number)
+    Acknowledgment number: 423    (relative ack number)
+    Header length: 20 bytes
+    Flags: 0x010 (ACK)
+        000. .... .... = Reserved: Not set
+        ...0 .... .... = Nonce: Not set
+        .... 0... .... = Congestion Window Reduced (CWR): Not set
+        .... .0.. .... = ECN-Echo: Not set
+        .... ..0. .... = Urgent: Not set
+        .... ...1 .... = Acknowledgment: Set
+        .... .... 0... = Push: Not set
+        .... .... .0.. = Reset: Not set
+        .... .... ..0. = Syn: Not set
+        .... .... ...0 = Fin: Not set
+    Window size value: 64240
+    [Calculated window size: 64240]
+    [Window size scaling factor: -2 (no window scaling used)]
+    Checksum: 0x410e [validation disabled]
+        [Good Checksum: False]
+        [Bad Checksum: False]
+    [SEQ/ACK analysis]
+        [This is an ACK to the segment in frame: 23]
+        [The RTT to ACK the segment was: 0.000147000 seconds]
+
+0000  00 0c 29 7a e2 23 00 50 56 fb 35 e0 08 00 45 00   ..)z.#.PV.5...E.
+0010  00 28 83 2d 00 00 80 06 a4 e9 0a dc 68 b4 c0 a8   .(.-........h...
+0020  de 80 af 12 ac 94 02 ab 8e d7 98 18 db d9 50 10   ..............P.
+0030  fa f0 41 0e 00 00 00 00 00 00 00 00               ..A.........
+
+No.     Time           Source                Destination           Protocol Length Info
+     25 0.687210000    10.220.104.180        192.168.222.128       CIP      102    Success
+
+Frame 25: 102 bytes on wire (816 bits), 102 bytes captured (816 bits) on interface 0
+    Interface id: 0
+    WTAP_ENCAP: 1
+    Arrival Time: May  7, 2013 11:27:18.179591000 MST
+    [Time shift for this packet: 0.000000000 seconds]
+    Epoch Time: 1367951238.179591000 seconds
+    [Time delta from previous captured frame: 0.084732000 seconds]
+    [Time delta from previous displayed frame: 0.084732000 seconds]
+    [Time since reference or first frame: 0.687210000 seconds]
+    Frame Number: 25
+    Frame Length: 102 bytes (816 bits)
+    Capture Length: 102 bytes (816 bits)
+    [Frame is marked: False]
+    [Frame is ignored: False]
+    [Protocols in frame: eth:ip:tcp:enip:cip:cipcm:cipcls]
+    [Coloring Rule Name: TCP]
+    [Coloring Rule String: tcp]
+Ethernet II, Src: Vmware_fb:35:e0 (00:50:56:fb:35:e0), Dst: Vmware_7a:e2:23 (00:0c:29:7a:e2:23)
+    Destination: Vmware_7a:e2:23 (00:0c:29:7a:e2:23)
+        Address: Vmware_7a:e2:23 (00:0c:29:7a:e2:23)
+        .... ..0. .... .... .... .... = LG bit: Globally unique address (factory default)
+        .... ...0 .... .... .... .... = IG bit: Individual address (unicast)
+    Source: Vmware_fb:35:e0 (00:50:56:fb:35:e0)
+        Address: Vmware_fb:35:e0 (00:50:56:fb:35:e0)
+        .... ..0. .... .... .... .... = LG bit: Globally unique address (factory default)
+        .... ...0 .... .... .... .... = IG bit: Individual address (unicast)
+    Type: IP (0x0800)
+Internet Protocol Version 4, Src: 10.220.104.180 (10.220.104.180), Dst: 192.168.222.128 (192.168.222.128)
+    Version: 4
+    Header length: 20 bytes
+    Differentiated Services Field: 0x00 (DSCP 0x00: Default; ECN: 0x00: Not-ECT (Not ECN-Capable Transport))
+        0000 00.. = Differentiated Services Codepoint: Default (0x00)
+        .... ..00 = Explicit Congestion Notification: Not-ECT (Not ECN-Capable Transport) (0x00)
+    Total Length: 88
+    Identification: 0x832e (33582)
+    Flags: 0x00
+        0... .... = Reserved bit: Not set
+        .0.. .... = Don't fragment: Not set
+        ..0. .... = More fragments: Not set
+    Fragment offset: 0
+    Time to live: 128
+    Protocol: TCP (6)
+    Header checksum: 0xa4b8 [correct]
+        [Good: True]
+        [Bad: False]
+    Source: 10.220.104.180 (10.220.104.180)
+    Destination: 192.168.222.128 (192.168.222.128)
+    [Source GeoIP: Unknown]
+    [Destination GeoIP: Unknown]
+Transmission Control Protocol, Src Port: EtherNet-IP-2 (44818), Dst Port: 44180 (44180), Seq: 346, Ack: 423, Len: 48
+    Source port: EtherNet-IP-2 (44818)
+    Destination port: 44180 (44180)
+    [Stream index: 0]
+    Sequence number: 346    (relative sequence number)
+    [Next sequence number: 394    (relative sequence number)]
+    Acknowledgment number: 423    (relative ack number)
+    Header length: 20 bytes
+    Flags: 0x018 (PSH, ACK)
+        000. .... .... = Reserved: Not set
+        ...0 .... .... = Nonce: Not set
+        .... 0... .... = Congestion Window Reduced (CWR): Not set
+        .... .0.. .... = ECN-Echo: Not set
+        .... ..0. .... = Urgent: Not set
+        .... ...1 .... = Acknowledgment: Set
+        .... .... 1... = Push: Set
+        .... .... .0.. = Reset: Not set
+        .... .... ..0. = Syn: Not set
+        .... .... ...0 = Fin: Not set
+    Window size value: 64240
+    [Calculated window size: 64240]
+    [Window size scaling factor: -2 (no window scaling used)]
+    Checksum: 0x9263 [validation disabled]
+        [Good Checksum: False]
+        [Bad Checksum: False]
+    [SEQ/ACK analysis]
+        [Bytes in flight: 48]
+    [PDU Size: 48]
+EtherNet/IP (Industrial Protocol), Session: 0x11021E01, Send RR Data
+    Encapsulation Header
+        Command: Send RR Data (0x006f)
+        Length: 24
+        Session Handle: 0x11021e01
+        Status: Success (0x00000000)
+        Sender Context: 0600000000000000
+        Options: 0x00000000
+    Command Specific Data
+        Interface Handle: CIP (0x00000000)
+        Timeout: 5
+        Item Count: 2
+            Type ID: Null Address Item (0x0000)
+                Length: 0
+            Type ID: Unconnected Data Item (0x00b2)
+                Length: 8
+        [Request In: 23]
+        [Time: 0.084879000 seconds]
+Common Industrial Protocol
+    Service: Unknown Service (0x52) (Response)
+        1... .... = Request/Response: Response (0x01)
+        .101 0010 = Service: Unknown (0x52)
+    Status: Success
+        General Status: Success (0x00)
+        Additional Status Size: 0 (words)
+    [Request Path Size: 2 (words)]
+    [Request Path: Connection Manager, Instance: 0x01]
+        [Path Segment: 0x20 (8-Bit Class Segment)]
+            [001. .... = Path Segment Type: Logical Segment (1)]
+            [...0 00.. = Logical Segment Type: Class ID (0)]
+            [.... ..00 = Logical Segment Format: 8-bit Logical Segment (0)]
+            [8-Bit Class Segment]
+                [Class: Connection Manager (0x06)]
+        [Path Segment: 0x24 (8-Bit Instance Segment)]
+            [001. .... = Path Segment Type: Logical Segment (1)]
+            [...0 01.. = Logical Segment Type: Instance ID (1)]
+            [.... ..00 = Logical Segment Format: 8-bit Logical Segment (0)]
+            [8-Bit Instance Segment]
+                [Instance: 0x01]
+CIP Connection Manager
+    (Service: Unconnected Send (Response))
+    CIP Class Generic
+        Command Specific Data
+            Data: c300c840
+
+0000  00 0c 29 7a e2 23 00 50 56 fb 35 e0 08 00 45 00   ..)z.#.PV.5...E.
+0010  00 58 83 2e 00 00 80 06 a4 b8 0a dc 68 b4 c0 a8   .X..........h...
+0020  de 80 af 12 ac 94 02 ab 8e d7 98 18 db d9 50 18   ..............P.
+0030  fa f0 92 63 00 00 6f 00 18 00 01 1e 02 11 00 00   ...c..o.........
+0040  00 00 06 00 00 00 00 00 00 00 00 00 00 00 00 00   ................
+0050  00 00 05 00 02 00 00 00 00 00 b2 00 08 00 d2 00   ................
+0060  00 00 c3 00 c8 40                                 .....@
+
+No.     Time           Source                Destination           Protocol Length Info
+     26 0.687535000    192.168.222.128       10.220.104.180        TCP      54     44180 > EtherNet-IP-2 [RST, ACK] Seq=423 Ack=394 Win=14600 Len=0
+
+Frame 26: 54 bytes on wire (432 bits), 54 bytes captured (432 bits) on interface 0
+    Interface id: 0
+    WTAP_ENCAP: 1
+    Arrival Time: May  7, 2013 11:27:18.179916000 MST
+    [Time shift for this packet: 0.000000000 seconds]
+    Epoch Time: 1367951238.179916000 seconds
+    [Time delta from previous captured frame: 0.000325000 seconds]
+    [Time delta from previous displayed frame: 0.000325000 seconds]
+    [Time since reference or first frame: 0.687535000 seconds]
+    Frame Number: 26
+    Frame Length: 54 bytes (432 bits)
+    Capture Length: 54 bytes (432 bits)
+    [Frame is marked: False]
+    [Frame is ignored: False]
+    [Protocols in frame: eth:ip:tcp]
+    [Coloring Rule Name: TCP RST]
+    [Coloring Rule String: tcp.flags.reset eq 1]
+Ethernet II, Src: Vmware_7a:e2:23 (00:0c:29:7a:e2:23), Dst: Vmware_fb:35:e0 (00:50:56:fb:35:e0)
+    Destination: Vmware_fb:35:e0 (00:50:56:fb:35:e0)
+        Address: Vmware_fb:35:e0 (00:50:56:fb:35:e0)
+        .... ..0. .... .... .... .... = LG bit: Globally unique address (factory default)
+        .... ...0 .... .... .... .... = IG bit: Individual address (unicast)
+    Source: Vmware_7a:e2:23 (00:0c:29:7a:e2:23)
+        Address: Vmware_7a:e2:23 (00:0c:29:7a:e2:23)
+        .... ..0. .... .... .... .... = LG bit: Globally unique address (factory default)
+        .... ...0 .... .... .... .... = IG bit: Individual address (unicast)
+    Type: IP (0x0800)
+Internet Protocol Version 4, Src: 192.168.222.128 (192.168.222.128), Dst: 10.220.104.180 (10.220.104.180)
+    Version: 4
+    Header length: 20 bytes
+    Differentiated Services Field: 0x00 (DSCP 0x00: Default; ECN: 0x00: Not-ECT (Not ECN-Capable Transport))
+        0000 00.. = Differentiated Services Codepoint: Default (0x00)
+        .... ..00 = Explicit Congestion Notification: Not-ECT (Not ECN-Capable Transport) (0x00)
+    Total Length: 40
+    Identification: 0xac64 (44132)
+    Flags: 0x02 (Don't Fragment)
+        0... .... = Reserved bit: Not set
+        .1.. .... = Don't fragment: Set
+        ..0. .... = More fragments: Not set
+    Fragment offset: 0
+    Time to live: 64
+    Protocol: TCP (6)
+    Header checksum: 0x7bb2 [correct]
+        [Good: True]
+        [Bad: False]
+    Source: 192.168.222.128 (192.168.222.128)
+    Destination: 10.220.104.180 (10.220.104.180)
+    [Source GeoIP: Unknown]
+    [Destination GeoIP: Unknown]
+Transmission Control Protocol, Src Port: 44180 (44180), Dst Port: EtherNet-IP-2 (44818), Seq: 423, Ack: 394, Len: 0
+    Source port: 44180 (44180)
+    Destination port: EtherNet-IP-2 (44818)
+    [Stream index: 0]
+    Sequence number: 423    (relative sequence number)
+    Acknowledgment number: 394    (relative ack number)
+    Header length: 20 bytes
+    Flags: 0x014 (RST, ACK)
+        000. .... .... = Reserved: Not set
+        ...0 .... .... = Nonce: Not set
+        .... 0... .... = Congestion Window Reduced (CWR): Not set
+        .... .0.. .... = ECN-Echo: Not set
+        .... ..0. .... = Urgent: Not set
+        .... ...1 .... = Acknowledgment: Set
+        .... .... 0... = Push: Not set
+        .... .... .1.. = Reset: Set
+            [Expert Info (Chat/Sequence): Connection reset (RST)]
+                [Message: Connection reset (RST)]
+                [Severity level: Chat]
+                [Group: Sequence]
+        .... .... ..0. = Syn: Not set
+        .... .... ...0 = Fin: Not set
+    Window size value: 14600
+    [Calculated window size: 14600]
+    [Window size scaling factor: -2 (no window scaling used)]
+    Checksum: 0x12d4 [validation disabled]
+        [Good Checksum: False]
+        [Bad Checksum: False]
+    [SEQ/ACK analysis]
+        [This is an ACK to the segment in frame: 25]
+        [The RTT to ACK the segment was: 0.000325000 seconds]
+
+0000  00 50 56 fb 35 e0 00 0c 29 7a e2 23 08 00 45 00   .PV.5...)z.#..E.
+0010  00 28 ac 64 40 00 40 06 7b b2 c0 a8 de 80 0a dc   .(.d@.@.{.......
+0020  68 b4 ac 94 af 12 98 18 db d9 02 ab 8f 07 50 14   h.............P.
+0030  39 08 12 d4 00 00                                 9.....

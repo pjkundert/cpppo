@@ -58,7 +58,7 @@ def echo_cli( number, reps ):
                 # If we drop out immediately and send a socket.shutdown, it'll
                 # sometimes deliver a reset to the server end of the socket,
                 # before delivering the last of the data.
-                rpy		= echo.recv( conn, timeout=chardelay if msg else draindelay )
+                rpy		= network.recv( conn, timeout=chardelay if msg else draindelay )
                 if rpy is not None:
                     log.info("%3d echo recv: %5d: %s", number, len( rpy ), repr( rpy ) if rpy else "EOF" )
                     if not rpy:
@@ -73,7 +73,7 @@ def echo_cli( number, reps ):
         # One or more packets may be in flight; wait 'til we timeout/EOF
         rpy			= True
         while rpy: # neither None (timeout) nor b'' (EOF)
-            rpy			= echo.drain( conn, timeout=draindelay )
+            rpy			= network.drain( conn, timeout=draindelay )
             if rpy is not None:
                 log.info("%3d echo drain %5d: %s", number, len( rpy ), repr( rpy ) if rpy else "EOF" )
                 rcvd   	       += rpy

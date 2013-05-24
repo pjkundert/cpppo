@@ -122,15 +122,15 @@ def test_readme():
     """The basic examples in the README"""
 
     # Basic DFA that accepts ab+
-    E			= cpppo.state( "E" )
-    A			= cpppo.state_input( "A" )
-    B			= cpppo.state_input( "B", terminal=True )
-    E['a']		= A
-    A['b']		= B
-    B['b']		= B
+    E				= cpppo.state( "E" )
+    A				= cpppo.state_input( "A" )
+    B				= cpppo.state_input( "B", terminal=True )
+    E['a']			= A
+    A['b']			= B
+    B['b']			= B
 
-    data		= cpppo.dotdict()
-    source		= cpppo.peekable( str( 'abbbb,ab' ))
+    data			= cpppo.dotdict()
+    source			= cpppo.peekable( str( 'abbbb,ab' ))
     with cpppo.dfa( initial=E ) as abplus:
         for i,(m,s) in enumerate( abplus.run( source=source, path="ab+", data=data )):
             log.info( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r", m.name_centered(),
@@ -139,14 +139,14 @@ def test_readme():
     assert source.peek() == str(',')
     
     # Composite state machine accepting ab+, ignoring ,[ ]* separators
-    CSV			= cpppo.dfa( "CSV", initial=E )
-    SEP			= cpppo.state_discard( "SEP" )
+    CSV				= cpppo.dfa( "CSV", initial=E )
+    SEP				= cpppo.state_discard( "SEP" )
 
-    CSV[',']		= SEP
-    SEP[' ']		= SEP
-    SEP[None]		= CSV
+    CSV[',']			= SEP
+    SEP[' ']			= SEP
+    SEP[None]			= CSV
 
-    source		= cpppo.peekable( str( 'abbbb, ab' ))
+    source			= cpppo.peekable( str( 'abbbb, ab' ))
     with cpppo.dfa( initial=CSV ) as r2:
         for i,(m,s) in enumerate( r2.run( source=source, path="readme_CSV", data=data )):
             log.info( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r", m.name_centered(),
@@ -315,7 +315,7 @@ def test_dfa():
         log.info( "States; 'abc' input" )
         assert source.peek() is None
         source.chain( b'abc' )
-        assert source.peek() == next(iter(b'a')) # python2: str, python3: int
+        assert source.peek() == b'a'[0] # python2: str, python3: int
         sequence		= machine.run( source=source )
         for num in range( 10 ):
             try:
@@ -342,7 +342,7 @@ def test_struct():
     b[True]			= c = cpppo.state_input( "Third",  alphabet=abt, typecode=dtp, context=ctx )
     c[True]			= d = cpppo.state_input( "Fourth", alphabet=abt, typecode=dtp, context=ctx )
     d[None] 			= e = cpppo.state_struct( "int32", context=ctx,
-                                                          format=str("<i"), offset=4,
+                                                          format=str("<i"),
                                                           terminal=True )
     machine			= cpppo.dfa( initial=a )
     with machine:
@@ -374,14 +374,14 @@ def test_struct():
                 inp			= source.peek()
                 log.info( "%s <- %-10.10r test chain", cpppo.centeraxis( mch, 25, clip=True ), inp )
     
-            if num == 0: assert inp == next(iter(b'\x01')); assert sta.name == "First"
-            if num == 1: assert inp == next(iter(b'\x02')); assert sta.name == "Second"
-            if num == 2: assert inp == next(iter(b'\x03')); assert sta.name == "Third"
-            if num == 3: assert inp == next(iter(b'\x80')); assert sta is None
-            if num == 4: assert inp == next(iter(b'\x80')); assert sta.name == "Fourth"
-            if num == 5: assert inp == next(iter(b'\x99')); assert sta.name == "int32"
-            if num == 6: assert inp == next(iter(b'\x99')); assert sta.name == "int32"
-        assert inp == next(iter(b'\x99'))
+            if num == 0: assert inp == b'\x01'[0]; assert sta.name == "First"
+            if num == 1: assert inp == b'\x02'[0]; assert sta.name == "Second"
+            if num == 2: assert inp == b'\x03'[0]; assert sta.name == "Third"
+            if num == 3: assert inp == b'\x80'[0]; assert sta is None
+            if num == 4: assert inp == b'\x80'[0]; assert sta.name == "Fourth"
+            if num == 5: assert inp == b'\x99'[0]; assert sta.name == "int32"
+            if num == 6: assert inp == b'\x99'[0]; assert sta.name == "int32"
+        assert inp == b'\x99'[0]
         assert num == 6
         assert sta.name == "int32"
         assert data.struct.val == -2147286527
@@ -408,19 +408,19 @@ def test_regex():
                 log.info( "%s <- %-10.10r test source finished", cpppo.centeraxis( mch, 25, clip=True ), inp )
     
             # Initial state does *not* consume a source symbol
-            if num == 0: assert inp == next(iter('a')); assert sta.name == "0'"; assert source.sent == 0
-            if num == 1: assert inp == next(iter('a')); assert sta.name == "0";  assert source.sent == 0
-            if num == 2: assert inp == next(iter('a')); assert sta.name == "0";  assert source.sent == 1
-            if num == 3: assert inp == next(iter('a')); assert sta.name == "0";  assert source.sent == 2
-            if num == 4: assert inp == next(iter('b')); assert sta.name == "2"
-            if num == 5: assert inp == next(iter('1')); assert sta.name == "2"
-            if num == 6: assert inp == next(iter('2')); assert sta.name == "2"
-            if num == 7: assert inp == next(iter('3')); assert sta.name == "2"
-            if num == 8: assert inp == next(iter('0')); assert sta.name == "2"
-            if num == 9: assert inp == next(iter('x')); assert sta.name == "3"
-            if num ==10: assert inp == next(iter('o')); assert sta.name == "2" # Trans. from term. to non-term. state!))
-            if num ==11: assert inp == next(iter('x')); assert sta.name == "3"
-            if num ==12: assert inp == next(iter('x')); assert sta.name == "3"
+            if num == 0: assert inp == 'a'; assert sta.name == "0'"; assert source.sent == 0
+            if num == 1: assert inp == 'a'; assert sta.name == "0";  assert source.sent == 0
+            if num == 2: assert inp == 'a'; assert sta.name == "0";  assert source.sent == 1
+            if num == 3: assert inp == 'a'; assert sta.name == "0";  assert source.sent == 2
+            if num == 4: assert inp == 'b'; assert sta.name == "2"
+            if num == 5: assert inp == '1'; assert sta.name == "2"
+            if num == 6: assert inp == '2'; assert sta.name == "2"
+            if num == 7: assert inp == '3'; assert sta.name == "2"
+            if num == 8: assert inp == '0'; assert sta.name == "2"
+            if num == 9: assert inp == 'x'; assert sta.name == "3"
+            if num ==10: assert inp == 'o'; assert sta.name == "2" # Trans. from term. to non-term. state!))
+            if num ==11: assert inp == 'x'; assert sta.name == "3"
+            if num ==12: assert inp == 'x'; assert sta.name == "3"
             if num ==13: assert inp ==None; assert sta is None
         assert inp is None
         assert num == 13

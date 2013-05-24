@@ -40,14 +40,14 @@ import threading
 import time
 import traceback
 try:
-    from reprlib import repr as repr
+    import reprlib
 except ImportError:
-    from repr import repr as repr
+    import repr as reprlib
 
 import cpppo
-from   cpppo    import misc
+from   cpppo import misc
 import cpppo.server
-from   .network import *
+from   cpppo.server import network
 
 address				= ('0.0.0.0', 8007)
 
@@ -81,9 +81,9 @@ def echo_server( conn, addr ):
     with echo_machine( "echo_%s" % addr[1] ) as echo_line:
         sequence		= echo_line.run( source=source, data=data, greedy=False )
         while True:
-            msg			= recv( conn, timeout=None ) # blocking
+            msg			= network.recv( conn, timeout=None ) # blocking
             log.info( "%s recv: %5d: %s", misc.centeraxis( echo_line, 25, clip=True ), 
-                      len( msg ), repr( msg ) if msg else "EOF" )
+                      len( msg ), reprlib.repr( msg ) if msg else "EOF" )
             if not msg: # None or empty
                 break
             source.chain( msg )
@@ -102,11 +102,11 @@ def echo_server( conn, addr ):
                 # Out of input, no complete line of echo input acquired.  Wait for more.
                 log.debug( "%s: end of input", misc.centeraxis( echo_line, 25, clip=True ))
         
-        log.info( "%s done: %s" % ( misc.centeraxis( echo_line, 25, clip=True ), repr( data )))
+        log.info( "%s done: %s" % ( misc.centeraxis( echo_line, 25, clip=True ), reprlib.repr( data )))
 
 
 def main():
-    return server_main( address, echo_server )
+    return network.server_main( address, echo_server )
 
 
 if __name__ == "__main__":

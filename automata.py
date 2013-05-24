@@ -773,17 +773,26 @@ class state_discard( state_input ):
 
 
 class state_struct( state ):
-    """A NULL (no-input) state that interprets the preceding states' saved symbol data as the specified
-    type format.  The default is to assign one unsigned byte, starting at offset 1 from the end of
-    the collected symbol data.  The raw data is assumed to be at <path>[.<context>]<input_extension>
-    (default: '_input', same as state_input)"""
-    def __init__( self, name, format=None, offset=1, input_extension=None, **kwds ):
+    """A NULL (no-input) state that interprets the preceding states' saved ..._input data as the
+    specified struct format (default is to one unsigned byte).  The unpacking is starting at an
+    offset (default: None) from the start of the collected ..._input data, and then at index
+    (default: 0, based on the size of the struct format).  For example, to get the 3rd 32-bit
+    little-endian UINT16, beginning at offset 1 into the buffer, use format='<H', offset=1, index=2.
+    
+    The raw data is assumed to be at <path>[.<context>]<input_extension> (default: '_input', same as
+    state_input).  Has a .calcsize property (like struct.Struct) which returns the struct format
+    size in bytes, as well as .offset and .index properties.
+
+    """
+    def __init__( self, name, format=None, offset=0, index=0, input_extension=None, **kwds ):
         super( state_struct, self ).__init__( name, **kwds )
         format			= 'B' if format is None else format
+        self.offset		= offset
+        self.index		= index
+        self.calcsize		= struct.calcsize( format )
+        assert self.calcsize, "Cannot calculate size of format %r" % format
         self._struct		= struct.Struct( format ) # eg '<H' (little-endian uint16)
-        self._offset		= offset		# byte offset back from end of data
         self._input		= input_extension if input_extension is not None else path_ext_input
-        assert self._offset
 
     def terminate( self, exception, machine=None, path=None, data=None ):
         """Decode a value from path.context_, and store it to path.context.  Will fail if insufficient data
@@ -796,7 +805,10 @@ class state_struct( state ):
             return
 
         ours			= self.context( path=path )
-        buf			= data[ours+self._input][-self._offset:]
+        siz			= self.calcsize
+        beg			= self.offset + self.index * siz
+        end			= beg + siz
+        buf			= data[ours+self._input][beg:end]
         val		        = self._struct.unpack_from( buffer=buf )[0]
         try:
             data[ours].append( val )

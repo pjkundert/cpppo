@@ -22,8 +22,9 @@ __email__                       = "perry@hardconsulting.com"
 __copyright__                   = "Copyright (c) 2013 Hard Consulting Corporation"
 __license__                     = "GNU General Public License, Version 3 (or later)"
 
-__all__				= ["network", "echo", "tnet"]
+__all__				= []
 
-# These modules form the public interface of cpppo.server; always load them into
-# the main cpppo.server namespace
-#from .network  import *
+# These form the public interface of cpppo.server.enip
+from .parser import *
+from .main import *
+
