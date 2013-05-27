@@ -246,7 +246,7 @@ def test_state():
                 i, s, source.sent, source.peek(), data )
         assert i == 16
         assert source.peek() is None
-    assert data.csv_input.tounicode() == 'aaaaaa'
+    assert data.csv.input.tounicode() == 'aaaaaa'
 
 def test_dfa():
     # Simple DFA with states consuming no input.  A NULL (None) state transition
@@ -458,7 +458,7 @@ def test_codecs():
 
     for text in texts:
         # First, convert the unicode regex to a state machine in unicode symbols.
-        with cpppo.regex( name='pies', initial='.*π.*' ) as pies:
+        with cpppo.regex( name='pies',  context="pies", initial='.*π.*' ) as pies:
             source			= cpppo.chainable( text )
             data			= cpppo.dotdict()
             for mch, sta in pies.run( source=source, data=data ):
@@ -472,13 +472,13 @@ def test_codecs():
             # Each of these are greedy, and so run 'til the end of input (next state
             # is None); they collect the full input string.
             assert ( sta is not None and sta.terminal ) == ( 'π' in text )
-            assert data._input.tounicode() == text
+            assert data.pies.input.tounicode() == text
 
     for text in texts:
         # Then convert the unicode regex to a state machine in bytes symbols.
         # Our encoder generates 1 or more bytes for each unicode symbol.
 
-        pies			= cpppo.regex( name='pies', initial='.*π.*', 
+        pies			= cpppo.regex( name='pies', context="pies", initial='.*π.*', 
                                                regex_alphabet=int,
                                                regex_typecode='B',
                                                regex_encoder=lambda s: ( b for b in s.encode( 'utf-8' )))
@@ -496,4 +496,4 @@ def test_codecs():
                       "string accepted" if sta and sta.terminal else "string rejected", data )
             
             assert ( sta is not None and sta.terminal ) == ( 'π' in text )
-            assert data._input.tobytes().decode('utf-8') == text
+            assert data.pies.input.tobytes().decode('utf-8') == text

@@ -39,7 +39,7 @@ def test_octets():
         assert i == 4
     assert source.peek() == b'3'[0]
 
-    assert data.octets.five_input.tostring() == b'abc12'
+    assert data.octets.five.input.tostring() == b'abc12'
 
 
 def test_octets_struct():
@@ -56,7 +56,6 @@ def test_octets_struct():
         assert i == 1
     assert source.peek() == b'c'[0]
 
-    assert data.octets_struct.ushort_input.tostring() == b'ab'
     assert data.octets_struct.ushort == 25185
 
 def test_enip():
@@ -254,6 +253,8 @@ def test_enip():
             ( unk_020_reply,	{} ),
             ( unk_023_request,	{} ),
             ( unk_023_reply,	{} ), ]:
+
+        # Parse just the headers
         data			= cpppo.dotdict()
         source			= cpppo.chainable( pkt )
         name			= 'header'
@@ -261,9 +262,26 @@ def test_enip():
             for i,(m,s) in enumerate( machine.run( source=source, path='enip', data=data )):
                 log.info( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r", m.name_centered(),
                           i, s, source.sent, source.peek(), data )
-            assert i == 18
+            assert i == 30
         log.warning( "Data: %r", data )
-        assert source.peek() == b'\x00'[0]
+        assert source.peek() is not None
    
         for k,v in tst.items():
             assert data[k] == v
+
+
+        # Parse the headers and encapsulated command data
+        data			= cpppo.dotdict()
+        source			= cpppo.chainable( pkt )
+        with enip.enip_machine( name ) as machine:
+            for i,(m,s) in enumerate( machine.run( source=source, path='enip', data=data )):
+                log.info( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r", m.name_centered(),
+                          i, s, source.sent, source.peek(), data )
+
+        log.warning( "Data: %r", data )
+        assert source.peek() is None
+   
+        for k,v in tst.items():
+            assert data[k] == v
+
+        

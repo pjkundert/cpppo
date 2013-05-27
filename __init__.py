@@ -21,7 +21,7 @@ __author__                      = "Perry Kundert"
 __email__                       = "perry@hardconsulting.com"
 __copyright__                   = "Copyright (c) 2013 Hard Consulting Corporation"
 __license__                     = "GNU General Public License, Version 3 (or later)"
-__version__			= "0.01"
+__version__			= "0.1"
 
 __all__                         = ["automata", "dotdict", "greenery", "misc"]
 

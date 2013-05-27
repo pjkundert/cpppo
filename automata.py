@@ -61,8 +61,7 @@ type_str_array_symbol		= 'c' if sys.version_info.major < 3 else 'u'
 type_bytes_array_symbol		= 'c' if sys.version_info.major < 3 else 'B'
 
 # Various default data path contexts/extensions
-path_ext_input			= '_input'	# default destination input
-path_ext_cycle			= '_cycle'	# default repeat counter
+path_ext_input			= '.input'	# default destination input
 
 # If a greenery.fsm (which generally has an alphabet of str symbols), and we
 # want to use it on a binary stream of those symbols, we need to encode the
@@ -753,7 +752,7 @@ class state_input( state ):
         return inp is not None and super( state_input, self ).validate( inp )
 
     def process( self, source, machine=None, path=None, data=None ):
-        """The raw data is saved to (default): <path>.<context>_input.  The target must be an object with a
+        """The raw data is saved to (default): <path>.<context>.input.  The target must be an object with a
         .append() method; if it doesn't exist, an array.array of typecode will be created."""
         inp			= next( source )
         path			= self.context( path=path )
@@ -773,13 +772,13 @@ class state_discard( state_input ):
 
 
 class state_struct( state ):
-    """A NULL (no-input) state that interprets the preceding states' saved ..._input data as the
+    """A NULL (no-input) state that interprets the preceding states' saved ....input data as the
     specified struct format (default is to one unsigned byte).  The unpacking is starting at an
-    offset (default: None) from the start of the collected ..._input data, and then at index
+    offset (default: None) from the start of the collected ....input data, and then at index
     (default: 0, based on the size of the struct format).  For example, to get the 3rd 32-bit
     little-endian UINT16, beginning at offset 1 into the buffer, use format='<H', offset=1, index=2.
     
-    The raw data is assumed to be at <path>[.<context>]<input_extension> (default: '_input', same as
+    The raw data is assumed to be at <path>[.<context>]<input_extension> (default: '.input', same as
     state_input).  Has a .calcsize property (like struct.Struct) which returns the struct format
     size in bytes, as well as .offset and .index properties.
 
@@ -895,13 +894,11 @@ class dfa_base( object ):
                 limit		= data[self.context( path, limit )]
             assert isinstance( limit, int ), \
                 "Supplied repeat=%r must be (or reference) an int, not a %r" % ( self.repeat, limit )
-            cycle_path		= self.context( path, path_ext_cycle )
 
-            log.info( "%s -- loop %3d/%3d %s", self.name_centered(),
-                      cycle, limit, "done" if cycle >= limit else "" )
+            log.info( "%s -- loop %3d/%3d (from %r) %s", self.name_centered(),
+                      cycle, limit, self.repeat, "done" if cycle >= limit else "" )
             if cycle >= limit:
                 return False
-            data[cycle_path] 	= cycle
             return True
 
         # Not self.repeat limited; only execute the initial cycle.
@@ -1041,11 +1038,19 @@ class regex_bytes_input( regex_bytes ):
     def terminate( self, exception, machine=None, path=None, data=None ):
         """Once our machine has accepted a sentence of the grammar and terminated without exception, we'll
         move it to its target location.  It just copies the raw data collected by our state machine
-        (we'll use its context)."""
-        assert exception is None, "Failed to accept sentence in grammar: %r" % exception
+        (we'll use its context).
+
+        Does not delete the original data, but it is quite easy to arrange things such that the
+        original location ceases to exist; simply make the destination assign to an element in the
+        path to the data, eg::
+        
+            data.path.context = data.path.context.subcontext.input
+
+        """
+        if exception is not None: # If exception in progress, do nothing.
+            return
         super( regex_bytes_input, self ).terminate( exception=exception, machine=machine, path=path, data=data )
         ours			= self.context( path )
         subs			= self.initial.context( ours )
         log.info( "data[%s] = data[%s]: %r", ours, subs, data[subs] if subs in data else data )
         data[ours]		= data[subs]
-        del data[subs]

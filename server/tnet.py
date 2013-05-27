@@ -97,8 +97,8 @@ class integer_parser( cpppo.regex_bytes ):
         super( integer_parser, self ).__init__( initial=initial, context=context, **kwds )
         
     def terminate( self, exception, machine=None, path=None, data=None ):
-        """Once our machine has accepted a sequence of digits (into data context
-        'value_'), convert to an integer and store in 'value'"""
+        """Once our machine has accepted a sequence of digits (into data context 'value.input'), convert to
+        an integer and store in 'value'"""
         if exception is not None:
             log.warning( "%s: Not parsing integer due to: %r", self.name_centered(), exception )
             return
@@ -108,7 +108,6 @@ class integer_parser( cpppo.regex_bytes ):
         log.info( "%s: recv: data[%s] = int( data[%s]: %r)", self.name_centered(),
                   ours, subs, data[subs] if subs in data else data)
         data[ours]		= int( data[subs].tostring() )
-        del data[subs]
 
 bytes_conf 			= {
     "alphabet":	cpppo.type_bytes_iter,
@@ -138,7 +137,7 @@ def tnet_machine( name="TNET", context="tnet" ):
             """Convert the collected data according to the type"""
             tntype		= next( source )
             ours		= self.context( path )
-            raw			= self.context( ours, '...data_input' )
+            raw			= ours + '...data.input'
             src			= ( data[raw].tostring() if sys.version_info.major < 3
                                     else data[raw].tobytes() )
 
@@ -218,7 +217,7 @@ def tnet_server( conn, addr ):
             # Reached a terminal state.  Return TNET data payload as JSON, and
             # carry on (tnet_mesg will have been reset)
             log.info( "%s: byte %5d: data: %r", tnet_mesg.name_centered(), source.sent, data )
-            res			= json.dumps( data.tnet.type_input, indent=4, sort_keys=True )
+            res			= json.dumps( data.tnet.type.input, indent=4, sort_keys=True )
             log.info( "%s: byte %5d: result: %r", tnet_mesg.name_centered(), source.sent, res )
             conn.send(( res + "\n\n" ).encode( "utf-8" ))
 

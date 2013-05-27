@@ -76,16 +76,17 @@ class octets_base( cpppo.dfa_base ):
    
 
 class octets( octets_base, cpppo.state ):
-    """Scans octets, but doesn't itself perform any processing."""
+    """Scans 'repeat' octets into <context>.input using a state_input sub-machine (by default), but
+    doesn't itself perform any processing."""
     pass
 
 class octets_struct( octets_base, cpppo.state_struct ):
-    """Scans octets sufficient to satisfy the specified struct 'format', and then parses it."""
+    """Scans octets sufficient to satisfy the specified struct 'format', and then parses it according to
+    the supplied struct 'format'."""
     def __init__( self, name, format=None, **kwds ):
         assert isinstance( format, str ), "Expected a struct 'format', found: %r" % format
         super( octets_struct, self ).__init__( name=name, repeat=struct.calcsize( format ),
                                                format=format, **kwds )
-
 
 
 class uint( octets_struct ):
@@ -98,11 +99,6 @@ class udint( octets_struct ):
     def __init__( self, name, **kwds ):
         super( udint, self ).__init__( name=name, format='<I', **kwds )
         
-class array( octets_struct ):
-    def __init__( self, name, repeat=None, **kwds ):
-        assert repeat is not None, "Must specify octet array size in 'repeat'"
-        super( array, self ).__init__( name=name, format=cpppo.type_bytes_array_symbol, **kwds )
-    
 class enip_header( cpppo.dfa ):
     """Scans an EtherNet/IP encapsulation header:
     
@@ -110,15 +106,25 @@ class enip_header( cpppo.dfa ):
         data.<context>.length		uint
         data.<context>.session_handle	udint
         data.<context>.status		udint
-        data.<context>.sender_context	array[8]
+        data.<context>.sender_context	octets[8]
         data.<context>.options		udint
 
     Does *not* scan the command-specific data which (normally) follows the header."""
     def __init__( self, name, **kwds ):
-        cmnd			= uint(  "command",		context="command" )
-        cmnd[None] = leng	= uint(  "length",		context="length" )
-        leng[None] = sess	= udint( "session_handle",	context="session_handle" )
-        sess[None] = ctxt	= array( "sender_context",	context="sender_context", repeat=8 )
-        ctxt[None] = opts	= udint( "options",		context="options" )
-        opts[None]		= cpppo.state( "done", terminal=True )
+        cmnd			= uint(		"command",		context="command" )
+        cmnd[None] = leng	= uint(		"length",		context="length" )
+        leng[None] = sess	= udint(	"session_handle",	context="session_handle" )
+        sess[None] = stts	= udint(	"status",		context="status" )
+        stts[None] = ctxt	= octets(	"sender_context",	context="sender_context", repeat=8 )
+        ctxt[None] = opts	= udint( 	"options",		context="options" )
+        opts[None]		= cpppo.state(	"done", terminal=True )
         super( enip_header, self ).__init__( name=name, initial=cmnd, **kwds )
+
+class enip_machine( cpppo.dfa ):
+    """Parses a complete EtherNet/IP message, including command-specific payload into
+    '.encapsulated_data.input'."""
+    def __init__( self, name, **kwds ):
+        ehdr			= enip_header(	"header",		context="header" )
+        ehdr[None] = encp	= octets(	"encapsulated_data",	context="encapsulated_data", repeat="..header.length" )
+        encp[None]		= cpppo.state(	"done", terminal=True )
+        super( enip_machine, self ).__init__( name=name, initial=ehdr, **kwds )

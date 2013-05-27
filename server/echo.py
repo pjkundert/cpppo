@@ -57,9 +57,8 @@ if __name__ == "__main__":
 log				= logging.getLogger( "echo.srv" )
 
 class echo_regex( cpppo.regex_bytes_input ):
-    """Collects a line of bytes data out of our regex dfa's state_input data at
-    path.context_, and into data artifact, at path.context (default is
-    'echo')"""
+    """Collects a line of bytes data out of our regex dfa's state_input data at path.context.input, and
+    into data artifact at path.context (default is 'echo')."""
     def __init__( self, name=None, initial='.*\n', context="echo", **kwds ):
         super( echo_regex, self ).__init__( name=name, initial=initial, context=context, **kwds )
 
@@ -77,8 +76,8 @@ def echo_machine( name=None ):
 def echo_server( conn, addr ):
     """Serve one echo client 'til EOF; then close the socket"""
     source			= cpppo.chainable()
-    data			= cpppo.dotdict()
     with echo_machine( "echo_%s" % addr[1] ) as echo_line:
+        data			= cpppo.dotdict()
         sequence		= echo_line.run( source=source, data=data, greedy=False )
         while True:
             msg			= network.recv( conn, timeout=None ) # blocking
@@ -97,6 +96,7 @@ def echo_server( conn, addr ):
                 log.info( "%s: data: %r", misc.centeraxis( echo_line, 25, clip=True ), data )
                 conn.send( data.echo )
                 echo_line.reset()
+                data		= cpppo.dotdict()
                 sequence	= echo_line.run( source=source, data=data, greedy=False )
             else:
                 # Out of input, no complete line of echo input acquired.  Wait for more.

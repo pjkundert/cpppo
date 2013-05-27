@@ -13,3 +13,7 @@
 # System generated files
 .DS_Store
 *.png
+
+*.pdf
+*.tex
+auto/
