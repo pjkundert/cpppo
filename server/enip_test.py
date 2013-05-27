@@ -239,7 +239,7 @@ def test_enip():
 
    
     for pkt,tst in [
-            ( rss_004_request, { 'enip.header.command': 0x0065 }),
+            ( rss_004_request,	{ 'enip.header.command': 0x0065 }),
             ( rss_004_reply,	{} ),
             ( gaa_008_request,	{} ),
             ( gaa_008_reply,	{} ),
@@ -284,4 +284,6 @@ def test_enip():
         for k,v in tst.items():
             assert data[k] == v
 
-        
+        # Ensure we can reproduce the original packet from the parsed data
+        assert enip.enip_encode( data.enip ) == pkt
+

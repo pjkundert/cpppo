@@ -56,8 +56,8 @@ log				= logging.getLogger( "enip.srv" )
 
 # 
 # octets_base	-- A dfa_base mixin that defaults to scan octets from bytes data
-# 
-# octets	-- Scans octets to <context>_input, but does nothing with them
+# octets	-- Scans octets to <context>.input arrray, but does nothing with them
+# octets_encode	--   and converts array of octets back to a bytes string
 # octets_struct	-- Scans octets sufficient to fulfill struct 'format', and parses
 # 
 class octets_base( cpppo.dfa_base ):
@@ -80,6 +80,9 @@ class octets( octets_base, cpppo.state ):
     doesn't itself perform any processing."""
     pass
 
+def octets_encode( value ):
+    return value.tostring() if sys.version_info.major < 3 else value.tobytes()
+
 class octets_struct( octets_base, cpppo.state_struct ):
     """Scans octets sufficient to satisfy the specified struct 'format', and then parses it according to
     the supplied struct 'format'."""
@@ -88,17 +91,34 @@ class octets_struct( octets_base, cpppo.state_struct ):
         super( octets_struct, self ).__init__( name=name, repeat=struct.calcsize( format ),
                                                format=format, **kwds )
 
-
+# 
+# uint		-- Parse a 16-bit EtherNet/IP unsigned int 
+# uint_encode	--   and convert a value back to a 16-bit EtherNet/IP unsigned int
+# udint		-- Parse a 32-bit EtherNet/IP unsigned int 
+# udint_encode	--   and convert a value back to a 32-bit EtherNet/IP unsigned int
+# 
 class uint( octets_struct ):
     """An EtherNet/IP UINT; 16-bit little-endian unsigned integer"""
     def __init__( self, name, **kwds ):
         super( uint, self ).__init__( name=name, format='<H', **kwds )
 
+def uint_encode( value ):
+    return struct.pack( '<H', value )
+
 class udint( octets_struct ):
     """An EtherNet/IP UDINT; 32-bit little-endian unsigned integer"""
     def __init__( self, name, **kwds ):
         super( udint, self ).__init__( name=name, format='<I', **kwds )
+
+def udint_encode( value ):
+    return struct.pack( '<I', value )
         
+
+# 
+# enip_header	-- Parse an EtherNet/IP header only 
+# enip_machine	-- Parses an EtherNet/IP header and encapsulated data payload
+# enip_encode	--   and convert parsed EtherNet/IP data back into a message
+# 
 class enip_header( cpppo.dfa ):
     """Scans an EtherNet/IP encapsulation header:
     
@@ -128,3 +148,17 @@ class enip_machine( cpppo.dfa ):
         ehdr[None] = encp	= octets(	"encapsulated_data",	context="encapsulated_data", repeat="..header.length" )
         encp[None]		= cpppo.state(	"done", terminal=True )
         super( enip_machine, self ).__init__( name=name, initial=ehdr, **kwds )
+
+def enip_encode( data ):
+    """Produce an encoded EtherNet/IP message from the supplied data."""
+    result			= b''.join( [
+        uint_encode(	data.header.command ),
+        uint_encode(len(data.encapsulated_data.input )),
+        udint_encode( 	data.header.session_handle ),
+        udint_encode( 	data.header.status ),
+        octets_encode(	data.header.sender_context.input ),
+        udint_encode(	data.header.options ),
+        octets_encode(	data.encapsulated_data.input ),
+    ])
+    return result
+    
