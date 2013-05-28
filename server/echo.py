@@ -106,7 +106,7 @@ def echo_server( conn, addr ):
 
 
 def main():
-    return network.server_main( address, echo_server )
+    return network.server_main( address=address, target=echo_server )
 
 
 if __name__ == "__main__":

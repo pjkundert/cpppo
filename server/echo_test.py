@@ -28,18 +28,21 @@ logging.basicConfig( **cpppo.log_cfg )
 log				= logging.getLogger( "echo.cli")
 
 
-clisuccess			= {}		# One entry per client number expected
-clicount, clireps		= 5, 10
+client_count			= 5
 charrange, chardelay		= (2,10), .01	# split/delay outgoing msgs
 draindelay			= 5.   		# long in case server slow, but immediately upon EOF
 
+echo_cli_kwds			= {
+	'reps':	10,
+}
+
 
 def echo_cli( number, reps ):
-    global clisuccess
-    log.info( "%3d echo client connecting... PID [%5d]", number, os.getpid() )
+
+    log.info( "%3d client connecting... PID [%5d]", number, os.getpid() )
     conn			= socket.socket( socket.AF_INET, socket.SOCK_STREAM )
     conn.connect( echo.address )
-    log.info( "%3d echo client connected", number )
+    log.info( "%3d client connected", number )
         
     sent			= b''
     rcvd			= b''
@@ -66,52 +69,38 @@ def echo_cli( number, reps ):
                     rcvd       += rpy
 
     except KeyboardInterrupt as exc:
-        log.warning( "%3d echo client terminated: %r", number, exc )
+        log.warning( "%3d client terminated: %r", number, exc )
     except Exception as exc:
-        log.warning( "%3d echo client failed: %r\n%s", number, exc, traceback.format_exc() )
+        log.warning( "%3d client failed: %r\n%s", number, exc, traceback.format_exc() )
     finally:
         # One or more packets may be in flight; wait 'til we timeout/EOF
         rpy			= True
         while rpy: # neither None (timeout) nor b'' (EOF)
             rpy			= network.drain( conn, timeout=draindelay )
             if rpy is not None:
-                log.info("%3d echo drain %5d: %s", number, len( rpy ), repr( rpy ) if rpy else "EOF" )
+                log.info("%3d drain %5d: %s", number, len( rpy ), repr( rpy ) if rpy else "EOF" )
                 rcvd   	       += rpy
 
     # Count the number of success/failures reported by the Echo client threads
-    success			= ( rcvd == sent )
-    clisuccess[number]		= success
-    if not success:
-        log.warning( "%3d echo client failed: %s != %s sent", number, repr( rcvd ), repr( sent ))
+    failed			= not ( rcvd == sent )
+    if failed:
+        log.warning( "%3d client failed: %s != %s sent", number, repr( rcvd ), repr( sent ))
     
-    log.info( "%3d echo client exited", number )
+    log.info( "%3d client exited", number )
+    return failed
 
 
-def test_echo():
-    # Tries to start  a server; will fail if one already bound to port
-    log.info( "Server startup..." )
-    server			= multiprocessing.Process( target=echo.main )
-    server.start()
-    time.sleep( .25 )
+def test_echo_bench():
+    failed			= cpppo.server.network.bench( server_func=echo.main,
+                                                 client_func=echo_cli, client_count=client_count, 
+                                                 client_kwds=echo_cli_kwds )
+    if failed:
+        log.warning( "Failure" )
+    else:
+        log.info( "Succeeded" )
 
-    try:
-        log.info( "Client tests: %d", clicount )
-        threads			= []
-        for i in range( clicount ):
-            threads.append( threading.Thread( target=echo_cli, args=(i,clireps) ))
-        
-        [ t.start() for t in threads ]
-        
-        [ t.join() for t in threads ]
-        assert len( clisuccess ) == clicount
-        failures		= clicount - sum( clisuccess.values() )
-        assert not failures, "%d Echo clients reported mismatching results" % failures
+    return failed
 
-        log.info( "Client tests done" )
-
-    finally:
-        server.terminate()
-        server.join()
 
 if __name__ == "__main__":
-    test_echo()
+    test_echo_bench()

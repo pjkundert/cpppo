@@ -173,7 +173,7 @@ def tnet_cli( number, tests=None ):
     return failed
 
 
-def test_bench():
+def test_tnet_bench():
     failed			= cpppo.server.network.bench( server_func=tnet.main,
                                                  client_func=tnet_cli, client_count=client_count, 
                                                  client_kwds=tnet_cli_kwds )
@@ -186,4 +186,4 @@ def test_bench():
 
 
 if __name__ == "__main__":
-    sys.exit( test_bench() )
+    sys.exit( test_tnet_bench() )

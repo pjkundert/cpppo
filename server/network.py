@@ -95,7 +95,8 @@ def drain( conn, timeout=.1 ):
 class server_thread( threading.Thread ):
     """A generic server handler Thread.  Supply a handler taking an open socket connection to target=...
     Assumes at least one or two arg=(conn,[addr,[...]]), and a callable target with an __name__
-    attribute."""
+    attribute.  The 'args' argument is required, and must contain at least the connect socket, and
+    (optional) peer address; all other keyword options (eg. kwargs, ...) are passed along to Thread."""
     def __init__( self, **kwds ):
         super( server_thread, self ).__init__( **kwds )
         self._name		= kwds['target'].__name__
@@ -126,9 +127,11 @@ class server_thread( threading.Thread ):
                       os.getpid(), self.ident, self.addr )
 
 
-def server_main( address, target ):
+def server_main( address, target, **kwds ):
     """A generic server main, binding to address, and serving each incoming connection with a separate
-    server_thread (threading.Thread) instance running target function."""
+    server_thread (threading.Thread) instance running target function.  Each server is passed two
+    positional arguments (the connect socket and the peer address), plush any keyword args supplied
+    to this function."""
     sock			= socket.socket( socket.AF_INET, socket.SOCK_STREAM )
     sock.setsockopt( socket.SOL_SOCKET, socket.SO_REUSEADDR, 1 ) # Avoid delay on next bind due to TIME_WAIT
     sock.bind( address )
@@ -143,7 +146,7 @@ def server_main( address, target ):
             acceptable		= accept( sock, timeout=.1 )
             if acceptable:
                 conn, addr	= acceptable
-                threads[addr]	= server_thread( target=target, args=(conn, addr) )
+                threads[addr]	= server_thread( target=target, args=(conn, addr), kwargs=kwds )
                 threads[addr].start()
         except KeyboardInterrupt as exc:
             log.warning( "%s server termination: %r", name, exc )
@@ -164,10 +167,11 @@ def server_main( address, target ):
     return 0
 
 
-def bench( server_func, client_func, client_count, client_kwds=None, client_max=None ):
-    """Bench-test the server_func as a process; will fail if one already bound to port.  Creates a
-    thread pool (default 10) of client_func.  Each client is supplied a unique number argument, and
-    the supplied client_kwds as keywords, and should return 0 on success, !0 on failure."""
+def bench( server_func, client_func, client_count, server_kwds=None, client_kwds=None, client_max=None ):
+    """Bench-test the server_func (with optional keyword args from server_kwds) as a process; will fail
+    if one already bound to port.  Creates a thread pool (default 10) of client_func.  Each client
+    is supplied a unique number argument, and the supplied client_kwds as keywords, and should
+    return 0 on success, !0 on failure."""
 
     from multiprocessing 	import Process
     from multiprocessing.pool	import ThreadPool as Pool
@@ -175,7 +179,7 @@ def bench( server_func, client_func, client_count, client_kwds=None, client_max=
     import json
 
     log.info( "Server startup..." )
-    server			= Process( target=server_func )
+    server			= Process( target=server_func, kwargs=server_kwds or {} )
     server.start()
     time.sleep( .25 )
 

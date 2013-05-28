@@ -32,6 +32,7 @@ enip/parser.py	-- The EtherNet/IP CIP protocol parsers
 import array
 import codecs
 import errno
+import json
 import logging
 import os
 import struct
@@ -142,8 +143,10 @@ class enip_header( cpppo.dfa ):
 
 class enip_machine( cpppo.dfa ):
     """Parses a complete EtherNet/IP message, including command-specific payload into
-    '.encapsulated_data.input'."""
-    def __init__( self, name, **kwds ):
+    '<context>.encapsulated_data.input'.  Context defaults to 'enip' (unless explicitly set to '')."""
+    def __init__( self, name=None, **kwds ):
+        kwds.setdefault( 'context', 'enip' )
+        name 			= name or kwds.get( 'context' )
         ehdr			= enip_header(	"header",		context="header" )
         ehdr[None] = encp	= octets(	"encapsulated_data",	context="encapsulated_data", repeat="..header.length" )
         encp[None]		= cpppo.state(	"done", terminal=True )
@@ -152,13 +155,16 @@ class enip_machine( cpppo.dfa ):
 def enip_encode( data ):
     """Produce an encoded EtherNet/IP message from the supplied data."""
     result			= b''.join( [
-        uint_encode(	data.header.command ),
-        uint_encode(len(data.encapsulated_data.input )),
-        udint_encode( 	data.header.session_handle ),
-        udint_encode( 	data.header.status ),
-        octets_encode(	data.header.sender_context.input ),
-        udint_encode(	data.header.options ),
-        octets_encode(	data.encapsulated_data.input ),
+        uint_encode(	data.enip.header.command ),
+        uint_encode(len(data.enip.encapsulated_data.input )),
+        udint_encode( 	data.enip.header.session_handle ),
+        udint_encode( 	data.enip.header.status ),
+        octets_encode(	data.enip.header.sender_context.input ),
+        udint_encode(	data.enip.header.options ),
+        octets_encode(	data.enip.encapsulated_data.input ),
     ])
     return result
     
+def enip_format( data ):
+    """Format a decoded EtherNet/IP data bundle in a human-readable form."""
+    return json.dumps( data, indent=4, sort_keys=True, default=lambda obj: repr( obj ))

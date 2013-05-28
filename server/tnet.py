@@ -179,7 +179,7 @@ def tnet_machine( name="TNET", context="tnet" ):
     # recognize another
     return cpppo.dfa( name=name, context=context, initial=SIZE )
 
-@cpppo.logresult()
+
 def tnet_server( conn, addr ):
   """Serve one tnet client 'til EOF; then close the socket"""
   with tnet_machine( "tnet_%s" % addr[1] ) as tnet_mesg:
@@ -227,7 +227,7 @@ def tnet_server( conn, addr ):
 
 
 def main():
-    return network.server_main( address, tnet_server )
+    return network.server_main( address=address, target=tnet_server )
 
 
 if __name__ == "__main__":
