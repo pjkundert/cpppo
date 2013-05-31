@@ -22,8 +22,9 @@ sys.path.insert( 0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import cpppo
 
 logging.basicConfig( **cpppo.log_cfg )
+#logging.getLogger().setLevel( logging.DEBUG )
 log				= logging.getLogger()
-log_not				= log.level-1
+log_not				= 0
 
 def test_logging():
     # Test lazy log message evaluation, ensuring it is at least an order of
@@ -131,7 +132,7 @@ def test_readme():
 
     data			= cpppo.dotdict()
     source			= cpppo.peekable( str( 'abbbb,ab' ))
-    with cpppo.dfa( initial=E ) as abplus:
+    with cpppo.dfa( initial=E, terminal=True ) as abplus:
         for i,(m,s) in enumerate( abplus.run( source=source, path="ab+", data=data )):
             log.info( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r", m.name_centered(),
                       i, s, source.sent, source.peek(), data )
@@ -139,7 +140,7 @@ def test_readme():
     assert source.peek() == str(',')
     
     # Composite state machine accepting ab+, ignoring ,[ ]* separators
-    CSV				= cpppo.dfa( "CSV", initial=E )
+    CSV				= cpppo.dfa( "CSV", initial=E, terminal=True )
     SEP				= cpppo.state_discard( "SEP" )
 
     CSV[',']			= SEP
@@ -147,11 +148,11 @@ def test_readme():
     SEP[None]			= CSV
 
     source			= cpppo.peekable( str( 'abbbb, ab' ))
-    with cpppo.dfa( initial=CSV ) as r2:
+    with cpppo.dfa( initial=CSV, terminal=True ) as r2:
         for i,(m,s) in enumerate( r2.run( source=source, path="readme_CSV", data=data )):
             log.info( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r", m.name_centered(),
                       i, s, source.sent, source.peek(), data )
-        assert i == 12
+        assert i == 14
     assert source.peek() is None
     
 
@@ -163,9 +164,7 @@ def test_state():
     We must ensure that all state transitions are configured in the target alphabet; if an encoder
     is supplied, then all input symbols and all transition symbols will be encoded using it.  In
     this test, all string literals are Unicode (in both Python 2 and 3), so we use a unicode encoder
-    to convert them to symbols.
-
-    """
+    to convert them to symbols."""
 
     unicodekwds			= {
         'alphabet':	unicode if sys.version_info.major < 3 else str,
@@ -187,33 +186,24 @@ def test_state():
     assert source.peek() == 'a'
     with pytest.raises(StopIteration):
         next( g )
-    with s2:
-        g			= s2.run( source=source )
+    with s1:
+        g			= s1.run( source=source )
         assert source.peek() == 'a'
-        assert next( g ) == (None, None)
-        assert source.peek() == 'b'
-        assert next( g ) == (None, None)
-        assert source.peek() == 'b'
+        assert next( g ) == (None, s2)
+        assert source.peek() == 'a'
+        try:
+            next( g )
+            assert False, "Should have terminated"
+        except StopIteration:
+            pass
+        assert source.peek() == 'a'
 
-    # but dfa's, not so much
-    source			= cpppo.peeking( 'aπc' )
-    data			= cpppo.dotdict()
-    with cpppo.dfa( initial=s1 ) as s3:
-        for i,(m,s) in enumerate( s3.run( source=source, path="s", data=data )):
-            log.info( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r", m.name_centered(),
-                      i, s, source.sent, source.peek(), data )
-    
-            if i == 0: assert s is s1  ; assert source.peek() == 'a' # processes no symbol
-            if i == 1: assert s is s2  ; assert source.peek() == 'a' # we'll process it next
-            if i == 2: assert s is None; assert source.peek() == 'π'
-            if s is None:
-                break
-        assert i == 2
-        assert len( data ) == 0
     
     # A state machine accepting a sequence of unicode a's
     a_s				= cpppo.state( 		"a_s", **unicodekwds )
-    an_a			= cpppo.state_input(	"a",   terminal=True, typecode=cpppo.type_unicode_array_symbol, **unicodekwds )
+    an_a			= cpppo.state_input(	"a",   terminal=True,
+                                                        typecode=cpppo.type_unicode_array_symbol,
+                                                        **unicodekwds )
     a_s['a']			= an_a
     an_a['a']			= an_a
 
@@ -224,14 +214,14 @@ def test_state():
         for i,(m,s) in enumerate( aplus.run( source=source )):
             log.info( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r", m.name_centered(),
                       i, s, source.sent, source.peek(), data )
-        assert i == 4
+        assert i == 5
         assert source.peek() is None
         assert len( data ) == 0
 
     # Accepting a's separated by comma and space/pi (for kicks).  When the lower level a's machine
     # doesn't recognize the symbol, then the higher level machine will recognize and discard
     sep				= cpppo.state_discard(	"sep", **unicodekwds )
-    csv				= cpppo.dfa(		"csv", initial=a_s , **unicodekwds )
+    csv				= cpppo.dfa( "csv", initial=a_s , terminal=True, **unicodekwds )
     csv[',']			= sep
     sep[' ']			= sep
     sep['π']			= sep
@@ -244,7 +234,7 @@ def test_state():
         for i,(m,s) in enumerate( csvaplus.run( source=source, path="csv", data=data )):
             log.info( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r", m.name_centered(),
                 i, s, source.sent, source.peek(), data )
-        assert i == 16
+        assert i == 18
         assert source.peek() is None
     assert data.csv.input.tounicode() == 'aaaaaa'
 
@@ -274,7 +264,8 @@ def test_dfa():
         log.info( "DFA:" )
         for initial in machine.initial.nodes():
             for inp,target in initial.edges():
-                log.info( "%s <- %-10.10r -> %s" % ( cpppo.centeraxis( initial, 25, clip=True ), inp, target ))
+                log.info( "%s <- %-10.10r -> %s" % ( cpppo.centeraxis( initial, 25, clip=True ),
+                                                     inp, target ))
 
         # Running with no input will yield the initial state, with None input; since it is a NULL
         # state (no input processed), it will simply attempt to transition.  This will require the
@@ -292,7 +283,7 @@ def test_dfa():
             except StopIteration:
                 sequence	= None
                 break
-            except AssertionError as e:
+            except cpppo.NonTerminal as e:
                 assert "non-terminal state" in str( e )
                 break
 
@@ -337,13 +328,13 @@ def test_struct():
     dtp				= cpppo.type_bytes_array_symbol
     abt				= cpppo.type_bytes_iter
     ctx				= 'val'
-    a				=     cpppo.state_input( "First",  alphabet=abt, typecode=dtp, context=ctx )
-    a[True]			= b = cpppo.state_input( "Second", alphabet=abt, typecode=dtp, context=ctx )
-    b[True]			= c = cpppo.state_input( "Third",  alphabet=abt, typecode=dtp, context=ctx )
-    c[True]			= d = cpppo.state_input( "Fourth", alphabet=abt, typecode=dtp, context=ctx )
-    d[None] 			= e = cpppo.state_struct( "int32", context=ctx,
-                                                          format=str("<i"),
-                                                          terminal=True )
+    a				= cpppo.state_input( "First",  alphabet=abt, typecode=dtp, context=ctx )
+    a[True] = b 		= cpppo.state_input( "Second", alphabet=abt, typecode=dtp, context=ctx )
+    b[True] = c 		= cpppo.state_input( "Third",  alphabet=abt, typecode=dtp, context=ctx )
+    c[True] = d			= cpppo.state_input( "Fourth", alphabet=abt, typecode=dtp, context=ctx )
+    d[None] = e			= cpppo.state_struct( "int32", context=ctx,
+                                                      format=str("<i"),
+                                                      terminal=True )
     machine			= cpppo.dfa( initial=a )
     with machine:
         material		= b'\x01\x02\x03\x80\x99'
@@ -385,6 +376,7 @@ def test_struct():
         assert num == 6
         assert sta.name == "int32"
         assert data.struct.val == -2147286527
+    
 
 def test_regex():
     # This forces plain strings in 2.x, unicode in 3.x (counteracts import unicode_literals above)
@@ -422,9 +414,10 @@ def test_regex():
             if num ==11: assert inp == 'x'; assert sta.name == "3"
             if num ==12: assert inp == 'x'; assert sta.name == "3"
             if num ==13: assert inp ==None; assert sta is None
+            assert num < 14
         assert inp is None
-        assert num == 13
-        assert sta.name == '3'
+        assert num == 14
+        assert sta is None and machine.current.name == '3'
 
 
 import binascii
@@ -458,27 +451,29 @@ def test_codecs():
 
     for text in texts:
         # First, convert the unicode regex to a state machine in unicode symbols.
-        with cpppo.regex( name='pies',  context="pies", initial='.*π.*' ) as pies:
+        with cpppo.regex( name='pies',  context="pies", initial='.*π.*', terminal=True ) as pies:
             source			= cpppo.chainable( text )
             data			= cpppo.dotdict()
-            for mch, sta in pies.run( source=source, data=data ):
-                if sta is None:
-                    log.info( "%sr done", cpppo.centeraxis( mch, 25, clip=True ))
-                    break
-                log.info( "%s reports %s", cpppo.centeraxis( mch, 25, clip=True ), sta )
-            log.info( "%s ends in %s: %s: %r", cpppo.centeraxis( mch, 25, clip=True ), sta,
-                      "string accepted" if sta and sta.terminal else "string rejected", data )
+            try:
+                for mch, sta in pies.run( source=source, data=data ):
+                    pass
+            except cpppo.NonTerminal:
+                pass
+                    
+            log.info( "%s ends: %s: %r", pies.name_centered(),
+                      "string accepted" if pies.terminal else "string rejected", data )
         
             # Each of these are greedy, and so run 'til the end of input (next state
             # is None); they collect the full input string.
-            assert ( sta is not None and sta.terminal ) == ( 'π' in text )
+            assert pies.terminal == ( 'π' in text )
             assert data.pies.input.tounicode() == text
 
     for text in texts:
         # Then convert the unicode regex to a state machine in bytes symbols.
         # Our encoder generates 1 or more bytes for each unicode symbol.
 
-        pies			= cpppo.regex( name='pies', context="pies", initial='.*π.*', 
+        pies			= cpppo.regex( name='pies', context="pies", initial='.*π.*',
+                                               terminal=True,
                                                regex_alphabet=int,
                                                regex_typecode='B',
                                                regex_encoder=lambda s: ( b for b in s.encode( 'utf-8' )))
@@ -487,13 +482,57 @@ def test_codecs():
         data			= cpppo.dotdict()
 
         with pies:
-            for mch, sta in pies.run( source=source, data=data ):
-                if sta is None:
-                    log.info( "%sr done", cpppo.centeraxis( mch, 25, clip=True ))
-                    break
-                log.info( "%s reports %s", cpppo.centeraxis( mch, 25, clip=True ), sta )
-            log.info( "%s ends in %s: %s: %r", cpppo.centeraxis( mch, 25, clip=True ), sta,
-                      "string accepted" if sta and sta.terminal else "string rejected", data )
+            try:
+                for mch, sta in pies.run( source=source, data=data ):
+                    pass
+            except cpppo.NonTerminal:
+                pass
+
+            log.info( "%s ends: %s: %r", pies.name_centered(),
+                      "string accepted" if pies.terminal else "string rejected", data )
             
-            assert ( sta is not None and sta.terminal ) == ( 'π' in text )
+            assert pies.terminal == ( 'π' in text )
             assert data.pies.input.tobytes().decode('utf-8') == text
+
+
+def test_decide():
+    """Allow state transition decisions based on collected context other than just
+    the next source symbol.
+
+    """
+    e				= cpppo.state( "enter" )
+    e['a'] = a			= cpppo.state_input( "a", context='a' )
+    a[' '] = s1			= cpppo.state_discard( "s1" )
+    s1[' '] = s1
+    s1[None] = i1		= cpppo.integer_parser( "i1", context='i1' )
+    
+    i1[' '] = s2		= cpppo.state_discard( "s2" )
+    s2[' '] = s2
+    s2[None] = i2		= cpppo.integer_parser( "i2", context='i2' )
+    less			= cpppo.state( "less", terminal=True )
+    greater			= cpppo.state( "greater", terminal=True )
+    equal			= cpppo.state( "equal", terminal=True )
+    i2[None] 			= cpppo.decide(
+        "isless", less, predicate=lambda machine,source,path,data: data.i1 < data.i2 )
+    i2[None] 			= cpppo.decide(
+        "isgreater", greater, predicate=lambda machine,source,path,data: data.i1 > data.i2)
+    i2[None]			= equal
+
+
+    source			= cpppo.peekable( str('a 1 2') )
+    data			= cpppo.dotdict()
+    with cpppo.dfa( "comparo", initial=e ) as comparo:
+        for i,(m,s) in enumerate( comparo.run( source=source, data=data )):
+            log.info( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r", m.name_centered(),
+                      i, s, source.sent, source.peek(), data )
+        assert i == 11
+        assert s is less
+            
+    source			= cpppo.peekable( str('a 33 33') )
+    data			= cpppo.dotdict()
+    with cpppo.dfa( "comparo", initial=e ) as comparo:
+        for i,(m,s) in enumerate( comparo.run( source=source, data=data )):
+            log.info( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r", m.name_centered(),
+                      i, s, source.sent, source.peek(), data )
+        assert i == 13
+        assert s is equal

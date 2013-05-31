@@ -25,21 +25,94 @@ import cpppo
 from   cpppo.server import ( enip, network )
 
 logging.basicConfig( **cpppo.log_cfg )
+#logging.getLogger().setLevel( logging.DEBUG )
 log				= logging.getLogger( "enip.tst" )
+
 
 def test_octets():
     """Scans raw octets"""
     data			= cpppo.dotdict()
     source			= cpppo.chainable( b'abc123' )
+
+    # Scan 5; source is sufficient
     name			= "five"
-    with enip.octets( name, repeat=5, context=name ) as machine:
-        for i,(m,s) in enumerate( machine.run( source=source, path='octets', data=data )):
-            log.info( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r", m.name_centered(),
-                      i, s, source.sent, source.peek(), data )
+    with enip.octets( name, repeat=5, context=name, terminal=True ) as machine:
+        try:
+            for i,(m,s) in enumerate( machine.run( source=source, path='octets', data=data )):
+                log.info( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r", m.name_centered(),
+                          i, s, source.sent, source.peek(), data )
+                if s is None:
+                    break
+        except:
+            assert False, "%s: Should not have failed with exception: %s" % ( 
+                machine.name_centered(), ''.join( traceback.format_exception( *sys.exc_info() )))
+        assert machine.terminal, "%s: Should have reached terminal state" % machine.name_centered()
         assert i == 4
     assert source.peek() == b'3'[0]
-
     assert data.octets.five.input.tostring() == b'abc12'
+
+
+def test_octets_singly():
+    """Scans raw octets, but only provides them one at a time"""
+    data			= cpppo.dotdict()
+    origin			= cpppo.chainable( b'abc123' )
+    source			= cpppo.chainable( b'' )
+
+    name			= "singly"
+    with enip.octets( name, repeat=5, context=name, terminal=True ) as machine:
+        try:
+            for i,(m,s) in enumerate( machine.run( source=source, path='octets', data=data )):
+                log.info( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r", m.name_centered(),
+                          i, s, source.sent, source.peek(), data )
+                if s is None:
+                    log.info( "%s chain: %r", machine.name_centered(), [origin.peek()] )
+                    if source.peek() is None and origin.peek() is not None:
+                        source.chain( [next( origin )] )
+        except:
+            assert False, "%s: Should not have failed with exception: %s" % ( 
+                machine.name_centered(), ''.join( traceback.format_exception( *sys.exc_info() )))
+        assert machine.terminal, "%s: Should have reached terminal state" % machine.name_centered()
+        assert i == 9
+    assert origin.peek() == b'3'[0]
+    assert data.octets.singly.input.tostring() == b'abc12'
+
+def test_octets_deficient():
+    """Scans octets where the source is deficient"""
+    data			= cpppo.dotdict()
+    source			= cpppo.chainable( b'3' )
+
+    name			= "less"
+    with enip.octets( name, repeat=5, context=name, terminal=True ) as machine:
+        try:
+            for i,(m,s) in enumerate( machine.run( source=source, path='octets', data=data )):
+                log.info( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r", m.name_centered(),
+                          i, s, source.sent, source.peek(), data )
+            #assert False, "%s: Should have failed with exception asserting non-terminal" % ( 
+            #    machine.name_centered() )
+        except cpppo.NonTerminal:
+            pass
+        assert not machine.terminal, "%s: Should have not have reached terminal state" % machine.name_centered()
+        assert i == 3
+    assert source.peek() is None
+
+def test_octets_zero():
+    """Scans no octets (repeat=0)"""
+    data			= cpppo.dotdict()
+    source			= cpppo.chainable( b'abc123' )
+
+    name			= "none"
+    with enip.octets( name, repeat=0, context=name, terminal=True ) as machine:
+        i			= None
+        try:
+            for i,(m,s) in enumerate( machine.run( source=source, path='octets', data=data )):
+                log.info( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r", m.name_centered(),
+                          i, s, source.sent, source.peek(), data )
+        except:
+            assert False, "%s: Should not have failed with exception: %s" % ( 
+                machine.name_centered(), ''.join( traceback.format_exception( *sys.exc_info() )))
+        assert machine.terminal, "%s: Should have reached terminal state" % machine.name_centered()
+        assert i is None
+    assert source.peek() == b'a'[0]
 
 
 def test_octets_struct():
@@ -49,11 +122,12 @@ def test_octets_struct():
     source			= cpppo.chainable( b'abc123' )
     name			= 'ushort'
     format			= '<H'
-    with enip.octets_struct( name, format=format, context=name ) as machine:
+    with enip.octets_struct( name, format=format, context=name, terminal=True ) as machine:
         for i,(m,s) in enumerate( machine.run( source=source, path='octets_struct', data=data )):
             log.info( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r", m.name_centered(),
                       i, s, source.sent, source.peek(), data )
         assert i == 1
+        assert machine.terminal, "%s: Should have reached terminal state" % machine.name_centered()
     assert source.peek() == b'c'[0]
 
     assert data.octets_struct.ushort == 25185
@@ -236,9 +310,10 @@ unk_023_reply 		= bytes(bytearray([
     0x00, 0x00, 0xc3, 0x00, 0xc8, 0x40              #/* .....@ */
 ]))
    
-def test_enip():
+def test_enip_parser():
     for pkt,tst in [
-            ( rss_004_request,	{ 'enip.header.command': 0x0065 }),
+            ( b'', {} ),        # test that parsers handle/reject empty/EOF
+            ( rss_004_request,	{ 'enip.header.command': 0x0065, 'enip.header.length': 4 }),
             ( rss_004_reply,	{} ),
             ( gaa_008_request,	{} ),
             ( gaa_008_reply,	{} ),
@@ -253,17 +328,23 @@ def test_enip():
             ( unk_023_request,	{} ),
             ( unk_023_reply,	{} ), ]:
 
-        # Parse just the headers
+        # Parse just the headers, forcing non-transitions to fetch one symbol at a time.  Accepts an
+        # empty header at EOF.
         data			= cpppo.dotdict()
-        source			= cpppo.chainable( pkt )
-        name			= 'header'
-        with enip.enip_header( name, context=name ) as machine:
+        origin			= cpppo.chainable( pkt )
+        source			= cpppo.chainable()
+        with enip.enip_header( terminal=True ) as machine:
             for i,(m,s) in enumerate( machine.run( source=source, path='enip', data=data )):
-                log.info( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r", m.name_centered(),
-                          i, s, source.sent, source.peek(), data )
-            assert i == 30
-        log.warning( "Data: %r", data )
-        assert source.peek() is not None
+                log.info( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r",
+                          machine.name_centered(), i, s, source.sent, source.peek(), data )
+                if s is None:
+                    if source.peek() is None and origin.peek() is not None:
+                        log.info( "%s chain: %r", machine.name_centered(), [origin.peek()] )
+                        source.chain( [next( origin )] )
+
+            assert i == ( 54 if len( pkt ) else 1 )
+        if pkt:
+            assert origin.peek() is not None
    
         for k,v in tst.items():
             assert data[k] == v
@@ -272,38 +353,49 @@ def test_enip():
         # Parse the headers and encapsulated command data
         data			= cpppo.dotdict()
         source			= cpppo.chainable( pkt )
-        with enip.enip_machine() as machine:
+        with enip.enip_machine( terminal=True ) as machine:
             for i,(m,s) in enumerate( machine.run( source=source, data=data )):
-                log.info( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r", m.name_centered(),
-                          i, s, source.sent, source.peek(), data )
-
-        log.warning( "Data: %r", data )
+                log.info( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r",
+                          machine.name_centered(), i, s, source.sent, source.peek(), data )
+                if s is None and source.peek() is None:
+                    break # simulate detection of EOF
+            if not pkt:
+                assert i == 2		# enip_machine / enip_header reports state
+            else:
+                pass 			# varies...
         assert source.peek() is None
    
         for k,v in tst.items():
             assert data[k] == v
 
         # Ensure we can reproduce the original packet from the parsed data
-        assert enip.enip_encode( data ) == pkt
+        if data:
+            assert enip.enip_encode( data ) == pkt, "Invalid data: %r" % data
 
 
 # Run the bench-test.  Sends some request from a bunch of clients to a server, testing responses
 
-def enip_process_canned( addr, request ):
-    log.debug( "Request: %s", enip.parser.enip_format( request ))
-    if request.enip.header.command == 0x0065:
-        data			= cpppo.dotdict()
+def enip_process_canned( addr, source, data ):
+    """Process a request, recognizing a subset of the known requests, and returning a "canned"
+    response."""
+    if not data:
+        log.normal( "EtherNet/IP Request Empty; end of session" )
+        return
+
+    log.detail( "EtherNet/IP Request: %s", enip.parser.enip_format( data.request ))
+    if data.request.enip.header.command == 0x0065:
         source			= cpppo.chainable( rss_004_reply )
-        with enip.enip_machine() as machine: # default data context is 'enip'
-            for m,s in machine.run( source=source, data=data ):
+        with enip.enip_machine() as machine: # Load data.response.enip
+            for m,s in machine.run( path='response', source=source, data=data ):
                 pass
             if s:
                 log.debug( "Response: %s", enip.parser.enip_format( data ))
-                return data
-    raise Exception( "Unrecognized request" )
+        return
 
-client_count			= 1 #5
-charrange, chardelay		= (2,10), .01	# split/delay outgoing msgs
+    raise Exception( "Unrecognized request: %s" % ( enip.parser.enip_format( data )))
+
+client_count, client_max	= 15, 10
+charrange, chardelay		= (2,10), .1	# split/delay outgoing msgs
 draindelay			= 5.   		# long in case server slow, but immediately upon EOF
 
 enip_cli_kwds			= {
@@ -322,60 +414,63 @@ enip_svr_kwds 			= {
 
 def enip_cli( number, tests=None ):
     """Sends a series of test messages, testing response for ) """
-    log.info( "%3d client connecting... PID [%5d]", number, os.getpid() )
+    log.info( "EhterNet/IP Client %3d connecting... PID [%5d]", number, os.getpid() )
     conn			= socket.socket( socket.AF_INET, socket.SOCK_STREAM )
     conn.connect( enip.address )
-    log.info( "%3d client connected", number )
+    log.normal( "EtherNet/IP Client %3d connected to server at %s", number, enip.address )
         
     successes			= 0
     try:
         for req,tst in tests:
-            # Parse request
             data		= cpppo.dotdict()
-            sta			= None
-            with enip.enip_machine() as machine:
-                for mch,sta in machine.run( source=cpppo.peekable( req ), path='request', data=data ):
-                    pass
-            log.info( "%3d test %32s ==> %s", number, reprlib.repr( req ), enip.parser.enip_format( data ))
-            assert sta and sta.terminal, "%3d client failed to decode EtherNet/IP request: %r" % req
 
+            log.normal( "EtherNet/IP Client %3d req.: %5d: %s ", number, len( req ), repr( req ))
             # Await response, sending request in chunks using inter-block chardelay if output
-            # remains, otherwise await response using draindelay.  Fail if EOF from server.
+            # remains, otherwise await response using draindelay.  Stop if EOF from server.
+            eof			= False
             rpy			= b''
-            while req:
+            while len( req ) and not eof:
                 out		= min( len( req ), random.randrange( *charrange ))
+                log.detail( "EtherNet/IP Client %3d send: %5d/%5d: %s", number, out, len( req ),
+                            repr( req[:out] ))
                 conn.send( req[:out] )
                 req		= req[out:]
 
-                rcvd		= network.recv( conn, timeout=chardelay if req else draindelay )
+                rcvd		= network.recv( conn, timeout=chardelay if len( req ) else draindelay )
                 if rcvd is not None:
-                    log.info( "%3d recv: %5d: %s", number, len( rcvd ), reprlib.repr( rcvd ) if rcvd else "EOF" )
-                    if not rcvd:
-                        raise Exception( "Server closed connection" )
-                    rpy        += rcvd
+                    log.detail( "EtherNet/IP Client %3d recv: %5d: %s", number, len( rcvd ),
+                                repr( rcvd ) if len( rcvd ) else "EOF" )
+                    eof		= not len( rcvd )
+                    rpy	       += rcvd
 
+            log.normal( "EtherNet/IP Client %3d rpy.: %5d: %s ", number, len( rpy ), repr( rpy ))
             # Parse response
             sta			= None
-            with enip.enip_machine() as machine:
+            with enip.enip_machine( terminal=True ) as machine:
                 for mch,sta in machine.run( source=cpppo.peekable( rpy ), path='response', data=data ):
                     pass
-            log.info( "%3d test %32s <== %s", number, reprlib.repr( rpy ), enip.parser.enip_format( data ))
-            assert sta and sta.terminal, "%3d client failed to decode EtherNet/IP response: %r\ndata: %s" % (
-                rpy, enip.parser.enip_format( data ))
+                assert machine.terminal, \
+                    "%3d client failed to decode EtherNet/IP response: %r\ndata: %s" % (
+                        number, rpy, enip.parser.enip_format( data ))
 
-            # Successfully sent request and parsed response; can continue; test req/rpy parsed data payload.
+            log.normal( "EtherNet/IP Client %3d rpy. data: %s", number, enip.parser.enip_format( data ))
+
+            # Successfully sent request and parsed response; can continue; test req/rpy parsed data
             errors		= 0
             for k,v in tst.items():
                 if data[k] != v:
-                    log.warning( "%3d test failed: %s != %s; %s", number, data[k], v, enip.parser.enip_format( data ))
+                    log.warning( "EtherNet/IP Client %3d test failed: %s != %s; %s", number, data[k], v,
+                                 enip.parser.enip_format( data ))
                     errors     += 1
             if not errors:
                 successes      += 1
+            if eof:
+                break
 
     except KeyboardInterrupt as exc:
-        log.warning( "%3d client terminated: %r", number, exc )
+        log.warning( "EtherNet/IP Client %3d terminated: %r", number, exc )
     except Exception as exc:
-        log.warning( "%3d client failed: %r\n%s", number, exc, traceback.format_exc() )
+        log.warning( "EtherNet/IP Client %3d client failed: %r\n%s", number, exc, traceback.format_exc() )
     finally:
         pass
 
@@ -383,7 +478,7 @@ def enip_cli( number, tests=None ):
     if failed:
         log.warning( "%3d client failed: %d/%d tests succeeded", number, successes, len( tests ))
     
-    log.info( "%3d client exited", number )
+    log.normal( "%3d client exited", number )
     return failed
 
 def test_enip_bench():
@@ -391,7 +486,8 @@ def test_enip_bench():
                                                               server_kwds=enip_svr_kwds,
                                                               client_func=enip_cli,
                                                               client_kwds=enip_cli_kwds,
-                                                              client_count=client_count )
+                                                              client_count=client_count,
+                                                                client_max=client_max)
     if failed:
         log.warning( "Failure" )
     else:

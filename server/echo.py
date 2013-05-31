@@ -58,18 +58,19 @@ log				= logging.getLogger( "echo.srv" )
 
 class echo_regex( cpppo.regex_bytes_input ):
     """Collects a line of bytes data out of our regex dfa's state_input data at path.context.input, and
-    into data artifact at path.context (default is 'echo')."""
-    def __init__( self, name=None, initial='.*\n', context="echo", **kwds ):
-        super( echo_regex, self ).__init__( name=name, initial=initial, context=context, **kwds )
+    into data artifact at path.context (default is 'echo').  We want to terminate immediately on
+    detection of end-of-line, so specify non-greedy."""
+    def __init__( self, name=None, initial='.*\n', context="echo", greedy=False, **kwds ):
+        super( echo_regex, self ).__init__(
+            name=name, initial=initial, context=context, greedy=greedy, **kwds )
 
 
 def echo_machine( name=None ):
-    """Accept a line of input bytes matching the given regular expression, and then
-    loop.  Sub-machine terminates at earliest match (non-greedy), causing
-    echo.transition to trigger .process (which resets our sub-machine to initial
-    state), and then we move to the next state (loops), allowing us to
-    immediately run."""
-    machine			= echo_regex( name=name )
+    """Accept a full line of input bytes matching the given regular expression.
+    Sub-machine terminates at earliest match (non-greedy), causing echo.transition to trigger
+    .process (which resets our sub-machine to initial state), and then we move to the next state
+    (loops), allowing us to immediately run."""
+    machine			= echo_regex( name=name, terminal=True )
     return machine
 
 
@@ -77,33 +78,31 @@ def echo_server( conn, addr ):
     """Serve one echo client 'til EOF; then close the socket"""
     source			= cpppo.chainable()
     with echo_machine( "echo_%s" % addr[1] ) as echo_line:
-        data			= cpppo.dotdict()
-        sequence		= echo_line.run( source=source, data=data, greedy=False )
-        while True:
-            msg			= network.recv( conn, timeout=None ) # blocking
-            log.info( "%s recv: %5d: %s", misc.centeraxis( echo_line, 25, clip=True ), 
-                      len( msg ), reprlib.repr( msg ) if msg else "EOF" )
-            if not msg: # None or empty
-                break
-            source.chain( msg )
-        
-            # See if a line has been recognized, stopping at terminal state
-            for mch, sta in sequence:
-                if sta is None:
-                    break # No more transitions available on source input, but not terminal
-            if sta:
-                # Terminal state.  Echo, and reset to recognize the next new line of input
-                log.info( "%s: data: %r", misc.centeraxis( echo_line, 25, clip=True ), data )
+        eof			= False
+        while not eof:
+            data		= cpppo.dotdict()
+            # See if a line has been recognized, stopping at terminal state.  If this machine
+            # is ended early due to an EOF, it should still terminate in a terminal state
+            for mch, sta in echo_line.run( source=source, data=data ):
+                if sta is not None:
+                    continue
+                # Non-transition; check for input, blocking if non-terminal and none left.  On
+                # EOF, terminate early; this will raise a GeneratorExit.
+                timeout		= 0 if echo_line.terminal or source.peek() is not None else None
+                msg		= network.recv( conn, timeout=timeout )
+                if msg is not None:
+                    eof		= not len( msg )
+                    log.info( "%s recv: %5d: %s", echo_line.name_centered(), len( msg ),
+                              "EOF" if eof else reprlib.repr( msg ))
+                    source.chain( msg )
+                    if eof:
+                        break
+            # Terminal state (or EOF).
+            log.detail( "%s: byte %5d: data: %r", echo_line.name_centered(), source.sent, data )
+            if echo_line.terminal:
                 conn.send( data.echo )
-                echo_line.reset()
-                data		= cpppo.dotdict()
-                sequence	= echo_line.run( source=source, data=data, greedy=False )
-            else:
-                # Out of input, no complete line of echo input acquired.  Wait for more.
-                log.debug( "%s: end of input", misc.centeraxis( echo_line, 25, clip=True ))
         
-        log.info( "%s done: %s" % ( misc.centeraxis( echo_line, 25, clip=True ), reprlib.repr( data )))
-
+        log.info( "%s done", echo_line.name_centered() )
 
 def main():
     return network.server_main( address=address, target=echo_server )

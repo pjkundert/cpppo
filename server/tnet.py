@@ -90,25 +90,6 @@ if __name__ == "__main__":
 
 log				= logging.getLogger( "tnet.srv" )
 
-class integer_parser( cpppo.regex_bytes ):
-    """Collects a string of digits, and converts them to an integer in the data
-    artifact at path.context 'value' by default."""
-    def __init__( self, initial="\d+", context="value", **kwds ):
-        super( integer_parser, self ).__init__( initial=initial, context=context, **kwds )
-        
-    def terminate( self, exception, machine=None, path=None, data=None ):
-        """Once our machine has accepted a sequence of digits (into data context 'value.input'), convert to
-        an integer and store in 'value'"""
-        if exception is not None:
-            log.warning( "%s: Not parsing integer due to: %r", self.name_centered(), exception )
-            return
-
-        ours			= self.context( path )
-        subs			= self.initial.context( ours )
-        log.info( "%s: recv: data[%s] = int( data[%s]: %r)", self.name_centered(),
-                  ours, subs, data[subs] if subs in data else data)
-        data[ours]		= int( data[subs].tostring() )
-
 bytes_conf 			= {
     "alphabet":	cpppo.type_bytes_iter,
     "typecode":	cpppo.type_bytes_array_symbol,
@@ -162,7 +143,10 @@ def tnet_machine( name="TNET", context="tnet" ):
         "typecode":	cpppo.type_bytes_array_symbol,
     }
 
-    SIZE			= integer_parser( name="SIZE", context="size" )
+    SIZE			= cpppo.integer_parser( name="SIZE", context="size",
+                                                        regex_alphabet=cpppo.type_bytes_iter,
+                                                        regex_encoder=cpppo.type_str_encoder,
+                                                        regex_typecode=cpppo.type_bytes_array_symbol )
     COLON			= cpppo.state_discard( name="COLON", **bytes_conf )
     DATA			= data_parser( name="DATA", context="data", repeat="..size" )
     TYPE			= tnet_parser( name="TYPE", context="type", terminal=True,
@@ -177,53 +161,41 @@ def tnet_machine( name="TNET", context="tnet" ):
 
     # Recognize a TNET string and then terminate, resetting automatically
     # recognize another
-    return cpppo.dfa( name=name, context=context, initial=SIZE )
+    return cpppo.dfa( name=name, context=context, initial=SIZE, terminal=True )
 
 
 def tnet_server( conn, addr ):
-  """Serve one tnet client 'til EOF; then close the socket"""
-  with tnet_machine( "tnet_%s" % addr[1] ) as tnet_mesg:
+    """Serve one tnet client 'til EOF; then close the socket"""
     source			= cpppo.chainable()
-    # Loop blocking for input, while we've consumed input from source since the last time.  If we
-    # hit this again without having used any input, we know we've hit a symbol unacceptable to the
-    # state machine; stop
-    done			= False
-    while not done:
-        data			= cpppo.dotdict()
-        for mch, sta in tnet_mesg.run( source=source, data=data ):
-            if sta is None:
-                # Our machine (or a sub-machine) has not be
-                if source.peek() is None:
-                    # Out of input, no complete line of echo input acquired.  Wait for more.
-                    log.debug( "%s: end of input", mch.name_centered() )
-                    msg		= network.recv( conn, timeout=None ) # blocking
-                    log.info( "%s: recv: %5d: %s", mch.name_centered(), 
-                              len( msg ), reprlib.repr( msg ) if msg else "EOF" ) 
-                    done 	= not msg   	# None or empty; EOF
-                    if done:
-                        break
+    with tnet_machine( "tnet_%s" % addr[1] ) as tnet_mesg:
+        eof			= False
+        while not eof:
+            data		= cpppo.dotdict()
+            # Loop blocking for input, while we've consumed input from source since the last time.
+            # If we hit this again without having used any input, we know we've hit a symbol
+            # unacceptable to the state machine; stop
+            for mch, sta in tnet_mesg.run( source=source, data=data ):
+                if sta is not None:
+                    continue
+                # Non-transition; check for input, blocking if non-terminal and none left.  On
+                # EOF, terminate early; this will raise a GeneratorExit.
+                timeout		= 0 if tnet_mesg.terminal or source.peek() is not None else None
+                msg		= network.recv( conn, timeout=timeout ) # blocking
+                if msg is not None:
+                    eof		= not len( msg )
+                    log.info( "%s: recv: %5d: %s", tnet_mesg.name_centered(), len( msg ),
+                              "EOF" if eof else reprlib.repr( msg )) 
                     source.chain( msg )
-                elif mch is tnet_machine:
-                    #  Unrecognized input by TNET machine (not some sub-machine).  Drop some, if we
-                    # are currently in-between TNET strings (a new one hasn't yet been started)
-                    assert tnet_mesg.current in (None, tnet_mesg.initial), \
-                        "Unrecognized symbol while parsing TNET string: %r" % source.peek()
-                    log.warning( "%s: dropping: %r", mch.name_centered(),
-                                 next( source ))
-            else:
-                log.info( "%s: byte %5d: data: %r", mch.name_centered(), source.sent, data )
+                    if eof:
+                        break
 
-        if sta is not None:
-            # Reached a terminal state.  Return TNET data payload as JSON, and
-            # carry on (tnet_mesg will have been reset)
-            log.info( "%s: byte %5d: data: %r", tnet_mesg.name_centered(), source.sent, data )
-            res			= json.dumps( data.tnet.type.input, indent=4, sort_keys=True )
-            log.info( "%s: byte %5d: result: %r", tnet_mesg.name_centered(), source.sent, res )
-            conn.send(( res + "\n\n" ).encode( "utf-8" ))
-
-    log.info( "%s done: %r", tnet_mesg.name_centered(), data )
-    if source.peek() is not None:
-        log.warning( "parsing failed at input symbol %d", source.sent )
+            # Terminal state (or EOF).
+            log.detail( "%s: byte %5d: data: %r", tnet_mesg.name_centered(), source.sent, data )
+            if tnet_mesg.terminal:
+                res			= json.dumps( data.tnet.type.input, indent=4, sort_keys=True )
+                conn.send(( res + "\n\n" ).encode( "utf-8" ))
+    
+        log.info( "%s done", tnet_mesg.name_centered() )
 
 
 def main():

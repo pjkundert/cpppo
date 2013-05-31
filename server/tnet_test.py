@@ -32,13 +32,17 @@ from   cpppo.server import tnet
 from   cpppo.server import tnetstrings # reference implementation
 
 logging.basicConfig( **cpppo.log_cfg )
+#logging.getLogger().setLevel( logging.DEBUG )
 log				= logging.getLogger( "tnet.cli")
 
 
 def test_tnet_machinery():
     # parsing integers
     path			= "machinery"
-    SIZE			= tnet.integer_parser( name="SIZE", context="size" )
+    SIZE			= cpppo.integer_parser( name="SIZE", context="size",
+                                                        regex_alphabet=cpppo.type_bytes_iter,
+                                                        regex_encoder=cpppo.type_str_encoder,
+                                                        regex_typecode=cpppo.type_bytes_array_symbol )
     data			= cpppo.dotdict()
     source			= cpppo.chainable( b'123:' )
     with SIZE:
@@ -92,14 +96,14 @@ def test_tnet():
                           misc.centeraxis( tnsmach, 25, clip=True ), source.sent, data )
                 successes      += 1
             else:
-                log.info( "%s byte %5d: failure: data: %r; Terminal, but TNET string input wasn't consumed",
+                log.info( "%s byte %5d: failure: data: %r; Terminal, but TNET string wasn't consumed",
                           misc.centeraxis( tnsmach, 25, clip=True ), source.sent, data )
 
     assert successes == len( testvec )
 
 
 
-client_count			= 1
+client_count			= 15
 charrange, chardelay		= (2,10), .01	# split/delay outgoing msgs
 draindelay			= 2.0  		# long in case server slow, but immediately upon EOF
 
@@ -119,12 +123,13 @@ def tnet_cli( number, tests=None ):
         
     rcvd			= ''
     try:
+        eof			= False
         for t in tests:
             msg			= tnetstrings.dump( t )
+            log.normal( "Tnet Client %3d send: %5d: %s (from data: %s)", number, len( msg ),
+                      reprlib.repr( msg ), reprlib.repr( t ))
 
-            log.info( "%3d test %32s == %5d: %s", number, reprlib.repr( t ), len( msg ), reprlib.repr( msg ))
-
-            while msg:
+            while len( msg ) and not eof:
                 out		= min( len( msg ), random.randrange( *charrange ))
                 conn.send( msg[:out] )
                 msg		= msg[out:]
@@ -134,12 +139,16 @@ def tnet_cli( number, tests=None ):
                 # If we drop out immediately and send a socket.shutdown, it'll
                 # sometimes deliver a reset to the server end of the socket,
                 # before delivering the last of the data.
-                rpy		= network.recv( conn, timeout=chardelay if msg else draindelay )
+                rpy		= network.recv( conn, timeout=chardelay if len( msg ) else draindelay )
                 if rpy is not None:
-                    log.info( "%3d recv: %5d: %s", number, len( rpy ), reprlib.repr( rpy ) if rpy else "EOF" )
-                    if not rpy:
-                        raise Exception( "Server closed connection" )
+                    eof		= not len( rpy )
+                    log.info( "Tnet Client %3d recv: %5d: %s", number, len( rpy ),
+                              "EOF" if eof else reprlib.repr( rpy ))
                     rcvd       += rpy.decode( "utf-8" )
+            if eof:
+                break
+
+        log.normal( "Tnet Client %3d done; %s", number, "due to EOF" if eof else "normal termination" )
 
     except KeyboardInterrupt as exc:
         log.warning( "%3d client terminated: %r", number, exc )
@@ -147,12 +156,11 @@ def tnet_cli( number, tests=None ):
         log.warning( "%3d client failed: %r\n%s", number, exc, traceback.format_exc() )
     finally:
         # One or more packets may be in flight; wait 'til we timeout/EOF
-        rpy			= True
-        while rpy: # neither None (timeout) nor b'' (EOF)
-            rpy			= network.drain( conn, timeout=draindelay )
-            if rpy is not None:
-                log.info( "%3d drain %5d: %s", number, len( rpy ), reprlib.repr( rpy ) if rpy else "EOF" )
-                rcvd   	       += rpy.decode( "utf-8" )
+        rpy			= network.drain( conn, timeout=draindelay )
+        log.info( "Tnet Client %3d drain %5d: %s", number, len( rpy ) if rpy is not None else 0,
+                  reprlib.repr( rpy ))
+        if rpy is not None:
+            rcvd   	       += rpy.decode( "utf-8" )
 
     # Count the number of successfully matched JSON decodes
     successes			= 0

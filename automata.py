@@ -42,11 +42,17 @@ from . import misc
 from . import greenery
 from .dotdict import *
 
+
+class NonTerminal( Exception ):
+    """A state machine has been forced to terminate in a non-terminal state"""
+    pass
+
+
 log				= logging.getLogger( __package__ )
 log_cfg				= {
-    "level":	logging.INFO,
+    "level":	logging.WARNING,
     "datefmt":	'%m-%d %H:%M',
-    "format":	'%(asctime)s.%(msecs).03d %(name)-8.8s %(levelname)-8.8s %(funcName)-10.10s %(message)s',
+    "format":	'%(asctime)s.%(msecs).03d %(thread)16x %(name)-8.8s %(levelname)-8.8s %(funcName)-10.10s %(message)s',
 }
 
 # Python2/3 compatibility types, for ascii/unicode str type
@@ -70,11 +76,7 @@ path_ext_input			= '.input'	# default destination input
 # will properly encode the Unicode str symbols to bytes, and then return an
 # iterable over the result.
 type_unicode_encoder		= lambda s: ( b for b in s.encode( 'utf-8' ))
-if sys.version_info.major < 3:
-    type_str_encoder		= None
-else:
-    type_str_encoder		= type_unicode_encoder
-
+type_str_encoder		= None if sys.version_info.major < 3 else type_unicode_encoder
 
 # 
 # peekable/peeking
@@ -119,6 +121,15 @@ class chainable( object ):
         if isinstance( iterable, chaining ):
             return iterable
         return chaining( iterable=iterable )
+
+
+class rememberable( object ):
+    """Checks if the supplied iterable is already remembering, and returns it.  If
+    not, creates a remembering iterator with it."""
+    def __new__( cls, iterable=None ):
+        if isinstance( iterable, remembering ):
+            return iterable
+        return remembering( iterable=iterable )
 
 
 class peeking( object ):
@@ -205,6 +216,68 @@ class chaining( peeking ):
         return result
 
 
+class remembering( chaining ):
+    """A chaining iterator that remembers its yielded symbols.  Can confirm whether items pushed back
+    are correct, as well as forget.  Access self.memory property to see previously delivered
+    symbols, and call self.forget() to clear."""
+    def __init__( self, *args, **kwds ):
+        super( remembering, self ).__init__( *args, **kwds )
+        self.memory		= []
+
+    def forget( self ):
+        self.memory		= []
+        
+    def __next__( self ):
+        result			= super( remembering, self ).__next__()
+        self.memory.append( result )
+        return result
+
+    def push( self, item ):
+        """If we're employing push, it'd better be consistent with our memory!"""
+        if self.memory:
+            assert self.memory.pop() == item
+        super( remembering, self ).push( item )
+        
+
+class decide( object ):
+    """A type of object that may be supplied as a state transition target, instead of a state.  It must
+    be able to represent itself as a str, and it must have a .state property, and it must be
+    callable with machine,source,path,data arguments and return a state or None.
+
+    Decides on a target state if the predicate on machine, path, source and data context is True."""
+    def __init__( self, name, state,  predicate=lambda machine,source,path,data: False ):
+        self.name		= name
+        self.state		= state
+        self.predicate		= predicate
+
+    def __str__( self ):
+        return "%s?%s" % ( self.name, self.state )
+
+    def __repr__( self ):
+        return '<%s>' % ( self )
+
+    def __call__( self, machine=None, source=None, path=None, data=None ):
+        truth			= self.predicate( machine=machine, source=source, path=path, data=data )
+        target			= self.state if truth else None
+        log.info( "%s %-14.14s -> %10s w/ data: %r", machine.name_centered(), self, target, data )
+        return target
+
+
+class decide_data( decide ):
+    """If <data>.get(<key>,<default>) == <value>, return <state>, otherwise None.  This example ignores
+    predicate."""
+    def __init__( self, name, state, key, value, default=None ):
+        self.key		= key
+        self.value		= value
+        self.default		= default
+        super( decide, self ).__init__( name=name, state=state )
+
+    def __call__( self, machine, source, path, data ):
+        if self.value == data.get( self.key, self.default ):
+            return self.state
+        return None
+
+
 class state( dict ):
     """The foundation state class.
 
@@ -234,8 +307,13 @@ class state( dict ):
     the source symbol generator, discard the sub-machines and supply the remaining input to a new
     one, ...)
 
+    If no transition can be determined based on the next input symbol, more complex transitions can
+    be configured, which may access the entire machine state, as well as the input symbol 'source',
+    the 'data' artifact '
+
     """
-    def __init__( self, name, terminal=False, alphabet=None, context=None, extension=None, encoder=None ):
+    def __init__( self, name, terminal=False, alphabet=None, context=None, extension=None, encoder=None,
+                  greedy=True ):
         if isinstance( name, state ):
             # Initialization from another state; copy transition dict/recognizers
             other		= name
@@ -247,6 +325,7 @@ class state( dict ):
             self._context	= other._context   if context   is None else context
             self._extension	= other._extension if extension is None else extension
             self.encoder	= other.encoder    if encoder   is None else encoder
+            self.greedy		= other.greedy     if greedy    is None else greedy
         else:
             super( state, self ).__init__()
             self.recognizers	= []
@@ -256,11 +335,21 @@ class state( dict ):
             self._context	= context	# Context added to path with '.'
             self._extension	= extension	#   plus extension, to place output in data
             self.encoder	= encoder
+            self.greedy		= greedy
 
     # Any state evaluates to True (to easily distinguish from None), even if its dict is empty.
     def __bool__( self ):
         return True
     __nonzero__			= __bool__
+
+    # Make us hashable for us in sets, etc. (and don't define equality in terms of content), even
+    # though we're derived from a dict.
+    def __hash__( self ):
+        return id( self )
+    def __eq__( self, other ):
+        return self is other
+    def __ne__( self, other ):
+        return self is not other
 
     # Support with ..., to enforce mutual exclusion if necessary; the base state retains no
     # information specific to the operation of any one state machine, so may be in simultaneous use.
@@ -281,10 +370,11 @@ class state( dict ):
         """String representation."""
         return self._name
 
-    def name_centered( self, width=25 ):
-        """Lazy string representation, centered around last '.', in given width.  Executes formatting only
-        when result is accessed via its __str__ method."""
-        return misc.lazystr( lambda: misc.centeraxis( self, width, clip=True ))
+    def name_centered( self, width=40 ):
+        """Lazy string representation, centered around last '.', in given width.  Executes formatting
+        only when result is accessed via its __str__ method."""
+        return misc.lazystr( lambda: misc.centeraxis( self, width, clip=True,
+                                                      left_right=lambda w: (w*4//4, w - w*3//4) ))
 
     def __str__( self ):
         return ( '(' + ( '(' if self.terminal else ' ' ) 
@@ -300,7 +390,6 @@ class state( dict ):
         procedures for determining this, eg. they may reflect the terminal condition of some other
         state machine."""
         return self._terminal
-
 
     # Data context
     @property
@@ -332,34 +421,47 @@ class state( dict ):
     # encode(inp)	-- Transform the input symbol according to the supplied encoder
     # 
     def encode( self, inp ):
-        """All input symbols are encoded using the supplied encoder; the resultant encoded symbol or tuple
-        of symbols are used to establish and find transitions."""
+        """All input symbols are encoded using the supplied encoder; the resultant encoded symbol or
+        tuple of symbols are used to establish and find transitions."""
         if inp is None or self.encoder is None:
             return inp
         enc			= tuple( self.encoder( inp ))
         return enc if len( enc ) > 1 else enc[0]
 
     def __setitem__( self, inp, target ):
-        """After ensuring that target is a state, remember a recognizer predicate, or the simple
-        input-->state mapping."""
-        if not isinstance( target, state ) and target is not None:
-            raise KeyError( "Target must be a state (or None)" )
+        """After ensuring that target is a state or a callable (that should return a state), remember a
+        recognizer predicate, or the simple input-->state mapping."""
+        if not isinstance( target, state ) and target is not None and not hasattr( target, '__call__' ):
+            raise KeyError( "Target must be a state, None, or a state decision function" )
         if hasattr( inp, '__call__' ):
             log.debug( "%s   [%-10.10r] == %-10s (via %r)", self.name_centered(),
                        "*", target, inp )
             self.recognizers.append( (inp,target) )
         else:
+            # We can allow zero or more "decide" callables followed by zero or one state.
             enc			= self.encode( inp )
+            present		= super( state, self ).setdefault( enc, target )
+            if present is not target:
+                # Something there already; ensure it's a list, and add new target
+                if type( present ) is not list:
+                    present	= [ present ]
+                present.append( target )
+                super( state, self ).__setitem__( enc, present )
+            if type( present ) is list:
+                # and make sure we only allow: <decide>, ... <decide>, [<state>]
+                assert all( not isinstance( v, state ) for v in present[:-1] )
             log.debug( "%s   [%-10.10r] == %-10s%s", self.name_centered(),
-                       inp, target, ( "" if enc is inp else (" (via encoding, on %s)" % repr( enc ))))
-            super( state, self ).__setitem__( enc, target )
+                       inp, present, ( "" if enc is inp else (" (via encoding, on %s)" % repr( enc ))))
 
     def __getitem__( self, inp ):
-        """Default is a dictionary lookup of the target state, for the encoded input from most specific to
-        least; the exact input, followed by predicates matching an input, followed by default True
-        input transition, and including finally None, for transitions on no input available or where
-        no more specific input test passes.  If no transition found, raise KeyError.  None is a
-        valid target."""
+        """Default is a dictionary lookup of the target state, for the encoded input from most specific
+        to least; the exact input, followed by predicates matching an input, followed by default
+        True input transition, and including finally None, for transitions on no input available or
+        where no more specific input test passes.  If no transition found, raise KeyError.  None is
+        a valid target.
+
+        This usually returns a <state>, but may return a list: <decide>, ..., <decide>[, <state>]
+        """
         enc			= self.encode( inp )
         try:
             target		= super( state, self ).__getitem__( enc )
@@ -383,7 +485,8 @@ class state( dict ):
                 pass
         try:
             target		= super( state, self ).__getitem__( None )
-            log.debug( "%s   [%-10.10r] == %-10s (via epsilon,  on %r)", self.name_centered(), inp, target, enc )
+            log.debug( "%s   [%-10.10r] == %-10s (via epsilon,  on %r)", self.name_centered(),
+                       inp, target, enc )
             return target
         except KeyError:
             log.debug( "%s   [%-10.10r] xx (no match for %r)", self.name_centered(), inp, enc )
@@ -398,10 +501,10 @@ class state( dict ):
 
     # Input symbol validation and processing
     def validate( self, inp ):
-        """Test input for validity to process.  The base implementation support Null (no-input) by accepting
-        None.  Otherwise, the symbol must be consistent with the supplied alphabet (if not None); a
-        type, a set/list/tuple of symbols, or a predicate.  This test should be a formality; the
-        state machine should only transition into the state on known valid symbols."""
+        """Test input for validity to process.  The base implementation support Null (no-input) by
+        accepting None.  Otherwise, the symbol must be consistent with the supplied alphabet (if not
+        None); a type, a set/list/tuple of symbols, or a predicate.  This test should be a
+        formality; the state machine should only transition into the state on known valid symbols."""
         result			= False
         if inp is None or self.alphabet is None:
             result		= True
@@ -422,30 +525,29 @@ class state( dict ):
         available; default implematation logs."""
         inp			= source.peek()
         valid			= self.validate( inp )
-        log.debug( "%s    %-10.10r: %s", ( machine or self ).name_centered(),
-                   inp, "accepted" if valid else "rejected" )
+        log.debug( "%s    %-10.10r(#%5d): %s", ( machine or self ).name_centered(),
+                   inp, source.sent, "accepted" if valid else "rejected" )
 
         return valid
 
     def process( self, source, machine=None, path=None, data=None ):
-        """Process the validated input.  The base implementation is a NULL (no input consumed) state, which
-        ignores the input.  This is itself useful for selecting one of N sub-machines based on an
-        input, without consuming it.  It is still a DFA, because there is one edge for each
+        """Process the validated input.  The base implementation is a NULL (no input consumed) state,
+        which ignores the input.  This is itself useful for selecting one of N sub-machines based on
+        an input, without consuming it.  It is still a DFA, because there is one edge for each
         input."""
         pass
 
 
     # State transition machinery
-    def run( self, source, machine=None, path=None, data=None, greedy=True ):
+    def run( self, source, machine=None, path=None, data=None ):
         """A generator which will attempt to process input in the present state; if not acceptable
         (self.accepts/self.validate returns False), yields non-transition event, and then tries
         again to process an acceptable input.
 
         Once processed successfully, computes and yields the outgoing state, or None if no matching
         input available (or matching input is designated unacceptable by explicit transition to
-        None), but current state is not terminal.  If greedy, will continue as long as input is
-        available; otherwise, the machine will stop as soon as a terminal state has been reached.
-
+        None), but current state is not terminal.  If greedy, will continue as long as transitions
+        are available; otherwise, the machine will stop as soon as a terminal state reached.
 
         Loops yielding non-transition (machine,None) until we've found an input that passes
         accepts/validate to process.  This will allow higher levels of the state machine to process
@@ -461,11 +563,13 @@ class state( dict ):
         (unrecognizable to this level, but usable by a higher level), finally proceeding when that
         symbol is processed by the higher level machine.
 
-        All callers must be able to recognize and deal with an infinite stream of (machine,None)
-        non-transition tuples yielded by a sub-machine presented with unrecognized symbols.  This is
-        the standard failure mode of a language grammar parsing failure when presented with a
-        non-matching sentence of input: input not recognized, no next state determined, no input
-        consumed.
+        We deal with preventing an infinite of non-transition (machine,None), either due to not
+        finding an acceptable input symbol, or not being able to find an acceptable output
+        transition, by seeing if we are about to yield the same state, with the exact same input
+        symbol and number of symbols sent (a no-progress loop).  In either case, if we're not a
+        terminal state, we raise a NonTerminal exception.  This is the standard failure mode of a
+        language grammar parsing failure when presented with a non-matching sentence of input: input
+        not recognized, no next state determined, no input consumed.
 
         Yeilds:
 
@@ -480,10 +584,13 @@ class state( dict ):
 
         Raises:
 
-          StopIteration -- if no more state transitions are available, but we're in terminal state.
+          StopIteration	-- if no more state transitions are available, but we're in terminal state.
 
-          TypeError -- if a non-iterable has been provided to source chainable iterator, to force
+          TypeError	-- if a non-iterable has been provided to source chainable iterator, to force
             termination of the state machinery.
+
+          NonTerminal	-- if sub-machine terminates in a non-terminal state
+
         """
         self.safe()
 
@@ -496,25 +603,38 @@ class state( dict ):
         # We have been initialized; after this point, we are guaranteed to invoke terminate.
         exception		= None
         try:
-            # We have entered this state; yield 0 or more (machine,None) non-transition events 'til we
-            # find an acceptable input.  Higher level machines may choose to consume inputs we cannot,
-            # and then either continue accepting output yielded from this generator, or discard it.
+            # We have entered this state; yield 0 or more (machine,None) non-transition events 'til
+            # we find an acceptable input.  Higher level machines may choose to consume inputs we
+            # cannot, and then either continue accepting output yielded from this generator, or
+            # discard it.  However, if we get multiple yields with no change in the next symbol or
+            # number of symbols sent, we must terminate (and be in a terminal state)
+            seen		= set()
             while not self.accepts( source=source, machine=machine, path=path, data=data ):
+                crumb		= (None,source.peek(),source.sent)
+                if crumb in seen:
+                    raise NonTerminal( "%s detected no progress before finding acceptable symbol" % (
+                            self ))
                 yield machine,None
+
             self.process( source=source, machine=machine, path=path, data=data )
 
-            for which,state in self.delegate( 
-                    source=source, machine=machine, path=path, data=data, greedy=greedy ):
+            # Run the sub-machine; it is assumed that it ensures that sub-machine is deterministic
+            # (doesn't enter no-progress loop).  
+            for which,state in self.delegate( source=source, machine=machine, path=path, data=data ):
                 yield which,state
 
-            for which,state in self.transition(
-                    source=source, machine=machine, path=path, data=data, greedy=greedy ):
-                yield which,state
         except GeneratorExit as exc:
             # GeneratorExit is not derived from Exception, to avoid normal except handlers.  If this
             # occurs, the generator has been discarded before completion; we won't be performing our
-            # own state transition.
-            exception		= exc
+            # own state transition.  This exception will be masked from self.terminate, if we are in
+            # a terminal state, to allow normal termination activities to complete just as if a
+            # StopIteration had occurred.
+            if not self.terminal:
+                log.debug( "%s -- early termination in non-terminal state", self.name_centered() )
+                exception	= exc
+            else:
+                log.info( "%s -- early termination in terminal state; masking GeneratorExit",
+                          self.name_centered() )
             raise
         except Exception as exc:
             # Trap other random Exceptions.  Any Exception will prevent us from processing our own
@@ -532,34 +652,85 @@ class state( dict ):
         finally:
             self.terminate( exception, machine=machine, path=path, data=data )
 
-    def transition( self, source, machine=None, path=None, data=None, greedy=False ):
-        """We have processed input in a state; now, see if we can find a transition we should yield.  We may
-        yield 1 or more (machine,None) non-transition events before an input is available to decide
-        on a transition.  Remember; a state may have an "epsilon" (no-input) transition; this will
-        be taken immediately, even on an input symbol of None (no input available)!  Also, it may
-        specify a transition to None (input symbol unacceptable) on any input; this is necessary to
-        be able to have sub-machines that reach a terminal state (say, accepting some phrase of the
-        grammar), but where the higher-level DFA knows that this phrase is invalid in the grammar.
+        seen			= set()
+        for which,state in self.transition( source=source, machine=machine, path=path, data=data ):
+            if which is machine:
+                crumb		= (state,source.peek(),source.sent)
+                if crumb in seen:
+                    break
+                seen.add( crumb )
+            yield which,state
 
-        Normally will cease producing transitions at a terminal state.  If greedy, we'll continue to
-        produce transitions until we reach a terminal state and do not recognize the next input
-        symbol."""
-        while not self.terminal or greedy:		# Loop 'til we find a transition state/None
-            inp			= source.peek()		# symbol/None; may raise a TypeError to force stoppage
+    def transition( self, source, machine=None, path=None, data=None ):
+        """We have processed input in a state; now, see if we can find a transition we should yield.
+        We may yield 1 or more (machine,None) non-transition events before an input is available to
+        decide on a transition.  Remember; a state may have an "epsilon" (no-input) transition; this
+        will be taken immediately, even on an input symbol of None (no input available)!  Also, it
+        may specify a transition to None (input symbol unacceptable) on any input; this is necessary
+        to be able to have sub-machines that reach a terminal state (say, accepting some phrase of
+        the grammar), but where the higher-level DFA knows that this phrase is invalid in the
+        grammar.
+
+        If not greedy, will cease producing transitions at a terminal state.  If greedy (the
+        default), we'll continue to produce transitions until we reach a terminal state and cannot
+        transition on the next input symbol.  
+
+
+        If a state isn't terminal and cannot transition, it may yield non-transition events forever.
+        This may seem a bit like OCD, but remember -- this is a base class, and derived classes may
+        define self.terminal in complex ways; we may "become" terminal later... Normally, you'd wrap
+        a machine made out of 1 or more raw state objects in a dfa (which detects no-progress
+        loops), instead of using it directly.
+
+        If a state is greedy and cannot transition, but transition might be possible given the right
+        symbol, it must yield non-transitions 'til there is an input symbol available.  Otherwise,
+        we cannot know for certain whether or not the state could have transitioned, had there been
+        input available.  If we do not wait, the state machine will have different behaviour,
+        depending on whether the next input symbol was immediately available, or if we had to yield
+        a non-transition to give the caller a chance to acquire input.
+
+        """
+        while not self.terminal or self.greedy:
+            inp			= source.peek()		# symbol/None; raise TypeError to force stoppage
             try:
-                target		= self.__getitem__( inp )
-                log.debug( "%s <self trans> to %s", self.name_centered(), target )
-                yield machine,target			# 0+ non-transitions, followed by a 1 transition
-                break					#   and done!
-            except KeyError:				# No transition available;
-                if self.terminal:			#   iff we are in a terminal state
-                    break   				#      then we're done!
-            log.info( "%s <non   trans>", self.name_centered() )
-            yield machine,None				# 0+ non-transitions...
+                target = choice	= self.__getitem__( inp )
+            except KeyError:
+                # No transition available for current symbol (or None, if no symbol available).  If
+                # there is *any* possibility that a transition might be possible if input *were*
+                # available, we need to yield a non-transition.
+                if inp is None and ( self.recognizers or not all( k is None for k in self.keys() )):
+                    log.info( "%s <non  trans>", self.name_centered() )
+                    yield machine,None			# 0+ non-transitions...
+                    continue
+                break					# No other transition possible; done
+
+            # Found the transition or choice list
+            if type( choice ) is list:
+                # Evaluate each target state/decide instance, 'til we find a state.  Could end up
+                # None, if all decide evaluate to None, and no default state.
+                log.debug( "%s <selfdecide> on %s", self.name_centered(), choice )
+                for potential in choice:
+                    if potential is None or isinstance( potential, state ):
+                        target	= potential
+                        break
+                    try:
+                        target	= potential( source=source, machine=machine, path=path, data=data )
+                    except Exception as exc:
+                        log.warning( "%s <selfdecide> on %s failed: %r", self.name_centered(),
+                                     potential, exc )
+                        raise
+                    log.debug( "%s <selfdecide> on %s == %s", self.name_centered(),
+                               potential, target )
+                    if target:
+                        break
+
+            log.debug( "%s <self trans> into %s", self.name_centered(), target )
+            yield machine,target			# 0+ non-transitions, followed by a 1 transition
+            break					#   and done!
 
         # StopIteration after yielding a transition, or if self is a terminal state
 
-    def delegate( self, source, machine=None, path=None, data=None, greedy=False ):
+    def delegate( self, source, machine=None, path=None, data=None ):
         """Base state class delegate generator does nothing."""
         raise StopIteration
         yield None 
@@ -593,25 +764,36 @@ class state( dict ):
                 if target:
                     for output in target.nodes( seen=seen ):
                         yield output
-            for target in self.values():
-                if target:
+            for value in self.values():
+                if type( value ) is not list:
+                    value	= [ value ]
+                for target in value:
+                    if target is None:			# None is a valid transition target
+                        continue
+                    if not isinstance( target, state ):	# Only state and *.state types allowed
+                        target	= target.state
                     for output in target.nodes( seen=seen ):
                         yield output
 
     def edges( self ):
-        """Generate (input,state) tuples for all outgoing edges."""
+        """Generate (input,state|decide) tuples for all outgoing edges."""
         for pred,target in self.recognizers:
             yield (pred,target)
         for inp,target in sorted( self.items(), key=lambda tup: misc.natural( tup[0] )):
-            yield (inp,target)
+            if type( target ) is list:
+                for t in target:
+                    yield (inp,t)
+            else:
+                yield (inp,target)
 
     # Support for producing state machinery from a regular expression specification
     @classmethod
     def from_regex( cls, machine, encoder=None, **kwds ):
-        """Create a graph of instances of 'cls' (a state class), as specified by the given textual regex or
-        greenery.fsm/lego machine.  All supplied keyword args are pass to the 'cls' constructor
-        (eg. context).  The initial state is however always simple no-input 'state' instance, as we
-        do not want to process the first symbol until it has been accepted by the regex.
+        """Create a graph of instances of 'cls' (a state class), as specified by the given textual
+        regex or greenery.fsm/lego machine.  All supplied keyword args are pass to the 'cls'
+        constructor (eg. context).  The initial state is however always simple no-input 'state'
+        instance, as we do not want to process the first symbol until it has been accepted by the
+        regex.
 
         The greenery.fsm alphabet is usually native Python str symbols; convert to symbols in the
         target state machine's alphabet when making the transitions.  For example, if we want to
@@ -661,7 +843,7 @@ class state( dict ):
 
             node		= cls( str( pre ), terminal=terminal, **kwds )
             log.info( "%s --> %r %-10s, %-10s, %-10s", node.name_centered(), tab.values(), 
-                      "initial" if initial else "", "terminal" if terminal else "", "dead" if dead else "" )
+                "initial" if initial else "", "terminal" if terminal else "", "dead" if dead else "" )
             if not dead:
                 states[pre]	= node    # must check for dead states in mapping below...
 
@@ -709,11 +891,13 @@ class state( dict ):
                             	= cls( name=str( pre ) + '_' + str( num ), terminal=False, **kwds )
                         states[lst][enc] \
                             	= states[add]
-                        log.debug( "%s <- %-10.10r --> %s (extra state)", states[lst].name_centered(), enc, states[add] )
+                        log.debug( "%s <- %-10.10r --> %s (extra state)", states[lst].name_centered(),
+                                   enc, states[add] )
                         if True in states[pre]:
                             states[add][True] \
                                 = states[pre][True]
-                            log.debug( "%s <- %-10.10r --> %s (dup wild)", states[add].name_centered(), True, states[pre][True] )
+                            log.debug( "%s <- %-10.10r --> %s (dup wild)", states[add].name_centered(),
+                                       True, states[pre][True] )
                         lst	= add
 
                     # If we added extra states, fall thru and link the last added one (as 'pre') up
@@ -752,8 +936,8 @@ class state_input( state ):
         return inp is not None and super( state_input, self ).validate( inp )
 
     def process( self, source, machine=None, path=None, data=None ):
-        """The raw data is saved to (default): <path>.<context>.input.  The target must be an object with a
-        .append() method; if it doesn't exist, an array.array of typecode will be created."""
+        """The raw data is saved to (default): <path>.<context>.input.  The target must be an object
+        with a .append() method; if it doesn't exist, an array.array of typecode will be created."""
         inp			= next( source )
         path			= self.context( path=path )
         if data is not None and path:
@@ -794,16 +978,18 @@ class state_struct( state ):
         self._input		= input_extension if input_extension is not None else path_ext_input
 
     def terminate( self, exception, machine=None, path=None, data=None ):
-        """Decode a value from path.context_, and store it to path.context.  Will fail if insufficient data
-        has been collected for struct unpack.  We'll try first to append it, and then just assign it
-        (creates, if necessary)."""
+        """Decode a value from path.context_, and store it to path.context.  Will fail if insufficient
+        data has been collected for struct unpack.  We'll try first to append it, and then just
+        assign it (creates, if necessary)."""
 
         # Only operate if we have completed without exception.
         super( state_struct, self ).terminate( exception=exception, machine=machine, path=path, data=data )
+        ours			= self.context( path=path )
         if exception is not None:
+            log.info( "%s: Not decoding struct from %r due to: %r", self.name_centered(), ours, 
+                      exception )
             return
 
-        ours			= self.context( path=path )
         siz			= self.calcsize
         beg			= self.offset + self.index * siz
         end			= beg + siz
@@ -811,12 +997,12 @@ class state_struct( state ):
         val		        = self._struct.unpack_from( buffer=buf )[0]
         try:
             data[ours].append( val )
-            log.info( "%s :  %-10.10s => %20s[%3d]=%r", ( machine or self ).name_centered(),
+            log.info( "%s :  %-10.10s => %20s[%3d]= %r", ( machine or self ).name_centered(),
                       "", ours, len(data[ours])-1, val )
         except (AttributeError, KeyError):
             # Target doesn't exist, or isn't a list/deque; just save value
             data[ours]		= val
-            log.info( "%s :  %-10.10s => %20s     =%r", ( machine or self ).name_centered(),
+            log.info( "%s :  %-10.10s => %20s     = %r", ( machine or self ).name_centered(),
                       "", ours, val )
 
 
@@ -825,9 +1011,10 @@ class dfa_base( object ):
     Automata (DFA) described by the provided the 'initial' state of a sub-machine (eg. a graph of
     state objects, potentially including DFAs).
 
-    Unlike a plain state, stores any current operational state (eg. its current state) in an
-    attribute, so that the same 'dfa' instance may NOT be simultaneously employed in multiple state
-    machines.  At least, it may not be in use simultaneously; uses a mutex threading.Lock to ensure.
+    Unlike a plain state, stores any current operational state (eg. its current state, repeat cycle,
+    etc.) in attributes, so that the same 'dfa' instance may NOT be simultaneously employed in
+    multiple state machines.  At least, it may not be in use simultaneously; uses a mutex
+    threading.Lock to ensure.
 
     All states entered by the sub-machine (and its sub-machines) are yielded.  If an input symbol is
     not accepted by the stack of state machines, a (machine,None) transition will be yielded by the
@@ -835,18 +1022,20 @@ class dfa_base( object ):
 
     After running the specified state machine to termination for the specified number of repeat
     cycles (default: 1), performs its own transition for its own parent state machine.  It remains
-    in whatever state it terminates, in case the state machine could continue to accept input.
+    in whatever state it terminates, in case the state machine could continue to accept input.  Is
+    only considered terminal when its sub-machine is terminal, and its final loop is complete.
 
     By default, a dfa considers itself to be a terminal state; if its state sub-machine accepts the
-    sentence, it accepts the sentence."""
+    sentence (and it has completed the requisite repeat cycles), it accepts the sentence.
+    """
     def __init__( self, name=None, initial=None, repeat=None, **kwds ):
-        assert 'terminal' not in kwds, \
-            "The dfa.terminal condition is deduced from the underlying state machine"
         super( dfa_base, self ).__init__( name or self.__class__.__name__, **kwds )
-        self.current		= None
+        self.current		= initial
         self.initial		= initial
-        assert isinstance( repeat, (basestring if sys.version_info.major < 3 else str, int, type(None)) )
+        assert isinstance( repeat, (basestring if sys.version_info.major < 3 else str, int, type(None)))
         self.repeat		= repeat
+        self.cycle		= 0
+        self.limit		= 1
         for sta in sorted( self.initial.nodes(), key=lambda s: misc.natural( s.name )):
             for inp,dst in sta.edges():
                 log.info( "%s <- %-10.10r --> %s", sta.name_centered(), inp, dst )
@@ -864,55 +1053,41 @@ class dfa_base( object ):
     def safe( self ):
         """Ensure that the instance is locked before mutating."""
         assert self.lock.locked() is True, \
-            "Attempted to enter a %s.%s w/o locking; must lock to ensure use by only one state machine" % (
+            "Attempted to enter a %s.%s w/o locking; lock to ensure use by only one state machine" % (
                 __package__, self.__class__.__name__ )
 
     @property
     def name( self ):
         """A dfa's name is its name and a representation of its state."""
-        return super( dfa_base, self ).name + '.' + ( str( self.current ) if self.current else "-" )
+        return super( dfa_base, self ).name + '.' + str( self.current )
 
     @property
     def terminal( self ):
-        """Reflects the terminal condition of our sub-machine."""
-        return self.current and self.current.terminal
+        """Reflects the terminal condition of this state, our sub-machine, and done all 'repeat' loops.
+        If we have a multi-state sub-machine (which may in turn contain further multi-state dfas),
+        we must not return terminal 'til A) we ourself are terminal, we are in the last loop, and
+        the current state of our multi-state machine is also marked terminal."""
+        return self._terminal and self.current.terminal and not self.loop()
 
     def reset( self ):
         """Done at the start of each loop."""
-        log.info( "%s -- reset", self.name_centered() )
-        self.current		= self.initial
+        if self.current is not self.initial:
+            log.info( "%s -- reset", self.name_centered() )
+            self.current	= self.initial
 
-    def loop( self, cycle, machine=None, path=None, data=None ):
-        """Determine whether or not to transition the sub-machine; cycle will the be the number of times
-        the sub-machine has been executed to termination thus far."""
-        if self.repeat:
-            # Must be an int, or address an int in our data artifact.  The repeat may resolve to 0,
-            # preventing even one loop.  If self.repeat was set, this determines the number of
-            # initial-->terminal loop cycles the dfa will execute.
-            limit		= self.repeat
-            if isinstance( limit, basestring if sys.version_info.major < 3 else str ):
-                limit		= data[self.context( path, limit )]
-            assert isinstance( limit, int ), \
-                "Supplied repeat=%r must be (or reference) an int, not a %r" % ( self.repeat, limit )
+    def loop( self ):
+        """Determine whether or not cycles remain before we allow termination of the sub-machine; cycle
+        will the be the number of times the sub-machine has been executed to termination thus far.
+        If None, default is 1 iteration."""
+        return self.cycle < self.limit
 
-            log.info( "%s -- loop %3d/%3d (from %r) %s", self.name_centered(),
-                      cycle, limit, self.repeat, "done" if cycle >= limit else "" )
-            if cycle >= limit:
-                return False
-            return True
-
-        # Not self.repeat limited; only execute the initial cycle.
-        if cycle == 0:
-            return True
-
-        return False
-
-    def delegate( self, source, machine=None, path=None, data=None, greedy=True ):
-        """We will generate state transitions from the sub-machine 'til a non-transition (machine,None) is
-        yielded (indicating that the input symbol is unacceptable); then (so long as the sub-machine
-        is in a terminal state, having accepted the input sentence thus far), we must see if we can
-        (as a 'state' ourself) transition on the input symbol; If so, the sub-machine is terminated
-        and our transition is yielded instead.  Otherwise, we send the non-transition on upwards.
+    def delegate( self, source, machine=None, path=None, data=None ):
+        """We will generate state transitions from the sub-machine 'til a non-transition (machine,None)
+        is yielded (indicating that the input symbol is unacceptable); then (so long as the
+        sub-machine is in a terminal state, having accepted the input sentence thus far), we must
+        see if we can (as a 'state' ourself) transition on the input symbol; If so, the sub-machine
+        is terminated and our transition is yielded instead.  Otherwise, we send the non-transition
+        on upwards.
 
         Runs the inner sub-machine 'til terminal, or if greedy 'til unrecognized symbol.  Each
         sub-machine state may be an individual state instance that will try to process input in the
@@ -921,57 +1096,112 @@ class dfa_base( object ):
         the caller (higher-level state machine) must be prepared to handle this -- if a (_,None) is
         returned, the caller must either change the conditions (eg. consume an input or chain more
         input to the source chainable iterator, or discard this generator)."""
-        cycle			= 0
-        while self.loop( cycle, machine=machine, path=path, data=data ):
-            cycle	       += 1
+        self.cycle		= 0
+        self.limit		= 1
+        limit_src		= None
+        if self.repeat is not None:
+            # Must be an None, int, address an int in our data artifact.  The repeat may resolve to
+            # 0/False, preventing even one loop.  If self.repeat was set, this determines the number
+            # of initial-->terminal loop cycles the dfa will execute.
+            self.limit = limit_src	= self.repeat
+            if isinstance( limit_src, basestring if sys.version_info.major < 3 else str ):
+                # If the limit path doesn't exist, default to 0.  This allows us to create composite
+                # machines where the first dfa collects the limit, and then make an epsilon/None
+                # transition to another dfa to collect the specified number of elements.  If the
+                # limit is missing, no elements will be collected.
+                limit_src	= self.context( path, limit_src )
+                self.limit	= data.get( limit_src, 0 )
+            assert isinstance( self.limit, int ), \
+                "Supplied repeat=%s (== %s) must be (or reference) an int, not a %r" % (
+                    self.repeat, limit_src, limit )
+
+        # Loop through all required cycles of the sub-machine, unless stasis (no progress) occurs.
+        # Unless a cycle of the sub-machine completes, with it reaching a terminal state, we will
+        # not advance cycle; hence, self.terminal will remain False on any early exit (eg. due to an
+        # early GeneratorExit by a client closing self.run's generator)
+        stasis			= False
+        while self.loop() and not stasis:
             self.reset()
+            self.cycle	       += 1 # On last cycle, sub-machine may be terminated at any terminal state
+            log.debug( "%s <sub  %s> %3d/%3d (from %s)", self.name_centered(), 
+                       "loop" if self.cycle < self.limit else "last" , self.cycle, self.limit, 
+                       repr( limit_src ) if limit_src is not None else "(default)" )
             yield self,self.current
+
+            seen		= set( [(self.current,source.peek(),source.sent)] )
             done		= False
             while not done:
                 with self.current:
                     submach	= self.current.run(
-                        source=source, machine=self, path=self.context( path ), data=data, greedy=greedy )
+                        source=source, machine=self, path=self.context( path ), data=data )
                     try:
-                        seen	= []
                         target	= None
                         transit	= False
                         for which,target in submach:
-                            if which is self or target is None:
+                            if which is self:
+                                # Watch for loops in our own state sub-machine (lower level dfa's
+                                # will watch out for their own sub-machines).  This is the "normal"
+                                # method of termination when the sub-machine ceases to be able to
+                                # transition, but has been configured as greedy or is non-terminal.
                                 # If we end up in the same (<state>,<symbol>,<#sent>); the same
-                                # machine/state, with the same pending input, and the same
-                                # number of net symbols sent from our input stream, we are done.
-                                # We'd better be in a terminal state!
-                                crumb	= (which,target,source.peek(),source.sent)
-                                done	= crumb in seen
-                                if done:
-                                    log.debug( "%s <sub  cycle>: done on %s", self.name_centered(), reprlib.repr( crumb ))
+                                # machine/state, with the same pending input, and the same number of
+                                # net symbols sent from our input stream, we are done.  We'd better
+                                # be in a terminal state!
+                                crumb	= (target,source.peek(),source.sent)
+                                stasis	= crumb in seen
+                                if stasis:
+                                    log.debug( "%s <sub stasis>: done on %s", self.name_centered(),
+                                               reprlib.repr( crumb ))
+                                    done = True
+                                    yield which,target
                                     break
-                                seen.append( crumb )
+                                seen.add( crumb )
 
                             # A transition or None, and we haven't seen this exact combination
                             # of state and input before.
                             if which is self:
-                                log.debug( "%s <sub  trans> to %s", self.name_centered(), target )
+                                log.debug( "%s <sub  trans> into %s", self.name_centered(), target )
                                 if target:
                                     self.current= target
                                     transit	= True
                             else:
-                                log.debug( "%s <deep trans> on %s", self.name_centered(), which.name_centered() )
+                                log.debug( "%s <deep trans> on %s", self.name_centered(),
+                                           which.name_centered() )
                             yield which,target
-                        # sub-machine is finished transitioning; if our own sub-machine didn't
-                        # transition on the input symbol, we're done
+                        # Our sub-machine is finished transitioning; if our own sub-machine didn't
+                        # transition on the (unrecognized) input symbol, we'd better be terminal.
+                        # We don't want to break out here, though -- only if we pass up the
+                        # non-transition (giving the caller a chance to fill in more data), and then
+                        # we see the same (<state>,<symbol>,<#sent>) again, we'll detect that above
+                        # and set done to True...  Wrong.  We must *only* run each current state
+                        # once, unless it was legitimately transitioned into again!  Otherwise, we'd
+                        # be re-running the state's process (probably consuming an input symbol),
+                        # just because it produced a non-transition.  If our sub-machine reaches a
+                        # state where it can't transit, we're done this loop!  Thus, each state must
+                        # make efforts to transit, if it can.  If it detects no input, and it has no
+                        # None transition, it *must* yield a non-transition (giving the caller an
+                        # opportunity to gain new input), and re-atttempt.
                         if not transit:
-                            log.debug( "%s <sub statis>", self.name_centered() )
-                            done = True
+                            log.debug( "%s <sub unrec.>", self.name_centered() )
+                            done		= True
                     finally:
                         # Ensure that we guarantee that the sub-machine is forced to terminate
                         # TODO: handle nested exceptions
                         log.debug( "%s <sub  close>", self.name_centered() )
                         submach.close()
-            log.debug( "%s <sub   done>", self.name_centered() )
 
-            # At the end of each sub-machine run, must be in a terminal state
-            assert self.terminal, "DFA state machine terminated in a non-terminal state"
+            # At the end of each sub-machine loop, it must be in a terminal state; fails if stasis
+            # forced premature termination before all cycles complete, or if done (symbol
+            # unrecognized) but sub-machine not in terminal state.  This is an intractable state,
+            # sort of similar to what might happen if a state machine produces a transition on a
+            # certain symbol, and the accept method passes it, but the state's process method fails
+            # to be able to digest it.  A transition into this dfa/state occurred, and some input
+            # symbols may be have been recognized, but here we are -- the sub-machine has *not*
+            # accepted the sentence in the grammar (it is non-terminal), and we cannot just let the
+            # dfa transition away to the next state.  We are forced to indicate failure to accept
+            # the sentence with an exception.
+            if not self.current.terminal:
+                raise NonTerminal( "%s sub-machine terminated in a non-terminal state" % ( self ))
 
         log.debug( "%s <sub   term>", self.name_centered() )
 
@@ -1013,6 +1243,38 @@ class regex( dfa ):
         super( regex, self ).__init__( name or repr( regexstr ), initial=initial, **kwds )
 
 
+class integer_parser( regex ):
+    """Collects a string of digits, and converts them to an integer in the data
+    artifact at path.context 'integer' by default."""
+    def __init__( self, name, initial=None, context="integer", **kwds ):
+        assert initial is None, "Cannot specify a sub-machine for %s.%s" % (
+            __package__, self.__class__.__name__ )
+        super( integer_parser, self ).__init__( name=name, initial="\d+", context=context, **kwds )
+        
+    def terminate( self, exception, machine=None, path=None, data=None ):
+        """Once our sub-machine has accepted a sequence of digits (into data '<context>.input'),
+        convert to an integer and store in 'value'.  This occurs before outgoing transitions occur.
+        Recognize several array typecodes and convert to appropriately convertible string
+        representation."""
+        ours			= self.context( path )
+        if exception is not None:
+            log.info( "%s: Not parsing integer from %r due to: %r", self.name_centered(), ours,
+                      exception )
+            return
+        subs			= self.initial.context( ours )
+        log.info( "%s: data[%s] = int( data[%s]: %r)", self.name_centered(),
+                  ours, subs, data[subs] if subs in data else data)
+        value			= data[subs]
+        if isinstance( value, array.array ):
+            if value.typecode == 'c':
+                value		= value.tostring()
+            elif value.typecode == 'B':
+                value		= value.tobytes()
+            elif value.typecode == 'u':
+                value		= value.tounicode()
+        data[ours]		= int( value )
+
+
 class regex_bytes( regex ):
     """An regex is described in str symbols; synonymous for bytes on Python2, but
     utf-8 on Python3 so encode them to bytes, and transform the resultant state
@@ -1036,9 +1298,9 @@ class regex_bytes( regex ):
 class regex_bytes_input( regex_bytes ):
     """Copy the collected data at path.sub-machine.context to our path.context"""
     def terminate( self, exception, machine=None, path=None, data=None ):
-        """Once our machine has accepted a sentence of the grammar and terminated without exception, we'll
-        move it to its target location.  It just copies the raw data collected by our state machine
-        (we'll use its context).
+        """Once our machine has accepted a sentence of the grammar and terminated without exception,
+        we'll move it to its target location.  It just copies the raw data collected by our state
+        machine (we'll use its context).
 
         Does not delete the original data, but it is quite easy to arrange things such that the
         original location ceases to exist; simply make the destination assign to an element in the
@@ -1047,10 +1309,14 @@ class regex_bytes_input( regex_bytes ):
             data.path.context = data.path.context.subcontext.input
 
         """
-        if exception is not None: # If exception in progress, do nothing.
-            return
-        super( regex_bytes_input, self ).terminate( exception=exception, machine=machine, path=path, data=data )
         ours			= self.context( path )
+        if exception is not None: # If exception in progress, do nothing.
+            log.info( "%s: Not copying bytes from %r due to: %r", self.name_centered(), ours,
+                      exception )
+            return
+
         subs			= self.initial.context( ours )
         log.info( "data[%s] = data[%s]: %r", ours, subs, data[subs] if subs in data else data )
         data[ours]		= data[subs]
+
+

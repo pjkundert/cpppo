@@ -12,9 +12,9 @@ import time
 import traceback
 
 try:
-    from reprlib import repr as repr
+    import reprlib
 except ImportError:
-    from repr import repr as repr
+    import repr as reprlib
 
 if __name__ == "__main__" and __package__ is None:
     # Allow relative imports when executing within package directory, for
@@ -25,10 +25,11 @@ import cpppo
 from   cpppo.server import *
 
 logging.basicConfig( **cpppo.log_cfg )
+#logging.getLogger().setLevel( logging.DEBUG )
 log				= logging.getLogger( "echo.cli")
 
 
-client_count			= 5
+client_count			= 15
 charrange, chardelay		= (2,10), .01	# split/delay outgoing msgs
 draindelay			= 5.   		# long in case server slow, but immediately upon EOF
 
@@ -38,55 +39,61 @@ echo_cli_kwds			= {
 
 
 def echo_cli( number, reps ):
-
-    log.info( "%3d client connecting... PID [%5d]", number, os.getpid() )
+    log.normal( "Echo Client %3d connecting... PID [%5d]", number, os.getpid() )
     conn			= socket.socket( socket.AF_INET, socket.SOCK_STREAM )
     conn.connect( echo.address )
-    log.info( "%3d client connected", number )
+    log.detail( "Echo Client %3d connected", number )
         
     sent			= b''
     rcvd			= b''
     try:
+        # Send messages and collect replies 'til done (or incoming EOF).  Then, shut down 
+        # outgoing half of socket to drain server and shut down server.
+        eof			= False
         for r in range( reps ):
             msg			= ("Client %3d, rep %d\r\n" % ( number, r )).encode()
-            log.info("%3d echo send: %5d: %s", number, len( msg ), repr( msg ))
+            log.detail("Echo Client %3d send: %5d: %s", number, len( msg ), reprlib.repr( msg ))
             sent	       += msg
-            while msg:
+
+            while len( msg ) and not eof:
                 out		= min( len( msg ), random.randrange( *charrange ))
                 conn.send( msg[:out] )
                 msg		= msg[out:]
 
-                # Await inter-block chardelay if output remains, otherwise await
-                # final response before dropping out to shutdown/drain/close.
-                # If we drop out immediately and send a socket.shutdown, it'll
-                # sometimes deliver a reset to the server end of the socket,
-                # before delivering the last of the data.
-                rpy		= network.recv( conn, timeout=chardelay if msg else draindelay )
+                # Await inter-block chardelay if output remains, otherwise await final response
+                # before dropping out to shutdown/drain/close.  If we drop out immediately and send
+                # a socket.shutdown, it'll sometimes deliver a reset to the server end of the
+                # socket, before delivering the last of the data.
+                rpy		= network.recv( conn, timeout=chardelay if len( msg ) else draindelay )
                 if rpy is not None:
-                    log.info("%3d echo recv: %5d: %s", number, len( rpy ), repr( rpy ) if rpy else "EOF" )
-                    if not rpy:
-                        raise Exception( "Server closed connection" )
+                    eof		= not len( rpy )
+                    log.detail( "Echo Client %3d recv: %5d: %s", number, len( rpy ),
+                              "EOF" if eof else reprlib.repr( rpy ))
                     rcvd       += rpy
+            if eof:
+                break
+
+        log.normal( "Echo Client %3d done; %s", number, "due to EOF" if eof else "normal termination" )
 
     except KeyboardInterrupt as exc:
-        log.warning( "%3d client terminated: %r", number, exc )
+        log.warning( "Echo Client %3d terminated: %r", number, exc )
     except Exception as exc:
-        log.warning( "%3d client failed: %r\n%s", number, exc, traceback.format_exc() )
+        log.warning( "Echo Client %3d failed: %r\n%s", number, exc, traceback.format_exc() )
     finally:
-        # One or more packets may be in flight; wait 'til we timeout/EOF
-        rpy			= True
-        while rpy: # neither None (timeout) nor b'' (EOF)
-            rpy			= network.drain( conn, timeout=draindelay )
-            if rpy is not None:
-                log.info("%3d drain %5d: %s", number, len( rpy ), repr( rpy ) if rpy else "EOF" )
-                rcvd   	       += rpy
+        # One or more packets may be in flight; wait 'til we timeout/EOF.  This shuts down conn.
+        rpy			= network.drain( conn, timeout=draindelay )
+        log.info( "Echo Client %3d drain %5d: %s", number, len( rpy ) if rpy is not None else 0,
+                  reprlib.repr( rpy ))
+        if rpy is not None:
+            rcvd   	       += rpy
 
     # Count the number of success/failures reported by the Echo client threads
     failed			= not ( rcvd == sent )
     if failed:
-        log.warning( "%3d client failed: %s != %s sent", number, repr( rcvd ), repr( sent ))
+        log.warning( "Echo Client %3d failed: %s != %s sent", number, reprlib.repr( rcvd ),
+                     reprlib.repr( sent ))
     
-    log.info( "%3d client exited", number )
+    log.info( "Echo Client %3d exited", number )
     return failed
 
 

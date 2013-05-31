@@ -66,7 +66,8 @@ def recv( conn, maxlen=1024 ):
         msg			= b''
     return msg
 
-@readable(timeout=0)
+
+@readable()
 def accept( conn ):
     return conn.accept()
 
@@ -114,14 +115,14 @@ class server_thread( threading.Thread ):
         log.info( "%s server TID [%5d/%5d] stopping on %r", self._name,
                   os.getpid(), self.ident, self.addr )
 
-    def join( self ):
+    def join( self, timeout=None ):
         """Caller is awaiting completion of this thread; try to shutdown (output) on the socket, which
         should (eventually) result in EOF on input and termination of the target service method."""
         try:
             self.conn.shutdown( socket.SHUT_WR )
         except:
             pass
-        result			= super( server_thread, self ).join()
+        result			= super( server_thread, self ).join( timeout=timeout )
         if not self.is_alive():
             log.info( "%s server TID [%5d/%5d] complete on %r", self._name,
                       os.getpid(), self.ident, self.addr )
@@ -166,34 +167,55 @@ def server_main( address, target, **kwds ):
     log.info( "%s server PID [%5d] shutting down", name, os.getpid() )
     return 0
 
+def function_name( f ):
+    if hasattr( f, '__module__' ):
+        return f.__module__ + '.' + f.__name__
+    elif hasattr( f, 'im_class' ):
+        return f.im_class.__module__ + '.' + f.im_class.__name__ + '.' + f.__name__
+    return f.__name__
 
-def bench( server_func, client_func, client_count, server_kwds=None, client_kwds=None, client_max=None ):
+
+def bench( server_func, client_func, client_count,
+           server_kwds=None, client_kwds=None, client_max=10, server_join_timeout=1.0 ):
     """Bench-test the server_func (with optional keyword args from server_kwds) as a process; will fail
     if one already bound to port.  Creates a thread pool (default 10) of client_func.  Each client
     is supplied a unique number argument, and the supplied client_kwds as keywords, and should
     return 0 on success, !0 on failure."""
 
-    from multiprocessing 	import Process
+    #from multiprocessing 	import Process
+    from threading import Thread as Process
+
     from multiprocessing.pool	import ThreadPool as Pool
+    #from multiprocessing.dummy	import Pool
+    #from multiprocessing	import Pool
     import time
     import json
 
-    log.info( "Server startup..." )
+    log.normal( "Server %r startup...", function_name( server_func ))
     server			= Process( target=server_func, kwargs=server_kwds or {} )
+    server.daemon		= True
     server.start()
     time.sleep( .25 )
 
     try:
-        log.info( "Client tests: %d", client_count )
-        pool			= Pool( processes=client_max or 10 )
-        asyncs			= ( pool.apply_async( client_func, args=(i,), kwds=client_kwds or {} )
-                                    for i in range( client_count ))
-        successes		= sum( not a.get() for a in asyncs )
+        log.normal( "Client %r tests begin, over %d clients (up to %d simultaneously)", 
+                    function_name( client_func ), client_count, client_max )
+        pool			= Pool( processes=client_max )
+        # Use list comprehension instead of generator, to force start of all asyncs!
+        asyncs			= [ pool.apply_async( client_func, args=(i,), kwds=client_kwds or {} )
+                                    for i in range( client_count )]
+        successes		= sum( not a.get()
+                                       for a in asyncs )
 
         failures		= client_count - successes
-        log.info( "Client tests done: %d/%d succeeded (%d failures)" % ( successes, client_count, failures ))
+        log.normal( "Client %r tests done: %d/%d succeeded (%d failures)", function_name( client_func ),
+                  successes, client_count, failures )
         return failures
-
     finally:
-        server.terminate()
-        server.join()
+        if hasattr( server, 'terminate' ):
+            server.terminate() # only if using multiprocessing.Process; Thread doesn't have
+        server.join( timeout=server_join_timeout )
+        if server.is_alive():
+            log.warning( "Server %r remains running...", function_name( server_func ))
+        else:
+            log.normal( "Server %r stopped.", function_name( server_func ))

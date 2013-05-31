@@ -80,6 +80,32 @@ else:
     math.isinf = isinf
 
 # 
+# logging.normal	-- regular program output 
+# logging.detail	-- detail in addition to normal output
+# 
+#     Augment logging with some new levels, between INFO and WARNING, used for normal/detail output.
+# 
+#      .WARNING 	       == 30
+logging.NORMAL			= logging.INFO+5
+logging.DETAIL			= logging.INFO+3
+#      .INFO    	       == 20
+
+logging.addLevelName( logging.NORMAL, 'NORMAL' )
+logging.addLevelName( logging.DETAIL, 'DETAIL' )
+
+def __normal( self, msg, *args, **kwargs ):
+    if self.isEnabledFor( logging.NORMAL ):
+        self._log( logging.NORMAL, msg, args, **kwargs )
+
+def __detail( self, msg, *args, **kwargs ):
+    if self.isEnabledFor( logging.DETAIL ):
+        self._log( logging.DETAIL, msg, args, **kwargs )
+
+logging.Logger.normal		= __normal
+logging.Logger.detail		= __detail
+
+
+# 
 # near          -- True iff the specified values are within 'significance' of each-other
 # 
 def near( a, b, significance = 1.0e-4 ):
@@ -251,7 +277,8 @@ def nan_last( number ):
 # 
 # centeraxis	-- center string in width around a (rightmost) axis character
 # 
-def centeraxis( string, width, axis='.', fillchar=' ', reverse=False, clip=False ):
+def centeraxis( string, width, axis='.', fillchar=' ', reverse=False, clip=False,
+                left_right=lambda w: (w // 2, w - w // 2) ):
     string		= str( string )
     pos			= string.find( axis ) if reverse else string.rfind( axis )
     if pos < 0:
@@ -262,7 +289,7 @@ def centeraxis( string, width, axis='.', fillchar=' ', reverse=False, clip=False
             # ... but it would normally be on the right
             pos, string	= 0,             fillchar + string
     left, rght		= string[0:pos], string[pos:] # axis char will be on rght
-    lwid, rwid		= width // 2, width - width // 2
+    lwid, rwid		= left_right( width )
     #print("left: %s (%d), rght: %s (%d)" % ( left, lwid, rght, rwid ))
     if len( left ) < lwid:
         left		= fillchar * ( lwid - len( left )) + left
