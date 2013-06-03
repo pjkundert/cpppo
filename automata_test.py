@@ -132,7 +132,7 @@ def test_readme():
 
     data			= cpppo.dotdict()
     source			= cpppo.peekable( str( 'abbbb,ab' ))
-    with cpppo.dfa( initial=E, terminal=True ) as abplus:
+    with cpppo.dfa( initial=E ) as abplus:
         for i,(m,s) in enumerate( abplus.run( source=source, path="ab+", data=data )):
             log.info( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r", m.name_centered(),
                       i, s, source.sent, source.peek(), data )
@@ -148,7 +148,7 @@ def test_readme():
     SEP[None]			= CSV
 
     source			= cpppo.peekable( str( 'abbbb, ab' ))
-    with cpppo.dfa( initial=CSV, terminal=True ) as r2:
+    with cpppo.dfa( initial=CSV ) as r2:
         for i,(m,s) in enumerate( r2.run( source=source, path="readme_CSV", data=data )):
             log.info( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r", m.name_centered(),
                       i, s, source.sent, source.peek(), data )
