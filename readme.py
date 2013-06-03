@@ -30,7 +30,7 @@ def main():
     BASIC		= cpppo.dfa( 'ab+', initial=E, context='basic' )
 
     # Composite state machine accepting ab+, ignoring ,[ ]* separators
-    ABP			= cpppo.dfa( 'ab+', initial=E )
+    ABP			= cpppo.dfa( 'ab+', initial=E, terminal=True )
     SEP			= cpppo.state_discard( 'SEP' )
     ABP[',']		= SEP
     SEP[' ']		= SEP
@@ -43,7 +43,7 @@ def main():
 
     data		= cpppo.dotdict()
     for machine in [ BASIC, CSV, REGEX ]:
-        path		= machine.context() + '_input' # default for state_input data
+        path		= machine.context() + '.input' # default for state_input data
         source		= cpppo.peekable( str( 'abbbb, ab' ))
         with machine:
             for i,(m,s) in enumerate( machine.run( source=source, data=data )):

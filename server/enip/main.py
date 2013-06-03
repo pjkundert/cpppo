@@ -62,72 +62,93 @@ if __name__ == "__main__":
     logging.basicConfig( **cpppo.log_cfg )
 
 log				= logging.getLogger( "enip.srv" )
-#log.setLevel( logging.DEBUG )
 
-def enip_server( conn, addr, enip_process=None ):
+def enip_srv( conn, addr, enip_process=None ):
     """Serve one Ethernet/IP client 'til EOF; then close the socket.  Parses headers 'til either the
     parser fails (the Client has submitted an un-parsable request), or the request handler fails.
-    Use the supplied enip_process function to process each parsed EtherNet/IP CIP frame."""
-    try:
-        source			= cpppo.chainable()
-        with enip_machine( "enip_%s" % addr[1] ) as enip_mesg:
-            done		= False
-            while not done:
+    Use the supplied enip_process function to process each parsed EtherNet/IP CIP frame.
+
+    If a partial EtherNet/IP header is parsed and an EOF is received, the enip_header parser will
+    raise an AssertionError, and we'll simply drop the connection.  If we receive a valid header and
+    request, the supplied enip_process function is expected to formulate an appropriate error
+    response, and we'll continue processing requests."""
+    name			= "enip_%s" % addr[1]
+    log.normal( "EtherNet/IP Server %s begins serving peer %s", name, addr )
+
+    source			= cpppo.rememberable()
+    with enip_machine( name=name ) as enip_mesg:
+        try:
+            assert enip_process is not None, \
+                "Must specify an EtherNet/IP processing function via 'enip_process'"
+            requests		= 0
+            received		= 0
+            eof			= False
+            while not eof:
                 data		= cpppo.dotdict()
-                beg		= source.sent
-                req		= b''
-                for mch,sta in enip_mesg.run( source=source, data=data ):
+                source.forget()
+                # If no/partial EtherNet/IP header received, parsing will fail with a NonTerminal
+                # Exception (dfa exits in non-terminal state).
+                for mch,sta in enip_mesg.run( path='request', source=source, data=data ):
                     if sta is None:
-                        # No more transitions available.  Wait for input.
-                        # Either None or b'' will lead to termination
-                        msg	= network.recv( conn, timeout=None ) # blocking
-                        done	= not msg # None or empty; EOF
-                        log.debug( "%s recv: %5d: %s", enip_mesg.name_centered(),
-                                  len( msg ) if msg else 0, reprlib.repr( msg ))
-                        source.chain( msg )
-                        req    += msg or b''
-                # State machine ended, either by reaching a terminal state or failing to advance.
-                # Stop if we reached EOF (done) cleanly without starting a new request (not req).
-                off		= source.sent - beg
-                where		= "at %d total bytes:\n%s\n%s (byte %d)" % (
-                    source.sent, repr(bytes(req)), '-' * (len(repr(bytes(req[:off])))-1) + '^', off )
-                if req:
-                    assert sta is not None, "Unrecognized request " + where 
-                elif done:
-                    continue
+                        # No more transitions available.  Wait for input.  Either None (should never
+                        # be seen due to non-blocking recv) or b'' will lead to termination.
+                        # Non-blocking, if we still have input available to process right now.
+                        msg	= network.recv( conn, timeout=None if source.peek() is None else 0 )
+                        if msg is not None:
+                            received += len( msg )
+                            eof	= not len( msg )
+                            log.detail( "%s recv: %5d: %s", enip_mesg.name_centered(),
+                                        len( msg ) if msg is not None else 0, reprlib.repr( msg ))
+                            if not eof:
+                                source.chain( msg )
+                        else:
+                            log.detail( "%s recv:   N/A", enip_mesg.name_centered() )
 
-                # Terminal state; EtherNet/IP request recognized; return response 
-                log.info( "%s EtherNet/IP request %s", enip_mesg.name_centered(), where )
+                # Terminal state and EtherNet/IP header recognized, or clean EOF (no partial
+                # message); process and return response
+                log.info( "%s req. data: %s", enip_mesg.name_centered(), enip_format( data ))
+                if data:
+                    requests   += 1
                 try:
-                    conn.send( enip_encode( enip_process( addr, data )))
+                    # TODO: indicate successful composition of response?  enip_process must be able
+                    # to handle no request, indicating the clean termination of the session.
+                    enip_process( addr, source=source, data=data )
+                    if 'response' in data:
+                        rpy	= enip_encode( data.response )
+                        log.detail( "%s send: %5d: %s", enip_mesg.name_centered(),
+                                    len( rpy ), reprlib.repr( rpy ))
+                        conn.send( rpy )
                 except:
-                    log.error( "Failed request %s\swith data: %s", where, enip_format( data ))
+                    log.error( "Failed request: %s", enip_format( data ))
                     raise
-                
-            log.info( "%s done: %s" % ( enip_mesg.name_centered(), reprlib.repr( data )))
-    except Exception as exc:
-        log.warning( "%s failed with exception %s", enip_mesg.name_centered(), exc )
-        raise
-    except:
-        # Unknown exception type; probably bad news
-        typ, exc, tbk	= sys.exc_info()
-        exception		= exc
-        log.warning( "%s failed with unknown exception %s\n%s", self.name_centered(),
-                     exc, ''.join( traceback.format_exception( typ, val, tbk )))
-        raise
-    finally:
-        # Not strictly necessary to close, but we'll 
-        log.info( "%s close", enip_mesg.name_centered() )
-        conn.close()
 
-def enip_process( addr, data ):
-    """Default EtherNet/IP CIP processing function."""
-    raise Exception("Unimplemented")
+            processed			= source.sent
+        except:
+            # Parsing failure.  We're done.  Suck out some remaining input to give us some context.
+            processed			= source.sent
+            memory			= bytes(bytearray(source.memory))
+            pos				= len( source.memory )
+            future			= bytes(bytearray( b for b in source ))
+            where			= "at %d total bytes:\n%s\n%s (byte %d)" % (
+                processed, repr(memory+future), '-' * (len(repr(memory))-1) + '^', pos )
+            log.warning( "%s failed with exception:\n%s\nEnterNet/IP parsing error %s", enip_mesg.name,
+                         ''.join( traceback.format_exception( *sys.exc_info() )), where )
+            raise
+        finally:
+            # Not strictly necessary to close (network.server_main will discard the socket, implicitly
+            # closing it), but we'll do it explicitly here in case the thread doesn't die for some
+            # other reason.
+            log.normal( "%s done; processed %3d request%s over %5d byte%s/%5d received", name,
+                        requests,  " " if requests == 1  else "s",
+                        processed, " " if processed == 1 else "s", received )
+            sys.stdout.flush()
+            conn.close()
+
 
 def main( **kwds ):
     # TODO: parse arguments to select the appropriate EtherNet/IP CIP processor, if one isn't
     # specified
-    return network.server_main( address=address, target=enip_server, **kwds )
+    return network.server_main( address=address, target=enip_srv, **kwds )
 
 if __name__ == "__main__":
     sys.exit( main() )
