@@ -99,6 +99,16 @@ class octets_struct( octets_base, cpppo.state_struct ):
                                                format=format, **kwds )
 
 
+class octets_discard( octets_base, cpppo.state_discard ):
+    """Scans 'repeat' octets and discards them
+
+    TODO: Doesn't work.  Seems to consume extra symbols, and/or doesn't transition out when it's not marked terminal...
+    """
+    def __init__( self, name,
+                  octets_state=cpppo.state_discard, **kwds ):
+        super( octets_discard, self ).__init__( name=name, octets_state=octets_state, **kwds )
+        
+
 class words_base( cpppo.dfa_base ):
     """Scan 'repeat' 2-byte words (default: 1), convenient when sizes are specified in words."""
     def __init__( self, name, initial=None,
@@ -289,9 +299,32 @@ class extpath( cpppo.dfa ):
         kwds.setdefault( 'context', 'path' )
         name 			= name or kwds.get( 'context' )
         
-        ptsz			= usint(	'path_size',	extension='_size' )
-        ptdt			= cpppo.words( 	'path_data',	extension='_data',
-                                                repeat="..path_size" )
+        psiz			= usint(	'path_size',	extension='_size' )
+        #ptdt			= cpppo.words( 	'path_data',	extension='_data',
+        #                                        repeat="..path_size" )
+
+        pseg			= cpppo.state(	'seg', 		context='seg', 	terminal=True )
+        pseg['\x28']	= e_8s	= octets( 	'type',		context='type')
+        e_8s[True]	= e_8v	= usint( 	'elem_8bit',	context='element')
+        e_8v[None]		= pseg
+
+        pseg['\x29']	= e16s	= octets_discard( 'type_fill', repeat=2 )
+        e16s[True]	= e16v	= uint(		'elem16bit',	context='element')
+        e16v[None]		= pseg
+
+        pseg['\x2a']	= e32s	= octets_discard( 'type_fill', repeat=2 )
+        e32s[True]	= e32v	= udint(	'elem32bit',	context='element')
+        e32v[None]		= pseg
+
+        pseg[None]		= pseg
+
+        # Parse all segments in a sub-dfa limited by the parsed path_size (in words; double)
+        psiz[None]	= pall	= cpppo.dfa(    'all',
+                                                initial=pseg,	terminal=True,
+            limit=lambda path=None, data=None, **kwds: data[path+'..path_size'] * 2 )
+
+        super( extpath, self ).__init__( name=name, initial=psiz, **kwds )
+
 
 
 class cpfdata( cpppo.dfa ):

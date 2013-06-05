@@ -51,6 +51,8 @@ class NonTerminal( Exception ):
 log				= logging.getLogger( __package__ )
 log_cfg				= {
     "level":	logging.WARNING,
+#    "level":	logging.DETAIL,
+#    "level":	logging.DEBUG,
     "datefmt":	'%m-%d %H:%M',
     "format":	'%(asctime)s.%(msecs).03d %(thread)16x %(name)-8.8s %(levelname)-8.8s %(funcName)-10.10s %(message)s',
 }
@@ -677,25 +679,26 @@ class state( dict ):
             self.terminate( exception, machine=machine, path=path, data=data )
 
         # If a symbol limit was provided, ensure we haven't exceeded it, and don't transition if
-        # we've met it.
-        if ending is None or source.sent < ending:
-            seen		= set()
-            for which,state in self.transition( source=source, machine=machine, path=path, data=data ):
-                if which is machine:
-                    crumb	= (state,source.peek(),source.sent)
-                    if crumb in seen:
-                        break
-                    seen.add( crumb )
-                yield which,state
+        # we've met it.  We can't decide that here, because we actually want to keep taking None
+        # transitions 'til we find a terminal state, even if we've run out of input symbols.  So,
+        # pass it down to transition.
+        seen			= set()
+        for which,state in self.transition(
+                source=source, machine=machine, path=path, data=data, ending=ending ):
+            crumb		= (state,source.peek(),source.sent)
+            if crumb in seen:
+                break
+            seen.add( crumb )
+            yield which,state
+
         if ending is not None:
+            # And finally, make certain we haven't blown our symbol limit, a catastrophic failure.
             assert source.sent <= ending, \
                 "%s exceeded limit on incoming symbols by %d" % (
                     self.name_cenetered(), source.sent - ending )
-            if source.sent == ending:
-                log.info( "%s -- stopped due to reaching symbol limit", self.name_centered() )
                 
 
-    def transition( self, source, machine=None, path=None, data=None ):
+    def transition( self, source, machine=None, path=None, data=None, ending=None ):
         """We have processed input in a state; now, see if we can find a transition we should yield.
         We may yield 1 or more (machine,None) non-transition events before an input is available to
         decide on a transition.  Remember; a state may have an "epsilon" (no-input) transition; this
@@ -723,16 +726,30 @@ class state( dict ):
         depending on whether the next input symbol was immediately available, or if we had to yield
         a non-transition to give the caller a chance to acquire input.
 
+        If we've become symbol limited, we must only follow None transitions; we don't want to
+        consider the next input symbol at all, because it could lead us down a "choice" path,
+        instead of allowing us to successfully stop at  a erminal state.
+
+        TODO: Consider whether we should look for and quit at the first available terminal state,
+        once we've become symbol limited (basically, stop being greedy as soon as we're limited).
+        This would prevent us from going into "idle" states (ones we want to enter whenever we're
+        stopped awaiting input.)  Is this valuable?  We might be able to distinguish between
+        "awaiting input" and "limited" in the state machine...
+
         """
+        limited			= ending is not None and source.sent >= ending
         while not self.terminal or self.greedy:
-            inp			= source.peek()		# symbol/None; raise TypeError to force stoppage
+            inp			= None if limited else source.peek()# raise TypeError to force stoppage
             try:
                 choice		= self.__getitem__( inp )
             except KeyError:
                 # No transition available for current symbol (or None, if no symbol available).  If
                 # there is *any* possibility that a transition might be possible if input *were*
                 # available, we need to yield a non-transition.
-                if inp is None and ( self.recognizers or not all( k is None for k in self.keys() )):
+                if limited:
+                    log.info( "%s -- stopped due to reaching symbol limit %d", self.name_centered(), ending )
+                elif inp is None and not limited and (
+                        self.recognizers or not all( k is None for k in self.keys() )):
                     log.info( "%s <non  trans>", self.name_centered() )
                     yield machine,None			# 0+ non-transitions...
                     continue
@@ -1331,7 +1348,7 @@ class regex_bytes( regex ):
                   regex_context=regex_context, **kwds )
 
 
-class regex_bytes_input( regex_bytes ):
+class regex_bytes_promote( regex_bytes ):
     """Copy the collected data at path.sub-machine.context to our path.context"""
     def terminate( self, exception, machine=None, path=None, data=None ):
         """Once our machine has accepted a sentence of the grammar and terminated without exception,

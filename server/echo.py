@@ -53,10 +53,12 @@ address				= ('0.0.0.0', 8007)
 
 if __name__ == "__main__":
     logging.basicConfig( **cpppo.log_cfg )
+    #logging.getLogger().setLevel( logging.DEBUG )
 
 log				= logging.getLogger( "echo.srv" )
 
-class echo_regex( cpppo.regex_bytes_input ):
+
+class echo_regex( cpppo.regex_bytes_promote ):
     """Collects a line of bytes data out of our regex dfa's state_input data at path.context.input, and
     into data artifact at path.context (default is 'echo').  We want to terminate immediately on
     detection of end-of-line, so specify non-greedy."""

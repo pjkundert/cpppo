@@ -408,6 +408,28 @@ def test_enip_machine():
         if data:
             assert enip.enip_encode( data ) == pkt, "Invalid data: %r" % data
 
+extpath_elems 		= bytes(bytearray([
+    0x01,						# words
+    0x28, 0x01,   					# 8-bit element segment == 1
+    0x28, 0x02,						# Decoy -- shouldn't be processed!
+]))
+
+extpath_tests			= [
+            ( extpath_elems,	{} ),
+]
+
+def test_enip_extpath():
+    for pkt,tst in extpath_tests:
+        data			= cpppo.dotdict()
+        source			= cpppo.chainable( pkt )
+        with enip.extpath( terminal=True ) as machine:
+            for i,(m,s) in enumerate( machine.run( source=source, path='request', data=data )):
+                log.detail( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r",
+                          machine.name_centered(), i, s, source.sent, source.peek(), data )
+
+
+	
+    
 def test_enip_cip():
     for pkt,tst in cip_tests:
         # Parse just the headers
@@ -475,7 +497,7 @@ def enip_process_canned( addr, source, data ):
 
     raise Exception( "Unrecognized request: %s" % ( enip.parser.enip_format( data )))
 
-client_count, client_max	= 15, 10
+client_count, client_max	= 1, 10
 charrange, chardelay		= (2,10), .1	# split/delay outgoing msgs
 draindelay			= 5.   		# long in case server slow, but immediately upon EOF
 
@@ -494,7 +516,7 @@ enip_svr_kwds 			= {
 
 
 def enip_cli( number, tests=None ):
-    """Sends a series of test messages, testing response for ) """
+    """Sends a series of test messages, testing response for expected results."""
     log.info( "EhterNet/IP Client %3d connecting... PID [%5d]", number, os.getpid() )
     conn			= socket.socket( socket.AF_INET, socket.SOCK_STREAM )
     conn.connect( enip.address )
