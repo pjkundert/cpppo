@@ -87,12 +87,13 @@ def test_octets_deficient():
             for i,(m,s) in enumerate( machine.run( source=source, path='octets', data=data )):
                 log.info( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r", m.name_centered(),
                           i, s, source.sent, source.peek(), data )
-            #assert False, "%s: Should have failed with exception asserting non-terminal" % ( 
-            #    machine.name_centered() )
-        except cpppo.NonTerminal:
+            assert False, "%s: Should have failed asserting no progress accepting symbol" % ( 
+                machine.name_centered() )
+        except AssertionError as exc:
+            assert "no progress" in str(exc) 
             pass
         assert not machine.terminal, "%s: Should have not have reached terminal state" % machine.name_centered()
-        assert i == 3
+        assert i == 2
     assert source.peek() is None
 
 def test_octets_zero():
@@ -113,6 +114,30 @@ def test_octets_zero():
         assert machine.terminal, "%s: Should have reached terminal state" % machine.name_centered()
         assert i is None
     assert source.peek() == b'a'[0]
+
+def test_words():
+    """Scans raw words, but only provides bytes them one at a time"""
+    data			= cpppo.dotdict()
+    origin			= cpppo.chainable( b'abc123z' )
+    source			= cpppo.chainable( b'' )
+
+    name			= "singly"
+    with enip.words( name, repeat=3, context=name, terminal=True ) as machine:
+        try:
+            for i,(m,s) in enumerate( machine.run( source=source, path='words', data=data )):
+                log.info( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r", m.name_centered(),
+                          i, s, source.sent, source.peek(), data )
+                if s is None:
+                    log.info( "%s chain: %r", machine.name_centered(), [origin.peek()] )
+                    if source.peek() is None and origin.peek() is not None:
+                        source.chain( [next( origin )] )
+        except:
+            assert False, "%s: Should not have failed with exception: %s" % ( 
+                machine.name_centered(), ''.join( traceback.format_exception( *sys.exc_info() )))
+        assert machine.terminal, "%s: Should have reached terminal state" % machine.name_centered()
+        assert i == 11
+    assert origin.peek() == b'z'[0]
+    assert data.words.singly.input.tostring() == b'abc123'
 
 
 def test_octets_struct():
@@ -309,9 +334,8 @@ unk_023_reply 		= bytes(bytearray([
     0x00, 0x00, 0xb2, 0x00, 0x08, 0x00, 0xd2, 0x00, #/* ........ */
     0x00, 0x00, 0xc3, 0x00, 0xc8, 0x40              #/* .....@ */
 ]))
-   
-def test_enip_parser():
-    for pkt,tst in [
+
+eip_tests			= [
             ( b'', {} ),        # test that parsers handle/reject empty/EOF
             ( rss_004_request,	{ 'enip.header.command': 0x0065, 'enip.header.length': 4 }),
             ( rss_004_reply,	{} ),
@@ -326,8 +350,18 @@ def test_enip_parser():
             ( unk_020_request,	{} ),
             ( unk_020_reply,	{} ),
             ( unk_023_request,	{} ),
-            ( unk_023_reply,	{} ), ]:
-
+            ( unk_023_reply,	{} ),
+]
+ 
+cip_tests			= [
+            ( unk_014_request,	{} ),
+           #( unk_017_request,	{} ),
+           #( unk_020_request,	{} ),
+           #( unk_023_request,	{} ),
+]
+  
+def test_enip_header():
+    for pkt,tst in eip_tests:
         # Parse just the headers, forcing non-transitions to fetch one symbol at a time.  Accepts an
         # empty header at EOF.
         data			= cpppo.dotdict()
@@ -350,6 +384,8 @@ def test_enip_parser():
             assert data[k] == v
 
 
+def test_enip_machine():
+    for pkt,tst in eip_tests:
         # Parse the headers and encapsulated command data
         data			= cpppo.dotdict()
         source			= cpppo.chainable( pkt )
@@ -372,6 +408,51 @@ def test_enip_parser():
         if data:
             assert enip.enip_encode( data ) == pkt, "Invalid data: %r" % data
 
+def test_enip_cip():
+    for pkt,tst in cip_tests:
+        # Parse just the headers
+        data			= cpppo.dotdict()
+        source			= cpppo.chainable( pkt )
+        with enip.enip_machine() as machine:
+            for i,(m,s) in enumerate( machine.run( source=source, path='request', data=data )):
+                log.detail( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r",
+                          machine.name_centered(), i, s, source.sent, source.peek(), data )
+
+        assert  data.request.enip.header.command == 0x006f # SendRRData
+
+        '''
+        # Now, parse SendRRData from EtherNet/IP encapsulated_data.input into
+        #     data.request.enip.sendrrdata...
+        source			= cpppo.peekable( data.request.enip.encapsulated_data.input )
+        with enip.sendrrdata() as machine:
+            for i,(m,s) in enumerate( machine.run( source=source, path='request.enip', data=data )):
+                log.detail( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r",
+                          machine.name_centered(), i, s, source.sent, source.peek(), data )
+
+
+        # Each SendRRData CPF item may carry an encapsulated CIP frame.  Parse each
+        # item[x].data.input into item[x].ucmm...  This should typically be a Null Address (0x0000)
+        # CPF item type_id segment (indicating that no routing is required), followed by a
+        # Unconnected Message (0x00b2) CPF item type_id.
+        path		= 'request.enip.cpf.item'
+        for index in range( data[path+'_count'] ):
+            log.normal( "EtherNet/IP CIP: data[%r][%d]: %r", path, index, data[path][index] )
+            if not data[path][index].length:
+                continue
+            with enip.ucmm_machine() as machine:
+                source		= cpppo.peekable( data[path][index].data.input )
+                for i,(m,s) in enumerate( machine.run( source=source, data=data[path][index] )):
+                    log.detail( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r",
+                                machine.name_centered(), i, s, source.sent, source.peek(), data )
+
+                assert data[path][index].cip.request_service == 0x00b2, \
+                    "EtherNet/IP CIP Unconnected Message (0x00b2) expected; got %r " % (
+                        data[path][index] )
+        '''
+
+        log.normal( "%s: %s", machine.name_centered(), enip.enip_format( data ))
+
+
 
 # Run the bench-test.  Sends some request from a bunch of clients to a server, testing responses
 
@@ -388,8 +469,8 @@ def enip_process_canned( addr, source, data ):
         with enip.enip_machine() as machine: # Load data.response.enip
             for m,s in machine.run( path='response', source=source, data=data ):
                 pass
-            if s:
-                log.debug( "Response: %s", enip.parser.enip_format( data ))
+            if machine.terminal:
+                log.debug( "EtherNet/IP Response: %s", enip.parser.enip_format( data.response ))
         return
 
     raise Exception( "Unrecognized request: %s" % ( enip.parser.enip_format( data )))

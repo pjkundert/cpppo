@@ -22,7 +22,7 @@ sys.path.insert( 0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import cpppo
 
 logging.basicConfig( **cpppo.log_cfg )
-#logging.getLogger().setLevel( logging.DEBUG )
+#logging.getLogger().setLevel( logging.INFO )
 log				= logging.getLogger()
 log_not				= 0
 
@@ -40,7 +40,7 @@ def test_logging():
                                         "%s" % (
                     			    " ".join( list( str( i ) for i in range( 100 )))))))
     t2ms = 1000 * min( t.repeat( rep, num )) / num
-    print("expensive: %.3f ms/loop avg; %s better" % ( t2ms, t1ms / t2ms ))
+    log.normal( "expensive: %.3f ms/loop avg; %s better", t2ms, t1ms / t2ms )
     assert t1ms / t2ms > 10.0
 
     # And ensure it is pretty good, even compared to the best case with minimal
@@ -56,7 +56,7 @@ def test_logging():
                                         "%s: %r %d %d %d %d %d" % (
                     			    str( a ), repr( a ), 1, 2, 3, 4, 5 ))))
     t4ms = 1000 * min( t.repeat( rep, num )) / num
-    print("minimal: %.3f ms/loop avg; %s better" % ( t4ms, t3ms / t4ms ))
+    log.normal( "minimal: %.3f ms/loop avg; %s better", t4ms, t3ms / t4ms )
     assert t3ms / t4ms > 1.0
 
     # Only with no argument processing overhead at all is the overhead of the
@@ -70,7 +70,7 @@ def test_logging():
                                         "%s: %r %d %d %d %d %d" % (
                     			    a, a, 1, 2, 3, 4, 5 ))))
     t6ms = 1000 * min( t.repeat( rep, num )) / num
-    print("simplest: %.3f ms/loop avg; %s better" % ( t6ms, t5ms / t6ms ))
+    log.normal( "simplest: %.3f ms/loop avg; %s better", t6ms, t5ms / t6ms )
     assert t5ms / t6ms > .5
 
 
@@ -117,6 +117,21 @@ def test_iterators():
         pass
     except Exception as e:
         assert False, "Expected TypeError, not %r" % ( e )
+
+
+    r				= cpppo.rememberable( '123' )
+    assert next( r ) == '1'
+    assert r.memory == [ '1' ]
+    try:
+        r.push( 'x' )
+        assert False, "Should have rejected push of inconsistent symbol"
+    except AssertionError:
+        pass
+    assert r.sent == 1
+    r.push( '1' )
+    assert r.sent == 0
+    assert r.memory == []
+    assert list( r ) == r.memory == [ '1', '2','3' ]
 
 
 def test_readme():
@@ -536,3 +551,40 @@ def test_decide():
                       i, s, source.sent, source.peek(), data )
         assert i == 13
         assert s is equal
+
+def test_limit():
+    # Force a limit on input symbols.  If we only accept only even b's, we'll
+    # fail if we force a stoppage at a+b*9
+    source			= cpppo.peekable( str( 'a'+'b'*100 ))
+    data			= cpppo.dotdict()
+    try:
+        with cpppo.regex( initial=str( 'a(bb)*' ), context='even_b', limit=10 ) as machine:
+            for i,(m,s) in enumerate( machine.run( source=source, data=data )):
+                log.info( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r", m.name_centered(),
+                          i, s, source.sent, source.peek(), data )
+    except cpppo.NonTerminal:
+        assert i == 10
+        assert source.sent == 10
+    else:
+        assert False, "Should have failed with a cpppo.NonTerminal exception"
+
+
+    # But odd b's OK
+    for limit in [
+            10, 
+            '..somewhere.ten',
+            lambda **kwds: 10, 
+            lambda path=None, data=None, **kwds: data[path+'..somewhere.ten'] ]:
+        source			= cpppo.peekable( str( 'a'+'b'*100 ))
+        data			= cpppo.dotdict()
+        data['somewhere.ten']	= 10
+        with cpppo.regex( initial=str( 'ab(bb)*' ), context='odd_b', limit=limit ) as machine:
+            for i,(m,s) in enumerate( machine.run( source=source, data=data )):
+                log.info( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r", m.name_centered(),
+                          i, s, source.sent, source.peek(), data )
+            assert i == 10
+            assert source.sent == 10
+            assert ( data.odd_b.input.tostring()
+                     if sys.version_info.major < 3
+                     else data.odd_b.input.tounicode() ) == str( 'a'+'b'*9 )
+        

@@ -104,7 +104,16 @@ def __detail( self, msg, *args, **kwargs ):
 logging.Logger.normal		= __normal
 logging.Logger.detail		= __detail
 
-
+# 
+# function_name -- Attempt to elaborate on the module/class heritage of the given function
+#
+def function_name( f ):
+    if hasattr( f, '__module__' ):
+        return f.__module__ + '.' + f.__name__
+    elif hasattr( f, 'im_class' ):
+        return f.im_class.__module__ + '.' + f.im_class.__name__ + '.' + f.__name__
+    return f.__name__
+    
 # 
 # near          -- True iff the specified values are within 'significance' of each-other
 # 

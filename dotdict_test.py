@@ -106,3 +106,14 @@ def test_dotdict():
     assert "c" not in d.a.b
     del d["a.b"]
     del d["a"]
+
+    # pop has no such restrictions; it will happily pop and return a value or non-empty dotdict
+    d["a.b.c.d"] = 2
+    d["a.x"] = 3
+    assert d.a.b.c.d == 2
+    assert d.pop("a.b.c") == {'d':2}
+    assert "a.b" in d
+    assert "a.b.c" not in d
+    assert "x" in d.a
+    assert d.pop("a.b.c...x") == 3
+    assert "x" not in d.a

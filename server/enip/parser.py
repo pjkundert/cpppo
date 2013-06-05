@@ -56,15 +56,18 @@ if __name__ == "__main__":
 log				= logging.getLogger( "enip.srv" )
 
 # 
-# octets_base	-- A dfa_base mixin that defaults to scan octets from bytes data
-# octets	-- Scans octets to <context>.input arrray, but does nothing with them
+# octets_base	-- A dfa_base that defaults to scan octets from bytes data
+# octets	-- Scans octets to <context>.input array
 # octets_encode	--   and converts array of octets back to a bytes string
 # octets_struct	-- Scans octets sufficient to fulfill struct 'format', and parses
+# words_base	-- A dfa_base that default to scan octet pairs (words) from bytes data
+# words		-- Scands words into <context>.input array
 # 
 class octets_base( cpppo.dfa_base ):
     """Scan 'repeat' octets (default: 1), using an instance of the provided octets_state class as the
-    sub-machine 'initial' state.  The sub-machine is not greedy, and will terminate after accepting
-    and processing exactly one symbol.  Only after all 'repeat' loops will self.terminal be True."""
+    sub-machine 'initial' state.  The sub-machine has no outgoing transitions, and will terminate
+    after accepting and processing exactly one symbol.  Only after all 'repeat' loops will
+    self.terminal be True."""
     def __init__( self, name, initial=None,
                   octets_state=cpppo.state_input,
                   octets_alphabet=cpppo.type_bytes_iter,
@@ -95,12 +98,49 @@ class octets_struct( octets_base, cpppo.state_struct ):
         super( octets_struct, self ).__init__( name=name, repeat=struct.calcsize( format ),
                                                format=format, **kwds )
 
+
+class words_base( cpppo.dfa_base ):
+    """Scan 'repeat' 2-byte words (default: 1), convenient when sizes are specified in words."""
+    def __init__( self, name, initial=None,
+                  words_state=cpppo.state_input,
+                  words_alphabet=cpppo.type_bytes_iter,
+                  words_encoder=None,
+                  words_typecode=cpppo.type_bytes_array_symbol, **kwds ):
+        assert initial is None, "Cannot specify a sub-machine for %s.%s" % (
+            __package__, self.__class__.__name__ )
+        byt0			= words_state(
+            name="byte0", alphabet=words_alphabet, encoder=words_encoder,
+            typecode=words_typecode )
+        byt0[True]		= words_state(
+            name="byte1", alphabet=words_alphabet, encoder=words_encoder,
+            typecode=words_typecode, terminal=True )
+        super( words_base, self ).__init__( name=name, initial=byt0, **kwds )
+   
+
+class words( words_base, cpppo.state ):
+    """Scans 'repeat' words into <context>.input using a state_input sub-machine (by default), but
+    doesn't itself perform any processing."""
+    pass
+
+
 # 
+# The basic EtherNet/IP CIP protocol data types
+# 
+# usint		-- Parse an 8-bit EtherNet/IP unsigned int 
+# usint_encode	--   and convert a value back to a 8-bit EtherNet/IP unsigned int
 # uint		-- Parse a 16-bit EtherNet/IP unsigned int 
 # uint_encode	--   and convert a value back to a 16-bit EtherNet/IP unsigned int
 # udint		-- Parse a 32-bit EtherNet/IP unsigned int 
 # udint_encode	--   and convert a value back to a 32-bit EtherNet/IP unsigned int
 # 
+class usint( octets_struct ):
+    """An EtherNet/IP UINT; 8-bit unsigned integer"""
+    def __init__( self, name, **kwds ):
+        super( usint, self ).__init__( name=name, format='B', **kwds )
+
+def usint_encode( value ):
+    return struct.pack( 'B', value )
+
 class uint( octets_struct ):
     """An EtherNet/IP UINT; 16-bit little-endian unsigned integer"""
     def __init__( self, name, **kwds ):
@@ -170,7 +210,9 @@ class enip_machine( cpppo.dfa ):
 
 def enip_encode( data ):
     """Produce an encoded EtherNet/IP message from the supplied data; assumes
-    enip.encapsulated_data.input is already available."""
+    enip.encapsulated_data.input is already available.
+
+    """
     result			= b''.join( [
         uint_encode(	data.enip.header.command ),
         uint_encode(len(data.enip.encapsulated_data.input )),
@@ -185,3 +227,281 @@ def enip_encode( data ):
 def enip_format( data ):
     """Format a decoded EtherNet/IP data bundle in a human-readable form."""
     return json.dumps( data, indent=4, sort_keys=True, default=lambda obj: repr( obj ))
+
+# 
+# EtherNet/IP CIP Parsing
+# 
+# See Vol2_1.14.pdf, Chapter 3-2.1 Unconnected Messages, for a simplified overview of parsing.  We 
+# parse the SendRRData, the CPF encapsulation, and the CFP Null Address and Unconnected Data itmes, 
+# and finally the CIP Message Router Request from the second CFP item.
+# 
+class move_if( cpppo.decide ):
+    """If the predicate is True (the default), then move (either append or assign) data[path+source] to
+    data[path], assigning init to it first if the target doesn't yet exist.  Then, proceed to
+    the target state.
+
+    """
+    def __init__( self, name, source=None, init=None, **kwds ):
+        super( move_if, self ).__init__( name=name, **kwds )
+        self.source		= source
+        self.init		= init
+        
+    def execute( self, truth, machine=None, source=None, path=None, data=None ):
+        target			= super( move_if, self ).execute(
+            truth, machine=machine, source=source, path=path, data=data )
+        if truth:
+            source		= path + self.source
+            assert source in data, \
+                "Could not find %r in %r to move to %r" % ( source, data, path )
+            if self.init and path not in data:
+                init		= ( self.init
+                                    if not hasattr( self.init, '__call__' )
+                                    else self.init(
+                                            machine=machine, source=source, path=path, data=data ))
+                log.debug( "%s -- init data[%r] to %r", self, path, init )
+                data[path]	= init
+
+            if hasattr( data[path], 'append' ):
+                log.debug( "%s -- append data[%r]==%r to data[%r]", self, source, data[source], path )
+                data[path].append( data.pop( source ))
+            else:
+                log.debug( "%s -- assign data[%r]==%r to data[%r]", self, source, data[source], path )
+                data[path]	= data.pop( source )
+
+        return target
+
+
+class extpath( cpppo.dfa ):
+    """Parses an extended request path_size (words), path_data and path segment list
+
+        .path_size
+        .path_data
+        .path [
+            { 'class':      # },
+            { 'instance':   # },
+            { 'attribute':  # },
+            { 'element':    # },
+            { 'symbolic':   '...' },
+         ]
+    """
+
+    def __init__( self, name=None, **kwds ):
+        kwds.setdefault( 'context', 'path' )
+        name 			= name or kwds.get( 'context' )
+        
+        ptsz			= usint(	'path_size',	extension='_size' )
+        ptdt			= cpppo.words( 	'path_data',	extension='_data',
+                                                repeat="..path_size" )
+
+
+class cpfdata( cpppo.dfa ):
+    """A SendRRData Common Packet Format specifies the number and type of the encapsulated CIP address
+    items or data items that follow:
+
+    	.cpf.item_count			uint		2 	Number of items
+        .cpf.item[0].type_id		uint		2	Type of item encapsulated		
+        .cpf.item[0].length		uint		2	Type of item encapsulated		
+        .cpf.item[0].data		octets[length]
+
+    Parse each CPF item into cpf.item_tmp, and (after parsing) moves it to cpf.item[x].
+
+    """
+    def __init__( self, name=None, **kwds ):
+        kwds.setdefault( 'context', 'cpf' )
+        name 			= name or kwds.get( 'context' )
+
+        ityp			= uint( 	"type_id", 	context="type_id" )
+        ityp[True] = ilen	= uint( 	"length", 	context="length" )
+        ilen[None] = idat	= octets( 	"data", 	context="data",
+                                                repeat="..length", 
+                                                terminal=True )
+
+        # Each item is collected into '..item_tmp', and then moved into place into the provided
+        # context, probably 'item' (init to [])
+        item			= cpppo.dfa( 	"item_tmp", 	extension="..item_tmp",
+                                                initial=ityp )
+        item[None] 		= move_if( 	"move", state=cpppo.state( "moved", terminal=True),
+                                                init=lambda: [],
+                                                source='..item_tmp' )
+
+        # Collect 'number' items, each into item_tmp, then move to 'item[x]'
+        numb			= uint(		"item_count",	context="item_count" )
+        numb[None] 		= cpppo.dfa(    "item", 	context="item", 
+                                                initial=item,
+                                                repeat='..item_count',
+                                                terminal=True )
+
+        super( cpfdata, self ).__init__( name=name, initial=numb, **kwds )
+
+
+class sendrrdata( cpppo.dfa ):
+    """The EtherNet/IP command SendRRData (0x006f) encapsulates an interface and timeout, followed by a
+    list of items specified in Common Packet Format.
+
+        .sendrrdata.interface
+        .sendrrdata.timeout
+        .sendrrdata.cpf...
+        
+    """
+    def __init__( self, name=None, **kwds ):
+        kwds.setdefault( 'context', 'sendrrdata' )
+        name 			= name or kwds.get( 'context' )
+        
+        ifce			= udint( 	"interface",	context="interface_handle" )
+        ifce[True] = timo	= uint( 	"timeout",	context="timeout", 
+                                                terminal=True )
+        timo[True] = cpfd	= cpfdata( terminal=True )
+
+        super( sendrrdata, self ).__init__( name=name, initial=ifce, **kwds )
+
+    
+class ucmm( cpppo.dfa ):
+    """Parses an encapsulated UCMM Unconnected Send (0x52) request, typically found in a SendRRData CPF
+    item's data.  No other UCMM services are supported.  Assuming a valid EtherNet/IP header has
+    been parsed containing a SendRRData (0x006f) command, containing CPF items, in turn containing
+    an item with a type_id of UCMM Unconnected Send (0x52).
+
+
+    Assumes:
+
+        .service				usint		1 (0x52 for Unconnected Send)
+
+    Produces:
+
+        .path_size				usint		1 (in words, not bytes)
+        .path_data				octets[size*2]  *
+        .path       			        [
+            { 'class':      # },...
+         ]
+        .ucon_send.priority			usint		1
+        .ucon_send.timeout_ticks		usint		1
+        .ucon_send.request_size			uint		2
+        .ucon_send.request_data			octets[...]	size
+
+    The user should then proceed to parse the embedded request_data, in the context of whatever
+    (sometimes vendor-specific, eg. Rockwell Logix5000 ) Object Class/Instance has been addressed.
+
+    """
+
+    def __init__( self, name=None, **kwds ):
+        kwds.setdefault( 'context', 'ucmm' )
+        name 			= name or kwds.get( 'context' )
+        
+        srvc			= usint(	"service",	context="request_service" )
+        
+
+        srvc[True] = rpsz	= usint(	"path_siz",	context="request_path_size",
+                                                terminal=True ) 
+        
+        '''
+        def initial_list(machine, source, path, data ):
+            return []
+
+        # Loop parsing request_path elements 'til we reach the specified request path size.  We'll
+        # use a predicate that captures the current value of source.sent, and computes the maximal
+        # value of source.sent while we can still parse segments.
+        next_seg		= state(  "path_seg" )
+        mvsg			= move_if( 	'move_seg', 	context='request_path'
+                                                source=req_p_seg, initial=initial_list,
+                                                state=pseg )
+
+        def calc_path_end( machine,source,path,data ):
+            data[path].request_path__end = source.sends + data[path].request_path_size * 2
+            return True
+
+        rpsz[True] 		= decide( 	"path_end", 	state=pseg, predicate=calc_path_end )
+
+
+        req_p_seg		= 'request_path_segment'
+        pseg['\x28'] = el_8_pre	= usint(	'seg_type',	context=req_p_seg, extension=".type" )
+        el_8_pre[True] = el_8	= usint( 	'8-bit elem', 	context=req_p_seg, extension='element' )
+
+        rpth[True] = pseg	= usint( 	"")
+        '''
+
+        super( ucmm, self ).__init__( name=name, initial=srvc, **kwds )
+
+    
+class logix( cpppo.dfa ):
+    """Parses a Logix vendor-specific request. 
+
+    If a Logix5000 Controller is being addressed (See Logix5000 Data Access manual, pp 16, Services
+    Supported by Logix5000 Controllers), the ucmm.request_data. may contain:
+    
+        .ucon_send.request.service		usint		1
+    		Read Tag Service 			0x4c
+    		Read Tag Fragmented Service 		0x52 (unrelated to Unconnected Send, above...)
+    		Write Tag Service 			0x4d
+    		Write Tag Fragmented Service 		0x53
+    		Read Modify Write Tag Service 		0x4e
+        .ucon_send.request.path_size		uint		2 (in words)
+        .ucon_send.request.path			[
+            {...class/instance/attribute/element/symbolic ...}
+        ]
+        .ucon_send.request_data			octets[...]
+
+
+        .ucon_send.request.service		usint
+
+        The request-specific data for the supported services are:
+
+    		Read Tag Service 			0x4c
+        ucon_send.request.read_tag.elements	uint		2
+    
+    		Read Tag Fragmented Service		0x52
+        ucon_send.request.read_frag.elements	uint		2
+        ucon_send.request.read_frag.offset	udint		4 (in bytes)
+
+    		Write Tag Service 			0x4d
+        ucon_send.request.write_tag.type		uint		2
+        ucon_send.request.write_tag.data	octets[...]	* (sufficient for one tag_type)
+
+    		WriteTag Fragmented Service		0x52
+        ucon_send.request.write_frag.type	uint		2
+        ucon_send.request.write_frag.elements	uint		2
+        ucon_send.request.write_frag.offset	udint		4 (in bytes)
+
+    This must be run with a length-constrained 'source' iterable (eg. a fixed-length array harvested
+    by a previous parser, eg. ucon_send.request_data).  Since there are no indicators within this
+    level of the protocol the indicate the size of the request, the Write Tag [Fragmented] Service
+    requests (and Read Tag [Fragmented] replies) do not carry indicators of the size of their data.
+    It could be deduced from the type for Write Tag requests (Read Tag replies), but cannot be
+    deduced for the Fragmented versions.
+
+    """
+    def __init__( self, name=None, **kwds ):
+        kwds.setdefault( 'context', 'cip' )
+        name 			= name or kwds.get( 'context' )
+        
+
+        slct			= cpppo.state(	"select" )	# parse path size and path
+        slct['\x4c']	= rtsv	= usint(	'service',  context='service' )
+        rtsv[True]	= rtpt	= extpath()
+        rtpt[True]	= rtel	= uint(		'elements', context='read_tag',   extension='.element',
+                                                terminal=True )
+
+        slct['\x52']	= rfsv	= usint(	'service',  context='service' )
+        rtsv[True]	= rfpt	= extpath()
+        rfpt[True]	= rfel	= uint(		'elements', context='read_frag',  extension='.elements')
+        rfel[True]		= udint( 	'offset',   context='read_frag',  extension='.offset',
+                                                terminal=True )
+
+        slct['\x4d']	= wtsv	= usint(	'service',  context='service' )
+        wtsv[True]	= wtpt	= extpath()
+        wtpt[True]	= wtty	= uint(		'type',     context='write_tag',  extension='.type' )
+        wtty[True]	= wtdt	= octets( 	'data',	    context='write_tag',  extension='.data',
+                                                terminal=True )
+        wtdt[True]	= wtdt	# And loop consuming all remaining data
+
+        slct['\x53']	= wfsv	= usint(	'service',  context='service' )
+        wfsv[True]	= wfpt	= extpath()
+        wfpt[True]	= wfty	= uint(		'type',     context='write_frag', extension='.type')
+        wfpt[True]	= wfel	= uint(		'elements', context='write_frag', extension='.elements')
+        wfel[True]	= wfof	= udint( 	'offset',   context='write_frag', extension='.offset' )
+        wfof[True]	= wfdt	= octets( 	'data',	    context='write_frag', extension='.data',
+                                                terminal=True )
+        wfdt[True]	= wfdt	# And loop consuming all remaining data
+
+        super( logix, self ).__init__( name=name, initial=srvc, **kwds )
+
+

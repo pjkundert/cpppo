@@ -148,6 +148,15 @@ class dotdict( dict ):
             return dict.__delitem__( self, mine )
         del target[rest]
 
+    def pop( self, key, default=None ):
+        mine, rest              = self._resolve( key )
+        if rest is None:
+            return dict.pop( self, mine )
+        target                  = dict.__getitem__( self, mine )
+        if not isinstance( target, dotdict ):
+            raise KeyError( 'cannot pop "%s" in "%s" (%r)' % ( rest, mine, target ))
+        return target.pop( rest, default=default )
+
     def setdefault( self, key, default ):
         if key not in self:
             self[key]           = default
@@ -159,7 +168,7 @@ class dotdict( dict ):
             return self.__getitem__( key )
         except KeyError:
             return default
-            
+
     __setattr__			= __setitem__
     __getattr__			= __getitem__
 

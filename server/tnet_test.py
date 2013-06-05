@@ -151,7 +151,7 @@ def tnet_cli( number, tests=None ):
         log.normal( "Tnet Client %3d done; %s", number, "due to EOF" if eof else "normal termination" )
 
     except KeyboardInterrupt as exc:
-        log.warning( "%3d client terminated: %r", number, exc )
+        log.normal( "%3d client terminated: %r", number, exc )
     except Exception as exc:
         log.warning( "%3d client failed: %r\n%s", number, exc, traceback.format_exc() )
     finally:
