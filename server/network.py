@@ -29,6 +29,8 @@ import select
 import threading
 import traceback
 
+from .. import misc
+
 log				= logging.getLogger( "network" )
 
 def readable( timeout=0 ):
@@ -167,14 +169,6 @@ def server_main( address, target, **kwds ):
     log.info( "%s server PID [%5d] shutting down", name, os.getpid() )
     return 0
 
-def function_name( f ):
-    if hasattr( f, '__module__' ):
-        return f.__module__ + '.' + f.__name__
-    elif hasattr( f, 'im_class' ):
-        return f.im_class.__module__ + '.' + f.im_class.__name__ + '.' + f.__name__
-    return f.__name__
-
-
 def bench( server_func, client_func, client_count,
            server_kwds=None, client_kwds=None, client_max=10, server_join_timeout=1.0 ):
     """Bench-test the server_func (with optional keyword args from server_kwds) as a process; will fail
@@ -191,7 +185,7 @@ def bench( server_func, client_func, client_count,
     import time
     import json
 
-    log.normal( "Server %r startup...", function_name( server_func ))
+    log.normal( "Server %r startup...", misc.function_name( server_func ))
     server			= Process( target=server_func, kwargs=server_kwds or {} )
     server.daemon		= True
     server.start()
@@ -199,7 +193,7 @@ def bench( server_func, client_func, client_count,
 
     try:
         log.normal( "Client %r tests begin, over %d clients (up to %d simultaneously)", 
-                    function_name( client_func ), client_count, client_max )
+                    misc.function_name( client_func ), client_count, client_max )
         pool			= Pool( processes=client_max )
         # Use list comprehension instead of generator, to force start of all asyncs!
         asyncs			= [ pool.apply_async( client_func, args=(i,), kwds=client_kwds or {} )
@@ -208,7 +202,7 @@ def bench( server_func, client_func, client_count,
                                        for a in asyncs )
 
         failures		= client_count - successes
-        log.normal( "Client %r tests done: %d/%d succeeded (%d failures)", function_name( client_func ),
+        log.normal( "Client %r tests done: %d/%d succeeded (%d failures)", misc.function_name( client_func ),
                   successes, client_count, failures )
         return failures
     finally:
@@ -216,6 +210,6 @@ def bench( server_func, client_func, client_count,
             server.terminate() # only if using multiprocessing.Process; Thread doesn't have
         server.join( timeout=server_join_timeout )
         if server.is_alive():
-            log.warning( "Server %r remains running...", function_name( server_func ))
+            log.warning( "Server %r remains running...", misc.function_name( server_func ))
         else:
-            log.normal( "Server %r stopped.", function_name( server_func ))
+            log.normal( "Server %r stopped.", misc.function_name( server_func ))

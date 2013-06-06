@@ -39,10 +39,7 @@ log				= logging.getLogger( "tnet.cli")
 def test_tnet_machinery():
     # parsing integers
     path			= "machinery"
-    SIZE			= cpppo.integer_parser( name="SIZE", context="size",
-                                                        regex_alphabet=cpppo.type_bytes_iter,
-                                                        regex_encoder=cpppo.type_str_encoder,
-                                                        regex_typecode=cpppo.type_bytes_array_symbol )
+    SIZE			= cpppo.integer_bytes( name="SIZE", context="size" )
     data			= cpppo.dotdict()
     source			= cpppo.chainable( b'123:' )
     with SIZE:
@@ -151,7 +148,7 @@ def tnet_cli( number, tests=None ):
         log.normal( "Tnet Client %3d done; %s", number, "due to EOF" if eof else "normal termination" )
 
     except KeyboardInterrupt as exc:
-        log.warning( "%3d client terminated: %r", number, exc )
+        log.normal( "%3d client terminated: %r", number, exc )
     except Exception as exc:
         log.warning( "%3d client failed: %r\n%s", number, exc, traceback.format_exc() )
     finally:

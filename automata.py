@@ -51,6 +51,9 @@ class NonTerminal( Exception ):
 log				= logging.getLogger( __package__ )
 log_cfg				= {
     "level":	logging.WARNING,
+#    "level":	logging.DETAIL,
+#    "level":	logging.INFO,
+#    "level":	logging.DEBUG,
     "datefmt":	'%m-%d %H:%M',
     "format":	'%(asctime)s.%(msecs).03d %(thread)16x %(name)-8.8s %(levelname)-8.8s %(funcName)-10.10s %(message)s',
 }
@@ -60,6 +63,9 @@ log_cfg				= {
 # Types produced by iterators over various input stream types
 type_bytes_iter			= str if sys.version_info.major < 3 else int
 type_str_iter			= str
+
+# The base class of string types
+type_str_base			= basestring if sys.version_info.major < 3 else str
 
 # The array.array typecode for iterated items of various input stream types
 type_unicode_array_symbol	= 'u'
@@ -105,10 +111,10 @@ type_str_encoder		= None if sys.version_info.major < 3 else type_unicode_encoder
 # its __init__.
 # 
 class peekable( object ):
-    """Checks that the supplied iterable has (at least) the peek method, and
+    """Checks that the supplied iterable has (at least) the peek/sent methods, and
     returns it if so.  Otherwise, creates a peeking iterator with it."""
     def __new__( cls, iterable=None ):
-        if hasattr( iterable, 'peek' ):
+        if hasattr( iterable, 'peek' ) and hasattr( iterable, 'sent' ):
             return iterable
         return peeking( iterable=iterable )
     
@@ -244,8 +250,11 @@ class decide( object ):
     be able to represent itself as a str, and it must have a .state property, and it must be
     callable with machine,source,path,data arguments and return a state or None.
 
-    Decides on a target state if the predicate on machine, path, source and data context is True."""
-    def __init__( self, name, state,  predicate=lambda machine,source,path,data: False ):
+    Decides on a target state if the predicate on machine, path, source and data context is True.
+
+    If the predicate evaluates to not True, or the result of execute is None, the transition
+    is deemed to *not* have been taken, and the next state/decide (if any) is used."""
+    def __init__( self, name, state=None, predicate=lambda machine,source,path,data: True ):
         self.name		= name
         self.state		= state
         self.predicate		= predicate
@@ -257,25 +266,14 @@ class decide( object ):
         return '<%s>' % ( self )
 
     def __call__( self, machine=None, source=None, path=None, data=None ):
-        truth			= self.predicate( machine=machine, source=source, path=path, data=data )
+        return self.execute(
+            truth=self.predicate( machine=machine, source=source, path=path, data=data ),
+            machine=machine, source=source, path=path, data=data )
+
+    def execute( self, truth, machine=None, source=None, path=None, data=None ):
         target			= self.state if truth else None
         log.info( "%s %-14.14s -> %10s w/ data: %r", machine.name_centered(), self, target, data )
         return target
-
-
-class decide_data( decide ):
-    """If <data>.get(<key>,<default>) == <value>, return <state>, otherwise None.  This example ignores
-    predicate."""
-    def __init__( self, name, state, key, value, default=None ):
-        self.key		= key
-        self.value		= value
-        self.default		= default
-        super( decide, self ).__init__( name=name, state=state )
-
-    def __call__( self, machine, source, path, data ):
-        if self.value == data.get( self.key, self.default ):
-            return self.state
-        return None
 
 
 class state( dict ):
@@ -311,9 +309,15 @@ class state( dict ):
     be configured, which may access the entire machine state, as well as the input symbol 'source',
     the 'data' artifact '
 
-    """
-    def __init__( self, name, terminal=False, alphabet=None, context=None, extension=None, encoder=None,
-                  greedy=True ):
+    If a limit on the number of possible input symbols is known (or will be known at run-time), it
+    can be provided as limit.  Protocols will often include a length field specifying the size of
+    the upcoming portion of the protocol; this can be provided to the dfa as a limit, preventing the
+    machine from consuming more input than it should.  The ending symbol is computed after this
+    state processes its input symbol (if any).  The incoming symbol source iterator's .sent property
+    is tested before transitioning, and transitioning is terminated if the computed ending symbol
+    has been reached."""
+    def __init__( self, name, terminal=False, alphabet=None, context=None, extension=None,
+                  encoder=None, typecode=None, greedy=True, limit=None ):
         if isinstance( name, state ):
             # Initialization from another state; copy transition dict/recognizers
             other		= name
@@ -325,7 +329,9 @@ class state( dict ):
             self._context	= other._context   if context   is None else context
             self._extension	= other._extension if extension is None else extension
             self.encoder	= other.encoder    if encoder   is None else encoder
+            self.typecode	= other.typecode   if typecode  is None else typecode
             self.greedy		= other.greedy     if greedy    is None else greedy
+            self.limit		= other.limit      if limit     is None else limit
         else:
             super( state, self ).__init__()
             self.recognizers	= []
@@ -335,7 +341,9 @@ class state( dict ):
             self._context	= context	# Context added to path with '.'
             self._extension	= extension	#   plus extension, to place output in data
             self.encoder	= encoder
+            self.typecode	= typecode	# Unused in base, but part of standard interface
             self.greedy		= greedy
+            self.limit		= limit
 
     # Any state evaluates to True (to easily distinguish from None), even if its dict is empty.
     def __bool__( self ):
@@ -539,7 +547,7 @@ class state( dict ):
 
 
     # State transition machinery
-    def run( self, source, machine=None, path=None, data=None ):
+    def run( self, source, machine=None, path=None, data=None, ending=None ):
         """A generator which will attempt to process input in the present state; if not acceptable
         (self.accepts/self.validate returns False), yields non-transition event, and then tries
         again to process an acceptable input.
@@ -596,33 +604,54 @@ class state( dict ):
 
         # Convert the source into something that all delegated generators can consume from and push
         # back onto; this will only only convert a standard iterable to a peekable once.
-        source		= peekable( source )
+        source			= peekable( source )
 
-        self.initialize( machine=machine, path=path, data=data )
+        # We have entered this state; yield 0 or more (machine,None) non-transition events 'til we
+        # find an acceptable input.  Higher level machines may choose to consume inputs we cannot,
+        # and then either continue accepting output yielded from this generator, or discard it.
+        # However, if we get multiple yields with no change in the next symbol or number of symbols
+        # sent, we must fail; it is unacceptable to transition into a state and then not process
+        # input (use other means to force stoppage before entry, such as input limits or a None
+        # transition)
+        seen			= set()
+        while not self.accepts( source=source, machine=machine, path=path, data=data ):
+            crumb		= (None,source.peek(),source.sent)
+            assert crumb not in seen, \
+                "%s detected no progress before finding acceptable symbol" % ( self )
+            seen.add( crumb )
+            yield machine,None
 
-        # We have been initialized; after this point, we are guaranteed to invoke terminate.
+        self.process( source=source, machine=machine, path=path, data=data )
+
+        limit = limit_src	= self.limit
+        # We have processed input; after this point, we are guaranteed to invoke terminate, and
+        # we'll only try to transition if there are no exceptions.
         exception		= None
         try:
-            # We have entered this state; yield 0 or more (machine,None) non-transition events 'til
-            # we find an acceptable input.  Higher level machines may choose to consume inputs we
-            # cannot, and then either continue accepting output yielded from this generator, or
-            # discard it.  However, if we get multiple yields with no change in the next symbol or
-            # number of symbols sent, we must terminate (and be in a terminal state)
-            seen		= set()
-            while not self.accepts( source=source, machine=machine, path=path, data=data ):
-                crumb		= (None,source.peek(),source.sent)
-                if crumb in seen:
-                    raise NonTerminal( "%s detected no progress before finding acceptable symbol" % (
-                            self ))
-                yield machine,None
-
-            self.process( source=source, machine=machine, path=path, data=data )
+            # If instance establishes input source symbol constraints, prepare to enforce them.  Any
+            # self.limit supplied may serve to establish or reduce an incoming ending symbol sent amount
+            # (never increase it).
+            if limit is not None:
+                if isinstance( limit, type_str_base ):
+                    limit_src	= self.context( path, limit_src )
+                    limit	= data.get( limit_src, 0 )
+                elif hasattr( limit, '__call__' ):
+                    limit_src	= misc.function_name( limit )
+                    limit	= limit( # provide our machine's context in predicate's path
+                        source=source, machine=machine, path=self.context( path ), data=data )
+                assert isinstance( limit, int ), \
+                    "Supplied limit=%r (== %r) must be (or reference) an int, not a %s" % (
+                        limit_src, limit, type( limit ))
+                log.info( "%s -- limit=%r == %r; ending at symbol %r vs. %r", self.name_centered(),
+                          limit_src, limit, source.sent + limit, ending )
+                if ending is None or source.sent + limit < ending:
+                    ending	= source.sent + limit 
 
             # Run the sub-machine; it is assumed that it ensures that sub-machine is deterministic
-            # (doesn't enter no-progress loop).  
-            for which,state in self.delegate( source=source, machine=machine, path=path, data=data ):
+            # (doesn't enter a no-progress loop).
+            for which,state in self.delegate(
+                    source=source, machine=machine, path=path, data=data, ending=ending ):
                 yield which,state
-
         except GeneratorExit as exc:
             # GeneratorExit is not derived from Exception, to avoid normal except handlers.  If this
             # occurs, the generator has been discarded before completion; we won't be performing our
@@ -652,16 +681,27 @@ class state( dict ):
         finally:
             self.terminate( exception, machine=machine, path=path, data=data )
 
+        # If a symbol limit was provided, ensure we haven't exceeded it, and don't transition if
+        # we've met it.  We can't decide that here, because we actually want to keep taking None
+        # transitions 'til we find a terminal state, even if we've run out of input symbols.  So,
+        # pass it down to transition.
         seen			= set()
-        for which,state in self.transition( source=source, machine=machine, path=path, data=data ):
-            if which is machine:
-                crumb		= (state,source.peek(),source.sent)
-                if crumb in seen:
-                    break
-                seen.add( crumb )
+        for which,state in self.transition(
+                source=source, machine=machine, path=path, data=data, ending=ending ):
+            crumb		= (state,source.peek(),source.sent)
+            if crumb in seen:
+                break
+            seen.add( crumb )
             yield which,state
 
-    def transition( self, source, machine=None, path=None, data=None ):
+        if ending is not None:
+            # And finally, make certain we haven't blown our symbol limit, a catastrophic failure.
+            assert source.sent <= ending, \
+                "%s exceeded limit on incoming symbols by %d" % (
+                    self.name_centered(), source.sent - ending )
+                
+
+    def transition( self, source, machine=None, path=None, data=None, ending=None ):
         """We have processed input in a state; now, see if we can find a transition we should yield.
         We may yield 1 or more (machine,None) non-transition events before an input is available to
         decide on a transition.  Remember; a state may have an "epsilon" (no-input) transition; this
@@ -689,40 +729,55 @@ class state( dict ):
         depending on whether the next input symbol was immediately available, or if we had to yield
         a non-transition to give the caller a chance to acquire input.
 
+        If we've become symbol limited, we must only follow None transitions; we don't want to
+        consider the next input symbol at all, because it could lead us down a "choice" path,
+        instead of allowing us to successfully stop at  a erminal state.
+
+        TODO: Consider whether we should look for and quit at the first available terminal state,
+        once we've become symbol limited (basically, stop being greedy as soon as we're limited).
+        This would prevent us from going into "idle" states (ones we want to enter whenever we're
+        stopped awaiting input.)  Is this valuable?  We might be able to distinguish between
+        "awaiting input" and "limited" in the state machine...
+
         """
+        limited			= ending is not None and source.sent >= ending
         while not self.terminal or self.greedy:
-            inp			= source.peek()		# symbol/None; raise TypeError to force stoppage
+            inp			= None if limited else source.peek()# raise TypeError to force stoppage
             try:
-                target = choice	= self.__getitem__( inp )
+                choice		= self.__getitem__( inp )
             except KeyError:
                 # No transition available for current symbol (or None, if no symbol available).  If
                 # there is *any* possibility that a transition might be possible if input *were*
                 # available, we need to yield a non-transition.
-                if inp is None and ( self.recognizers or not all( k is None for k in self.keys() )):
+                if limited:
+                    log.info( "%s -- stopped due to reaching symbol limit %d", self.name_centered(), ending )
+                elif inp is None and not limited and (
+                        self.recognizers or not all( k is None for k in self.keys() )):
                     log.info( "%s <non  trans>", self.name_centered() )
                     yield machine,None			# 0+ non-transitions...
                     continue
                 break					# No other transition possible; done
 
-            # Found the transition or choice list
-            if type( choice ) is list:
-                # Evaluate each target state/decide instance, 'til we find a state.  Could end up
-                # None, if all decide evaluate to None, and no default state.
-                log.debug( "%s <selfdecide> on %s", self.name_centered(), choice )
-                for potential in choice:
-                    if potential is None or isinstance( potential, state ):
-                        target	= potential
-                        break
-                    try:
-                        target	= potential( source=source, machine=machine, path=path, data=data )
-                    except Exception as exc:
-                        log.warning( "%s <selfdecide> on %s failed: %r", self.name_centered(),
-                                     potential, exc )
-                        raise
-                    log.debug( "%s <selfdecide> on %s == %s", self.name_centered(),
-                               potential, target )
-                    if target:
-                        break
+            # Found the transition or choice list (could be a state, a decide or decide, ...,
+            # decide[, state]). Evaluate each target state/decide instance, 'til we find a
+            # state/None.  Even decides could end up yielding None, if all decide evaluate to None,
+            # and no non-None default state .
+            for potential in ( choice if type( choice ) is list else [ choice ] ):
+                if potential is None or isinstance( potential, state ):
+                    target	= potential
+                    break
+                try:
+                    log.debug( "%s <selfdecide> on %s", self.name_centered(), choice )
+                    target	= potential( # this decision is made in our parent machine's context
+                        source=source, machine=machine, path=path, data=data )
+                except Exception as exc:
+                    log.warning( "%s <selfdecide> on %s failed: %r", self.name_centered(),
+                                 potential, exc )
+                    raise
+                log.debug( "%s <selfdecide> on %s == %s", self.name_centered(),
+                           potential, target )
+                if target:
+                    break
 
             log.debug( "%s <self trans> into %s", self.name_centered(), target )
             yield machine,target			# 0+ non-transitions, followed by a 1 transition
@@ -730,7 +785,7 @@ class state( dict ):
 
         # StopIteration after yielding a transition, or if self is a terminal state
 
-    def delegate( self, source, machine=None, path=None, data=None ):
+    def delegate( self, source, machine=None, path=None, data=None, ending=None ):
         """Base state class delegate generator does nothing."""
         raise StopIteration
         yield None 
@@ -768,10 +823,13 @@ class state( dict ):
                 if type( value ) is not list:
                     value	= [ value ]
                 for target in value:
-                    if target is None:			# None is a valid transition target
+                    # None is a valid state/decide target; skip
+                    if target is None:
                         continue
                     if not isinstance( target, state ):	# Only state and *.state types allowed
                         target	= target.state
+                        if target is None:
+                            continue
                     for output in target.nodes( seen=seen ):
                         yield output
 
@@ -804,7 +862,7 @@ class state( dict ):
 
         A greenery.fsm is also designed to be greedy on failure; it will accept and consume any
         unaccepted characters in a final non-terminal state.  Recognize these dead states and
-        discard them; we want to produce a state machine that fails on invalid inputs.
+        drop them; we want to produce a state machine that fails on invalid inputs.
 
         Returns the resultant regular expression string and lego representation, the fsm, and the
         initial state of the resultant state machine:
@@ -814,7 +872,7 @@ class state( dict ):
         """
         # Accept any of regex/lego/fsm, and build the missing ones.
         regexstr, lego		= None, None
-        if isinstance( machine, basestring if sys.version_info.major < 3 else str ):
+        if isinstance( machine, type_str_base ):
             log.debug( "Converting Regex to greenery.lego: %r", machine )
             regexstr		= machine
             machine		= greenery.parse( regexstr )
@@ -922,13 +980,14 @@ class state_input( state ):
     The input alphabet type, and the corresponding array typecode capable of containing individual
     elements of the alphabet must be specified; default is str/'c' or str/'u' as appropriate for
     Python2/3 (the alternative for a binary datastream might be bytes/'c' or bytes/'B')."""
-    def __init__( self, name, typecode=None, **kwds ):
+    def __init__( self, name, **kwds ):
         # overrides with default if keyword unset OR None
         if kwds.get( "alphabet" ) is None:
             kwds["alphabet"]	= type_str_iter
         if kwds.get( "extension" ) is None:
             kwds["extension"]	= path_ext_input
-        self._typecode		= typecode if typecode is not None else type_str_array_symbol
+        if kwds.get( "typecode" ) is None:
+            kwds["typecode"]	= type_str_array_symbol
         super( state_input, self ).__init__( name, **kwds )
 
     def validate( self, inp ):
@@ -942,17 +1001,17 @@ class state_input( state ):
         path			= self.context( path=path )
         if data is not None and path:
             if path not in data:
-                data[path]	= array.array( self._typecode )
+                data[path]	= array.array( self.typecode )
             data[path].append( inp )
             log.info( "%s :  %-10.10r => %20s[%3d]=%r", ( machine or self ).name_centered(),
                        inp, path, len(data[path])-1, inp )
 
 
-class state_discard( state_input ):
-    """Validate and discard a symbol."""
+class state_drop( state_input ):
+    """Validate and drop a symbol."""
     def process( self, source, machine=None, path=None, data=None ):
         inp			= next( source )
-        log.info( "%s :  %-10.10r: discarded", ( machine or self ).name_centered(), inp )
+        log.info( "%s :  %-10.10r: dropped", ( machine or self ).name_centered(), inp )
 
 
 class state_struct( state ):
@@ -997,13 +1056,15 @@ class state_struct( state ):
         val		        = self._struct.unpack_from( buffer=buf )[0]
         try:
             data[ours].append( val )
-            log.info( "%s :  %-10.10s => %20s[%3d]= %r", ( machine or self ).name_centered(),
-                      "", ours, len(data[ours])-1, val )
+            log.info( "%s :  %-10.10s => %20s[%3d]= %r (format %r over %r)",
+                      ( machine or self ).name_centered(),
+                      "", ours, len(data[ours])-1, val, self._struct.format, buf )
         except (AttributeError, KeyError):
             # Target doesn't exist, or isn't a list/deque; just save value
             data[ours]		= val
-            log.info( "%s :  %-10.10s => %20s     = %r", ( machine or self ).name_centered(),
-                      "", ours, val )
+            log.info( "%s :  %-10.10s => %20s     = %r (format %r over %r)",
+                      ( machine or self ).name_centered(),
+                      "", ours, val, self._struct.format, buf )
 
 
 class dfa_base( object ):
@@ -1011,9 +1072,9 @@ class dfa_base( object ):
     Automata (DFA) described by the provided the 'initial' state of a sub-machine (eg. a graph of
     state objects, potentially including DFAs).
 
-    Unlike a plain state, stores any current operational state (eg. its current state, repeat cycle,
-    etc.) in attributes, so that the same 'dfa' instance may NOT be simultaneously employed in
-    multiple state machines.  At least, it may not be in use simultaneously; uses a mutex
+    Unlike a plain state, stores any current operational state (eg. its current state, final repeat
+    cycle, etc.) in attributes, so that the same 'dfa' instance may NOT be simultaneously employed
+    in multiple state machines.  At least, it may not be in use simultaneously; uses a mutex
     threading.Lock to ensure.
 
     All states entered by the sub-machine (and its sub-machines) are yielded.  If an input symbol is
@@ -1021,21 +1082,18 @@ class dfa_base( object ):
     lower-level machine.
 
     After running the specified state machine to termination for the specified number of repeat
-    cycles (default: 1), performs its own transition for its own parent state machine.  It remains
-    in whatever state it terminates, in case the state machine could continue to accept input.  Is
-    only considered terminal when its sub-machine is terminal, and its final loop is complete.
-
-    By default, a dfa considers itself to be a terminal state; if its state sub-machine accepts the
-    sentence (and it has completed the requisite repeat cycles), it accepts the sentence.
+    cycles (default: 1), performs its own transition for its own parent state machine.  Is only
+    considered terminal when instantiated with terminal=True, and its sub-machine is terminal, and
+    its final loop is complete.
     """
     def __init__( self, name=None, initial=None, repeat=None, **kwds ):
         super( dfa_base, self ).__init__( name or self.__class__.__name__, **kwds )
         self.current		= initial
         self.initial		= initial
-        assert isinstance( repeat, (basestring if sys.version_info.major < 3 else str, int, type(None)))
+        assert isinstance( repeat, (type_str_base, int, type(None)))
         self.repeat		= repeat
         self.cycle		= 0
-        self.limit		= 1
+        self.final		= 1
         for sta in sorted( self.initial.nodes(), key=lambda s: misc.natural( s.name )):
             for inp,dst in sta.edges():
                 log.info( "%s <- %-10.10r --> %s", sta.name_centered(), inp, dst )
@@ -1065,8 +1123,8 @@ class dfa_base( object ):
     def terminal( self ):
         """Reflects the terminal condition of this state, our sub-machine, and done all 'repeat' loops.
         If we have a multi-state sub-machine (which may in turn contain further multi-state dfas),
-        we must not return terminal 'til A) we ourself are terminal, we are in the last loop, and
-        the current state of our multi-state machine is also marked terminal."""
+        we must not return terminal 'til A) we ourself were designated as terminal, we are in the
+        last loop, and the current state of our multi-state machine is also marked terminal."""
         return self._terminal and self.current.terminal and not self.loop()
 
     def reset( self ):
@@ -1079,9 +1137,9 @@ class dfa_base( object ):
         """Determine whether or not cycles remain before we allow termination of the sub-machine; cycle
         will the be the number of times the sub-machine has been executed to termination thus far.
         If None, default is 1 iteration."""
-        return self.cycle < self.limit
+        return self.cycle < self.final
 
-    def delegate( self, source, machine=None, path=None, data=None ):
+    def delegate( self, source, machine=None, path=None, data=None, ending=None ):
         """We will generate state transitions from the sub-machine 'til a non-transition (machine,None)
         is yielded (indicating that the input symbol is unacceptable); then (so long as the
         sub-machine is in a terminal state, having accepted the input sentence thus far), we must
@@ -1097,23 +1155,24 @@ class dfa_base( object ):
         returned, the caller must either change the conditions (eg. consume an input or chain more
         input to the source chainable iterator, or discard this generator)."""
         self.cycle		= 0
-        self.limit		= 1
-        limit_src		= None
+        self.final		= 1
+        final_src		= None
         if self.repeat is not None:
             # Must be an None, int, address an int in our data artifact.  The repeat may resolve to
             # 0/False, preventing even one loop.  If self.repeat was set, this determines the number
             # of initial-->terminal loop cycles the dfa will execute.
-            self.limit = limit_src	= self.repeat
-            if isinstance( limit_src, basestring if sys.version_info.major < 3 else str ):
-                # If the limit path doesn't exist, default to 0.  This allows us to create composite
-                # machines where the first dfa collects the limit, and then make an epsilon/None
+            self.final = final_src	= self.repeat
+            if isinstance( final_src, type_str_base ):
+                # If the final path doesn't exist, default to 0.  This allows us to create composite
+                # machines where the first dfa collects the final, and then make an epsilon/None
                 # transition to another dfa to collect the specified number of elements.  If the
-                # limit is missing, no elements will be collected.
-                limit_src	= self.context( path, limit_src )
-                self.limit	= data.get( limit_src, 0 )
-            assert isinstance( self.limit, int ), \
-                "Supplied repeat=%s (== %s) must be (or reference) an int, not a %r" % (
-                    self.repeat, limit_src, limit )
+                # final is missing, no elements will be collected.
+                final_src	= self.context( path, final_src )
+                self.final	= data.get( final_src, 0 )
+                log.info( "%s -- repeat=%r == %r", self.name_centered(), final_src, self.final )
+            assert isinstance( self.final, int ), \
+                "Supplied repeat=%r (== %r) must be (or reference) an int, not a %r" % (
+                    self.repeat, final_src, final )
 
         # Loop through all required cycles of the sub-machine, unless stasis (no progress) occurs.
         # Unless a cycle of the sub-machine completes, with it reaching a terminal state, we will
@@ -1124,8 +1183,8 @@ class dfa_base( object ):
             self.reset()
             self.cycle	       += 1 # On last cycle, sub-machine may be terminated at any terminal state
             log.debug( "%s <sub  %s> %3d/%3d (from %s)", self.name_centered(), 
-                       "loop" if self.cycle < self.limit else "last" , self.cycle, self.limit, 
-                       repr( limit_src ) if limit_src is not None else "(default)" )
+                       "loop" if self.cycle < self.final else "last" , self.cycle, self.final, 
+                       repr( final_src ) if final_src is not None else "(default)" )
             yield self,self.current
 
             seen		= set( [(self.current,source.peek(),source.sent)] )
@@ -1133,7 +1192,7 @@ class dfa_base( object ):
             while not done:
                 with self.current:
                     submach	= self.current.run(
-                        source=source, machine=self, path=self.context( path ), data=data )
+                        source=source, machine=self, path=self.context( path ), data=data, ending=ending )
                     try:
                         target	= None
                         transit	= False
@@ -1214,7 +1273,7 @@ class dfa_input( dfa_base, state_input ):
     pass
 
 
-class dfa_discard( dfa_base, state_discard ):
+class dfa_drop( dfa_base, state_drop ):
     pass
 
 
@@ -1229,6 +1288,7 @@ class regex( dfa ):
     is, itself a 'state') will process the data, and yield its own transition.
     If no name is supplied, defaults to the greenery.fsm's regex.
 
+    The resultant .input array will be character data ('u' in Python 3, 'c' in Python2)
     """
     def __init__( self, name=None, initial=None,
                   regex_states=state_input,
@@ -1243,44 +1303,14 @@ class regex( dfa ):
         super( regex, self ).__init__( name or repr( regexstr ), initial=initial, **kwds )
 
 
-class integer_parser( regex ):
-    """Collects a string of digits, and converts them to an integer in the data
-    artifact at path.context 'integer' by default."""
-    def __init__( self, name, initial=None, context="integer", **kwds ):
-        assert initial is None, "Cannot specify a sub-machine for %s.%s" % (
-            __package__, self.__class__.__name__ )
-        super( integer_parser, self ).__init__( name=name, initial="\d+", context=context, **kwds )
-        
-    def terminate( self, exception, machine=None, path=None, data=None ):
-        """Once our sub-machine has accepted a sequence of digits (into data '<context>.input'),
-        convert to an integer and store in 'value'.  This occurs before outgoing transitions occur.
-        Recognize several array typecodes and convert to appropriately convertible string
-        representation."""
-        ours			= self.context( path )
-        if exception is not None:
-            log.info( "%s: Not parsing integer from %r due to: %r", self.name_centered(), ours,
-                      exception )
-            return
-        subs			= self.initial.context( ours )
-        log.info( "%s: data[%s] = int( data[%s]: %r)", self.name_centered(),
-                  ours, subs, data[subs] if subs in data else data)
-        value			= data[subs]
-        if isinstance( value, array.array ):
-            if value.typecode == 'c':
-                value		= value.tostring()
-            elif value.typecode == 'B':
-                value		= value.tobytes()
-            elif value.typecode == 'u':
-                value		= value.tounicode()
-        data[ours]		= int( value )
-
-
 class regex_bytes( regex ):
     """An regex is described in str symbols; synonymous for bytes on Python2, but
     utf-8 on Python3 so encode them to bytes, and transform the resultant state
     machine to accept the equivalent sequence of bytes.  Cannot encode machines
     with any more than a single outgoing transition matching any multi-byte
-    input symbol (unless the only other transition is '.' (anychar))."""
+    input symbol (unless the only other transition is '.' (anychar)).  
+
+    The resultant .input array will be bytes data ('B' in Python3, 'c' in Python2)."""
     def __init__( self,
                   regex_states=state_input,
                   regex_alphabet=type_bytes_iter,
@@ -1295,7 +1325,133 @@ class regex_bytes( regex ):
                   regex_context=regex_context, **kwds )
 
 
-class regex_bytes_input( regex_bytes ):
+class string_base( object ):
+    """When combined with a regex class, collects a string matching the regular expression, and puts it
+    in the data artifact at path.context 'string' by default.
+
+    The default initial=".*\n", greedy=False configuration scans input only until the regular
+    expression is satisfied (by default, not satisfied 'til it sees a newline) and does no other
+    validation, much like the get(3) C library function.
+
+    Other more likely use cases would be to specify specific included character validation, and use
+    the greedy=True configuration to scan until the next symbol doesn't satisfy the regular
+    expression, or some other feature limits the length of the match:
+
+        initial='.*', greedy=True, length=5	# exactly 5 of any character
+        initial='[\w\s]*', greedy=True		# scan letters, numbers, _ and whitespace 'til exhausted
+        initial='\d*', greedy=True		# as many digits as can be found
+
+    Alternatively, you could specify regex_alphabet=..., and provide a type, a set/list/tuple of
+    acceptable symbols (anything with a __contains__ method), or a function to test the upcoming
+    symbol for acceptability.
+
+    If no decode= keyword parameter is provided, it is assumed that the data is already encoded in
+    the desired encoding, and doesn't need to be decoded from raw bytes into another encoding.  This
+    will generally be the case when the underlying regex is operating on native Python str types
+    (ascii or latin-1 in Python 2, utf-8 in Python 3).  When operating on raw bytes, however, a
+    target encoding should be provided.  
+
+    In Python 2, it is not possible to differentiate between raw bytes (str) and native
+    ascii/latin-1 strings (str).  So, if you're operating in raw bytes and you don't provide an
+    encoding, you will be left with a Python str containing the raw bytes; perhaps usable, if the
+    data represents information in an 8-bit character set, such as ascii, latin-1/iso-8859-1.  If
+    you provide a decode= specification, it will be used -- and yeild (perhaps unexpectedly) a
+    Python2 unicode type containing codepoints valid in the specified encoding.
+
+    In Python 3, raw bytes (bytes) and native strings (str, which are utf-8) are distinguishable,
+    and you must decode bytes into a specified encoding (eg. iso-8859-1, utf-8, ...) in order to
+    yield a python string; if you don't provide a decode= specification, you'll be left with bytes;
+    perhaps not what you expect.
+
+    When processing raw bytes data, provide a decode=..., and be prepared to handle the resultant
+    unicode/str result.  When processing non-bytes data, you don't have to provide a decode=
+    parameter, and the resultant Python str will contain symbols in the original encoding.
+
+    """
+    def __init__( self, name, initial=".*", context="string", greedy=False, decode=None, **kwds ):
+        self.decode		= decode
+        super( string_base, self ).__init__( name=name, initial=initial, context=context,
+                                             greedy=greedy, **kwds )
+        
+    def terminate( self, exception, machine=None, path=None, data=None ):
+        """Once our sub-machine has accepted the specified sequence (into data '<context>.input'),
+        convert to an string and store in <context>.  This occurs before outgoing transitions occur.
+        Recognize several array typecodes and convert to appropriately convertible string
+        representation."""
+        ours			= self.context( path )
+        if exception is not None:
+            log.info( "%s: Not parsing string from %r due to: %r", self.name_centered(), ours,
+                      exception )
+            return
+        subs			= self.initial.context( ours )
+        log.info( "%s: data[%s] = data[%s]: %r", self.name_centered(),
+                  ours, subs, data[subs] if subs in data else data )
+        value			= data[subs]
+        if isinstance( value, array.array ):
+            if value.typecode == 'c':
+                value		= value.tostring()
+            elif value.typecode == 'B':
+                value		= value.tobytes()
+            elif value.typecode == 'u':
+                value		= value.tounicode()
+        if self.decode is not None:
+            value		= value.decode( self.decode )
+        data[ours]		= value
+
+
+class string( string_base, regex ):
+    pass
+
+
+class string_bytes( string_base, regex_bytes ):
+    pass
+
+
+class integer_base( string_base ):
+    """When combined with a regex class, collects a string of digits, and converts them to an integer
+    in the data artifact at path.context 'integer' by default. """
+    def __init__( self, name, initial=None, context="integer", **kwds ):
+        assert initial is None, "Cannot specify a sub-machine for %s.%s" % (
+            __package__, self.__class__.__name__ )
+        super( integer_base, self ).__init__( name=name, initial="\d+", context=context,
+                                              greedy=True, **kwds )
+        
+    def terminate( self, exception, machine=None, path=None, data=None ):
+        """Once our sub-machine has accepted a sequence of digits (into data '<context>.input'),
+        convert to an integer and store in 'value'.  This occurs before outgoing transitions occur.
+        Recognize several array typecodes and convert to appropriately convertible string
+        representation."""
+        ours			= self.context( path )
+        if exception is not None:
+            log.info( "%s: Not parsing integer from %r due to: %r", self.name_centered(), ours,
+                      exception )
+            return
+
+        super( integer_base, self ).terminate(
+            exception=exception, machine=machine, path=path, data=data )
+
+        log.info( "%s: int( data[%s]: %r)", self.name_centered(),
+                  ours, data[ours] if ours in data else data )
+        data[ours]		= int( data[ours] )
+
+
+class integer( integer_base, regex ):
+    pass
+
+
+class integer_bytes( integer_base, regex_bytes ):
+    """Specifying a decode= when processing bytes data is (perhaps strangely) not required, as python's
+    int() conversion accepts bytes data containing ascii digits, eg. b'123'.  Therefore, in Python2,
+    the integer/integer_bytes are interchangeable.
+
+    In Python3, however, they must be used for str/bytes data respectively, because the underlying
+    iterators produce str/int respectively, and so the state machine transitions need to be
+    configured based on the different symbol data types.
+    """
+    pass
+
+
+class regex_bytes_promote( regex_bytes ):
     """Copy the collected data at path.sub-machine.context to our path.context"""
     def terminate( self, exception, machine=None, path=None, data=None ):
         """Once our machine has accepted a sentence of the grammar and terminated without exception,

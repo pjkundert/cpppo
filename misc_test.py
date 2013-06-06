@@ -47,5 +47,4 @@ def test_natural():
 
     s = sorted( l, key=natural )
     rs = [ repr(i) for i in s ]
-    print( rs )
     assert rs == ls1 or rs == ls2

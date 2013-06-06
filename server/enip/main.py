@@ -60,6 +60,7 @@ address				= ('0.0.0.0', 44818)
 
 if __name__ == "__main__":
     logging.basicConfig( **cpppo.log_cfg )
+    #logging.getLogger().setLevel( logging.DETAIL )
 
 log				= logging.getLogger( "enip.srv" )
 

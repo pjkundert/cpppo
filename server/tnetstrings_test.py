@@ -21,11 +21,10 @@ def test_tnetstrings():
         ( 7,  True ),
     ]
     
-    print()
     composite 			= b''
     for l, t in tests:
         data			= tnetstrings.dump( t, encoding="utf-8" )
-        print("%32.32r == %r" % ( t, data ))
+        logging.info( "%32.32r == %r" % ( t, data ))
         assert type( data ) is bytes
         assert len( data ) == l
         composite	       += data

@@ -74,7 +74,7 @@
     #+BEGIN_SRC python
     # Composite state machine accepting ab+, ignoring ,[ ]* separators
     ABP			= cpppo.dfa( "ab+", initial=E, terminal=True )
-    SEP			= cpppo.state_discard( "SEP" )
+    SEP			= cpppo.state_drop( "SEP" )
     ABP[',']		= SEP
     SEP[' ']		= SEP
     SEP[None]		= ABP
@@ -84,7 +84,7 @@
     
     When the lower level state machine doesn't recognize the input symbol for a
     transition, the higher level machine is given a chance to recognize them; in
-    this case, a ',' followed by any number of spaces leads to a state_discard
+    this case, a ',' followed by any number of spaces leads to a state_drop
     instance, which throws away the symbol.  Finally, it uses an "epsilon"
     (no-input) transition (indicated by a transition on None) to re-enter the
     main CSV machine to process subsequent symbols.

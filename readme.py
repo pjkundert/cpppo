@@ -31,7 +31,7 @@ def main():
 
     # Composite state machine accepting ab+, ignoring ,[ ]* separators
     ABP			= cpppo.dfa( 'ab+', initial=E, terminal=True )
-    SEP			= cpppo.state_discard( 'SEP' )
+    SEP			= cpppo.state_drop( 'SEP' )
     ABP[',']		= SEP
     SEP[' ']		= SEP
     SEP[None]		= ABP

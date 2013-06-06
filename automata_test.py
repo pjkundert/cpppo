@@ -22,7 +22,7 @@ sys.path.insert( 0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import cpppo
 
 logging.basicConfig( **cpppo.log_cfg )
-#logging.getLogger().setLevel( logging.DEBUG )
+#logging.getLogger().setLevel( logging.INFO )
 log				= logging.getLogger()
 log_not				= 0
 
@@ -40,7 +40,7 @@ def test_logging():
                                         "%s" % (
                     			    " ".join( list( str( i ) for i in range( 100 )))))))
     t2ms = 1000 * min( t.repeat( rep, num )) / num
-    print("expensive: %.3f ms/loop avg; %s better" % ( t2ms, t1ms / t2ms ))
+    log.normal( "expensive: %.3f ms/loop avg; %s better", t2ms, t1ms / t2ms )
     assert t1ms / t2ms > 10.0
 
     # And ensure it is pretty good, even compared to the best case with minimal
@@ -56,7 +56,7 @@ def test_logging():
                                         "%s: %r %d %d %d %d %d" % (
                     			    str( a ), repr( a ), 1, 2, 3, 4, 5 ))))
     t4ms = 1000 * min( t.repeat( rep, num )) / num
-    print("minimal: %.3f ms/loop avg; %s better" % ( t4ms, t3ms / t4ms ))
+    log.normal( "minimal: %.3f ms/loop avg; %s better", t4ms, t3ms / t4ms )
     assert t3ms / t4ms > 1.0
 
     # Only with no argument processing overhead at all is the overhead of the
@@ -70,7 +70,7 @@ def test_logging():
                                         "%s: %r %d %d %d %d %d" % (
                     			    a, a, 1, 2, 3, 4, 5 ))))
     t6ms = 1000 * min( t.repeat( rep, num )) / num
-    print("simplest: %.3f ms/loop avg; %s better" % ( t6ms, t5ms / t6ms ))
+    log.normal( "simplest: %.3f ms/loop avg; %s better", t6ms, t5ms / t6ms )
     assert t5ms / t6ms > .5
 
 
@@ -119,6 +119,21 @@ def test_iterators():
         assert False, "Expected TypeError, not %r" % ( e )
 
 
+    r				= cpppo.rememberable( '123' )
+    assert next( r ) == '1'
+    assert r.memory == [ '1' ]
+    try:
+        r.push( 'x' )
+        assert False, "Should have rejected push of inconsistent symbol"
+    except AssertionError:
+        pass
+    assert r.sent == 1
+    r.push( '1' )
+    assert r.sent == 0
+    assert r.memory == []
+    assert list( r ) == r.memory == [ '1', '2','3' ]
+
+
 def test_readme():
     """The basic examples in the README"""
 
@@ -141,7 +156,7 @@ def test_readme():
     
     # Composite state machine accepting ab+, ignoring ,[ ]* separators
     CSV				= cpppo.dfa( "CSV", initial=E, terminal=True )
-    SEP				= cpppo.state_discard( "SEP" )
+    SEP				= cpppo.state_drop( "SEP" )
 
     CSV[',']			= SEP
     SEP[' ']			= SEP
@@ -172,7 +187,7 @@ def test_state():
     }
     s1				= cpppo.state(
         'one', **unicodekwds )
-    s2				= cpppo.state_discard(
+    s2				= cpppo.state_drop(
         'two', **unicodekwds )
 
     s1['a']			= s2
@@ -220,7 +235,7 @@ def test_state():
 
     # Accepting a's separated by comma and space/pi (for kicks).  When the lower level a's machine
     # doesn't recognize the symbol, then the higher level machine will recognize and discard
-    sep				= cpppo.state_discard(	"sep", **unicodekwds )
+    sep				= cpppo.state_drop(	"sep", **unicodekwds )
     csv				= cpppo.dfa( "csv", initial=a_s , terminal=True, **unicodekwds )
     csv[',']			= sep
     sep[' ']			= sep
@@ -502,13 +517,13 @@ def test_decide():
     """
     e				= cpppo.state( "enter" )
     e['a'] = a			= cpppo.state_input( "a", context='a' )
-    a[' '] = s1			= cpppo.state_discard( "s1" )
+    a[' '] = s1			= cpppo.state_drop( "s1" )
     s1[' '] = s1
-    s1[None] = i1		= cpppo.integer_parser( "i1", context='i1' )
+    s1[None] = i1		= cpppo.integer( "i1", context='i1' )
     
-    i1[' '] = s2		= cpppo.state_discard( "s2" )
+    i1[' '] = s2		= cpppo.state_drop( "s2" )
     s2[' '] = s2
-    s2[None] = i2		= cpppo.integer_parser( "i2", context='i2' )
+    s2[None] = i2		= cpppo.integer( "i2", context='i2' )
     less			= cpppo.state( "less", terminal=True )
     greater			= cpppo.state( "greater", terminal=True )
     equal			= cpppo.state( "equal", terminal=True )
@@ -536,3 +551,117 @@ def test_decide():
                       i, s, source.sent, source.peek(), data )
         assert i == 13
         assert s is equal
+
+def test_limit():
+    # Force a limit on input symbols.  If we only accept only even b's, we'll
+    # fail if we force a stoppage at a+b*9
+    source			= cpppo.peekable( str( 'a'+'b'*100 ))
+    data			= cpppo.dotdict()
+    try:
+        with cpppo.regex( initial=str( 'a(bb)*' ), context='even_b', limit=10 ) as machine:
+            for i,(m,s) in enumerate( machine.run( source=source, data=data )):
+                log.info( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r", m.name_centered(),
+                          i, s, source.sent, source.peek(), data )
+    except cpppo.NonTerminal:
+        assert i == 10
+        assert source.sent == 10
+    else:
+        assert False, "Should have failed with a cpppo.NonTerminal exception"
+
+
+    # But odd b's OK
+    for limit in [
+            10, 
+            '..somewhere.ten',
+            lambda **kwds: 10, 
+            lambda path=None, data=None, **kwds: data[path+'..somewhere.ten'] ]:
+        source			= cpppo.peekable( str( 'a'+'b'*100 ))
+        data			= cpppo.dotdict()
+        data['somewhere.ten']	= 10
+        with cpppo.regex( initial=str( 'ab(bb)*' ), context='odd_b', limit=limit ) as machine:
+            for i,(m,s) in enumerate( machine.run( source=source, data=data )):
+                log.info( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r", m.name_centered(),
+                          i, s, source.sent, source.peek(), data )
+            assert i == 10
+            assert source.sent == 10
+            assert ( data.odd_b.input.tostring()
+                     if sys.version_info.major < 3
+                     else data.odd_b.input.tounicode() ) == str( 'a'+'b'*9 )
+        
+def test_decode():
+    # Test decode of regexes over bytes data.  Operates in raw bytes symbols.
+    source			= cpppo.peekable( 'π'.encode( 'utf-8' ))
+    data			= cpppo.dotdict()
+    with cpppo.string_bytes( 'pi', initial='.*', greedy=True, context='pi', decode='utf-8' ) as machine:
+        for i,(m,s) in enumerate( machine.run( source=source, data=data )):
+            log.info( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r", m.name_centered(),
+                      i, s, source.sent, source.peek(), data )
+        assert i == 3
+        assert source.sent == 2
+        assert data.pi == 'π'
+    
+    if sys.version_info.major < 3:
+        # Test regexes over plain string data (no decode required).  Force non-unicode (counteracts
+        # import unicode_literals above).  We can't use greenery.lego regexes on unicode data in
+        # Python 2...
+        source			= cpppo.peekable( str( 'pi' ))
+        data			= cpppo.dotdict()
+        with cpppo.string( 'pi', initial='.*', greedy=True, context='pi' ) as machine:
+            for i,(m,s) in enumerate( machine.run( source=source, data=data )):
+                log.info( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r", m.name_centered(),
+                          i, s, source.sent, source.peek(), data )
+            assert i == 3
+            assert source.sent == 2
+            assert data.pi == 'pi'
+
+    else:
+        # Test regexes over Python 3 unicode string data (no decode required).  Operates in native
+        # unicode symbols.
+        source			= cpppo.peekable( 'π' )
+        data			= cpppo.dotdict()
+        with cpppo.string( 'pi', initial='.*', greedy=True, context='pi' ) as machine:
+            for i,(m,s) in enumerate( machine.run( source=source, data=data )):
+                log.info( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r", m.name_centered(),
+                          i, s, source.sent, source.peek(), data )
+            assert i == 2
+            assert source.sent == 1
+            assert data.pi == 'π'
+
+    source			= cpppo.peekable( str( '123' ))
+    data			= cpppo.dotdict()
+    with cpppo.integer( 'value' ) as machine:
+        for i,(m,s) in enumerate( machine.run( source=source, data=data )):
+            log.info( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r", m.name_centered(),
+                      i, s, source.sent, source.peek(), data )
+        assert i == 4
+        assert source.sent == 3
+        assert data.integer == 123
+
+
+    source			= cpppo.peekable( '123'.encode( 'ascii' ))
+    data			= cpppo.dotdict()
+    with cpppo.integer_bytes( 'value' ) as machine:
+        for i,(m,s) in enumerate( machine.run( source=source, data=data )):
+            log.info( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r", m.name_centered(),
+                      i, s, source.sent, source.peek(), data )
+        assert i == 4
+        assert source.sent == 3
+        assert data.integer == 123
+
+    # Try using a integer (str) parser over bytes data.  Works in Python 2, not so much in Python 3
+    try:
+        source			= cpppo.peekable( '123'.encode( 'ascii' ))
+        data			= cpppo.dotdict()
+        with cpppo.integer( 'value' ) as machine:
+            for i,(m,s) in enumerate( machine.run( source=source, data=data )):
+                log.info( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r", m.name_centered(),
+                          i, s, source.sent, source.peek(), data )
+            assert i == 4
+            assert source.sent == 3
+            assert data.integer == 123
+        assert sys.version_info.major < 3, \
+            "Should have failed in Python3; str/bytes iterator both produce str/int"
+    except AssertionError:
+        assert not sys.version_info.major < 3, \
+            "Shouldn't have failed in Python2; str/bytes iterator both produce str"
+
