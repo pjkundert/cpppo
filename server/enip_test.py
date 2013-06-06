@@ -401,8 +401,12 @@ def test_enip_machine():
                 pass 			# varies...
         assert source.peek() is None
    
-        for k,v in tst.items():
-            assert data[k] == v, "%r not in data, or != %r: %r" % ( k, v, data )
+        try:
+            for k,v in tst.items():
+                assert data[k] == v
+        except:
+            log.warning( "%r not in data, or != %r: %s", k, v, enip.enip_format( data ))
+            raise
 
         # Ensure we can reproduce the original packet from the parsed data
         if data:
@@ -491,6 +495,9 @@ def test_enip_extpath():
         except:
             log.warning( "%r not in data, or != %r: %s", k, v, enip.enip_format( data ))
             raise
+
+        # And, ensure that we can get the original EPATH back (ignoring extra decoy bytes)
+        assert enip.extpath_encode( data.request.path ) == pkt[:1+data.request.path.size*2]
 
 def test_enip_cip():
     for pkt,tst in cip_tests:

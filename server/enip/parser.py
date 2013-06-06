@@ -226,10 +226,8 @@ class enip_machine( cpppo.dfa ):
         super( enip_machine, self ).__init__( name=name, initial=hedr, **kwds )
 
 def enip_encode( data ):
-    """Produce an encoded EtherNet/IP message from the supplied data; assumes
-    enip.encapsulated_data.input is already available.
-
-    """
+    """Produce an encoded EtherNet/IP message from the supplied data; assumes any encapsulated data has
+    been encoded to enip.encapsulated_data.input and is already available."""
     result			= b''.join( [
         uint_encode(	data.enip.header.command ),
         uint_encode(len(data.enip.encapsulated_data.input )),
@@ -378,6 +376,61 @@ class extpath( cpppo.dfa ):
 
         super( extpath, self ).__init__( name=name, initial=psiz, **kwds )
 
+
+def extpath_encode( data ):
+    """Produce an encoded EtherNet/IP EPATH message from the supplied path data.  For example, here is
+    an encoding a 8-bit instance ID 0x06, and ending with a 32-bit element ID 0x04030201:
+
+       byte:	0	1	2	... 	N-6	N-5	N-4	N-3	N-2	N-1	N
+                <N/2>	0x24	0x06	... 	0x25	0x00	0x01	0x02	0x03	0x04
+
+    """
+    
+    result			= b''
+    for seg in data['list']:
+        found			= False
+        for segnam, segtyp in {
+                'symbolic':	0x91,
+                'class':	0x20,
+                'instance':	0x24,
+                'attribute':	0x30,
+                'element':	0x28, }.items():
+            if segnam not in seg:
+                continue
+            found		= True
+            segval		= seg[segnam]
+            # An ANSI Extended Symbolic segment?
+            if segnam == 'symbolic':
+                result	       += usint_encode( segtyp )
+                seglen		= len( segval )
+                result	       += usint_encode( seglen )
+                result	       += segval.encode( 'iso-8859-1' )
+                if seglen % 2:
+                    result      += usint_encode( 0 )
+                break
+           
+            # A numeric path segment.
+            if segval <= 0xff:
+                result          += usint_encode( segtyp )
+                result          += usint_encode( segval )
+            elif segval <= 0xffff:
+                result          += usint_encode( segtyp + 1 )
+                result          += usint_encode( 0 )
+                result          += uint_encode( segval )
+            elif segval <= 0xffffffff and segnam == 'element':
+                result          += usint_encode( segtyp + 2 )
+                result          += usint_encode( 0 )
+                result          += udint_encode( segval )
+            else:
+                assert False, "Invalid value for numeric EPATH segment %r == %d: %d" (
+                    segnam, segval, data )
+            break
+        if not found:
+            assert False, "Invalid EPATH segment %r found in %r" % ( segnam, data )
+        assert len( result ) % 2 == 0, \
+            "Failed to retain even EPATH word length after %r in %r" % ( segnam, data )
+
+    return usint_encode( len( result ) // 2 ) + result
 
 
 class cpfdata( cpppo.dfa ):
