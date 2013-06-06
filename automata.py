@@ -52,6 +52,7 @@ log				= logging.getLogger( __package__ )
 log_cfg				= {
     "level":	logging.WARNING,
 #    "level":	logging.DETAIL,
+#    "level":	logging.INFO,
 #    "level":	logging.DEBUG,
     "datefmt":	'%m-%d %H:%M',
     "format":	'%(asctime)s.%(msecs).03d %(thread)16x %(name)-8.8s %(levelname)-8.8s %(funcName)-10.10s %(message)s',
@@ -1055,13 +1056,15 @@ class state_struct( state ):
         val		        = self._struct.unpack_from( buffer=buf )[0]
         try:
             data[ours].append( val )
-            log.info( "%s :  %-10.10s => %20s[%3d]= %r", ( machine or self ).name_centered(),
-                      "", ours, len(data[ours])-1, val )
+            log.info( "%s :  %-10.10s => %20s[%3d]= %r (format %r over %r)",
+                      ( machine or self ).name_centered(),
+                      "", ours, len(data[ours])-1, val, self._struct.format, buf )
         except (AttributeError, KeyError):
             # Target doesn't exist, or isn't a list/deque; just save value
             data[ours]		= val
-            log.info( "%s :  %-10.10s => %20s     = %r", ( machine or self ).name_centered(),
-                      "", ours, val )
+            log.info( "%s :  %-10.10s => %20s     = %r (format %r over %r)",
+                      ( machine or self ).name_centered(),
+                      "", ours, val, self._struct.format, buf )
 
 
 class dfa_base( object ):
@@ -1285,6 +1288,7 @@ class regex( dfa ):
     is, itself a 'state') will process the data, and yield its own transition.
     If no name is supplied, defaults to the greenery.fsm's regex.
 
+    The resultant .input array will be character data ('u' in Python 3, 'c' in Python2)
     """
     def __init__( self, name=None, initial=None,
                   regex_states=state_input,
@@ -1299,44 +1303,14 @@ class regex( dfa ):
         super( regex, self ).__init__( name or repr( regexstr ), initial=initial, **kwds )
 
 
-class integer_parser( regex ):
-    """Collects a string of digits, and converts them to an integer in the data
-    artifact at path.context 'integer' by default."""
-    def __init__( self, name, initial=None, context="integer", **kwds ):
-        assert initial is None, "Cannot specify a sub-machine for %s.%s" % (
-            __package__, self.__class__.__name__ )
-        super( integer_parser, self ).__init__( name=name, initial="\d+", context=context, **kwds )
-        
-    def terminate( self, exception, machine=None, path=None, data=None ):
-        """Once our sub-machine has accepted a sequence of digits (into data '<context>.input'),
-        convert to an integer and store in 'value'.  This occurs before outgoing transitions occur.
-        Recognize several array typecodes and convert to appropriately convertible string
-        representation."""
-        ours			= self.context( path )
-        if exception is not None:
-            log.info( "%s: Not parsing integer from %r due to: %r", self.name_centered(), ours,
-                      exception )
-            return
-        subs			= self.initial.context( ours )
-        log.info( "%s: data[%s] = int( data[%s]: %r)", self.name_centered(),
-                  ours, subs, data[subs] if subs in data else data)
-        value			= data[subs]
-        if isinstance( value, array.array ):
-            if value.typecode == 'c':
-                value		= value.tostring()
-            elif value.typecode == 'B':
-                value		= value.tobytes()
-            elif value.typecode == 'u':
-                value		= value.tounicode()
-        data[ours]		= int( value )
-
-
 class regex_bytes( regex ):
     """An regex is described in str symbols; synonymous for bytes on Python2, but
     utf-8 on Python3 so encode them to bytes, and transform the resultant state
     machine to accept the equivalent sequence of bytes.  Cannot encode machines
     with any more than a single outgoing transition matching any multi-byte
-    input symbol (unless the only other transition is '.' (anychar))."""
+    input symbol (unless the only other transition is '.' (anychar)).  
+
+    The resultant .input array will be bytes data ('B' in Python3, 'c' in Python2)."""
     def __init__( self,
                   regex_states=state_input,
                   regex_alphabet=type_bytes_iter,
@@ -1349,6 +1323,132 @@ class regex_bytes( regex ):
                   regex_encoder=regex_encoder,
                   regex_typecode=regex_typecode, 
                   regex_context=regex_context, **kwds )
+
+
+class string_base( object ):
+    """When combined with a regex class, collects a string matching the regular expression, and puts it
+    in the data artifact at path.context 'string' by default.
+
+    The default initial=".*\n", greedy=False configuration scans input only until the regular
+    expression is satisfied (by default, not satisfied 'til it sees a newline) and does no other
+    validation, much like the get(3) C library function.
+
+    Other more likely use cases would be to specify specific included character validation, and use
+    the greedy=True configuration to scan until the next symbol doesn't satisfy the regular
+    expression, or some other feature limits the length of the match:
+
+        initial='.*', greedy=True, length=5	# exactly 5 of any character
+        initial='[\w\s]*', greedy=True		# scan letters, numbers, _ and whitespace 'til exhausted
+        initial='\d*', greedy=True		# as many digits as can be found
+
+    Alternatively, you could specify regex_alphabet=..., and provide a type, a set/list/tuple of
+    acceptable symbols (anything with a __contains__ method), or a function to test the upcoming
+    symbol for acceptability.
+
+    If no decode= keyword parameter is provided, it is assumed that the data is already encoded in
+    the desired encoding, and doesn't need to be decoded from raw bytes into another encoding.  This
+    will generally be the case when the underlying regex is operating on native Python str types
+    (ascii or latin-1 in Python 2, utf-8 in Python 3).  When operating on raw bytes, however, a
+    target encoding should be provided.  
+
+    In Python 2, it is not possible to differentiate between raw bytes (str) and native
+    ascii/latin-1 strings (str).  So, if you're operating in raw bytes and you don't provide an
+    encoding, you will be left with a Python str containing the raw bytes; perhaps usable, if the
+    data represents information in an 8-bit character set, such as ascii, latin-1/iso-8859-1.  If
+    you provide a decode= specification, it will be used -- and yeild (perhaps unexpectedly) a
+    Python2 unicode type containing codepoints valid in the specified encoding.
+
+    In Python 3, raw bytes (bytes) and native strings (str, which are utf-8) are distinguishable,
+    and you must decode bytes into a specified encoding (eg. iso-8859-1, utf-8, ...) in order to
+    yield a python string; if you don't provide a decode= specification, you'll be left with bytes;
+    perhaps not what you expect.
+
+    When processing raw bytes data, provide a decode=..., and be prepared to handle the resultant
+    unicode/str result.  When processing non-bytes data, you don't have to provide a decode=
+    parameter, and the resultant Python str will contain symbols in the original encoding.
+
+    """
+    def __init__( self, name, initial=".*", context="string", greedy=False, decode=None, **kwds ):
+        self.decode		= decode
+        super( string_base, self ).__init__( name=name, initial=initial, context=context,
+                                             greedy=greedy, **kwds )
+        
+    def terminate( self, exception, machine=None, path=None, data=None ):
+        """Once our sub-machine has accepted the specified sequence (into data '<context>.input'),
+        convert to an string and store in <context>.  This occurs before outgoing transitions occur.
+        Recognize several array typecodes and convert to appropriately convertible string
+        representation."""
+        ours			= self.context( path )
+        if exception is not None:
+            log.info( "%s: Not parsing string from %r due to: %r", self.name_centered(), ours,
+                      exception )
+            return
+        subs			= self.initial.context( ours )
+        log.info( "%s: data[%s] = data[%s]: %r", self.name_centered(),
+                  ours, subs, data[subs] if subs in data else data )
+        value			= data[subs]
+        if isinstance( value, array.array ):
+            if value.typecode == 'c':
+                value		= value.tostring()
+            elif value.typecode == 'B':
+                value		= value.tobytes()
+            elif value.typecode == 'u':
+                value		= value.tounicode()
+        if self.decode is not None:
+            value		= value.decode( self.decode )
+        data[ours]		= value
+
+
+class string( string_base, regex ):
+    pass
+
+
+class string_bytes( string_base, regex_bytes ):
+    pass
+
+
+class integer_base( string_base ):
+    """When combined with a regex class, collects a string of digits, and converts them to an integer
+    in the data artifact at path.context 'integer' by default. """
+    def __init__( self, name, initial=None, context="integer", **kwds ):
+        assert initial is None, "Cannot specify a sub-machine for %s.%s" % (
+            __package__, self.__class__.__name__ )
+        super( integer_base, self ).__init__( name=name, initial="\d+", context=context,
+                                              greedy=True, **kwds )
+        
+    def terminate( self, exception, machine=None, path=None, data=None ):
+        """Once our sub-machine has accepted a sequence of digits (into data '<context>.input'),
+        convert to an integer and store in 'value'.  This occurs before outgoing transitions occur.
+        Recognize several array typecodes and convert to appropriately convertible string
+        representation."""
+        ours			= self.context( path )
+        if exception is not None:
+            log.info( "%s: Not parsing integer from %r due to: %r", self.name_centered(), ours,
+                      exception )
+            return
+
+        super( integer_base, self ).terminate(
+            exception=exception, machine=machine, path=path, data=data )
+
+        log.info( "%s: int( data[%s]: %r)", self.name_centered(),
+                  ours, data[ours] if ours in data else data )
+        data[ours]		= int( data[ours] )
+
+
+class integer( integer_base, regex ):
+    pass
+
+
+class integer_bytes( integer_base, regex_bytes ):
+    """Specifying a decode= when processing bytes data is (perhaps strangely) not required, as python's
+    int() conversion accepts bytes data containing ascii digits, eg. b'123'.  Therefore, in Python2,
+    the integer/integer_bytes are interchangeable.
+
+    In Python3, however, they must be used for str/bytes data respectively, because the underlying
+    iterators produce str/int respectively, and so the state machine transitions need to be
+    configured based on the different symbol data types.
+    """
+    pass
 
 
 class regex_bytes_promote( regex_bytes ):

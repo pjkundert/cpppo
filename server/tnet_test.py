@@ -39,10 +39,7 @@ log				= logging.getLogger( "tnet.cli")
 def test_tnet_machinery():
     # parsing integers
     path			= "machinery"
-    SIZE			= cpppo.integer_parser( name="SIZE", context="size",
-                                                        regex_alphabet=cpppo.type_bytes_iter,
-                                                        regex_encoder=cpppo.type_str_encoder,
-                                                        regex_typecode=cpppo.type_bytes_array_symbol )
+    SIZE			= cpppo.integer_bytes( name="SIZE", context="size" )
     data			= cpppo.dotdict()
     source			= cpppo.chainable( b'123:' )
     with SIZE:

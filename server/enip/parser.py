@@ -291,9 +291,8 @@ class move_if( cpppo.decide ):
 class extpath( cpppo.dfa ):
     """Parses an extended request path_size (words), path_data and path segment list
 
-        .path_size
-        .path_temp
-        .path [
+        .path.size
+        .path.list [
             { 'class':      # },
             { 'instance':   # },
             { 'attribute':  # },
@@ -316,17 +315,60 @@ class extpath( cpppo.dfa ):
                                                 state=pseg )
 
         # Wire each different segment type parser between pseg and pmov
-        pseg[b'\x28'[0]]= e_8s	= octets_drop(	'type',		repeat=1 )
-        e_8s[True]	= e_8v	= usint( 	'elem_8bit',	context='element')
+        pseg[b'\x28'[0]]= e_8t	= octets_drop(	'type',		repeat=1 )
+        e_8t[True]	= e_8v	= usint( 	'elem_8bit',	context='element')
         e_8v[None]		= pmov
 
-        pseg[b'\x29'[0]]= e16s	= octets_drop(	'fill',		repeat=2 )
-        e16s[True]	= e16v	= uint(		'elem16bit',	context='element')
+        pseg[b'\x29'[0]]= e16t	= octets_drop(	'type',		repeat=2 )
+        e16t[True]	= e16v	= uint(		'elem16bit',	context='element')
         e16v[None]		= pmov
 
-        pseg[b'\x2a'[0]]= e32s	= octets_drop(	'fill',		repeat=2 )
-        e32s[True]	= e32v	= udint(	'elem32bit',	context='element')
+        pseg[b'\x2a'[0]]= e32t	= octets_drop(	'type',		repeat=2 )
+        e32t[True]	= e32v	= udint(	'elem32bit',	context='element')
         e32v[None]		= pmov
+
+
+        pseg[b'\x20'[0]]= c_8t	= octets_drop(	'type',		repeat=1 )
+        c_8t[True]	= c_8v	= usint(	'clas_8bit',	context='class')
+        c_8v[None]		= pmov
+
+        pseg[b'\x21'[0]]= c16t	= octets_drop(	'type',		repeat=2 )
+        c16t[True]	= c16v	= uint(		'clas16bit',	context='class')
+        c16v[None]		= pmov
+
+
+        pseg[b'\x24'[0]]= i_8t	= octets_drop(	'type',		repeat=1 )
+        i_8t[True]	= i_8v	= usint(	'inst_8bit',	context='instance')
+        i_8v[None]		= pmov
+
+        pseg[b'\x25'[0]]= i16t	= octets_drop(	'type',		repeat=2 )
+        i16t[True]	= i16v	= uint(		'inst16bit',	context='instance')
+        i16v[None]		= pmov
+
+
+        pseg[b'\x30'[0]]= a_8t	= octets_drop(	'type',		repeat=1 )
+        a_8t[True]	= a_8v	= usint(	'attr_8bit',	context='attribute')
+        a_8v[None]		= pmov
+
+        pseg[b'\x31'[0]]= a16t	= octets_drop(	'type',		repeat=2 )
+        a16t[True]	= a16v	= uint(		'attr16bit',	context='attribute')
+        a16v[None]		= pmov
+
+
+        pseg[b'\x91'[0]]= symt	= octets_drop(	'type',		repeat=1 )
+        symt[True]	= syml	= usint(	'sym_len',	context='length' )
+        syml[None]	= symv	= cpppo.string_bytes(
+            					'symbolic',	context='symbolic', limit='..length',
+                                                initial='.*',	decode='iso-8859-1' )
+
+        # An odd-length ANSI Extended Symbolic name means an odd total.  Pad
+        symo			= octets_drop(	'pad', 		repeat=1 )
+        symo[None]		= pmov
+
+        symv[None]		= cpppo.decide(	'odd',
+                predicate=lambda path=None, data=None, **kwds: data[path+'.length'] % 2,
+                                                state=symo )
+        symv[None]		= pmov
 
 
         # Parse all segments in a sub-dfa limited by the parsed path.size (in words; double)

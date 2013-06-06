@@ -408,28 +408,73 @@ def test_enip_machine():
         if data:
             assert enip.enip_encode( data ) == pkt, "Invalid data: %r" % data
 
-extpath_elems_1		= bytes(bytearray([
-    0x01,						# words
+extpath_1		= bytes(bytearray([
+    0x01,						# 1 word
     0x28, 0x01,   					# 8-bit element segment == 1
     0x28, 0x02,						# Decoy -- shouldn't be processed!
 ]))
-extpath_elems_3		= bytes(bytearray([
-    0x05,						# words
+extpath_2		= bytes(bytearray([
+    0x05,						# 5 words
     0x28, 0x01,   					# 8-bit element segment == 1
     0x28, 0x02,
     0x2a, 0x00, 0x01, 0x02, 0x03, 0x04,
-    0xff						# Decoy -- shouldn't be processed!
+    0xff,						# Decoy -- shouldn't be processed!
+]))
+extpath_3		= bytes(bytearray([
+    0x0f,						# 15 words
+    0x28, 0x01,   					#  8-bit element   segment == 0x01
+    0x29, 0x00, 0x01, 0x02,				# 16-bit element   segment == 0x0201
+    0x2a, 0x00, 0x01, 0x02, 0x03, 0x04,			# 32-bit element   segment == 0x04030201
+
+    0x20, 0x11,   					#  8-bit class     segment == 0x11
+    0x21, 0x00, 0x11, 0x02,				# 16-bit class     segment == 0x0211
+
+    0x24, 0x21,   					#  8-bit instance  segment == 0x21
+    0x25, 0x00, 0x21, 0x02,				# 16-bit instance  segment == 0x0221
+
+    0x30, 0x31,   					#  8-bit attribute segment == 0x31
+    0x31, 0x00, 0x31, 0x02,				# 16-bit attribute segment == 0x0231
+
+    0xff,						# Decoy -- shouldn't be processed!
+]))
+extpath_4		= bytes(bytearray([
+    0x08,						# 4 words
+    0x91, 0x06,
+    b'a'[0], b'b'[0], b'c'[0], b'1'[0], b'2'[0], b'3'[0],# 6-character symbolic
+    0x91, 0x05,
+    b'x'[0], b'y'[0], b'z'[0], b'1'[0], b'2'[0], 0x00,	# 5-character symbolic + pad
+    0xff,						# Decoy -- shouldn't be processed!
 ]))
 
+# The byte order of EtherNet/IP CIP data is little-endian; the lowest-order byte
+# of the value arrives first.
 extpath_tests			= [
-            ( extpath_elems_1,	{
+            ( extpath_1,	{
                 'request.path.size': 1,
                 'request.path.list': [{'element': 1}]
             } ),
-            ( extpath_elems_3,	{ 
+            ( extpath_2,	{ 
                 'request.path.size': 5,
-                'request.path.list': [{'element': 1},{'element': 2},{'element':67305985}]
+                'request.path.list': [
+                    {'element':		0x01}, {'element':	0x02}, {'element':	0x04030201}
+                ]
             } ),
+            ( extpath_3,	{ 
+                'request.path.size': 15,
+                'request.path.list': [
+                    {'element':		0x01}, {'element':	0x0201}, {'element':	0x04030201},
+                    {'class':		0x11}, {'class':	0x0211},
+                    {'instance':	0x21}, {'instance':	0x0221},
+                    {'attribute':	0x31}, {'attribute':	0x0231},
+                ]
+            } ),
+            ( extpath_4,	{ 
+                'request.path.size': 8,
+                'request.path.list': [
+                    {'symbolic':	'abc123', 'length': 6 },
+                    {'symbolic':	'xyz12',  'length': 5 },
+                ]
+            } )
 ]
 
 def test_enip_extpath():
@@ -444,7 +489,7 @@ def test_enip_extpath():
             for k,v in tst.items():
                 assert data[k] == v
         except:
-            log.warning( "%r not in data, or != %r: %r", k, v, data )
+            log.warning( "%r not in data, or != %r: %s", k, v, enip.enip_format( data ))
             raise
 
 def test_enip_cip():

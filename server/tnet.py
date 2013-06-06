@@ -143,10 +143,7 @@ def tnet_machine( name="TNET", context="tnet" ):
         "typecode":	cpppo.type_bytes_array_symbol,
     }
 
-    SIZE			= cpppo.integer_parser( name="SIZE", context="size",
-                                                        regex_alphabet=cpppo.type_bytes_iter,
-                                                        regex_encoder=cpppo.type_str_encoder,
-                                                        regex_typecode=cpppo.type_bytes_array_symbol )
+    SIZE			= cpppo.integer_bytes( name="SIZE", context="size", decode='ascii' )
     COLON			= cpppo.state_drop( name="COLON", **bytes_conf )
     DATA			= data_parser( name="DATA", context="data", repeat="..size" )
     TYPE			= tnet_parser( name="TYPE", context="type", terminal=True,

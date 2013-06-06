@@ -519,11 +519,11 @@ def test_decide():
     e['a'] = a			= cpppo.state_input( "a", context='a' )
     a[' '] = s1			= cpppo.state_drop( "s1" )
     s1[' '] = s1
-    s1[None] = i1		= cpppo.integer_parser( "i1", context='i1' )
+    s1[None] = i1		= cpppo.integer( "i1", context='i1' )
     
     i1[' '] = s2		= cpppo.state_drop( "s2" )
     s2[' '] = s2
-    s2[None] = i2		= cpppo.integer_parser( "i2", context='i2' )
+    s2[None] = i2		= cpppo.integer( "i2", context='i2' )
     less			= cpppo.state( "less", terminal=True )
     greater			= cpppo.state( "greater", terminal=True )
     equal			= cpppo.state( "equal", terminal=True )
@@ -588,3 +588,80 @@ def test_limit():
                      if sys.version_info.major < 3
                      else data.odd_b.input.tounicode() ) == str( 'a'+'b'*9 )
         
+def test_decode():
+    # Test decode of regexes over bytes data.  Operates in raw bytes symbols.
+    source			= cpppo.peekable( 'π'.encode( 'utf-8' ))
+    data			= cpppo.dotdict()
+    with cpppo.string_bytes( 'pi', initial='.*', greedy=True, context='pi', decode='utf-8' ) as machine:
+        for i,(m,s) in enumerate( machine.run( source=source, data=data )):
+            log.info( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r", m.name_centered(),
+                      i, s, source.sent, source.peek(), data )
+        assert i == 3
+        assert source.sent == 2
+        assert data.pi == 'π'
+    
+    if sys.version_info.major < 3:
+        # Test regexes over plain string data (no decode required).  Force non-unicode (counteracts
+        # import unicode_literals above).  We can't use greenery.lego regexes on unicode data in
+        # Python 2...
+        source			= cpppo.peekable( str( 'pi' ))
+        data			= cpppo.dotdict()
+        with cpppo.string( 'pi', initial='.*', greedy=True, context='pi' ) as machine:
+            for i,(m,s) in enumerate( machine.run( source=source, data=data )):
+                log.info( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r", m.name_centered(),
+                          i, s, source.sent, source.peek(), data )
+            assert i == 3
+            assert source.sent == 2
+            assert data.pi == 'pi'
+
+    else:
+        # Test regexes over Python 3 unicode string data (no decode required).  Operates in native
+        # unicode symbols.
+        source			= cpppo.peekable( 'π' )
+        data			= cpppo.dotdict()
+        with cpppo.string( 'pi', initial='.*', greedy=True, context='pi' ) as machine:
+            for i,(m,s) in enumerate( machine.run( source=source, data=data )):
+                log.info( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r", m.name_centered(),
+                          i, s, source.sent, source.peek(), data )
+            assert i == 2
+            assert source.sent == 1
+            assert data.pi == 'π'
+
+    source			= cpppo.peekable( str( '123' ))
+    data			= cpppo.dotdict()
+    with cpppo.integer( 'value' ) as machine:
+        for i,(m,s) in enumerate( machine.run( source=source, data=data )):
+            log.info( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r", m.name_centered(),
+                      i, s, source.sent, source.peek(), data )
+        assert i == 4
+        assert source.sent == 3
+        assert data.integer == 123
+
+
+    source			= cpppo.peekable( '123'.encode( 'ascii' ))
+    data			= cpppo.dotdict()
+    with cpppo.integer_bytes( 'value' ) as machine:
+        for i,(m,s) in enumerate( machine.run( source=source, data=data )):
+            log.info( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r", m.name_centered(),
+                      i, s, source.sent, source.peek(), data )
+        assert i == 4
+        assert source.sent == 3
+        assert data.integer == 123
+
+    # Try using a integer (str) parser over bytes data.  Works in Python 2, not so much in Python 3
+    try:
+        source			= cpppo.peekable( '123'.encode( 'ascii' ))
+        data			= cpppo.dotdict()
+        with cpppo.integer( 'value' ) as machine:
+            for i,(m,s) in enumerate( machine.run( source=source, data=data )):
+                log.info( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r", m.name_centered(),
+                          i, s, source.sent, source.peek(), data )
+            assert i == 4
+            assert source.sent == 3
+            assert data.integer == 123
+        assert sys.version_info.major < 3, \
+            "Should have failed in Python3; str/bytes iterator both produce str/int"
+    except AssertionError:
+        assert not sys.version_info.major < 3, \
+            "Shouldn't have failed in Python2; str/bytes iterator both produce str"
+
