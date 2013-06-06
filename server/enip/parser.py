@@ -69,6 +69,7 @@ class octets_base( cpppo.dfa_base ):
     after accepting and processing exactly one symbol.  Only after all 'repeat' loops will
     self.terminal be True."""
     def __init__( self, name, initial=None,
+                  octets_name="byte",
                   octets_state=cpppo.state_input,
                   octets_alphabet=cpppo.type_bytes_iter,
                   octets_encoder=None,
@@ -76,7 +77,7 @@ class octets_base( cpppo.dfa_base ):
         assert initial is None, "Cannot specify a sub-machine for %s.%s" % (
             __package__, self.__class__.__name__ )
         super( octets_base, self ).__init__( name=name, initial=octets_state(
-            name="byte", terminal=True, alphabet=octets_alphabet, encoder=octets_encoder,
+            name=octets_name, terminal=True, alphabet=octets_alphabet, encoder=octets_encoder,
             typecode=octets_typecode ), **kwds )
    
 
@@ -99,14 +100,20 @@ class octets_struct( octets_base, cpppo.state_struct ):
                                                format=format, **kwds )
 
 
-class octets_discard( octets_base, cpppo.state_discard ):
-    """Scans 'repeat' octets and discards them
-
-    TODO: Doesn't work.  Seems to consume extra symbols, and/or doesn't transition out when it's not marked terminal...
-    """
+class octets_noop( octets_base, cpppo.state ):
+    """Does nothing with an octet."""
     def __init__( self, name,
-                  octets_state=cpppo.state_discard, **kwds ):
-        super( octets_discard, self ).__init__( name=name, octets_state=octets_state, **kwds )
+                  octets_state=cpppo.state, **kwds ):
+        super( octets_noop, self ).__init__( name=name, octets_name="noop",
+                                             octets_state=octets_state, **kwds )
+
+
+class octets_drop( octets_base, cpppo.state ):
+    """Scans 'repeat' octets and drops them."""
+    def __init__( self, name,
+                  octets_state=cpppo.state_drop, **kwds ):
+        super( octets_drop, self ).__init__( name=name, octets_name="drop",
+                                             octets_state=octets_state, **kwds )
         
 
 class words_base( cpppo.dfa_base ):
@@ -247,36 +254,36 @@ def enip_format( data ):
 # 
 class move_if( cpppo.decide ):
     """If the predicate is True (the default), then move (either append or assign) data[path+source] to
-    data[path], assigning init to it first if the target doesn't yet exist.  Then, proceed to
-    the target state.
-
-    """
-    def __init__( self, name, source=None, init=None, **kwds ):
+    data[path+destination], assigning init to it first if the target doesn't yet exist.  Then,
+    proceed to the target state."""
+    def __init__( self, name, source=None, destination=None, initializer=None, **kwds ):
         super( move_if, self ).__init__( name=name, **kwds )
-        self.source		= source
-        self.init		= init
+        self.src		= source if source else ''
+        self.dst		= destination if destination else ''
+        self.ini		= initializer
         
     def execute( self, truth, machine=None, source=None, path=None, data=None ):
         target			= super( move_if, self ).execute(
             truth, machine=machine, source=source, path=path, data=data )
         if truth:
-            source		= path + self.source
-            assert source in data, \
-                "Could not find %r in %r to move to %r" % ( source, data, path )
-            if self.init and path not in data:
-                init		= ( self.init
-                                    if not hasattr( self.init, '__call__' )
-                                    else self.init(
+            pathsrc		= path + self.src
+            pathdst		= path + self.dst
+            assert pathsrc in data, \
+                "Could not find %r to move to %r in %r" % ( pathsrc, pathdst, data )
+            if self.ini and pathdst not in data:
+                ini		= ( self.ini
+                                    if not hasattr( self.ini, '__call__' )
+                                    else self.ini(
                                             machine=machine, source=source, path=path, data=data ))
-                log.debug( "%s -- init data[%r] to %r", self, path, init )
-                data[path]	= init
+                log.debug( "%s -- init. data[%r] to %r", self, pathdst, ini )
+                data[pathdst]	= ini
 
-            if hasattr( data[path], 'append' ):
-                log.debug( "%s -- append data[%r]==%r to data[%r]", self, source, data[source], path )
-                data[path].append( data.pop( source ))
+            if hasattr( data[pathdst], 'append' ):
+                log.debug( "%s -- append data[%r] == %r to data[%r]", self, pathsrc, data[pathsrc], pathdst )
+                data[pathdst].append( data.pop( pathsrc ))
             else:
-                log.debug( "%s -- assign data[%r]==%r to data[%r]", self, source, data[source], path )
-                data[path]	= data.pop( source )
+                log.debug( "%s -- assign data[%r] == %r to data[%r]", self, pathsrc, data[pathsrc], pathdst )
+                data[pathdst]	= data.pop( pathsrc )
 
         return target
 
@@ -285,7 +292,7 @@ class extpath( cpppo.dfa ):
     """Parses an extended request path_size (words), path_data and path segment list
 
         .path_size
-        .path_data
+        .path_temp
         .path [
             { 'class':      # },
             { 'instance':   # },
@@ -299,29 +306,33 @@ class extpath( cpppo.dfa ):
         kwds.setdefault( 'context', 'path' )
         name 			= name or kwds.get( 'context' )
         
-        psiz			= usint(	'path_size',	extension='_size' )
-        #ptdt			= cpppo.words( 	'path_data',	extension='_data',
-        #                                        repeat="..path_size" )
+        psiz			= usint(	'size',		context='size' )
 
-        pseg			= cpppo.state(	'seg', 		context='seg', 	terminal=True )
-        pseg['\x28']	= e_8s	= octets( 	'type',		context='type')
+        # After capturing each segment (pseg), move it onto the path list, and loop
+        pseg			= octets_noop(	'seg',		terminal=True )
+        # ...segment parsers...
+        pmov			= move_if( 	'move',		initializer=lambda **kwds: [],
+                                            source='..segment', destination='..list',
+                                                state=pseg )
+
+        # Wire each different segment type parser between pseg and pmov
+        pseg[b'\x28'[0]]= e_8s	= octets_drop(	'type',		repeat=1 )
         e_8s[True]	= e_8v	= usint( 	'elem_8bit',	context='element')
-        e_8v[None]		= pseg
+        e_8v[None]		= pmov
 
-        pseg['\x29']	= e16s	= octets_discard( 'type_fill', repeat=2 )
+        pseg[b'\x29'[0]]= e16s	= octets_drop(	'fill',		repeat=2 )
         e16s[True]	= e16v	= uint(		'elem16bit',	context='element')
-        e16v[None]		= pseg
+        e16v[None]		= pmov
 
-        pseg['\x2a']	= e32s	= octets_discard( 'type_fill', repeat=2 )
+        pseg[b'\x2a'[0]]= e32s	= octets_drop(	'fill',		repeat=2 )
         e32s[True]	= e32v	= udint(	'elem32bit',	context='element')
-        e32v[None]		= pseg
+        e32v[None]		= pmov
 
-        pseg[None]		= pseg
 
-        # Parse all segments in a sub-dfa limited by the parsed path_size (in words; double)
-        psiz[None]	= pall	= cpppo.dfa(    'all',
+        # Parse all segments in a sub-dfa limited by the parsed path.size (in words; double)
+        psiz[None]	= pall	= cpppo.dfa(    'all',		context='segment',
                                                 initial=pseg,	terminal=True,
-            limit=lambda path=None, data=None, **kwds: data[path+'..path_size'] * 2 )
+            limit=lambda path=None, data=None, **kwds: data[path+'..size'] * 2 )
 
         super( extpath, self ).__init__( name=name, initial=psiz, **kwds )
 
@@ -336,7 +347,7 @@ class cpfdata( cpppo.dfa ):
         .cpf.item[0].length		uint		2	Type of item encapsulated		
         .cpf.item[0].data		octets[length]
 
-    Parse each CPF item into cpf.item_tmp, and (after parsing) moves it to cpf.item[x].
+    Parse each CPF item into cpf.item_temp, and (after parsing) moves it to cpf.item[x].
 
     """
     def __init__( self, name=None, **kwds ):
@@ -349,15 +360,16 @@ class cpfdata( cpppo.dfa ):
                                                 repeat="..length", 
                                                 terminal=True )
 
-        # Each item is collected into '..item_tmp', and then moved into place into the provided
+        # Each item is collected into '..item_temp', and then moved into place into the provided
         # context, probably 'item' (init to [])
-        item			= cpppo.dfa( 	"item_tmp", 	extension="..item_tmp",
+        item			= cpppo.dfa( 	"item_temp", 	extension="..item_temp",
                                                 initial=ityp )
-        item[None] 		= move_if( 	"move", state=cpppo.state( "moved", terminal=True),
-                                                init=lambda: [],
-                                                source='..item_tmp' )
+        item[None] 		= move_if( 	"move", 	source='..item_temp',
+                                                initializer=lambda: [],
+                                                state=cpppo.state( "moved", terminal=True ))
 
-        # Collect 'number' items, each into item_tmp, then move to 'item[x]'
+
+        # Collect 'number' items, each into item_temp, then move to 'item[x]'
         numb			= uint(		"item_count",	context="item_count" )
         numb[None] 		= cpppo.dfa(    "item", 	context="item", 
                                                 initial=item,

@@ -315,8 +315,8 @@ class state( dict ):
     state processes its input symbol (if any).  The incoming symbol source iterator's .sent property
     is tested before transitioning, and transitioning is terminated if the computed ending symbol
     has been reached."""
-    def __init__( self, name, terminal=False, alphabet=None, context=None, extension=None, encoder=None,
-                  greedy=True, limit=None ):
+    def __init__( self, name, terminal=False, alphabet=None, context=None, extension=None,
+                  encoder=None, typecode=None, greedy=True, limit=None ):
         if isinstance( name, state ):
             # Initialization from another state; copy transition dict/recognizers
             other		= name
@@ -328,6 +328,7 @@ class state( dict ):
             self._context	= other._context   if context   is None else context
             self._extension	= other._extension if extension is None else extension
             self.encoder	= other.encoder    if encoder   is None else encoder
+            self.typecode	= other.typecode   if typecode  is None else typecode
             self.greedy		= other.greedy     if greedy    is None else greedy
             self.limit		= other.limit      if limit     is None else limit
         else:
@@ -339,6 +340,7 @@ class state( dict ):
             self._context	= context	# Context added to path with '.'
             self._extension	= extension	#   plus extension, to place output in data
             self.encoder	= encoder
+            self.typecode	= typecode	# Unused in base, but part of standard interface
             self.greedy		= greedy
             self.limit		= limit
 
@@ -634,8 +636,8 @@ class state( dict ):
                     limit	= data.get( limit_src, 0 )
                 elif hasattr( limit, '__call__' ):
                     limit_src	= misc.function_name( limit )
-                    limit	= limit( source=source, machine=machine, path=self.context( path ),
-                                         data=data )
+                    limit	= limit( # provide our machine's context in predicate's path
+                        source=source, machine=machine, path=self.context( path ), data=data )
                 assert isinstance( limit, int ), \
                     "Supplied limit=%r (== %r) must be (or reference) an int, not a %s" % (
                         limit_src, limit, type( limit ))
@@ -645,7 +647,7 @@ class state( dict ):
                     ending	= source.sent + limit 
 
             # Run the sub-machine; it is assumed that it ensures that sub-machine is deterministic
-            # (doesn't enter no-progress loop).  
+            # (doesn't enter a no-progress loop).
             for which,state in self.delegate(
                     source=source, machine=machine, path=path, data=data, ending=ending ):
                 yield which,state
@@ -695,7 +697,7 @@ class state( dict ):
             # And finally, make certain we haven't blown our symbol limit, a catastrophic failure.
             assert source.sent <= ending, \
                 "%s exceeded limit on incoming symbols by %d" % (
-                    self.name_cenetered(), source.sent - ending )
+                    self.name_centered(), source.sent - ending )
                 
 
     def transition( self, source, machine=None, path=None, data=None, ending=None ):
@@ -765,8 +767,8 @@ class state( dict ):
                     break
                 try:
                     log.debug( "%s <selfdecide> on %s", self.name_centered(), choice )
-                    target	= potential( source=source, machine=machine, path=self.context( path ),
-                                             data=data )
+                    target	= potential( # this decision is made in our parent machine's context
+                        source=source, machine=machine, path=path, data=data )
                 except Exception as exc:
                     log.warning( "%s <selfdecide> on %s failed: %r", self.name_centered(),
                                  potential, exc )
@@ -859,7 +861,7 @@ class state( dict ):
 
         A greenery.fsm is also designed to be greedy on failure; it will accept and consume any
         unaccepted characters in a final non-terminal state.  Recognize these dead states and
-        discard them; we want to produce a state machine that fails on invalid inputs.
+        drop them; we want to produce a state machine that fails on invalid inputs.
 
         Returns the resultant regular expression string and lego representation, the fsm, and the
         initial state of the resultant state machine:
@@ -977,13 +979,14 @@ class state_input( state ):
     The input alphabet type, and the corresponding array typecode capable of containing individual
     elements of the alphabet must be specified; default is str/'c' or str/'u' as appropriate for
     Python2/3 (the alternative for a binary datastream might be bytes/'c' or bytes/'B')."""
-    def __init__( self, name, typecode=None, **kwds ):
+    def __init__( self, name, **kwds ):
         # overrides with default if keyword unset OR None
         if kwds.get( "alphabet" ) is None:
             kwds["alphabet"]	= type_str_iter
         if kwds.get( "extension" ) is None:
             kwds["extension"]	= path_ext_input
-        self._typecode		= typecode if typecode is not None else type_str_array_symbol
+        if kwds.get( "typecode" ) is None:
+            kwds["typecode"]	= type_str_array_symbol
         super( state_input, self ).__init__( name, **kwds )
 
     def validate( self, inp ):
@@ -997,17 +1000,17 @@ class state_input( state ):
         path			= self.context( path=path )
         if data is not None and path:
             if path not in data:
-                data[path]	= array.array( self._typecode )
+                data[path]	= array.array( self.typecode )
             data[path].append( inp )
             log.info( "%s :  %-10.10r => %20s[%3d]=%r", ( machine or self ).name_centered(),
                        inp, path, len(data[path])-1, inp )
 
 
-class state_discard( state_input ):
-    """Validate and discard a symbol."""
+class state_drop( state_input ):
+    """Validate and drop a symbol."""
     def process( self, source, machine=None, path=None, data=None ):
         inp			= next( source )
-        log.info( "%s :  %-10.10r: discarded", ( machine or self ).name_centered(), inp )
+        log.info( "%s :  %-10.10r: dropped", ( machine or self ).name_centered(), inp )
 
 
 class state_struct( state ):
@@ -1267,7 +1270,7 @@ class dfa_input( dfa_base, state_input ):
     pass
 
 
-class dfa_discard( dfa_base, state_discard ):
+class dfa_drop( dfa_base, state_drop ):
     pass
 
 

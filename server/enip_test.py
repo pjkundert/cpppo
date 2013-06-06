@@ -402,20 +402,34 @@ def test_enip_machine():
         assert source.peek() is None
    
         for k,v in tst.items():
-            assert data[k] == v
+            assert data[k] == v, "%r not in data, or != %r: %r" % ( k, v, data )
 
         # Ensure we can reproduce the original packet from the parsed data
         if data:
             assert enip.enip_encode( data ) == pkt, "Invalid data: %r" % data
 
-extpath_elems 		= bytes(bytearray([
+extpath_elems_1		= bytes(bytearray([
     0x01,						# words
     0x28, 0x01,   					# 8-bit element segment == 1
     0x28, 0x02,						# Decoy -- shouldn't be processed!
 ]))
+extpath_elems_3		= bytes(bytearray([
+    0x05,						# words
+    0x28, 0x01,   					# 8-bit element segment == 1
+    0x28, 0x02,
+    0x2a, 0x00, 0x01, 0x02, 0x03, 0x04,
+    0xff						# Decoy -- shouldn't be processed!
+]))
 
 extpath_tests			= [
-            ( extpath_elems,	{} ),
+            ( extpath_elems_1,	{
+                'request.path.size': 1,
+                'request.path.list': [{'element': 1}]
+            } ),
+            ( extpath_elems_3,	{ 
+                'request.path.size': 5,
+                'request.path.list': [{'element': 1},{'element': 2},{'element':67305985}]
+            } ),
 ]
 
 def test_enip_extpath():
@@ -426,10 +440,13 @@ def test_enip_extpath():
             for i,(m,s) in enumerate( machine.run( source=source, path='request', data=data )):
                 log.detail( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r",
                           machine.name_centered(), i, s, source.sent, source.peek(), data )
+        try:
+            for k,v in tst.items():
+                assert data[k] == v
+        except:
+            log.warning( "%r not in data, or != %r: %r", k, v, data )
+            raise
 
-
-	
-    
 def test_enip_cip():
     for pkt,tst in cip_tests:
         # Parse just the headers

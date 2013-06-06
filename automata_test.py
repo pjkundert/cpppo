@@ -156,7 +156,7 @@ def test_readme():
     
     # Composite state machine accepting ab+, ignoring ,[ ]* separators
     CSV				= cpppo.dfa( "CSV", initial=E, terminal=True )
-    SEP				= cpppo.state_discard( "SEP" )
+    SEP				= cpppo.state_drop( "SEP" )
 
     CSV[',']			= SEP
     SEP[' ']			= SEP
@@ -187,7 +187,7 @@ def test_state():
     }
     s1				= cpppo.state(
         'one', **unicodekwds )
-    s2				= cpppo.state_discard(
+    s2				= cpppo.state_drop(
         'two', **unicodekwds )
 
     s1['a']			= s2
@@ -235,7 +235,7 @@ def test_state():
 
     # Accepting a's separated by comma and space/pi (for kicks).  When the lower level a's machine
     # doesn't recognize the symbol, then the higher level machine will recognize and discard
-    sep				= cpppo.state_discard(	"sep", **unicodekwds )
+    sep				= cpppo.state_drop(	"sep", **unicodekwds )
     csv				= cpppo.dfa( "csv", initial=a_s , terminal=True, **unicodekwds )
     csv[',']			= sep
     sep[' ']			= sep
@@ -517,11 +517,11 @@ def test_decide():
     """
     e				= cpppo.state( "enter" )
     e['a'] = a			= cpppo.state_input( "a", context='a' )
-    a[' '] = s1			= cpppo.state_discard( "s1" )
+    a[' '] = s1			= cpppo.state_drop( "s1" )
     s1[' '] = s1
     s1[None] = i1		= cpppo.integer_parser( "i1", context='i1' )
     
-    i1[' '] = s2		= cpppo.state_discard( "s2" )
+    i1[' '] = s2		= cpppo.state_drop( "s2" )
     s2[' '] = s2
     s2[None] = i2		= cpppo.integer_parser( "i2", context='i2' )
     less			= cpppo.state( "less", terminal=True )
