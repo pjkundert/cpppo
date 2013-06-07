@@ -623,37 +623,52 @@ class logix( cpppo.dfa ):
     If a Logix5000 Controller is being addressed (See Logix5000 Data Access manual, pp 16, Services
     Supported by Logix5000 Controllers), the ucmm.request_data. may contain:
     
-        .service			usint		1
-    		Read Tag Service 		0x4c
-    		Read Tag Fragmented Service 	0x52 	(unrelated to Unconnected Send, above...)
-    		Write Tag Service 		0x4d
-    		Write Tag Fragmented Service 	0x53
-    		Read Modify Write Tag Service 	0x4e
-					      | 0x80 	(indicates response)
+	.service			usint		1
+
+    Read Tag Service				0x4c
+    Read Tag Fragmented Service			0x52	(unrelated to Unconnected Send, above...)
+    Write Tag Service				0x4d
+    Write Tag Fragmented Service		0x53
+    Read Modify Write Tag Service		0x4e	(not implemented)
+					      | 0x80	(indicates response)
  
-        .path				extpath		...
+	.path				extpath		...
 
-        The request-specific data for the supported services are:
+	The request-specific data for the supported services are:
 
-    		Read Tag Service 		0x4c
-        .read_tag.elements		uint		2
+    Read Tag Service				0x4c
+	.read_tag.elements		uint		2
+    Read Tag Service (reply)			0xcc
+	.read_tag.type			uint		2
+	.read_tag.data.list		[0x...]		1/2/4 (depending on type)
     
-    		Read Tag Fragmented Service	0x52
-        .read_frag.elements		uint		2
-        .read_frag.offset		udint		4 (in bytes)
+    Read Tag Fragmented Service			0x52
+	.read_frag.elements		uint		2
+	.read_frag.offset		udint		4 (in bytes)
+    Read Tag Fragmented Service (reply)		0xd2
+	.read_frag.status		usint		1
+	.read_frag.status_size		usint		1 (0x00)
+	.read_frag.type			uint		2
+	.read_frag.data.list		[0x..., 0x...]	* x 1/2/4 (depending on type)
 
-    		Write Tag Service 		0x4d
-        .write_tag.type			uint		2
-        .write_tag.data			octets[...]	* (sufficient for one tag_type)
+    Write Tag Service				0x4d
+	.write_tag.type			uint		2
+	.write_tag.data.list		[0x...]		1/2/4 (depending on type)
+    Write Tag Service (reply)			0xdd
+	.write_tag.status		usint		1
+	.write_tag.status_size		usint		1 (0x00)
 
-    		Write Tag Fragmented Service	0x52
-        .write_frag.type		uint		2
-        .write_frag.elements		uint		2
-        .write_frag.offset		udint		4 (in bytes)
-        .write_frag.data		octets[...]	* (remainder, divisible by tag_type)
+    Write Tag Fragmented Service		0x53
+	.write_frag.type		uint		2
+	.write_frag.elements		uint		2
+	.write_frag.offset		udint		4 (in bytes)
+	.write_frag.data.list		[0x..., 0x...]	* x 1/2/4 (depending on type)
+    Write Tag Fragmented Service (reply)	0xd3
+	.write_tag.status		usint		1
+	.write_tag.status_size		usint		1 (0x00)
 
     This must be run with a length-constrained 'source' iterable (eg. a fixed-length array harvested
-    by a previous parser, eg. ucon_send.request_data).  Since there are no indicators within this
+    by a previous parser, eg. ucon_send.request_data).	Since there are no indicators within this
     level of the protocol the indicate the size of the request, the Write Tag [Fragmented] Service
     requests (and Read Tag [Fragmented] replies) do not carry indicators of the size of their data.
     It could be deduced from the type for Write Tag requests (Read Tag replies), but cannot be
@@ -665,42 +680,67 @@ class logix( cpppo.dfa ):
         name 			= name or kwds.get( 'context' )
 
         slct			= octets_noop(	'select' )	# parse path size and path
+
+        # Read Tag Service
         slct[b'\x4c'[0]]= rtsv	= usint(	'service',  	context='service' )
         rtsv[True]	= rtpt	= extpath()
         rtpt[True]	= rtel	= uint(		'elements', 	context='read_tag',   extension='.element',
                                                 terminal=True )
-        # Read Tag Fragmented
+        # Read Tag Service (reply)
+        slct[b'\xcc'[0]]= Rtsv	= usint(	'service',  	context='service' )
+        Rtsv[True]	= Rtrs	= octets_drop(	'reserved',	repeat=1 )
+        Rtrs[True]	= Rtst	= usint( 	'status', 	context='read_tag',  extension='.status' )
+        Rtst[b'\x00'[0]]= Rtss	= usint( 	'status_size', 	context='read_tag',  extension='.status_size' )
+        Rtss[True]	= Rtdt	= uint( 	'type',   	context='read_tag',  extension='.type' )
+        Rtdt[True]		= typed_data( 	'data',   	context='read_tag',  extension='.data',
+                                                datatype='..type',
+                                                terminal=True )
+
+        # Read Tag Fragmented Service
         slct[b'\x52'[0]]= rfsv	= usint(	'service',	context='service' )
         rfsv[True]	= rfpt	= extpath()
         rfpt[True]	= rfel	= uint(		'elements',	context='read_frag',  extension='.elements' )
         rfel[True]		= udint( 	'offset',   	context='read_frag',  extension='.offset',
                                                 terminal=True )
-
-        # Read Tag Fragmented Reply
+        # Read Tag Fragmented Service (reply)
         slct[b'\xd2'[0]]= Rfsv	= usint(	'service',  	context='service' )
         Rfsv[True]	= Rfrs	= octets_drop(	'reserved',	repeat=1 )
         Rfrs[True]	= Rfst	= usint( 	'status', 	context='read_frag',  extension='.status' )
         Rfst[b'\x00'[0]]= Rfss	= usint( 	'status_size', 	context='read_frag',  extension='.status_size' )
         Rfss[True]	= Rfdt	= uint( 	'type',   	context='read_frag',  extension='.type' )
-        Rfdt[True]	= Rfdl	= typed_data( 	'data',   	context='read_frag',  extension='.data',
+        Rfdt[True]		= typed_data( 	'data',   	context='read_frag',  extension='.data',
                                                 datatype='..type',
                                                 terminal=True )
 
-        slct[b'\x4d'[0]]= wtsv	= usint(	'service',  context='service' )
+        # Write Tag Service
+        slct[b'\x4d'[0]]= wtsv	= usint(	'service',  	context='service' )
         wtsv[True]	= wtpt	= extpath()
-        wtpt[True]	= wtty	= uint(		'type',     context='write_tag',  extension='.type' )
-        wtty[True]	= wtdt	= octets( 	'data',	    context='write_tag',  extension='.data',
+        wtpt[True]	= wtty	= uint(		'type',   	context='write_tag',  extension='.type' )
+        wtty[True]		= typed_data( 	'data',   	context='write_tag',  extension='.data',
+                                                datatype='..type',
                                                 terminal=True )
-        wtdt[True]	= wtdt	# And loop consuming all remaining data
+        # Write Tag Service (reply)
+        slct[b'\xdd'[0]]= Wtsv	= usint(	'service',  	context='service' )
+        Wtsv[True]	= Wtrs	= octets_drop(	'reserved',	repeat=1 )
+        Wtrs[True]	= Wtst	= usint( 	'status', 	context='read_frag',  extension='.status' )
+        Wtst[b'\x00'[0]]	= usint( 	'status_size', 	context='read_frag',  extension='.status_size',
+                                                terminal=True )
 
-        slct[b'\x53'[0]]= wfsv	= usint(	'service',  context='service' )
+        # Write Tag Fragmented Service
+        slct[b'\x53'[0]]= wfsv	= usint(	'service',  	context='service' )
         wfsv[True]	= wfpt	= extpath()
-        wfpt[True]	= wfty	= uint(		'type',     context='write_frag', extension='.type')
-        wfty[True]	= wfel	= uint(		'elements', context='write_frag', extension='.elements')
-        wfel[True]	= wfof	= udint( 	'offset',   context='write_frag', extension='.offset' )
-        wfof[True]	= wfdt	= octets( 	'data',	    context='write_frag', extension='.data',
+        wfpt[True]	= wfty	= uint(		'type',     	context='write_frag', extension='.type')
+        wfty[True]	= wfel	= uint(		'elements', 	context='write_frag', extension='.elements')
+        wfel[True]	= wfof	= udint( 	'offset',   	context='write_frag', extension='.offset' )
+        wfof[True]		= typed_data( 	'data',   	context='write_frag', extension='.data',
+                                                datatype='..type',
                                                 terminal=True )
-        wfdt[True]	= wfdt	# And loop consuming all remaining data
+        # Write Tag Fragmented Service (reply)
+        slct[b'\xd3'[0]]= Wtsv	= usint(	'service',  	context='service' )
+        Wtsv[True]	= Wtrs	= octets_drop(	'reserved',	repeat=1 )
+        Wtrs[True]	= Wtst	= usint( 	'status', 	context='write_frag',  extension='.status' )
+        Wtst[b'\x00'[0]]	= usint( 	'status_size', 	context='write_frag',  extension='.status_size',
+                                                terminal=True )
 
         super( logix, self ).__init__( name=name, initial=slct, **kwds )
 
