@@ -143,37 +143,56 @@ class words( words_base, cpppo.state ):
 # 
 # The basic EtherNet/IP CIP protocol data types
 # 
-# usint		-- Parse an 8-bit EtherNet/IP unsigned int 
-# usint_encode	--   and convert a value back to a 8-bit EtherNet/IP unsigned int
-# uint		-- Parse a 16-bit EtherNet/IP unsigned int 
-# uint_encode	--   and convert a value back to a 16-bit EtherNet/IP unsigned int
-# udint		-- Parse a 32-bit EtherNet/IP unsigned int 
-# udint_encode	--   and convert a value back to a 32-bit EtherNet/IP unsigned int
+# USINT		-- Parse an 8-bit EtherNet/IP unsigned int 
+# USINT.produce	--   and convert a value back to a 8-bit EtherNet/IP unsigned int
+# INT		-- Parse a 16-bit EtherNet/IP   signed int 
+# UINT		-- Parse a 16-bit EtherNet/IP unsigned int 
+# DINT		-- Parse a 32-bit EtherNet/IP   signed int 
+# UDINT		-- Parse a 32-bit EtherNet/IP unsigned int 
 # 
-class usint( octets_struct ):
-    """An EtherNet/IP UINT; 8-bit unsigned integer"""
-    def __init__( self, name, **kwds ):
-        super( usint, self ).__init__( name=name, format='B', **kwds )
+#     You must provide either a name or a context; if you provide neither, then
+# both default to the name of the class.
+# 
+class TYPE( octets_struct ):
+    """An EtherNet/IP data type"""
+    def __init__( self, name=None, **kwds ):
+        name			= name or kwds.setdefault( 'context', self.__class__.__name__ )
+        super( TYPE, self ).__init__( name=name, format=self.struct_format, **kwds )
 
-def usint_encode( value ):
-    return struct.pack( 'B', value )
+    @classmethod
+    def produce( cls, value ):
+        return struct.pack( cls.struct_format, value )
 
-class uint( octets_struct ):
-    """An EtherNet/IP UINT; 16-bit little-endian unsigned integer"""
-    def __init__( self, name, **kwds ):
-        super( uint, self ).__init__( name=name, format='<H', **kwds )
+class USINT( TYPE ):
+    """An EtherNet/IP USINT; 8-bit unsigned integer"""
+    tag_type			= None
+    struct_format		= 'B'
 
-def uint_encode( value ):
-    return struct.pack( '<H', value )
+class SINT( TYPE ):
+    """An EtherNet/IP SINT; 8-bit signed integer"""
+    tag_type			= 0x00c2
+    struct_format		= 'b'
 
-class udint( octets_struct ):
-    """An EtherNet/IP UDINT; 32-bit little-endian unsigned integer"""
-    def __init__( self, name, **kwds ):
-        super( udint, self ).__init__( name=name, format='<I', **kwds )
+class UINT( TYPE ):
+    """An EtherNet/IP UINT; 16-bit unsigned integer"""
+    tag_type			= None
+    struct_format		= '<H'
 
-def udint_encode( value ):
-    return struct.pack( '<I', value )
-        
+class INT( TYPE ):
+    """An EtherNet/IP INT; 16-bit signed integer"""
+    tag_type			= 0x00c3
+    struct_format		= '<h'
+
+class UDINT( TYPE ):
+    """An EtherNet/IP UINT; 16-bit unsigned integer"""
+    tag_type			= None
+    struct_format		= '<I'
+
+class DINT( TYPE ):
+    """An EtherNet/IP INT; 16-bit signed integer"""
+    tag_type			= 0x00c4
+    struct_format		= '<i'
+
 
 # 
 # enip_header	-- Parse an EtherNet/IP header only 
@@ -184,12 +203,12 @@ class enip_header( cpppo.dfa ):
     """Scans either a complete EtherNet/IP encapsulation header, or nothing (EOF), into the context
     (default 'header'):
     
-        data.<context>.command		uint         2
-        data.<context>.length		uint         2
-        data.<context>.session_handle	udint        4
-        data.<context>.status		udint        4
+        data.<context>.command		UINT         2
+        data.<context>.length		UINT         2
+        data.<context>.session_handle	UDINT        4
+        data.<context>.status		UDINT        4
         data.<context>.sender_context	octets[8]    8
-        data.<context>.options		udint        4
+        data.<context>.options		UDINT        4
                                                     --
                                                     24
 
@@ -202,13 +221,13 @@ class enip_header( cpppo.dfa ):
         kwds.setdefault( 'context', 'header' )
         name 			= name or kwds.get( 'context' )
         init			= cpppo.state(  "empty",  terminal=True )
-        init[True] = cmnd	= uint(		"command",	context="command" )
-        cmnd[True] = leng	= uint(		"length",	context="length" )
-        leng[True] = sess	= udint(	"sess_hdl",	context="session_handle" )
-        sess[True] = stts	= udint(	"status",	context="status" )
+        init[True] = cmnd	= UINT(		"command",	context="command" )
+        cmnd[True] = leng	= UINT(		"length",	context="length" )
+        leng[True] = sess	= UDINT(	"sess_hdl",	context="session_handle" )
+        sess[True] = stts	= UDINT(	"status",	context="status" )
         stts[True] = ctxt	= octets(	"sndr_ctx",	context="sender_context",
                                     repeat=8 )
-        ctxt[True] = opts	= udint( 	"options",	context="options", terminal=True )
+        ctxt[True] = opts	= UDINT( 	"options",	context="options", terminal=True )
 
         super( enip_header, self ).__init__( name=name, initial=init, **kwds )
 
@@ -229,12 +248,12 @@ def enip_encode( data ):
     """Produce an encoded EtherNet/IP message from the supplied data; assumes any encapsulated data has
     been encoded to enip.encapsulated_data.input and is already available."""
     result			= b''.join( [
-        uint_encode(	data.enip.header.command ),
-        uint_encode(len(data.enip.encapsulated_data.input )),
-        udint_encode( 	data.enip.header.session_handle ),
-        udint_encode( 	data.enip.header.status ),
+        UINT.produce(	data.enip.header.command ),
+        UINT.produce(len(data.enip.encapsulated_data.input )),
+        UDINT.produce( 	data.enip.header.session_handle ),
+        UDINT.produce( 	data.enip.header.status ),
         octets_encode(	data.enip.header.sender_context.input ),
-        udint_encode(	data.enip.header.options ),
+        UDINT.produce(	data.enip.header.options ),
         octets_encode(	data.enip.encapsulated_data.input ),
     ])
     return result
@@ -286,75 +305,75 @@ class move_if( cpppo.decide ):
         return target
 
 
-class extpath( cpppo.dfa ):
-    """Parses an extended request path_size (words), path_data and path segment list
+class EPATH( cpppo.dfa ):
+    """Parses an Extended Path of .size (in words), path_data and path segment list
 
-        .path.size
-        .path.list [
+        .EPATH.size
+        .EPATH.segment [
             { 'class':      # },
             { 'instance':   # },
             { 'attribute':  # },
             { 'element':    # },
             { 'symbolic':   '...' },
          ]
+         .EPATH.segment__... temp 
     """
 
     def __init__( self, name=None, **kwds ):
-        kwds.setdefault( 'context', 'path' )
-        name 			= name or kwds.get( 'context' )
+        name 			= name or kwds.setdefault( 'context', self.__class__.__name__ )
         
-        psiz			= usint(	'size',		context='size' )
+        psiz			= USINT( context='size' )
 
-        # After capturing each segment (pseg), move it onto the path list, and loop
-        pseg			= octets_noop(	'seg',		terminal=True )
+        # After capturing each segment__ (pseg), move it onto the path segment list, and loop
+        pseg			= octets_noop(	'type',		terminal=True )
         # ...segment parsers...
         pmov			= move_if( 	'move',		initializer=lambda **kwds: [],
-                                            source='..segment', destination='..list',
+                                            source='..segment__', destination='..segment',
                                                 state=pseg )
 
         # Wire each different segment type parser between pseg and pmov
         pseg[b'\x28'[0]]= e_8t	= octets_drop(	'type',		repeat=1 )
-        e_8t[True]	= e_8v	= usint( 	'elem_8bit',	context='element')
+        e_8t[True]	= e_8v	= USINT( 	'elem_8bit',	context='element')
         e_8v[None]		= pmov
 
         pseg[b'\x29'[0]]= e16t	= octets_drop(	'type',		repeat=2 )
-        e16t[True]	= e16v	= uint(		'elem16bit',	context='element')
+        e16t[True]	= e16v	= UINT(		'elem16bit',	context='element')
         e16v[None]		= pmov
 
         pseg[b'\x2a'[0]]= e32t	= octets_drop(	'type',		repeat=2 )
-        e32t[True]	= e32v	= udint(	'elem32bit',	context='element')
+        e32t[True]	= e32v	= UDINT(	'elem32bit',	context='element')
         e32v[None]		= pmov
 
 
         pseg[b'\x20'[0]]= c_8t	= octets_drop(	'type',		repeat=1 )
-        c_8t[True]	= c_8v	= usint(	'clas_8bit',	context='class')
+        c_8t[True]	= c_8v	= USINT(	'clas_8bit',	context='class')
         c_8v[None]		= pmov
 
         pseg[b'\x21'[0]]= c16t	= octets_drop(	'type',		repeat=2 )
-        c16t[True]	= c16v	= uint(		'clas16bit',	context='class')
+        c16t[True]	= c16v	= UINT(		'clas16bit',	context='class')
         c16v[None]		= pmov
 
 
         pseg[b'\x24'[0]]= i_8t	= octets_drop(	'type',		repeat=1 )
-        i_8t[True]	= i_8v	= usint(	'inst_8bit',	context='instance')
+        i_8t[True]	= i_8v	= USINT(	'inst_8bit',	context='instance')
         i_8v[None]		= pmov
 
         pseg[b'\x25'[0]]= i16t	= octets_drop(	'type',		repeat=2 )
-        i16t[True]	= i16v	= uint(		'inst16bit',	context='instance')
+        i16t[True]	= i16v	= UINT(		'inst16bit',	context='instance')
         i16v[None]		= pmov
 
 
         pseg[b'\x30'[0]]= a_8t	= octets_drop(	'type',		repeat=1 )
-        a_8t[True]	= a_8v	= usint(	'attr_8bit',	context='attribute')
+        a_8t[True]	= a_8v	= USINT(	'attr_8bit',	context='attribute')
         a_8v[None]		= pmov
 
         pseg[b'\x31'[0]]= a16t	= octets_drop(	'type',		repeat=2 )
-        a16t[True]	= a16v	= uint(		'attr16bit',	context='attribute')
+        a16t[True]	= a16v	= UINT(		'attr16bit',	context='attribute')
         a16v[None]		= pmov
 
 
         pseg[b'\x91'[0]]= symt	= octets_drop(	'type',		repeat=1 )
-        symt[True]	= syml	= usint(	'sym_len',	context='length' )
+        symt[True]	= syml	= USINT(	'sym_len',	context='length' )
         syml[None]	= symv	= cpppo.string_bytes(
             					'symbolic',	context='symbolic', limit='..length',
                                                 initial='.*',	decode='iso-8859-1' )
@@ -370,76 +389,76 @@ class extpath( cpppo.dfa ):
 
 
         # Parse all segments in a sub-dfa limited by the parsed path.size (in words; double)
-        psiz[None]	= pall	= cpppo.dfa(    'all',		context='segment',
+        psiz[None]	= pall	= cpppo.dfa(    'each',		context='segment__',
                                                 initial=pseg,	terminal=True,
             limit=lambda path=None, data=None, **kwds: data[path+'..size'] * 2 )
 
-        super( extpath, self ).__init__( name=name, initial=psiz, **kwds )
+        super( EPATH, self ).__init__( name=name, initial=psiz, **kwds )
 
-
-def extpath_encode( data ):
-    """Produce an encoded EtherNet/IP EPATH message from the supplied path data.  For example, here is
-    an encoding a 8-bit instance ID 0x06, and ending with a 32-bit element ID 0x04030201:
-
-       byte:	0	1	2	... 	N-6	N-5	N-4	N-3	N-2	N-1	N
-                <N/2>	0x24	0x06	... 	0x25	0x00	0x01	0x02	0x03	0x04
-
-    """
+    @staticmethod
+    def produce( data ):
+        """Produce an encoded EtherNet/IP EPATH message from the supplied path data.  For example, here is
+        an encoding a 8-bit instance ID 0x06, and ending with a 32-bit element ID 0x04030201:
     
-    result			= b''
-    for seg in data['list']:
-        found			= False
-        for segnam, segtyp in {
-                'symbolic':	0x91,
-                'class':	0x20,
-                'instance':	0x24,
-                'attribute':	0x30,
-                'element':	0x28, }.items():
-            if segnam not in seg:
-                continue
-            found		= True
-            segval		= seg[segnam]
-            # An ANSI Extended Symbolic segment?
-            if segnam == 'symbolic':
-                result	       += usint_encode( segtyp )
-                seglen		= len( segval )
-                result	       += usint_encode( seglen )
-                result	       += segval.encode( 'iso-8859-1' )
-                if seglen % 2:
-                    result      += usint_encode( 0 )
+           byte:	0	1	2	... 	N-6	N-5	N-4	N-3	N-2	N-1	N
+                    <N/2>	0x24	0x06	... 	0x25	0x00	0x01	0x02	0x03	0x04
+    
+        """
+        
+        result			= b''
+        for seg in data.segment:
+            found			= False
+            for segnam, segtyp in {
+                    'symbolic':	0x91,
+                    'class':	0x20,
+                    'instance':	0x24,
+                    'attribute':	0x30,
+                    'element':	0x28, }.items():
+                if segnam not in seg:
+                    continue
+                found		= True
+                segval		= seg[segnam]
+                # An ANSI Extended Symbolic segment?
+                if segnam == 'symbolic':
+                    result     += USINT.produce( segtyp )
+                    seglen	= len( segval )
+                    result     += USINT.produce( seglen )
+                    result     += segval.encode( 'iso-8859-1' )
+                    if seglen % 2:
+                        result += USINT.produce( 0 )
+                    break
+               
+                # A numeric path segment.
+                if segval <= 0xff:
+                    result     += USINT.produce( segtyp )
+                    result     += USINT.produce( segval )
+                elif segval <= 0xffff:
+                    result     += USINT.produce( segtyp + 1 )
+                    result     += USINT.produce( 0 )
+                    result     += UINT.produce( segval )
+                elif segval <= 0xffffffff and segnam == 'element':
+                    result     += USINT.produce( segtyp + 2 )
+                    result     += USINT.produce( 0 )
+                    result     += UDINT.produce( segval )
+                else:
+                    assert False, "Invalid value for numeric EPATH segment %r == %d: %d" (
+                        segnam, segval, data )
                 break
-           
-            # A numeric path segment.
-            if segval <= 0xff:
-                result          += usint_encode( segtyp )
-                result          += usint_encode( segval )
-            elif segval <= 0xffff:
-                result          += usint_encode( segtyp + 1 )
-                result          += usint_encode( 0 )
-                result          += uint_encode( segval )
-            elif segval <= 0xffffffff and segnam == 'element':
-                result          += usint_encode( segtyp + 2 )
-                result          += usint_encode( 0 )
-                result          += udint_encode( segval )
-            else:
-                assert False, "Invalid value for numeric EPATH segment %r == %d: %d" (
-                    segnam, segval, data )
-            break
-        if not found:
-            assert False, "Invalid EPATH segment %r found in %r" % ( segnam, data )
-        assert len( result ) % 2 == 0, \
-            "Failed to retain even EPATH word length after %r in %r" % ( segnam, data )
-
-    return usint_encode( len( result ) // 2 ) + result
+            if not found:
+                assert False, "Invalid EPATH segment %r found in %r" % ( segnam, data )
+            assert len( result ) % 2 == 0, \
+                "Failed to retain even EPATH word length after %r in %r" % ( segnam, data )
+    
+        return USINT.produce( len( result ) // 2 ) + result
 
 
 class cpfdata( cpppo.dfa ):
     """A SendRRData Common Packet Format specifies the number and type of the encapsulated CIP address
     items or data items that follow:
 
-    	.cpf.item_count			uint		2 	Number of items
-        .cpf.item[0].type_id		uint		2	Type of item encapsulated		
-        .cpf.item[0].length		uint		2	Type of item encapsulated		
+    	.cpf.item_count			UINT		2 	Number of items
+        .cpf.item[0].type_id		UINT		2	Type of item encapsulated		
+        .cpf.item[0].length		UINT		2	Type of item encapsulated		
         .cpf.item[0].data		octets[length]
 
     Parse each CPF item into cpf.item_temp, and (after parsing) moves it to cpf.item[x].
@@ -449,8 +468,8 @@ class cpfdata( cpppo.dfa ):
         kwds.setdefault( 'context', 'cpf' )
         name 			= name or kwds.get( 'context' )
 
-        ityp			= uint( 	"type_id", 	context="type_id" )
-        ityp[True] = ilen	= uint( 	"length", 	context="length" )
+        ityp			= UINT( 	"type_id", 	context="type_id" )
+        ityp[True] = ilen	= UINT( 	"length", 	context="length" )
         ilen[None] = idat	= octets( 	"data", 	context="data",
                                                 repeat="..length", 
                                                 terminal=True )
@@ -465,7 +484,7 @@ class cpfdata( cpppo.dfa ):
 
 
         # Collect 'number' items, each into item_temp, then move to 'item[x]'
-        numb			= uint(		"item_count",	context="item_count" )
+        numb			= UINT(		"item_count",	context="item_count" )
         numb[None] 		= cpppo.dfa(    "item", 	context="item", 
                                                 initial=item,
                                                 repeat='..item_count',
@@ -487,8 +506,8 @@ class sendrrdata( cpppo.dfa ):
         kwds.setdefault( 'context', 'sendrrdata' )
         name 			= name or kwds.get( 'context' )
         
-        ifce			= udint( 	"interface",	context="interface_handle" )
-        ifce[True] = timo	= uint( 	"timeout",	context="timeout", 
+        ifce			= UDINT( 	"interface",	context="interface_handle" )
+        ifce[True] = timo	= UINT( 	"timeout",	context="timeout", 
                                                 terminal=True )
         timo[True] = cpfd	= cpfdata( terminal=True )
 
@@ -504,18 +523,18 @@ class ucmm( cpppo.dfa ):
 
     Assumes:
 
-        .service				usint		1 (0x52 for Unconnected Send)
+        .service				USINT		1 (0x52 for Unconnected Send)
 
     Produces:
 
-        .path_size				usint		1 (in words, not bytes)
+        .path_size				USINT		1 (in words, not bytes)
         .path_data				octets[size*2]  *
         .path       			        [
             { 'class':      # },...
          ]
-        .ucon_send.priority			usint		1
-        .ucon_send.timeout_ticks		usint		1
-        .ucon_send.request_size			uint		2
+        .ucon_send.priority			USINT		1
+        .ucon_send.timeout_ticks		USINT		1
+        .ucon_send.request_size			UINT		2
         .ucon_send.request_data			octets[...]	size
 
     The user should then proceed to parse the embedded request_data, in the context of whatever
@@ -527,10 +546,10 @@ class ucmm( cpppo.dfa ):
         kwds.setdefault( 'context', 'ucmm' )
         name 			= name or kwds.get( 'context' )
         
-        srvc			= usint(	"service",	context="request_service" )
+        srvc			= USINT(	"service",	context="request_service" )
         
 
-        srvc[True] = rpsz	= usint(	"path_siz",	context="request_path_size",
+        srvc[True] = rpsz	= USINT(	"path_siz",	context="request_path_size",
                                                 terminal=True ) 
         
         '''
@@ -553,13 +572,14 @@ class ucmm( cpppo.dfa ):
 
 
         req_p_seg		= 'request_path_segment'
-        pseg['\x28'] = el_8_pre	= usint(	'seg_type',	context=req_p_seg, extension=".type" )
-        el_8_pre[True] = el_8	= usint( 	'8-bit elem', 	context=req_p_seg, extension='element' )
+        pseg['\x28'] = el_8_pre	= USINT(	'seg_type',	context=req_p_seg, extension=".type" )
+        el_8_pre[True] = el_8	= USINT( 	'8-bit elem', 	context=req_p_seg, extension='element' )
 
-        rpth[True] = pseg	= usint( 	"")
+        rpth[True] = pseg	= USINT( 	"")
         '''
 
         super( ucmm, self ).__init__( name=name, initial=srvc, **kwds )
+
 
 class typed_data( cpppo.dfa ):
     """Parses CIP typed data, of the form specified by the datatype (must be a relative path within the
@@ -569,52 +589,63 @@ class typed_data( cpppo.dfa ):
 
     The known data types are:
 
-    	data type	type value	size
-    	BOOL 		0x0_c1		1 byte (_=[0-7] indicates relevant bit)
-	SINT		0x00c2		1 byte
-	INT		0x00c3		2 byte
-	DINT		0x00c4		4 byte
-	REAL		0x00ca		4 byte
-	DWORD		0x00d3		4 byte (32-bit boolean array)
-	LINT		0x00c5		8 byte
+    data type			type value	  size
 
-    """    
+    BOOL 			= 0x00c1	# 1 byte (0x0_c1, _=[0-7] indicates relevant bit)
+    SINT			= 0x00c2	# 1 byte
+    INT				= 0x00c3	# 2 bytes
+    DINT			= 0x00c4	# 4 bytes
+    REAL			= 0x00ca	# 4 bytes
+    DWORD			= 0x00d3	# 4 byte (32-bit boolean array)
+    LINT			= 0x00c5	# 8 byte
+    """
     def __init__( self, name=None, datatype=None, **kwds ):
-        kwds.setdefault( 'context', 'data' )
-        name 			= name or kwds.get( 'context' )
+        name 			= name or kwds.setdefault( 'context', self.__class__.__name__ )
         assert datatype, "Must specify a relative path to the CIP data type; found: %r" % datatype
 
         slct			= octets_noop(	'select' )
         
-        i_8p			= usint( 	'int_8bit',	extension='.integer' )
+        i_8p			= SINT()
         i_8d			= octets_noop(	'end_8bit', 	terminal=True )
         i_8d[True]		= i_8p
-        i_8p[None]		= move_if( 	'mov_8bit',	source='.integer', 
-                                           destination='.list',	initializer=lambda **kwds: [],
+        i_8p[None]		= move_if( 	'mov_8bit',	source='.SINT', 
+                                           destination='.data',	initializer=lambda **kwds: [],
                                                 state=i_8d )
 
-        i16p			= uint(		'int16bit',	extension='.integer' )
+        i16p			= INT()
         i16d			= octets_noop(	'end16bit', 	terminal=True )
         i16d[True]		= i16p
-        i16p[None]		= move_if( 	'mov16bit',	source='.integer', 
-                                           destination='.list',	initializer=lambda **kwds: [],
+        i16p[None]		= move_if( 	'mov16bit',	source='.INT', 
+                                           destination='.data',	initializer=lambda **kwds: [],
                                                 state=i16d )
 
-        i32p			= udint( 	'int32bit',	extension='.integer' )
+        i32p			= DINT()
         i32d			= octets_noop(	'end32bit', 	terminal=True )
         i32d[True]		= i32p
-        i32p[None]		= move_if( 	'mov32bit',	source='.integer', 
-                                           destination='.list',	initializer=lambda **kwds: [],
+        i32p[None]		= move_if( 	'mov32bit',	source='.DINT', 
+                                           destination='.data',	initializer=lambda **kwds: [],
                                                 state=i32d )
 
         slct[None]		= cpppo.decide(	'SINT',	state=i_8p,
-            predicate=lambda path=None, data=None, **kwds: data[path+datatype] == 0x00c2 )
+            predicate=lambda path=None, data=None, **kwds: data[path+datatype] == SINT.tag_type )
         slct[None]		= cpppo.decide(	'INT',	state=i16p,
-            predicate=lambda path=None, data=None, **kwds: data[path+datatype] == 0x00c3 )
+            predicate=lambda path=None, data=None, **kwds: data[path+datatype] == INT.tag_type )
         slct[None]		= cpppo.decide(	'DINT',	state=i32p,
-            predicate=lambda path=None, data=None, **kwds: data[path+datatype] == 0x00c4 )
+            predicate=lambda path=None, data=None, **kwds: data[path+datatype] == DINT.tag_type )
         
         super( typed_data, self ).__init__( name=name, initial=slct, **kwds )
+
+    @staticmethod
+    def produce( data ):
+        """Expects to find .type and .data.list, and produces the data encoded to bytes."""
+        assert 'type' in data and data.type in ( SINT.tag_type, INT.tag_type, DINT.tag_type ), \
+            "Unknown (or no) .type found: %r" % data
+        if data.type ==   SINT.tag_type:
+            return b''.join(  SINT.produce( v ) for v in data.data )
+        elif data.type ==  INT.tag_type:
+            return b''.join(   INT.produce( v ) for v in data.data )
+        elif data.type == DINT.tag_type:
+            return b''.join(  DINT.produce( v ) for v in data.data )
 
 
 class logix( cpppo.dfa ):
@@ -623,49 +654,54 @@ class logix( cpppo.dfa ):
     If a Logix5000 Controller is being addressed (See Logix5000 Data Access manual, pp 16, Services
     Supported by Logix5000 Controllers), the ucmm.request_data. may contain:
     
-	.service			usint		1
+	.service			USINT		1
 
-    Read Tag Service				0x4c
-    Read Tag Fragmented Service			0x52	(unrelated to Unconnected Send, above...)
-    Write Tag Service				0x4d
-    Write Tag Fragmented Service		0x53
-    Read Modify Write Tag Service		0x4e	(not implemented)
+    Read Tag					0x4c
+    Read Tag Fragmented				0x52	(unrelated to Unconnected Send, above...)
+    Write Tag					0x4d
+    Write Tag Fragmented			0x53
+    Read Modify Write Tag			0x4e	(not implemented)
 					      | 0x80	(indicates response)
  
-	.path				extpath		...
+	.path				EPATH		...
 
-	The request-specific data for the supported services are:
+    The portions of these requests/replies that are generic to all are placed in the root of the
+    data path; any data that has differing meaning for each command is placed in a named context.
+
+    The request-specific data for the supported services are:
 
     Read Tag Service				0x4c
-	.read_tag.elements		uint		2
+	.read_tag.elements		UINT		2
     Read Tag Service (reply)			0xcc
-	.read_tag.type			uint		2
+	.status				USINT		1
+					USINT		1 (ext_status_size ignored; must be 0x00)
+	.read_tag.type			UINT		2
 	.read_tag.data.list		[0x...]		1/2/4 (depending on type)
     
     Read Tag Fragmented Service			0x52
-	.read_frag.elements		uint		2
-	.read_frag.offset		udint		4 (in bytes)
+	.read_frag.elements		UINT		2
+	.read_frag.offset		UDINT		4 (in bytes)
     Read Tag Fragmented Service (reply)		0xd2
-	.read_frag.status		usint		1
-	.read_frag.status_size		usint		1 (0x00)
-	.read_frag.type			uint		2
-	.read_frag.data.list		[0x..., 0x...]	* x 1/2/4 (depending on type)
+	.status				USINT		1
+					USINT		1 (ext_status_size ignored; must be 0x00)
+	.read_frag.type			UINT		2
+	.read_frag.data			[0x..., 0x...]	* x 1/2/4 (depending on type)
 
     Write Tag Service				0x4d
-	.write_tag.type			uint		2
+	.write_tag.type			UINT		2
 	.write_tag.data.list		[0x...]		1/2/4 (depending on type)
     Write Tag Service (reply)			0xdd
-	.write_tag.status		usint		1
-	.write_tag.status_size		usint		1 (0x00)
+	.status				USINT		1
+					USINT		1 (ext_status_size ignored; must be 0x00)
 
     Write Tag Fragmented Service		0x53
-	.write_frag.type		uint		2
-	.write_frag.elements		uint		2
-	.write_frag.offset		udint		4 (in bytes)
-	.write_frag.data.list		[0x..., 0x...]	* x 1/2/4 (depending on type)
+	.write_frag.type		UINT		2
+	.write_frag.elements		UINT		2
+	.write_frag.offset		UDINT		4 (in bytes)
+	.write_frag.data		[0x..., 0x...]	* x 1/2/4 (depending on type)
     Write Tag Fragmented Service (reply)	0xd3
-	.write_tag.status		usint		1
-	.write_tag.status_size		usint		1 (0x00)
+	.status				USINT		1
+					USINT		1 (ext_status_size ignored; must be 0x00)
 
     This must be run with a length-constrained 'source' iterable (eg. a fixed-length array harvested
     by a previous parser, eg. ucon_send.request_data).	Since there are no indicators within this
@@ -675,73 +711,160 @@ class logix( cpppo.dfa ):
     deduced for the Fragmented versions.
 
     """
+    RD_TAG_REQ			= 0x4c
+    RD_TAG_RPY			= RD_TAG_REQ | 0x80
+    RD_FRG_REQ			= 0x52
+    RD_FRG_RPY			= RD_FRG_REQ | 0x80
+    WR_TAG_REQ			= 0x4d
+    WR_TAG_RPY			= WR_TAG_REQ | 0x80
+    WR_FRG_REQ			= 0x53
+    WR_FRG_RPY			= WR_FRG_REQ | 0x80
+    transit			= {}
+    service			= {}
+    for x,xn in (( RD_TAG_REQ, "Read Tag Request" ),
+                 ( RD_TAG_RPY, "Read Tag Request Reply" ),
+                 ( RD_FRG_REQ, "Read Tag Fragmented" ),
+                 ( RD_FRG_RPY, "Read Tag Fragmented Reply" ),
+                 ( WR_TAG_REQ, "Write Tag Request" ),
+                 ( WR_TAG_RPY, "Write Tag Request Reply" ),
+                 ( WR_FRG_REQ, "Write Tag Fragmented" ),
+                 ( WR_FRG_RPY, "Write Tag Fragmented Reply" )):
+        service[x]		= xn
+        service[xn]		= x
+        transit[x]		= chr( x ) if sys.version_info.major < 3 else x
+
     def __init__( self, name=None, **kwds ):
-        kwds.setdefault( 'context', 'cip' )
-        name 			= name or kwds.get( 'context' )
+        name 			= name or kwds.setdefault( 'context', self.__class__.__name__ )
 
         slct			= octets_noop(	'select' )	# parse path size and path
 
         # Read Tag Service
-        slct[b'\x4c'[0]]= rtsv	= usint(	'service',  	context='service' )
-        rtsv[True]	= rtpt	= extpath()
-        rtpt[True]	= rtel	= uint(		'elements', 	context='read_tag',   extension='.element',
+        slct[self.transit[self.RD_TAG_REQ]] \
+			= rtsv	= USINT(	 	  	context='service' )
+        rtsv[True]	= rtpt	= EPATH(			context='path' )
+        rtpt[True]	= rtel	= UINT(		'elements', 	context='read_tag',   extension='.element',
                                                 terminal=True )
         # Read Tag Service (reply)
-        slct[b'\xcc'[0]]= Rtsv	= usint(	'service',  	context='service' )
+        slct[self.transit[self.RD_TAG_RPY]] \
+			= Rtsv	= USINT(		 	context='service' )
         Rtsv[True]	= Rtrs	= octets_drop(	'reserved',	repeat=1 )
-        Rtrs[True]	= Rtst	= usint( 	'status', 	context='read_tag',  extension='.status' )
-        Rtst[b'\x00'[0]]= Rtss	= usint( 	'status_size', 	context='read_tag',  extension='.status_size' )
-        Rtss[True]	= Rtdt	= uint( 	'type',   	context='read_tag',  extension='.type' )
-        Rtdt[True]		= typed_data( 	'data',   	context='read_tag',  extension='.data',
-                                                datatype='..type',
+        Rtrs[True]	= Rtst	= USINT( 			context='status' )
+        Rtst[b'\x00'[0]]= Rtss	= octets_drop(	'status_size',	repeat=1 )
+        Rtss[True]	= Rtdt	= UINT( 	'type',   	context='read_tag',  extension='.type' )
+        Rtdt[True]		= typed_data( 	'data',   	context='read_tag',
+                                                datatype='.type',
                                                 terminal=True )
 
         # Read Tag Fragmented Service
-        slct[b'\x52'[0]]= rfsv	= usint(	'service',	context='service' )
-        rfsv[True]	= rfpt	= extpath()
-        rfpt[True]	= rfel	= uint(		'elements',	context='read_frag',  extension='.elements' )
-        rfel[True]		= udint( 	'offset',   	context='read_frag',  extension='.offset',
+        slct[self.transit[self.RD_FRG_REQ]] \
+			= rfsv	= USINT(			context='service' )
+        rfsv[True]	= rfpt	= EPATH(			context='path' )
+        rfpt[True]	= rfel	= UINT(		'elements',	context='read_frag',  extension='.elements' )
+        rfel[True]		= UDINT( 	'offset',   	context='read_frag',  extension='.offset',
                                                 terminal=True )
         # Read Tag Fragmented Service (reply)
-        slct[b'\xd2'[0]]= Rfsv	= usint(	'service',  	context='service' )
+        slct[self.transit[self.RD_FRG_RPY]] \
+			= Rfsv	= USINT(			context='service' )
         Rfsv[True]	= Rfrs	= octets_drop(	'reserved',	repeat=1 )
-        Rfrs[True]	= Rfst	= usint( 	'status', 	context='read_frag',  extension='.status' )
-        Rfst[b'\x00'[0]]= Rfss	= usint( 	'status_size', 	context='read_frag',  extension='.status_size' )
-        Rfss[True]	= Rfdt	= uint( 	'type',   	context='read_frag',  extension='.type' )
-        Rfdt[True]		= typed_data( 	'data',   	context='read_frag',  extension='.data',
-                                                datatype='..type',
+        Rfrs[True]	= Rfst	= USINT( 			context='status' )
+        Rfst[b'\x00'[0]]= Rfss	= octets_drop( 'status_size',	repeat=1 )
+        Rfss[True]	= Rfdt	= UINT( 	'type',   	context='read_frag',  extension='.type' )
+        Rfdt[True]		= typed_data( 	'data',   	context='read_frag',
+                                                datatype='.type',
                                                 terminal=True )
 
         # Write Tag Service
-        slct[b'\x4d'[0]]= wtsv	= usint(	'service',  	context='service' )
-        wtsv[True]	= wtpt	= extpath()
-        wtpt[True]	= wtty	= uint(		'type',   	context='write_tag',  extension='.type' )
-        wtty[True]		= typed_data( 	'data',   	context='write_tag',  extension='.data',
-                                                datatype='..type',
+        slct[self.transit[self.WR_TAG_REQ]] \
+			= wtsv	= USINT(	'service',  	context='service' )
+        wtsv[True]	= wtpt	= EPATH(			context='path' )
+        wtpt[True]	= wtty	= UINT(		'type',   	context='type' )
+        wtty[True]		= typed_data( 	'write_tag',	context='write_tag' ,
+                                                datatype='.type',
                                                 terminal=True )
         # Write Tag Service (reply)
-        slct[b'\xdd'[0]]= Wtsv	= usint(	'service',  	context='service' )
+        slct[self.transit[self.WR_TAG_RPY]] \
+			= Wtsv	= USINT(	'service',  	context='service' )
         Wtsv[True]	= Wtrs	= octets_drop(	'reserved',	repeat=1 )
-        Wtrs[True]	= Wtst	= usint( 	'status', 	context='read_frag',  extension='.status' )
-        Wtst[b'\x00'[0]]	= usint( 	'status_size', 	context='read_frag',  extension='.status_size',
+        Wtrs[True]	= Wtst	= USINT( 			context='status' )
+        Wtst[b'\x00'[0]]	= octets_drop( 'status_size',	repeat=1,
                                                 terminal=True )
 
         # Write Tag Fragmented Service
-        slct[b'\x53'[0]]= wfsv	= usint(	'service',  	context='service' )
-        wfsv[True]	= wfpt	= extpath()
-        wfpt[True]	= wfty	= uint(		'type',     	context='write_frag', extension='.type')
-        wfty[True]	= wfel	= uint(		'elements', 	context='write_frag', extension='.elements')
-        wfel[True]	= wfof	= udint( 	'offset',   	context='write_frag', extension='.offset' )
-        wfof[True]		= typed_data( 	'data',   	context='write_frag', extension='.data',
-                                                datatype='..type',
+        slct[self.transit[self.WR_FRG_REQ]] \
+			= wfsv	= USINT(	'service',  	context='service' )
+        wfsv[True]	= wfpt	= EPATH(			context='path' )
+        wfpt[True]	= wfty	= UINT(		'type',     	context='write_frag', extension='.type' )
+        wfty[True]	= wfel	= UINT(		'elements', 	context='write_frag', extension='.elements' )
+        wfel[True]	= wfof	= UDINT( 	'offset',   	context='write_frag', extension='.offset' )
+        wfof[True]		= typed_data( 	'data',  	context='write_frag',
+                                                datatype='.type',
                                                 terminal=True )
         # Write Tag Fragmented Service (reply)
-        slct[b'\xd3'[0]]= Wtsv	= usint(	'service',  	context='service' )
+        slct[self.transit[self.WR_FRG_RPY]] \
+			= Wtsv	= USINT(			context='service' )
         Wtsv[True]	= Wtrs	= octets_drop(	'reserved',	repeat=1 )
-        Wtrs[True]	= Wtst	= usint( 	'status', 	context='write_frag',  extension='.status' )
-        Wtst[b'\x00'[0]]	= usint( 	'status_size', 	context='write_frag',  extension='.status_size',
+        Wtrs[True]	= Wtst	= USINT( 			context='status' )
+        Wtst[b'\x00'[0]]	= octets_drop( 'status_size',	repeat=1,
                                                 terminal=True )
 
         super( logix, self ).__init__( name=name, initial=slct, **kwds )
 
+    @staticmethod
+    def produce( data ):
+        """Expects to find .type and .data.list, and produces the data encoded to bytes.  Defaults to 
+         produce the Request, if no .service specified, and just .read/write_tag/frag found.  
+         
+         A Reply status of 0x06 to the read_frag command indicates that more data is available"""
+        result			= b''
+        if 'read_tag' in data and data.setdefault( 'service', logix.RD_TAG_REQ ) == logix.RD_TAG_REQ:
+            result	       += USINT.produce(	data.service )
+            result	       += EPATH.produce(	data.path )
+            result	       += UINT.produce(		data.read_tag.elements )
+        elif 'read_frag' in data and data.setdefault( 'service', logix.RD_FRG_REQ ) == logix.RD_FRG_REQ:
+            result	       += USINT.produce(	data.service )
+            result	       += EPATH.produce(	data.path )
+            result	       += UINT.produce(		data.read_frag.elements )
+            result	       += UDINT.produce(	data.read_frag.offset )
+        elif 'write_tag' in data and data.setdefault( 'service', logix.WR_TAG_REQ ) == logix.WR_TAG_REQ:
+            # We can deduce the number of elements from len( data )
+            result	       += USINT.produce(	data.service )
+            result	       += EPATH.produce(	data.path )
+            result	       += UINT.produce(		data.write_tag.type )
+            result	       += UINT.produce(		data.write_tag.setdefault( 
+                'elements', len( data.write_tag.data )))
+            result	       += typed_data.produce(	data.write_tag.data )
+        elif 'write_frag' in data and data.setdefault( 'service', logix.WR_FRG_REQ ) == logix.WR_FRG_REQ:
+            # We can NOT deduce the number of elements from len( write_frag.data );
+            # write_frag.elements must be the entire number of elements being shipped, while
+            # write_frag.data contains ONLY the elements being shipped in this Write Tag Fragmented
+            # request!  We will default offset to 0 for you, though...
+            result	       += USINT.produce(	data.service )
+            result	       += EPATH.produce(	data.path )
+            result	       += UINT.produce(		data.write_frag.type )
+            result	       += UINT.produce(		data.write_frag.elements )
+            result	       += UDINT.produce(	data.write_frag.setdefault(
+                'offset', 0x00000000 ))
+            result	       += typed_data.produce(	data.write_tag.data )
+        elif (    'write_tag'  in data and data.service == logix.WR_TAG_RPY
+                  or 'write_frag' in data and data.service == logix.WR_FRG_RPY ):
+            result	       += USINT.produce(	data.service )
+            result	       += USINT.produce(	0x00 )
+            result	       += USINT.produce(	data.setdefault( 'status', 0x00 ))
+            result	       += USINT.produce( 	0x00 )	# ext_status_size
+        elif 'read_tag' in data and data.service == logix.RD_TAG_RPY:
+            result	       += USINT.produce(	data.service )
+            result	       += USINT.produce(	0x00 )
+            result	       += USINT.produce(	data.setdefault( 'status', 0x00 ))
+            result	       += USINT.produce( 	0x00 )	# ext_status_size
+            result	       += typed_data.produce(	data.read_tag )
+        elif 'read_frag' in data and data.service == logix.RD_FRG_RPY:
+            result	       += USINT.produce(	data.service )
+            result	       += USINT.produce(	0x00 )
+            result	       += USINT.produce(	data.setdefault( 'status', 0x00 ))
+            result	       += USINT.produce( 	0x00 )	# ext_status_size
+            result	       += UINT.produce(		data.read_frag.type )
+            result	       += typed_data.produce(	data.read_frag )
+        else:
+            assert False, "Invalid logix CIP request/reply format: %r" % data
+        return result
 

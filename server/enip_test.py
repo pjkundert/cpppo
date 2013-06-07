@@ -454,18 +454,18 @@ extpath_4		= bytes(bytearray([
 # of the value arrives first.
 extpath_tests			= [
             ( extpath_1,	{
-                'request.path.size': 1,
-                'request.path.list': [{'element': 1}]
+                'request.EPATH.size': 1,
+                'request.EPATH.segment': [{'element': 1}]
             } ),
             ( extpath_2,	{ 
-                'request.path.size': 5,
-                'request.path.list': [
+                'request.EPATH.size': 5,
+                'request.EPATH.segment': [
                     {'element':		0x01}, {'element':	0x02}, {'element':	0x04030201}
                 ]
             } ),
             ( extpath_3,	{ 
-                'request.path.size': 15,
-                'request.path.list': [
+                'request.EPATH.size': 15,
+                'request.EPATH.segment': [
                     {'element':		0x01}, {'element':	0x0201}, {'element':	0x04030201},
                     {'class':		0x11}, {'class':	0x0211},
                     {'instance':	0x21}, {'instance':	0x0221},
@@ -473,19 +473,19 @@ extpath_tests			= [
                 ]
             } ),
             ( extpath_4,	{ 
-                'request.path.size': 8,
-                'request.path.list': [
+                'request.EPATH.size': 8,
+                'request.EPATH.segment': [
                     {'symbolic':	'abc123', 'length': 6 },
                     {'symbolic':	'xyz12',  'length': 5 },
                 ]
             } )
 ]
 
-def test_enip_extpath():
+def test_enip_EPATH():
     for pkt,tst in extpath_tests:
         data			= cpppo.dotdict()
         source			= cpppo.chainable( pkt )
-        with enip.extpath( terminal=True ) as machine:
+        with enip.EPATH( terminal=True ) as machine:
             for i,(m,s) in enumerate( machine.run( source=source, path='request', data=data )):
                 log.detail( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r",
                           machine.name_centered(), i, s, source.sent, source.peek(), data )
@@ -497,7 +497,9 @@ def test_enip_extpath():
             raise
 
         # And, ensure that we can get the original EPATH back (ignoring extra decoy bytes)
-        assert enip.extpath_encode( data.request.path ) == pkt[:1+data.request.path.size*2]
+        assert enip.EPATH.produce( data.request.EPATH ) == pkt[:1+data.request.EPATH.size*2], \
+            "Invalid EPATH data: %r" % data
+
 
 
 
@@ -505,7 +507,6 @@ def test_enip_extpath():
 readfrag_1_req 			= bytes(bytearray([
     0x52, 0x04, 0x91, 0x05, 0x53, 0x43, 0x41, 0x44, #/* R...SCAD */
     0x41, 0x00, 0x14, 0x00, 0x02, 0x00, 0x00, 0x00, #/* A....... */
-    0x01, 0x00, 0x01, 0x00                          #/* .... */
 ]))
 #"19","0.515458000","10.220.104.180","192.168.222.128","CIP","138","Success"
 readfrag_1_rpy			= bytes(bytearray([
@@ -515,28 +516,27 @@ readfrag_1_rpy			= bytes(bytearray([
     0x0e, 0x00, 0x00, 0x00, 0x00, 0x00, 0xe6, 0x42, #/* .......B */
     0x07, 0x00, 0xc8, 0x40, 0xc8, 0x40, 0x00, 0x00, #/* ...@.@.. */
     0xe4, 0x00, 0x00, 0x00, 0x64, 0x00, 0xb2, 0x02, #/* ....d... */
-    0xc8, 0x40                                      #/* .@ */
+    0xc8, 0x80                                      #/* .@ */
 ]))
 
 logix_tests			= [
             ( readfrag_1_req,	{
-                'request.cip.service': 			0x52,
-                'request.cip.path.list': 		[{'symbolic': 'SCADA', 'length': 5}],
-                'request.cip.read_frag.elements':	20,
-                'request.cip.read_frag.offset':		2,
+                'request.logix.service': 		0x52,
+                'request.logix.path.segment': 		[{'symbolic': 'SCADA', 'length': 5}],
+                'request.logix.read_frag.elements':	20,
+                'request.logix.read_frag.offset':	2,
             } ),
             ( readfrag_1_rpy,	{
-                'request.cip.service': 			0xd2,
-                'request.cip.read_frag.status':		0x00,
-                'request.cip.read_frag.status_size':	0x00,
-                'request.cip.read_frag.type':		0x00c3,
-                'request.cip.read_frag.data.list':	[
-                                    0x104c, 0x0008, #/* ....L... */
-                    0x0003, 0x0002, 0x0002, 0x0002, #/* ........ */
-                    0x000e, 0x0000, 0x0000, 0x42e6, #/* .......B */
-                    0x0007, 0x40c8, 0x40c8, 0x0000, #/* ...@.@.. */
-                    0x00e4, 0x0000, 0x0064, 0x02b2, #/* ....d... */
-                    0x40c8                          #/* .@ */ 0x
+                'request.logix.service': 		0xd2,
+                'request.logix.status':			0x00,
+                'request.logix.read_frag.type':		0x00c3,
+                'request.logix.read_frag.data':	[
+                                    0x104c, 0x0008,
+                    0x0003, 0x0002, 0x0002, 0x0002,
+                    0x000e, 0x0000, 0x0000, 0x42e6,
+                    0x0007, 0x40c8, 0x40c8, 0x0000,
+                    0x00e4, 0x0000, 0x0064, 0x02b2,
+                    0x80c8-0x10000 # 2's complement negative...
                 ]
             } ),
 ]
@@ -556,6 +556,13 @@ def test_enip_logix():
             log.warning( "%r not in data, or != %r: %s", k, v, enip.enip_format( data ))
             raise
 
+        # And, ensure that we can get the original EPATH back (ignoring extra decoy bytes)
+        try:
+            assert enip.logix.produce( data.request.logix ) == pkt
+        except:
+            log.warning ( "Invalid packet produced from logix data: %r", data )
+            raise
+        
 
 def test_enip_cip():
     for pkt,tst in cip_tests:
