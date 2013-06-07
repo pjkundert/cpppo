@@ -561,45 +561,96 @@ class ucmm( cpppo.dfa ):
 
         super( ucmm, self ).__init__( name=name, initial=srvc, **kwds )
 
-    
+class typed_data( cpppo.dfa ):
+    """Parses CIP typed data, of the form specified by the datatype (must be a relative path within the
+    data artifact).  Data elements are parsed 'til exhaustion of input, so the caller should use
+    limit= to define the limits of the data in the source symbol input stream; only complete data
+    items must be parsed, so this must be exact, and match the specified data type.
+
+    The known data types are:
+
+    	data type	type value	size
+    	BOOL 		0x0_c1		1 byte (_=[0-7] indicates relevant bit)
+	SINT		0x00c2		1 byte
+	INT		0x00c3		2 byte
+	DINT		0x00c4		4 byte
+	REAL		0x00ca		4 byte
+	DWORD		0x00d3		4 byte (32-bit boolean array)
+	LINT		0x00c5		8 byte
+
+    """    
+    def __init__( self, name=None, datatype=None, **kwds ):
+        kwds.setdefault( 'context', 'data' )
+        name 			= name or kwds.get( 'context' )
+        assert datatype, "Must specify a relative path to the CIP data type; found: %r" % datatype
+
+        slct			= octets_noop(	'select' )
+        
+        i_8p			= usint( 	'int_8bit',	extension='.integer' )
+        i_8d			= octets_noop(	'end_8bit', 	terminal=True )
+        i_8d[True]		= i_8p
+        i_8p[None]		= move_if( 	'mov_8bit',	source='.integer', 
+                                           destination='.list',	initializer=lambda **kwds: [],
+                                                state=i_8d )
+
+        i16p			= uint(		'int16bit',	extension='.integer' )
+        i16d			= octets_noop(	'end16bit', 	terminal=True )
+        i16d[True]		= i16p
+        i16p[None]		= move_if( 	'mov16bit',	source='.integer', 
+                                           destination='.list',	initializer=lambda **kwds: [],
+                                                state=i16d )
+
+        i32p			= udint( 	'int32bit',	extension='.integer' )
+        i32d			= octets_noop(	'end32bit', 	terminal=True )
+        i32d[True]		= i32p
+        i32p[None]		= move_if( 	'mov32bit',	source='.integer', 
+                                           destination='.list',	initializer=lambda **kwds: [],
+                                                state=i32d )
+
+        slct[None]		= cpppo.decide(	'SINT',	state=i_8p,
+            predicate=lambda path=None, data=None, **kwds: data[path+datatype] == 0x00c2 )
+        slct[None]		= cpppo.decide(	'INT',	state=i16p,
+            predicate=lambda path=None, data=None, **kwds: data[path+datatype] == 0x00c3 )
+        slct[None]		= cpppo.decide(	'DINT',	state=i32p,
+            predicate=lambda path=None, data=None, **kwds: data[path+datatype] == 0x00c4 )
+        
+        super( typed_data, self ).__init__( name=name, initial=slct, **kwds )
+
+
 class logix( cpppo.dfa ):
-    """Parses a Logix vendor-specific request. 
+    """Parses a Logix vendor-specific CIP request.
 
     If a Logix5000 Controller is being addressed (See Logix5000 Data Access manual, pp 16, Services
     Supported by Logix5000 Controllers), the ucmm.request_data. may contain:
     
-        .ucon_send.request.service		usint		1
-    		Read Tag Service 			0x4c
-    		Read Tag Fragmented Service 		0x52 (unrelated to Unconnected Send, above...)
-    		Write Tag Service 			0x4d
-    		Write Tag Fragmented Service 		0x53
-    		Read Modify Write Tag Service 		0x4e
-        .ucon_send.request.path_size		uint		2 (in words)
-        .ucon_send.request.path			[
-            {...class/instance/attribute/element/symbolic ...}
-        ]
-        .ucon_send.request_data			octets[...]
-
-
-        .ucon_send.request.service		usint
+        .service			usint		1
+    		Read Tag Service 		0x4c
+    		Read Tag Fragmented Service 	0x52 	(unrelated to Unconnected Send, above...)
+    		Write Tag Service 		0x4d
+    		Write Tag Fragmented Service 	0x53
+    		Read Modify Write Tag Service 	0x4e
+					      | 0x80 	(indicates response)
+ 
+        .path				extpath		...
 
         The request-specific data for the supported services are:
 
-    		Read Tag Service 			0x4c
-        ucon_send.request.read_tag.elements	uint		2
+    		Read Tag Service 		0x4c
+        .read_tag.elements		uint		2
     
-    		Read Tag Fragmented Service		0x52
-        ucon_send.request.read_frag.elements	uint		2
-        ucon_send.request.read_frag.offset	udint		4 (in bytes)
+    		Read Tag Fragmented Service	0x52
+        .read_frag.elements		uint		2
+        .read_frag.offset		udint		4 (in bytes)
 
-    		Write Tag Service 			0x4d
-        ucon_send.request.write_tag.type		uint		2
-        ucon_send.request.write_tag.data	octets[...]	* (sufficient for one tag_type)
+    		Write Tag Service 		0x4d
+        .write_tag.type			uint		2
+        .write_tag.data			octets[...]	* (sufficient for one tag_type)
 
-    		WriteTag Fragmented Service		0x52
-        ucon_send.request.write_frag.type	uint		2
-        ucon_send.request.write_frag.elements	uint		2
-        ucon_send.request.write_frag.offset	udint		4 (in bytes)
+    		Write Tag Fragmented Service	0x52
+        .write_frag.type		uint		2
+        .write_frag.elements		uint		2
+        .write_frag.offset		udint		4 (in bytes)
+        .write_frag.data		octets[...]	* (remainder, divisible by tag_type)
 
     This must be run with a length-constrained 'source' iterable (eg. a fixed-length array harvested
     by a previous parser, eg. ucon_send.request_data).  Since there are no indicators within this
@@ -612,36 +663,45 @@ class logix( cpppo.dfa ):
     def __init__( self, name=None, **kwds ):
         kwds.setdefault( 'context', 'cip' )
         name 			= name or kwds.get( 'context' )
-        
 
-        slct			= cpppo.state(	"select" )	# parse path size and path
-        slct['\x4c']	= rtsv	= usint(	'service',  context='service' )
+        slct			= octets_noop(	'select' )	# parse path size and path
+        slct[b'\x4c'[0]]= rtsv	= usint(	'service',  	context='service' )
         rtsv[True]	= rtpt	= extpath()
-        rtpt[True]	= rtel	= uint(		'elements', context='read_tag',   extension='.element',
+        rtpt[True]	= rtel	= uint(		'elements', 	context='read_tag',   extension='.element',
+                                                terminal=True )
+        # Read Tag Fragmented
+        slct[b'\x52'[0]]= rfsv	= usint(	'service',	context='service' )
+        rfsv[True]	= rfpt	= extpath()
+        rfpt[True]	= rfel	= uint(		'elements',	context='read_frag',  extension='.elements' )
+        rfel[True]		= udint( 	'offset',   	context='read_frag',  extension='.offset',
                                                 terminal=True )
 
-        slct['\x52']	= rfsv	= usint(	'service',  context='service' )
-        rtsv[True]	= rfpt	= extpath()
-        rfpt[True]	= rfel	= uint(		'elements', context='read_frag',  extension='.elements')
-        rfel[True]		= udint( 	'offset',   context='read_frag',  extension='.offset',
+        # Read Tag Fragmented Reply
+        slct[b'\xd2'[0]]= Rfsv	= usint(	'service',  	context='service' )
+        Rfsv[True]	= Rfrs	= octets_drop(	'reserved',	repeat=1 )
+        Rfrs[True]	= Rfst	= usint( 	'status', 	context='read_frag',  extension='.status' )
+        Rfst[b'\x00'[0]]= Rfss	= usint( 	'status_size', 	context='read_frag',  extension='.status_size' )
+        Rfss[True]	= Rfdt	= uint( 	'type',   	context='read_frag',  extension='.type' )
+        Rfdt[True]	= Rfdl	= typed_data( 	'data',   	context='read_frag',  extension='.data',
+                                                datatype='..type',
                                                 terminal=True )
 
-        slct['\x4d']	= wtsv	= usint(	'service',  context='service' )
+        slct[b'\x4d'[0]]= wtsv	= usint(	'service',  context='service' )
         wtsv[True]	= wtpt	= extpath()
         wtpt[True]	= wtty	= uint(		'type',     context='write_tag',  extension='.type' )
         wtty[True]	= wtdt	= octets( 	'data',	    context='write_tag',  extension='.data',
                                                 terminal=True )
         wtdt[True]	= wtdt	# And loop consuming all remaining data
 
-        slct['\x53']	= wfsv	= usint(	'service',  context='service' )
+        slct[b'\x53'[0]]= wfsv	= usint(	'service',  context='service' )
         wfsv[True]	= wfpt	= extpath()
         wfpt[True]	= wfty	= uint(		'type',     context='write_frag', extension='.type')
-        wfpt[True]	= wfel	= uint(		'elements', context='write_frag', extension='.elements')
+        wfty[True]	= wfel	= uint(		'elements', context='write_frag', extension='.elements')
         wfel[True]	= wfof	= udint( 	'offset',   context='write_frag', extension='.offset' )
         wfof[True]	= wfdt	= octets( 	'data',	    context='write_frag', extension='.data',
                                                 terminal=True )
         wfdt[True]	= wfdt	# And loop consuming all remaining data
 
-        super( logix, self ).__init__( name=name, initial=srvc, **kwds )
+        super( logix, self ).__init__( name=name, initial=slct, **kwds )
 
 

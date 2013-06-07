@@ -499,6 +499,64 @@ def test_enip_extpath():
         # And, ensure that we can get the original EPATH back (ignoring extra decoy bytes)
         assert enip.extpath_encode( data.request.path ) == pkt[:1+data.request.path.size*2]
 
+
+
+# "17","0.423597000","192.168.222.128","10.220.104.180","CIP CM","124","Unconnected Send: Unknown Service (0x52)"
+readfrag_1_req 			= bytes(bytearray([
+    0x52, 0x04, 0x91, 0x05, 0x53, 0x43, 0x41, 0x44, #/* R...SCAD */
+    0x41, 0x00, 0x14, 0x00, 0x02, 0x00, 0x00, 0x00, #/* A....... */
+    0x01, 0x00, 0x01, 0x00                          #/* .... */
+]))
+#"19","0.515458000","10.220.104.180","192.168.222.128","CIP","138","Success"
+readfrag_1_rpy			= bytes(bytearray([
+                                        0xd2, 0x00, #/* ....,... */
+    0x00, 0x00, 0xc3, 0x00, 0x4c, 0x10, 0x08, 0x00, #/* ....L... */
+    0x03, 0x00, 0x02, 0x00, 0x02, 0x00, 0x02, 0x00, #/* ........ */
+    0x0e, 0x00, 0x00, 0x00, 0x00, 0x00, 0xe6, 0x42, #/* .......B */
+    0x07, 0x00, 0xc8, 0x40, 0xc8, 0x40, 0x00, 0x00, #/* ...@.@.. */
+    0xe4, 0x00, 0x00, 0x00, 0x64, 0x00, 0xb2, 0x02, #/* ....d... */
+    0xc8, 0x40                                      #/* .@ */
+]))
+
+logix_tests			= [
+            ( readfrag_1_req,	{
+                'request.cip.service': 			0x52,
+                'request.cip.path.list': 		[{'symbolic': 'SCADA', 'length': 5}],
+                'request.cip.read_frag.elements':	20,
+                'request.cip.read_frag.offset':		2,
+            } ),
+            ( readfrag_1_rpy,	{
+                'request.cip.service': 			0xd2,
+                'request.cip.read_frag.status':		0x00,
+                'request.cip.read_frag.status_size':	0x00,
+                'request.cip.read_frag.type':		0x00c3,
+                'request.cip.read_frag.data.list':	[
+                                    0x104c, 0x0008, #/* ....L... */
+                    0x0003, 0x0002, 0x0002, 0x0002, #/* ........ */
+                    0x000e, 0x0000, 0x0000, 0x42e6, #/* .......B */
+                    0x0007, 0x40c8, 0x40c8, 0x0000, #/* ...@.@.. */
+                    0x00e4, 0x0000, 0x0064, 0x02b2, #/* ....d... */
+                    0x40c8                          #/* .@ */ 0x
+                ]
+            } ),
+]
+
+def test_enip_logix():
+    for pkt,tst in logix_tests:
+        data			= cpppo.dotdict()
+        source			= cpppo.chainable( pkt )
+        with enip.logix( terminal=True ) as machine:
+            for i,(m,s) in enumerate( machine.run( source=source, path='request', data=data )):
+                log.detail( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r",
+                          machine.name_centered(), i, s, source.sent, source.peek(), data )
+        try:
+            for k,v in tst.items():
+                assert data[k] == v
+        except:
+            log.warning( "%r not in data, or != %r: %s", k, v, enip.enip_format( data ))
+            raise
+
+
 def test_enip_cip():
     for pkt,tst in cip_tests:
         # Parse just the headers
