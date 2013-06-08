@@ -367,7 +367,7 @@ def test_enip_header():
         data			= cpppo.dotdict()
         origin			= cpppo.chainable( pkt )
         source			= cpppo.chainable()
-        with enip.enip_header( terminal=True ) as machine:
+        with enip.enip_header() as machine:
             for i,(m,s) in enumerate( machine.run( source=source, path='enip', data=data )):
                 log.info( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r",
                           machine.name_centered(), i, s, source.sent, source.peek(), data )
@@ -389,7 +389,7 @@ def test_enip_machine():
         # Parse the headers and encapsulated command data
         data			= cpppo.dotdict()
         source			= cpppo.chainable( pkt )
-        with enip.enip_machine( terminal=True ) as machine:
+        with enip.enip_machine() as machine:
             for i,(m,s) in enumerate( machine.run( source=source, data=data )):
                 log.info( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r",
                           machine.name_centered(), i, s, source.sent, source.peek(), data )
@@ -485,7 +485,7 @@ def test_enip_EPATH():
     for pkt,tst in extpath_tests:
         data			= cpppo.dotdict()
         source			= cpppo.chainable( pkt )
-        with enip.EPATH( terminal=True ) as machine:
+        with enip.EPATH() as machine:
             for i,(m,s) in enumerate( machine.run( source=source, path='request', data=data )):
                 log.detail( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r",
                           machine.name_centered(), i, s, source.sent, source.peek(), data )
@@ -545,7 +545,7 @@ def test_enip_logix():
     for pkt,tst in logix_tests:
         data			= cpppo.dotdict()
         source			= cpppo.chainable( pkt )
-        with enip.logix( terminal=True ) as machine:
+        with enip.logix() as machine:
             for i,(m,s) in enumerate( machine.run( source=source, path='request', data=data )):
                 log.detail( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r",
                           machine.name_centered(), i, s, source.sent, source.peek(), data )
@@ -563,6 +563,59 @@ def test_enip_logix():
             log.warning ( "Invalid packet produced from logix data: %r", data )
             raise
         
+cpf_1		 		= bytes(bytearray([
+                            0x02, 0x00, 0x00, 0x00, #/* ........ */
+    0x00, 0x00, 0xb2, 0x00, 0x1e, 0x00, 0x52, 0x02, #/* ......R. */
+    0x20, 0x06, 0x24, 0x01, 0x05, 0x9d, 0x10, 0x00, #/*  .$..... */
+    0x52, 0x04, 0x91, 0x05, 0x53, 0x43, 0x41, 0x44, #/* R...SCAD */
+    0x41, 0x00, 0x14, 0x00, 0x02, 0x00, 0x00, 0x00, #/* A....... */
+    0x01, 0x00, 0x01, 0x00                          #/* .... */
+]))
+cpf_tests			= [
+    ( cpf_1, {
+        'request': {
+            'CPF': {
+                'count': 2,
+                'item': [
+                    {'length': 0,
+                     'type_id': 0},
+                    {'length': 30, 
+                     'logix': {
+                         'path': {
+                             'size': 2,
+                             'segment': [
+                                 {'class': 6}, 
+                                 {'instance': 1}]},
+                         'read_frag': {
+                             'elements': 40197, 
+                             'offset': 72482832},
+                         'service': 82},
+                     'type_id': 178}]}}})
+]
+def test_enip_CPF():
+    for pkt,tst in cpf_tests:
+        data			= cpppo.dotdict()
+        source			= cpppo.chainable( pkt )
+        with enip.CPF( send_parsers={ 0x00b2: enip.logix } ) as machine:
+            for i,(m,s) in enumerate( machine.run( source=source, path='request', data=data )):
+                log.detail( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r",
+                          machine.name_centered(), i, s, source.sent, source.peek(), data )
+        try:
+            for k,v in tst.items():
+                assert data[k] == v
+        except:
+            log.warning( "%r not in data, or != %r: %s", k, v, enip.enip_format( data ))
+            raise
+            
+        '''
+        # And, ensure that we can get the original EPATH back (ignoring extra decoy bytes)
+        try:
+            assert enip.logix.produce( data.request.logix ) == pkt
+        except:
+            log.warning ( "Invalid packet produced from logix data: %r", data )
+            raise
+        '''
+
 
 def test_enip_cip():
     for pkt,tst in cip_tests:
