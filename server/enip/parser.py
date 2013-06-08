@@ -274,10 +274,11 @@ def enip_format( data ):
 class move_if( cpppo.decide ):
     """If the predicate is True (the default), then move (either append or assign) data[path+source] to
     data[path+destination], assigning init to it first if the target doesn't yet exist.  Then,
-    proceed to the target state."""
+    proceed to the target state.  If no source is provided, only the initialization (if not None)
+    occurs.  The destination defaults to the plain path context."""
     def __init__( self, name, source=None, destination=None, initializer=None, **kwds ):
         super( move_if, self ).__init__( name=name, **kwds )
-        self.src		= source if source else ''
+        self.src		= source
         self.dst		= destination if destination else ''
         self.ini		= initializer
         
@@ -285,24 +286,24 @@ class move_if( cpppo.decide ):
         target			= super( move_if, self ).execute(
             truth, machine=machine, source=source, path=path, data=data )
         if truth:
-            pathsrc		= path + self.src
             pathdst		= path + self.dst
-            assert pathsrc in data, \
-                "Could not find %r to move to %r in %r" % ( pathsrc, pathdst, data )
-            if self.ini and pathdst not in data:
+            if self.ini is not None and pathdst not in data:
                 ini		= ( self.ini
                                     if not hasattr( self.ini, '__call__' )
                                     else self.ini(
                                             machine=machine, source=source, path=path, data=data ))
                 log.debug( "%s -- init. data[%r] to %r", self, pathdst, ini )
                 data[pathdst]	= ini
-
-            if hasattr( data[pathdst], 'append' ):
-                log.debug( "%s -- append data[%r] == %r to data[%r]", self, pathsrc, data[pathsrc], pathdst )
-                data[pathdst].append( data.pop( pathsrc ))
-            else:
-                log.debug( "%s -- assign data[%r] == %r to data[%r]", self, pathsrc, data[pathsrc], pathdst )
-                data[pathdst]	= data.pop( pathsrc )
+            if self.src is not None:
+                pathsrc		= path + self.src
+                assert pathsrc in data, \
+                    "Could not find %r to move to %r in %r" % ( pathsrc, pathdst, data )
+                if hasattr( data[pathdst], 'append' ):
+                    log.debug( "%s -- append data[%r] == %r to data[%r]", self, pathsrc, data[pathsrc], pathdst )
+                    data[pathdst].append( data.pop( pathsrc ))
+                else:
+                    log.debug( "%s -- assign data[%r] == %r to data[%r]", self, pathsrc, data[pathsrc], pathdst )
+                    data[pathdst]	= data.pop( pathsrc )
 
         return target
 
@@ -805,6 +806,7 @@ class logix( cpppo.dfa ):
     Write Tag Service (reply)			0xdd
 	.status				USINT		1
 					USINT		1 (ext_status_size ignored; must be 0x00)
+        .write_tag 					(created, but left empty)
 
     Write Tag Fragmented Service		0x53
 	.write_frag.type		UINT		2
@@ -814,6 +816,7 @@ class logix( cpppo.dfa ):
     Write Tag Fragmented Service (reply)	0xd3
 	.status				USINT		1
 					USINT		1 (ext_status_size ignored; must be 0x00)
+        .write_frag					(created, but left empty)
 
     This must be run with a length-constrained 'source' iterable (eg. a fixed-length array harvested
     by a previous parser, eg. ucon_send.request_data).	Since there are no indicators within this
@@ -898,8 +901,10 @@ class logix( cpppo.dfa ):
 			= Wtsv	= USINT(	'service',  	context='service' )
         Wtsv[True]	= Wtrs	= octets_drop(	'reserved',	repeat=1 )
         Wtrs[True]	= Wtst	= USINT( 			context='status' )
-        Wtst[b'\x00'[0]]	= octets_drop( 'status_size',	repeat=1,
+        Wtst[b'\x00'[0]]= Wtss	= octets_drop(	'status_size',	repeat=1,
                                                 terminal=True )
+        Wtss[None]		= move_if( 	'write_tag',	destination='.write_tag',
+                                                initializer=lambda **kwds: cpppo.dotdict() )
 
         # Write Tag Fragmented Service
         slct[self.transit[self.WR_FRG_REQ]] \
@@ -913,11 +918,14 @@ class logix( cpppo.dfa ):
                                                 terminal=True )
         # Write Tag Fragmented Service (reply)
         slct[self.transit[self.WR_FRG_RPY]] \
-			= Wtsv	= USINT(			context='service' )
-        Wtsv[True]	= Wtrs	= octets_drop(	'reserved',	repeat=1 )
-        Wtrs[True]	= Wtst	= USINT( 			context='status' )
-        Wtst[b'\x00'[0]]	= octets_drop( 'status_size',	repeat=1,
+			= Wfsv	= USINT(			context='service' )
+        Wfsv[True]	= Wfrs	= octets_drop(	'reserved',	repeat=1 )
+        Wfrs[True]	= Wfst	= USINT( 			context='status' )
+        Wfst[b'\x00'[0]]= Wfss	= octets_drop(	'status_size',	repeat=1,
                                                 terminal=True )
+        Wfss[None]		= move_if( 	'write_frag',	destination='.write_frag',
+                                                initializer=lambda **kwds: cpppo.dotdict() )
+
 
         super( logix, self ).__init__( name=name, initial=slct, **kwds )
 
@@ -944,7 +952,7 @@ class logix( cpppo.dfa ):
             result	       += UINT.produce(		data.write_tag.type )
             result	       += UINT.produce(		data.write_tag.setdefault( 
                 'elements', len( data.write_tag.data )))
-            result	       += typed_data.produce(	data.write_tag.data )
+            result	       += typed_data.produce(	data.write_tag )
         elif 'write_frag' in data and data.setdefault( 'service', logix.WR_FRG_REQ ) == logix.WR_FRG_REQ:
             # We can NOT deduce the number of elements from len( write_frag.data );
             # write_frag.elements must be the entire number of elements being shipped, while
@@ -956,9 +964,9 @@ class logix( cpppo.dfa ):
             result	       += UINT.produce(		data.write_frag.elements )
             result	       += UDINT.produce(	data.write_frag.setdefault(
                 'offset', 0x00000000 ))
-            result	       += typed_data.produce(	data.write_tag.data )
+            result	       += typed_data.produce(	data.write_frag )
         elif (    'write_tag'  in data and data.service == logix.WR_TAG_RPY
-                  or 'write_frag' in data and data.service == logix.WR_FRG_RPY ):
+               or 'write_frag' in data and data.service == logix.WR_FRG_RPY ):
             result	       += USINT.produce(	data.service )
             result	       += USINT.produce(	0x00 )
             result	       += USINT.produce(	data.setdefault( 'status', 0x00 ))

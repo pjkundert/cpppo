@@ -512,27 +512,45 @@ readfrag_1_rpy			= bytes(bytearray([
     0xe4, 0x00, 0x00, 0x00, 0x64, 0x00, 0xb2, 0x02, #/* ....d... */
     0xc8, 0x80                                      #/* .@ */
 ]))
+writetag_1_req	 		= bytes(bytearray([
+    0x53, 0x05, 0x91, 0x05, 0x53, 0x43, 0x41, 0x44, #/* S...SCAD */
+    0x41, 0x00, 0x28, 0x0c, 0xc3, 0x00, 0x01, 0x00, #/* A.(..... */
+    0x00, 0x00, 0x00, 0x00, 0xc9, 0x40              #/* .....@.. */
+]))
+# pkt22
+# "22","0.602090000","10.220.104.180","192.168.222.128","CIP","98","Success"
+writetag_1_rpy	 		= bytes(bytearray([
+                                        0xd3, 0x00, #/* ........ */
+    0x00, 0x00                                      #/* .. */
+]))
 
 logix_tests			= [
-            ( readfrag_1_req,	{
-                'request.logix.service': 		0x52,
-                'request.logix.path.segment': 		[{'symbolic': 'SCADA', 'length': 5}],
-                'request.logix.read_frag.elements':	20,
-                'request.logix.read_frag.offset':	2,
-            } ),
-            ( readfrag_1_rpy,	{
-                'request.logix.service': 		0xd2,
-                'request.logix.status':			0x00,
-                'request.logix.read_frag.type':		0x00c3,
-                'request.logix.read_frag.data':	[
-                                    0x104c, 0x0008,
-                    0x0003, 0x0002, 0x0002, 0x0002,
-                    0x000e, 0x0000, 0x0000, 0x42e6,
-                    0x0007, 0x40c8, 0x40c8, 0x0000,
-                    0x00e4, 0x0000, 0x0064, 0x02b2,
-                    0x80c8-0x10000 # 2's complement negative...
-                ]
-            } ),
+    (
+        readfrag_1_req,	{
+            'request.logix.service': 		0x52,
+            'request.logix.path.segment': 		[{'symbolic': 'SCADA', 'length': 5}],
+            'request.logix.read_frag.elements':	20,
+            'request.logix.read_frag.offset':	2,
+        }
+    ), ( 
+        readfrag_1_rpy,	{
+            'request.logix.service': 		0xd2,
+            'request.logix.status':			0x00,
+            'request.logix.read_frag.type':		0x00c3,
+            'request.logix.read_frag.data':	[
+                0x104c, 0x0008,
+                0x0003, 0x0002, 0x0002, 0x0002,
+                0x000e, 0x0000, 0x0000, 0x42e6,
+                0x0007, 0x40c8, 0x40c8, 0x0000,
+                0x00e4, 0x0000, 0x0064, 0x02b2,
+                0x80c8-0x10000 # 2's complement negative...
+            ]
+        }
+    ),(
+        writetag_1_req, {},
+    ),(
+        writetag_1_rpy, {},
+    )
 ]
 
 def test_enip_logix():
@@ -586,6 +604,7 @@ CPF_tests			= [
         "CPF.item[1].unconnected_send.timeout_ticks": 157,
     })
 ]
+
 def test_enip_CPF():
     for pkt,tst in CPF_tests:
         data			= cpppo.dotdict()
