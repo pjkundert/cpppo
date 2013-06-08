@@ -454,17 +454,63 @@ class EPATH( cpppo.dfa ):
         return USINT.produce( len( result ) // 2 ) + result
 
 
+class route( cpppo.dfa ):
+    """Unconnected message routing.
+
+        .route...
+
+    """
+    def __init__( self, name=None, **kwds ):
+        name 			= name or kwds.setdefault( 'context', self.__class__.__name__ )
+
+        rout			= octets( terminal=True )      	# Just soak up remaining data for now
+        rout[True]		= rout
+
+        super( route, self ).__init__( name=name, initial=rout, **kwds )
+
+
+class unconnected_send( cpppo.dfa ):
+    """A Message Router object must process Unconnected Send requests, which carry a message and a
+    routing path, allowing delivery of the message to a port.  When the request path contains only a
+    port, then the message is delivered
+
+        .unconnected_send.service	USINT
+        .unconnected_send.path		EPATH
+        .unconnected_send.priority	USINT
+        .unconnected_send.length	UINT
+        .unconnected_send.<parser>
+        .unconnected_send.timeout_ticks	USINT
+    """
+    def __init__( self, name=None, **kwds ):
+        name 			= name or kwds.setdefault( 'context', self.__class__.__name__ )
+
+        cmnd			= USINT(	context='service' )
+        cmnd[True]	= path	= EPATH(	context='path' )
+        path[True]	= prio	= USINT(	context='priority' )
+        prio[True]	= timo	= USINT(	context='timeout_ticks' )
+        timo[True]	= leng	= UINT(		context='length' )
+
+        # TODO: Find object w/path, and use its parser!  cpppo.decide derived lookup?
+        leng[None]	= mesg	= logix()
+
+        # route segments, like path but for hops/links/keys...
+        mesg[True]		= route( terminal=True )
+
+        super( unconnected_send, self ).__init__( name=name, initial=cmnd, **kwds )
+
+
 class CPF( cpppo.dfa ):
+
     """A SendRRData Common Packet Format specifies the number and type of the encapsulated CIP address
     items or data items that follow:
 
-    	.cpf.count			UINT		2 	Number of items
-        .cpf.item[0].type_id		UINT		2	Type ID of item encapsulated		
-        .cpf.item[0].length		UINT		2	Length of item encapsulated		
-        .cpf.item[0].<parser>...
+    	.CPF.count			UINT		2 	Number of items
+        .CPF.item[0].type_id		UINT		2	Type ID of item encapsulated		
+        .CPF.item[0].length		UINT		2	Length of item encapsulated		
+        .CPF.item[0].<parser>...
 
     Parse the count, and then each CPF item into cpf.item_temp, and (after parsing) moves it to
-    cpf.item[x].  The count is used to repeat the 
+    cpf.item[x].
     
 
     A dictionary of parsers for various CPF types must be provided.  Any CPF item with a length > 0 will
@@ -481,8 +527,10 @@ class CPF( cpppo.dfa ):
         0x00b1:		Connected Transport packet (eg. used within CIP command SendUnitData)
         0x0100:		ListServices response
 
+    
+
     """
-    def __init__( self, name=None, send_parsers=None, **kwds ):
+    def __init__( self, name=None, **kwds ):
         """Parse CPF list items 'til .count reached, which should be simultaneous with symbol exhaustion, if
         caller specified a symbol limit.
 
@@ -498,6 +546,11 @@ class CPF( cpppo.dfa ):
 
         # Prepare a parser for each recognized CPF item type.  It must establish one level of
         # context, because we need to pass it a limit='..length' denoting the length we just parsed.
+
+        send_parsers		= {
+            0x00b2: unconnected_send,
+        } 
+
         for typ,cls in ( send_parsers or {} ).items():
             ilen[None]		= cpppo.decide( cls.__name__, state=cls( terminal=True, limit='..length' ),
                         predicate=lambda path=None, data=None, **kwds: data[path].type_id == typ )
@@ -526,25 +579,27 @@ class CPF( cpppo.dfa ):
 
 class send_data( cpppo.dfa ):
     """Handle Connected (SendUnitData) or Unconnected (SendRRData) Send Data request/reply."""
-    def __init__( self, name=None, send_parsers=None, **kwds ):
+    def __init__( self, name=None, **kwds ):
         name 			= name or kwds.setdefault( 'context', self.__class__.__name__ )
         
         ifce			= UDINT(			context='interface' )
         ifce[True]	= timo	= UINT(				context='timeout' )
-        timo[True]		= CPF( send_parsers=send_parsers, terminal=True )
+        timo[True]		= CPF( terminal=True )
 
         super( send_data, self ).__init__( name=name, initial=ifce, **kwds )
+
 
 class register( cpppo.dfa ):
     """Handle RegisterSession request/reply (identical)"""
     def __init__( self, name=None, **kwds ):
         name 			= name or kwds.setdefault( 'context', self.__class__.__name__ )
         
-        prto			= UINT(				context='protocol_verions' )
+        prto			= UINT(				context='protocol_version' )
         prto[True]		= UINT(				context='options',
                                                                 terminal=True )
 
         super( register, self ).__init__( name=name, initial=prto, **kwds )
+
 
 class unregister( octets_noop ):
     """Handle UnregisterSession request (no reply; session dropped)"""
@@ -557,10 +612,23 @@ class unregister( octets_noop ):
         ours			= self.context( path=path )
         data[ours]		= True
 
-class CIP( cpppo.dfa ):
-    """The EtherNet/IP CIP EncapsulationSendRRData (0x006f) encapsulates an interface and timeout, followed by a
-    list of items specified in Common Packet Format.
 
+class list_services( cpppo.dfa ):
+    """Handle ListServices request.  Services are encoded as a CPF list."""
+    def __init__( self, name=None, **kwds ):
+        name 			= name or kwds.setdefault( 'context', self.__class__.__name__ )
+
+        svcs			= CPF( terminal=True )
+
+        super( list_services, self ).__init__( name=name, initial=svcs, **kwds )
+
+
+
+
+class CIP( cpppo.dfa ):
+    """The EtherNet/IP CIP Encapsulation transports various commands back and forth between a
+    transmitter and a receiver.  There is no explicit designation of a request or a reply.  All have
+    a common prefix;
 
         .CIP.command			UINT		2
         .CIP.length			UINT		2
@@ -569,13 +637,18 @@ class CIP( cpppo.dfa ):
         .CIP.sender_context		octets[8]	8
         .CIP.options			UDINT		4
 
-    The supported command values are:
+    The supported command values and their formats are:
+
+    ListIdentity		0x0063
+
+    ListInterfaces		0x0064
 
     RegisterSession		0x0065
-        .CIP.register.
+        .CIP.register.protocol_version
+        .CIP.register.options
 
     UnregisterSession		0x0066
-        .CIP.unregister.
+        .CIP.unregister
 
     ListServices		0x0004
         .CIP.listservices.CPF...
@@ -584,11 +657,10 @@ class CIP( cpppo.dfa ):
     SendUnitData		0x0070
         .CIP.send.inteface		UDINT
         .CIP.send.timeout		UINT
-        .CIP.send.CPF...			
-    
+        .CIP.send.CPF...
 
     """
-    def __init__( self, name=None, send_parsers=None, **kwds ):
+    def __init__( self, name=None, **kwds ):
         name 			= name or kwds.setdefault( 'context', self.__class__.__name__ )
 
         cmnd			= UINT(		context='command' )
@@ -598,25 +670,24 @@ class CIP( cpppo.dfa ):
         stts[True]	= cntx	= octets(	context='sender_context', repeat=8 )
         cntx[True]	= opts	= UDINT( 	context='options' )
 
-        cntx[None]		= cpppo.decide( 'SendData',
+        opts[None]		= cpppo.decide( 'SendData',
             predicate=lambda path=None, data=None, **kwds: data[path].command in ( 0x006f, 0x0070 ),
                                                 state=send_data(
-                                                    send_parsers=send_parsers,
                                                     limit='..length',		terminal=True ))
-        cntx[None]		= cpppo.decide( 'Register', 
+        opts[None]		= cpppo.decide( 'Register', 
             predicate=lambda path=None, data=None, **kwds: data[path].command == 0x0065,
                                                state=register(
                                                    limit='..length', 		terminal=True ))
-        cntx[None]		= cpppo.decide( 'Unregister',
-            predicate=lambda path=None, data=None, **kwds: data[path].command == 0x0065,
+        opts[None]		= cpppo.decide( 'Unregister',
+            predicate=lambda path=None, data=None, **kwds: data[path].command == 0x0066,
                                                 state=unregister(
                                                     limit='..length',		terminal=True ))
-        cntx[None]		= cpppo.decide( 'ListServices',
+        opts[None]		= cpppo.decide( 'ListServices',
             predicate=lambda path=None, data=None, **kwds: data[path].command == 0x0004,
                                                 state=list_services(
                                                     limit='..length',		terminal=True))
         # If unrecognized, default to just collect the data
-        cntx[None]		= octets( 	context='unrecognized',
+        opts[None]		= octets( 	context='unrecognized',
                                                     limit='..length',		terminal=True )
 
         super( CIP, self ).__init__( name=name, initial=cmnd, **kwds )

@@ -68,15 +68,25 @@ class dotdict( dict ):
             front, back		= mine.split( '..', 1 )
             trunc		= front[:max(0,front.rfind('.'))]
             mine		= trunc + ( '.' if ( trunc and back ) else '' ) + back
-            #logging.info( '_resolve reduced "%s..%s" to "%s"' % ( front, back, mine ))
+            logging.info( '_resolve reduced "%s..%s" to "%s"' % ( front, back, mine ))
         # Find leading non-. term
         while '.' in mine:
             mine, rest		= mine.split( '.', 1 )
             if mine:
+                # Found 'mine' . 'rest'; if unbalanced brackets, eg 'a[b.c].d.e' ==> 'a[b' 'c].d.e',
+                # then keep moving split 'til balanced.
+                terms		= { '[':1, ']':-1 }
+                while sum( terms.get( c, 0 ) for c in mine ):
+                    logging.info( '_resolve unbalanced %r.%r"' % ( mine, rest ))
+                    if not rest:
+                        raise "unbalance brackets in %s" % key
+                    move, rest	= rest.split( '.', 1 )
+                    mine       += '.' + move
                 break
             mine		= rest
         if not mine:
             raise KeyError('cannot resolve "%s" in "%s" from key "%s"' % ( rest, mine, key ))
+   
         return mine, rest
 
     def __setitem__( self, key, value ):
@@ -93,11 +103,20 @@ class dotdict( dict ):
 
     def __getitem__( self, key ):
         mine, rest              = self._resolve( key )
+        if '[' in mine:
+            # Found something like 'name[1]' or 'name[a.b[c+3]]', etc: resolve, allowing no access
+            # to builtin functions, and only our own dotdict as locals: cannot index using values
+            # from higher levels of the dotdict, eg. 'name[..above]'
+            target              = eval( mine, {'__builtins__':{}}, self )
+        else:
+            target              = dict.__getitem__( self, mine )
         if rest is None:
-            return dict.__getitem__( self, mine )
-        target                  = dict.__getitem__( self, mine )
-        if not isinstance( target, dotdict ):
-            raise KeyError( 'cannot get "%s" in "%s" (%r)' % ( rest, mine, target ))
+            return target
+        # We have the rest of the levels to go; must have addressed another dotdict level (or
+        # something else that is subscriptable). 
+
+        if not hasattr( target, '__getitem__' ):
+            raise KeyError( 'cannot get "%s" in "%s" (%r); not subscriptable' % ( rest, mine, target ))
         return target[rest]
 
     def __contains__( self, key ):

@@ -7,6 +7,8 @@ import sys
 
 from .dotdict import *
 
+#logging.getLogger().setLevel( logging.INFO )
+
 def test_dotdict():
     # Like dict, construct from mapping, iterable and/or keywords
     assert "a" in dotdict({"a":1})
@@ -117,3 +119,28 @@ def test_dotdict():
     assert "x" in d.a
     assert d.pop("a.b.c...x") == 3
     assert "x" not in d.a
+
+def test_indexes():
+    """Indexing presently only works for __getitem__, get; not implemented/tested for __setitem__,
+    setdefault, del, pop, etc."""
+    d = dotdict()
+
+    d['a.b'] = 1
+    d['c'] = 2
+    d['l'] = [1,2,3,dotdict({'d':3})]
+
+    assert d._resolve( 'a' ) == ( 'a', None )
+    assert d._resolve( 'l[a.b+c].d' ) == ( 'l[a.b+c]', 'd' )
+
+    assert d['l[a.b+c].d'] == 3
+
+    try:
+        assert d['l[a.b+c-1].d'] == 3
+        assert False, "Indexing int, then trying to resolve another level should fail"
+    except KeyError as exc:
+        assert "not subscriptable" in str(exc)
+        pass
+
+    assert d.get( 'l[a.b+c-1].d' ) == None
+    assert d.get( 'l[a.b+c].d' ) == 3
+
