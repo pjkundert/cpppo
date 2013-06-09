@@ -63,12 +63,15 @@ log				= logging.getLogger( "enip.srv" )
 # words_base	-- A dfa_base that default to scan octet pairs (words) from bytes data
 # words		-- Scands words into <context>.input array
 # 
+#     You must provide either a name or a context; if you provide neither, then both default to the
+# name of the class.
+# 
 class octets_base( cpppo.dfa_base ):
     """Scan 'repeat' octets (default: 1), using an instance of the provided octets_state class as the
     sub-machine 'initial' state.  The sub-machine has no outgoing transitions, and will terminate
     after accepting and processing exactly one symbol.  Only after all 'repeat' loops will
     self.terminal be True."""
-    def __init__( self, name, initial=None,
+    def __init__( self, name=None, initial=None,
                   octets_name="byte",
                   octets_state=cpppo.state_input,
                   octets_alphabet=cpppo.type_bytes_iter,
@@ -76,6 +79,7 @@ class octets_base( cpppo.dfa_base ):
                   octets_typecode=cpppo.type_bytes_array_symbol, **kwds ):
         assert initial is None, "Cannot specify a sub-machine for %s.%s" % (
             __package__, self.__class__.__name__ )
+        name			= name or kwds.setdefault( 'context', self.__class__.__name__ )
         super( octets_base, self ).__init__( name=name, initial=octets_state(
             name=octets_name, terminal=True, alphabet=octets_alphabet, encoder=octets_encoder,
             typecode=octets_typecode ), **kwds )
@@ -94,7 +98,7 @@ def octets_encode( value ):
 class octets_struct( octets_base, cpppo.state_struct ):
     """Scans octets sufficient to satisfy the specified struct 'format', and then parses it according to
     the supplied struct 'format'."""
-    def __init__( self, name, format=None, **kwds ):
+    def __init__( self, name=None, format=None, **kwds ):
         assert isinstance( format, str ), "Expected a struct 'format', found: %r" % format
         super( octets_struct, self ).__init__( name=name, repeat=struct.calcsize( format ),
                                                format=format, **kwds )
@@ -102,29 +106,28 @@ class octets_struct( octets_base, cpppo.state_struct ):
 
 class octets_noop( octets_base, cpppo.state ):
     """Does nothing with an octet."""
-    def __init__( self, name,
-                  octets_state=cpppo.state, **kwds ):
-        super( octets_noop, self ).__init__( name=name, octets_name="noop",
-                                             octets_state=octets_state, **kwds )
+    def __init__( self, name=None, octets_state=cpppo.state, **kwds ):
+        super( octets_noop, self ).__init__(
+            name=name, octets_name="noop", octets_state=octets_state, **kwds )
 
 
 class octets_drop( octets_base, cpppo.state ):
     """Scans 'repeat' octets and drops them."""
-    def __init__( self, name,
-                  octets_state=cpppo.state_drop, **kwds ):
-        super( octets_drop, self ).__init__( name=name, octets_name="drop",
-                                             octets_state=octets_state, **kwds )
+    def __init__( self, name=None, octets_state=cpppo.state_drop, **kwds ):
+        super( octets_drop, self ).__init__(
+            name=name, octets_name="drop", octets_state=octets_state, **kwds )
         
 
 class words_base( cpppo.dfa_base ):
     """Scan 'repeat' 2-byte words (default: 1), convenient when sizes are specified in words."""
-    def __init__( self, name, initial=None,
+    def __init__( self, name=None, initial=None,
                   words_state=cpppo.state_input,
                   words_alphabet=cpppo.type_bytes_iter,
                   words_encoder=None,
                   words_typecode=cpppo.type_bytes_array_symbol, **kwds ):
         assert initial is None, "Cannot specify a sub-machine for %s.%s" % (
             __package__, self.__class__.__name__ )
+        name			= name or kwds.setdefault( 'context', self.__class__.__name__ )
         byt0			= words_state(
             name="byte0", alphabet=words_alphabet, encoder=words_encoder,
             typecode=words_typecode )
@@ -150,8 +153,8 @@ class words( words_base, cpppo.state ):
 # DINT		-- Parse a 32-bit EtherNet/IP   signed int 
 # UDINT		-- Parse a 32-bit EtherNet/IP unsigned int 
 # 
-#     You must provide either a name or a context; if you provide neither, then
-# both default to the name of the class.
+#     You must provide either a name or a context; if you provide neither, then both default to the
+# name of the class.
 # 
 class TYPE( octets_struct ):
     """An EtherNet/IP data type"""
@@ -192,7 +195,6 @@ class DINT( TYPE ):
     """An EtherNet/IP INT; 16-bit signed integer"""
     tag_type			= 0x00c4
     struct_format		= '<i'
-
 
 # 
 # enip_header	-- Parse an EtherNet/IP header only 
@@ -272,10 +274,11 @@ def enip_format( data ):
 class move_if( cpppo.decide ):
     """If the predicate is True (the default), then move (either append or assign) data[path+source] to
     data[path+destination], assigning init to it first if the target doesn't yet exist.  Then,
-    proceed to the target state."""
+    proceed to the target state.  If no source is provided, only the initialization (if not None)
+    occurs.  The destination defaults to the plain path context."""
     def __init__( self, name, source=None, destination=None, initializer=None, **kwds ):
         super( move_if, self ).__init__( name=name, **kwds )
-        self.src		= source if source else ''
+        self.src		= source
         self.dst		= destination if destination else ''
         self.ini		= initializer
         
@@ -283,24 +286,24 @@ class move_if( cpppo.decide ):
         target			= super( move_if, self ).execute(
             truth, machine=machine, source=source, path=path, data=data )
         if truth:
-            pathsrc		= path + self.src
             pathdst		= path + self.dst
-            assert pathsrc in data, \
-                "Could not find %r to move to %r in %r" % ( pathsrc, pathdst, data )
-            if self.ini and pathdst not in data:
+            if self.ini is not None and pathdst not in data:
                 ini		= ( self.ini
                                     if not hasattr( self.ini, '__call__' )
                                     else self.ini(
                                             machine=machine, source=source, path=path, data=data ))
                 log.debug( "%s -- init. data[%r] to %r", self, pathdst, ini )
                 data[pathdst]	= ini
-
-            if hasattr( data[pathdst], 'append' ):
-                log.debug( "%s -- append data[%r] == %r to data[%r]", self, pathsrc, data[pathsrc], pathdst )
-                data[pathdst].append( data.pop( pathsrc ))
-            else:
-                log.debug( "%s -- assign data[%r] == %r to data[%r]", self, pathsrc, data[pathsrc], pathdst )
-                data[pathdst]	= data.pop( pathsrc )
+            if self.src is not None:
+                pathsrc		= path + self.src
+                assert pathsrc in data, \
+                    "Could not find %r to move to %r in %r" % ( pathsrc, pathdst, data )
+                if hasattr( data[pathdst], 'append' ):
+                    log.debug( "%s -- append data[%r] == %r to data[%r]", self, pathsrc, data[pathsrc], pathdst )
+                    data[pathdst].append( data.pop( pathsrc ))
+                else:
+                    log.debug( "%s -- assign data[%r] == %r to data[%r]", self, pathsrc, data[pathsrc], pathdst )
+                    data[pathdst]	= data.pop( pathsrc )
 
         return target
 
@@ -452,133 +455,243 @@ class EPATH( cpppo.dfa ):
         return USINT.produce( len( result ) // 2 ) + result
 
 
-class cpfdata( cpppo.dfa ):
+class route( cpppo.dfa ):
+    """Unconnected message routing.
+
+        .route...
+
+    """
+    def __init__( self, name=None, **kwds ):
+        name 			= name or kwds.setdefault( 'context', self.__class__.__name__ )
+
+        rout			= octets( terminal=True )      	# Just soak up remaining data for now
+        rout[True]		= rout
+
+        super( route, self ).__init__( name=name, initial=rout, **kwds )
+
+
+class unconnected_send( cpppo.dfa ):
+    """A Message Router object must process Unconnected Send requests, which carry a message and a
+    routing path, allowing delivery of the message to a port.  When the request path contains only a
+    port, then the message is delivered
+
+        .unconnected_send.service	USINT
+        .unconnected_send.path		EPATH
+        .unconnected_send.priority	USINT
+        .unconnected_send.length	UINT
+        .unconnected_send.<parser>
+        .unconnected_send.timeout_ticks	USINT
+    """
+    def __init__( self, name=None, **kwds ):
+        name 			= name or kwds.setdefault( 'context', self.__class__.__name__ )
+
+        cmnd			= USINT(	context='service' )
+        cmnd[True]	= path	= EPATH(	context='path' )
+        path[True]	= prio	= USINT(	context='priority' )
+        prio[True]	= timo	= USINT(	context='timeout_ticks' )
+        timo[True]	= leng	= UINT(		context='length' )
+
+        # TODO: Find object w/path, and use its parser!  cpppo.decide derived lookup?
+        leng[None]	= mesg	= logix( limit='..length' )
+
+        # route segments, like path but for hops/links/keys...
+        mesg[None]		= route( terminal=True )
+
+        super( unconnected_send, self ).__init__( name=name, initial=cmnd, **kwds )
+
+
+class CPF( cpppo.dfa ):
+
     """A SendRRData Common Packet Format specifies the number and type of the encapsulated CIP address
     items or data items that follow:
 
-    	.cpf.item_count			UINT		2 	Number of items
-        .cpf.item[0].type_id		UINT		2	Type of item encapsulated		
-        .cpf.item[0].length		UINT		2	Type of item encapsulated		
-        .cpf.item[0].data		octets[length]
+    	.CPF.count			UINT		2 	Number of items
+        .CPF.item[0].type_id		UINT		2	Type ID of item encapsulated		
+        .CPF.item[0].length		UINT		2	Length of item encapsulated		
+        .CPF.item[0].<parser>...
 
-    Parse each CPF item into cpf.item_temp, and (after parsing) moves it to cpf.item[x].
+    Parse the count, and then each CPF item into cpf.item_temp, and (after parsing) moves it to
+    cpf.item[x].
+    
 
-    """
-    def __init__( self, name=None, **kwds ):
-        kwds.setdefault( 'context', 'cpf' )
-        name 			= name or kwds.get( 'context' )
+    A dictionary of parsers for various CPF types must be provided.  Any CPF item with a length > 0 will
+    be parsed using the instance of the parser appropriate to its type:
+        {
+            0x00b2:	<class>,
+        }
 
-        ityp			= UINT( 	"type_id", 	context="type_id" )
-        ityp[True] = ilen	= UINT( 	"length", 	context="length" )
-        ilen[None] = idat	= octets( 	"data", 	context="data",
-                                                repeat="..length", 
-                                                terminal=True )
+    Here is a subset of the types of CPF items to expect:
 
-        # Each item is collected into '..item_temp', and then moved into place into the provided
-        # context, probably 'item' (init to [])
-        item			= cpppo.dfa( 	"item_temp", 	extension="..item_temp",
-                                                initial=ityp )
-        item[None] 		= move_if( 	"move", 	source='..item_temp',
-                                                initializer=lambda: [],
-                                                state=cpppo.state( "moved", terminal=True ))
-
-
-        # Collect 'number' items, each into item_temp, then move to 'item[x]'
-        numb			= UINT(		"item_count",	context="item_count" )
-        numb[None] 		= cpppo.dfa(    "item", 	context="item", 
-                                                initial=item,
-                                                repeat='..item_count',
-                                                terminal=True )
-
-        super( cpfdata, self ).__init__( name=name, initial=numb, **kwds )
-
-
-class sendrrdata( cpppo.dfa ):
-    """The EtherNet/IP command SendRRData (0x006f) encapsulates an interface and timeout, followed by a
-    list of items specified in Common Packet Format.
-
-        .sendrrdata.interface
-        .sendrrdata.timeout
-        .sendrrdata.cpf...
-        
-    """
-    def __init__( self, name=None, **kwds ):
-        kwds.setdefault( 'context', 'sendrrdata' )
-        name 			= name or kwds.get( 'context' )
-        
-        ifce			= UDINT( 	"interface",	context="interface_handle" )
-        ifce[True] = timo	= UINT( 	"timeout",	context="timeout", 
-                                                terminal=True )
-        timo[True] = cpfd	= cpfdata( terminal=True )
-
-        super( sendrrdata, self ).__init__( name=name, initial=ifce, **kwds )
+        0x0000: 	NULL Address (used w/Unconnected Messages)
+        0x00b2: 	Unconnected Messages (eg. used within CIP command SendRRData)
+        0x00a1:		Address for connection based requests
+        0x00b1:		Connected Transport packet (eg. used within CIP command SendUnitData)
+        0x0100:		ListServices response
 
     
-class ucmm( cpppo.dfa ):
-    """Parses an encapsulated UCMM Unconnected Send (0x52) request, typically found in a SendRRData CPF
-    item's data.  No other UCMM services are supported.  Assuming a valid EtherNet/IP header has
-    been parsed containing a SendRRData (0x006f) command, containing CPF items, in turn containing
-    an item with a type_id of UCMM Unconnected Send (0x52).
-
-
-    Assumes:
-
-        .service				USINT		1 (0x52 for Unconnected Send)
-
-    Produces:
-
-        .path_size				USINT		1 (in words, not bytes)
-        .path_data				octets[size*2]  *
-        .path       			        [
-            { 'class':      # },...
-         ]
-        .ucon_send.priority			USINT		1
-        .ucon_send.timeout_ticks		USINT		1
-        .ucon_send.request_size			UINT		2
-        .ucon_send.request_data			octets[...]	size
-
-    The user should then proceed to parse the embedded request_data, in the context of whatever
-    (sometimes vendor-specific, eg. Rockwell Logix5000 ) Object Class/Instance has been addressed.
 
     """
-
     def __init__( self, name=None, **kwds ):
-        kwds.setdefault( 'context', 'ucmm' )
-        name 			= name or kwds.get( 'context' )
+        """Parse CPF list items 'til .count reached, which should be simultaneous with symbol exhaustion, if
+        caller specified a symbol limit.
+
+        """
+        name 			= name or kwds.setdefault( 'context', self.__class__.__name__ )
+
+        # A number, and then each CPF item consistes of a type, length and then parsable data.  
+        ityp			= UINT( 			context='type_id' )
+        ityp[True]	= ilen	= UINT( 			context='length' )
+        ilen[None]		= cpppo.decide( 'empty',
+                                predicate=lambda path=None, data=None, **kwds: not data[path].length,
+                                                state=octets_noop( 'done', terminal=True ))
+
+        # Prepare a parser for each recognized CPF item type.  It must establish one level of
+        # context, because we need to pass it a limit='..length' denoting the length we just parsed.
+
+        send_parsers		= {
+            0x00b2: unconnected_send,
+        } 
+
+        for typ,cls in ( send_parsers or {} ).items():
+            ilen[None]		= cpppo.decide( cls.__name__, state=cls( terminal=True, limit='..length' ),
+                        predicate=lambda path=None, data=None, **kwds: data[path].type_id == typ )
+
+        # If we don't recognize the CPF item type, just parse remainder into .unrecognized.input
+        ilen[None]	= urec	= octets( context='unrecognized', repeat='..length',
+                                          terminal=True )
+        urec[True]		= urec
+
+        # Each item is collected into '.item__', 'til no more input available, and then moved into
+        # place into '.item' (init to [])
+        item			= cpppo.dfa( 	'each', 	context='item__',
+                                                initial=ityp )
+        item[None] 		= move_if( 	'move', 	source='.item__',
+                                           destination='.item', initializer=lambda **kwds: [] )
+        item[None]		= cpppo.state( 	'done', terminal=True )
+
+        # Parse count, and then exactly .count CPF items.
+        loop			= UINT( 			context='count' )
+        loop[None]		= cpppo.dfa( 	'all', 	
+                                                initial=item,	repeat='.count',
+                                                terminal=True )
+
+        super( CPF, self ).__init__( name=name, initial=loop, **kwds )
+
+
+class send_data( cpppo.dfa ):
+    """Handle Connected (SendUnitData) or Unconnected (SendRRData) Send Data request/reply."""
+    def __init__( self, name=None, **kwds ):
+        name 			= name or kwds.setdefault( 'context', self.__class__.__name__ )
         
-        srvc			= USINT(	"service",	context="request_service" )
+        ifce			= UDINT(			context='interface' )
+        ifce[True]	= timo	= UINT(				context='timeout' )
+        timo[True]		= CPF( terminal=True )
+
+        super( send_data, self ).__init__( name=name, initial=ifce, **kwds )
+
+
+class register( cpppo.dfa ):
+    """Handle RegisterSession request/reply (identical)"""
+    def __init__( self, name=None, **kwds ):
+        name 			= name or kwds.setdefault( 'context', self.__class__.__name__ )
         
+        prto			= UINT(				context='protocol_version' )
+        prto[True]		= UINT(				context='options',
+                                                                terminal=True )
 
-        srvc[True] = rpsz	= USINT(	"path_siz",	context="request_path_size",
-                                                terminal=True ) 
-        
-        '''
-        def initial_list(machine, source, path, data ):
-            return []
-
-        # Loop parsing request_path elements 'til we reach the specified request path size.  We'll
-        # use a predicate that captures the current value of source.sent, and computes the maximal
-        # value of source.sent while we can still parse segments.
-        next_seg		= state(  "path_seg" )
-        mvsg			= move_if( 	'move_seg', 	context='request_path'
-                                                source=req_p_seg, initial=initial_list,
-                                                state=pseg )
-
-        def calc_path_end( machine,source,path,data ):
-            data[path].request_path__end = source.sends + data[path].request_path_size * 2
-            return True
-
-        rpsz[True] 		= decide( 	"path_end", 	state=pseg, predicate=calc_path_end )
+        super( register, self ).__init__( name=name, initial=prto, **kwds )
 
 
-        req_p_seg		= 'request_path_segment'
-        pseg['\x28'] = el_8_pre	= USINT(	'seg_type',	context=req_p_seg, extension=".type" )
-        el_8_pre[True] = el_8	= USINT( 	'8-bit elem', 	context=req_p_seg, extension='element' )
+class unregister( octets_noop ):
+    """Handle UnregisterSession request (no reply; session dropped)"""
+    def terminate( self, exception, machine=None, path=None, data=None ):
+        """Just create an empty value to indicate the command was received."""
+        # Only operate if we have completed without exception.
+        super( state_struct, self ).terminate( exception=exception, machine=machine, path=path, data=data )
+        if exception is not None:
+            return
+        ours			= self.context( path=path )
+        data[ours]		= True
 
-        rpth[True] = pseg	= USINT( 	"")
-        '''
 
-        super( ucmm, self ).__init__( name=name, initial=srvc, **kwds )
+class list_services( cpppo.dfa ):
+    """Handle ListServices request.  Services are encoded as a CPF list."""
+    def __init__( self, name=None, **kwds ):
+        name 			= name or kwds.setdefault( 'context', self.__class__.__name__ )
+
+        svcs			= CPF( terminal=True )
+
+        super( list_services, self ).__init__( name=name, initial=svcs, **kwds )
+
+
+
+
+class CIP( cpppo.dfa ):
+    """The EtherNet/IP CIP Encapsulation transports various commands back and forth between a
+    transmitter and a receiver.  There is no explicit designation of a request or a reply.  All have
+    a common prefix;
+
+        .CIP.command			UINT		2
+        .CIP.length			UINT		2
+        .CIP.session			UDINT		4
+        .CIP.status			UDINT		4
+        .CIP.sender_context		octets[8]	8
+        .CIP.options			UDINT		4
+
+    The supported command values and their formats are:
+
+    ListIdentity		0x0063
+
+    ListInterfaces		0x0064
+
+    RegisterSession		0x0065
+        .CIP.register.protocol_version
+        .CIP.register.options
+
+    UnregisterSession		0x0066
+        .CIP.unregister
+
+    ListServices		0x0004
+        .CIP.listservices.CPF...
+
+    SendRRData			0x006f
+    SendUnitData		0x0070
+        .CIP.send.inteface		UDINT
+        .CIP.send.timeout		UINT
+        .CIP.send.CPF...
+
+    """
+    def __init__( self, name=None, **kwds ):
+        name 			= name or kwds.setdefault( 'context', self.__class__.__name__ )
+
+        cmnd			= UINT(		context='command' )
+        cmnd[True]	= leng	= UINT(		context='length' )
+        leng[True]	= sess	= UDINT(	context='session' )	
+        sess[True]	= stts	= UDINT(	context='status' )	
+        stts[True]	= cntx	= octets(	context='sender_context', repeat=8 )
+        cntx[True]	= opts	= UDINT( 	context='options' )
+
+        opts[None]		= cpppo.decide( 'SendData',
+            predicate=lambda path=None, data=None, **kwds: data[path].command in ( 0x006f, 0x0070 ),
+                                                state=send_data(
+                                                    limit='..length',		terminal=True ))
+        opts[None]		= cpppo.decide( 'Register', 
+            predicate=lambda path=None, data=None, **kwds: data[path].command == 0x0065,
+                                               state=register(
+                                                   limit='..length', 		terminal=True ))
+        opts[None]		= cpppo.decide( 'Unregister',
+            predicate=lambda path=None, data=None, **kwds: data[path].command == 0x0066,
+                                                state=unregister(
+                                                    limit='..length',		terminal=True ))
+        opts[None]		= cpppo.decide( 'ListServices',
+            predicate=lambda path=None, data=None, **kwds: data[path].command == 0x0004,
+                                                state=list_services(
+                                                    limit='..length',		terminal=True))
+        # If unrecognized, default to just collect the data
+        opts[None]		= octets( 	context='unrecognized',
+                                                    limit='..length',		terminal=True )
+
+        super( CIP, self ).__init__( name=name, initial=cmnd, **kwds )
 
 
 class typed_data( cpppo.dfa ):
@@ -605,23 +718,23 @@ class typed_data( cpppo.dfa ):
 
         slct			= octets_noop(	'select' )
         
-        i_8p			= SINT()
-        i_8d			= octets_noop(	'end_8bit', 	terminal=True )
-        i_8d[True]		= i_8p
+        i_8d			= octets_noop(	'end_8bit',
+                                                terminal=True )
+        i_8d[True]	= i_8p	= SINT()
         i_8p[None]		= move_if( 	'mov_8bit',	source='.SINT', 
                                            destination='.data',	initializer=lambda **kwds: [],
                                                 state=i_8d )
 
-        i16p			= INT()
-        i16d			= octets_noop(	'end16bit', 	terminal=True )
-        i16d[True]		= i16p
+        i16d			= octets_noop(	'end16bit',
+                                                terminal=True )
+        i16d[True]	= i16p	= INT()
         i16p[None]		= move_if( 	'mov16bit',	source='.INT', 
                                            destination='.data',	initializer=lambda **kwds: [],
                                                 state=i16d )
 
-        i32p			= DINT()
-        i32d			= octets_noop(	'end32bit', 	terminal=True )
-        i32d[True]		= i32p
+        i32d			= octets_noop(	'end32bit',
+                                                terminal=True )
+        i32d[True]	= i32p	= DINT()
         i32p[None]		= move_if( 	'mov32bit',	source='.DINT', 
                                            destination='.data',	initializer=lambda **kwds: [],
                                                 state=i32d )
@@ -693,6 +806,7 @@ class logix( cpppo.dfa ):
     Write Tag Service (reply)			0xdd
 	.status				USINT		1
 					USINT		1 (ext_status_size ignored; must be 0x00)
+        .write_tag 					(created, but left empty)
 
     Write Tag Fragmented Service		0x53
 	.write_frag.type		UINT		2
@@ -702,6 +816,7 @@ class logix( cpppo.dfa ):
     Write Tag Fragmented Service (reply)	0xd3
 	.status				USINT		1
 					USINT		1 (ext_status_size ignored; must be 0x00)
+        .write_frag					(created, but left empty)
 
     This must be run with a length-constrained 'source' iterable (eg. a fixed-length array harvested
     by a previous parser, eg. ucon_send.request_data).	Since there are no indicators within this
@@ -742,9 +857,9 @@ class logix( cpppo.dfa ):
         slct[self.transit[self.RD_TAG_REQ]] \
 			= rtsv	= USINT(	 	  	context='service' )
         rtsv[True]	= rtpt	= EPATH(			context='path' )
-        rtpt[True]	= rtel	= UINT(		'elements', 	context='read_tag',   extension='.element',
+        rtpt[True]	= rtel	= UINT(		'elements', 	context='read_tag',   extension='.elements',
                                                 terminal=True )
-        # Read Tag Service (reply)
+        # Read Tag Service (reply).  Remainder of symbols are typed data.
         slct[self.transit[self.RD_TAG_RPY]] \
 			= Rtsv	= USINT(		 	context='service' )
         Rtsv[True]	= Rtrs	= octets_drop(	'reserved',	repeat=1 )
@@ -762,7 +877,7 @@ class logix( cpppo.dfa ):
         rfpt[True]	= rfel	= UINT(		'elements',	context='read_frag',  extension='.elements' )
         rfel[True]		= UDINT( 	'offset',   	context='read_frag',  extension='.offset',
                                                 terminal=True )
-        # Read Tag Fragmented Service (reply)
+        # Read Tag Fragmented Service (reply).  Remainder of symbols are typed data.
         slct[self.transit[self.RD_FRG_RPY]] \
 			= Rfsv	= USINT(			context='service' )
         Rfsv[True]	= Rfrs	= octets_drop(	'reserved',	repeat=1 )
@@ -786,8 +901,10 @@ class logix( cpppo.dfa ):
 			= Wtsv	= USINT(	'service',  	context='service' )
         Wtsv[True]	= Wtrs	= octets_drop(	'reserved',	repeat=1 )
         Wtrs[True]	= Wtst	= USINT( 			context='status' )
-        Wtst[b'\x00'[0]]	= octets_drop( 'status_size',	repeat=1,
+        Wtst[b'\x00'[0]]= Wtss	= octets_drop(	'status_size',	repeat=1,
                                                 terminal=True )
+        Wtss[None]		= move_if( 	'write_tag',	destination='.write_tag',
+                                                initializer=lambda **kwds: cpppo.dotdict() )
 
         # Write Tag Fragmented Service
         slct[self.transit[self.WR_FRG_REQ]] \
@@ -801,11 +918,14 @@ class logix( cpppo.dfa ):
                                                 terminal=True )
         # Write Tag Fragmented Service (reply)
         slct[self.transit[self.WR_FRG_RPY]] \
-			= Wtsv	= USINT(			context='service' )
-        Wtsv[True]	= Wtrs	= octets_drop(	'reserved',	repeat=1 )
-        Wtrs[True]	= Wtst	= USINT( 			context='status' )
-        Wtst[b'\x00'[0]]	= octets_drop( 'status_size',	repeat=1,
+			= Wfsv	= USINT(			context='service' )
+        Wfsv[True]	= Wfrs	= octets_drop(	'reserved',	repeat=1 )
+        Wfrs[True]	= Wfst	= USINT( 			context='status' )
+        Wfst[b'\x00'[0]]= Wfss	= octets_drop(	'status_size',	repeat=1,
                                                 terminal=True )
+        Wfss[None]		= move_if( 	'write_frag',	destination='.write_frag',
+                                                initializer=lambda **kwds: cpppo.dotdict() )
+
 
         super( logix, self ).__init__( name=name, initial=slct, **kwds )
 
@@ -832,7 +952,7 @@ class logix( cpppo.dfa ):
             result	       += UINT.produce(		data.write_tag.type )
             result	       += UINT.produce(		data.write_tag.setdefault( 
                 'elements', len( data.write_tag.data )))
-            result	       += typed_data.produce(	data.write_tag.data )
+            result	       += typed_data.produce(	data.write_tag )
         elif 'write_frag' in data and data.setdefault( 'service', logix.WR_FRG_REQ ) == logix.WR_FRG_REQ:
             # We can NOT deduce the number of elements from len( write_frag.data );
             # write_frag.elements must be the entire number of elements being shipped, while
@@ -844,9 +964,9 @@ class logix( cpppo.dfa ):
             result	       += UINT.produce(		data.write_frag.elements )
             result	       += UDINT.produce(	data.write_frag.setdefault(
                 'offset', 0x00000000 ))
-            result	       += typed_data.produce(	data.write_tag.data )
+            result	       += typed_data.produce(	data.write_frag )
         elif (    'write_tag'  in data and data.service == logix.WR_TAG_RPY
-                  or 'write_frag' in data and data.service == logix.WR_FRG_RPY ):
+               or 'write_frag' in data and data.service == logix.WR_FRG_RPY ):
             result	       += USINT.produce(	data.service )
             result	       += USINT.produce(	0x00 )
             result	       += USINT.produce(	data.setdefault( 'status', 0x00 ))
