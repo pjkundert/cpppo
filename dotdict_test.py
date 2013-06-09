@@ -36,7 +36,7 @@ def test_dotdict():
     try:
         d.x.y = 99
         assert False, "Shouldn't be able to create y in non-existent x!"
-    except KeyError as e:
+    except AttributeError as e:
         assert "'x'" in str( e )
 
     # dicts already containing dotted keys are converted when assigned
@@ -144,3 +144,14 @@ def test_indexes():
     assert d.get( 'l[a.b+c-1].d' ) == None
     assert d.get( 'l[a.b+c].d' ) == 3
 
+def test_hasattr():
+    """Indexing failures returns KeyError, attribute access failures return AttributeError for hasattr etc. work"""
+    d = dotdict()
+
+    d['.a.b'] = 1
+    d['.c'] = 2
+
+    assert hasattr( d, 'a' )
+    assert hasattr( d, 'a.b' )
+    assert not hasattr( d, 'b' )
+    assert hasattr( d, 'c' )

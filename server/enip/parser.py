@@ -492,10 +492,10 @@ class unconnected_send( cpppo.dfa ):
         timo[True]	= leng	= UINT(		context='length' )
 
         # TODO: Find object w/path, and use its parser!  cpppo.decide derived lookup?
-        leng[None]	= mesg	= logix()
+        leng[None]	= mesg	= logix( limit='..length' )
 
         # route segments, like path but for hops/links/keys...
-        mesg[True]		= route( terminal=True )
+        mesg[None]		= route( terminal=True )
 
         super( unconnected_send, self ).__init__( name=name, initial=cmnd, **kwds )
 
@@ -718,23 +718,23 @@ class typed_data( cpppo.dfa ):
 
         slct			= octets_noop(	'select' )
         
-        i_8p			= SINT()
-        i_8d			= octets_noop(	'end_8bit', 	terminal=True )
-        i_8d[True]		= i_8p
+        i_8d			= octets_noop(	'end_8bit',
+                                                terminal=True )
+        i_8d[True]	= i_8p	= SINT()
         i_8p[None]		= move_if( 	'mov_8bit',	source='.SINT', 
                                            destination='.data',	initializer=lambda **kwds: [],
                                                 state=i_8d )
 
-        i16p			= INT()
-        i16d			= octets_noop(	'end16bit', 	terminal=True )
-        i16d[True]		= i16p
+        i16d			= octets_noop(	'end16bit',
+                                                terminal=True )
+        i16d[True]	= i16p	= INT()
         i16p[None]		= move_if( 	'mov16bit',	source='.INT', 
                                            destination='.data',	initializer=lambda **kwds: [],
                                                 state=i16d )
 
-        i32p			= DINT()
-        i32d			= octets_noop(	'end32bit', 	terminal=True )
-        i32d[True]		= i32p
+        i32d			= octets_noop(	'end32bit',
+                                                terminal=True )
+        i32d[True]	= i32p	= DINT()
         i32p[None]		= move_if( 	'mov32bit',	source='.DINT', 
                                            destination='.data',	initializer=lambda **kwds: [],
                                                 state=i32d )
@@ -857,9 +857,9 @@ class logix( cpppo.dfa ):
         slct[self.transit[self.RD_TAG_REQ]] \
 			= rtsv	= USINT(	 	  	context='service' )
         rtsv[True]	= rtpt	= EPATH(			context='path' )
-        rtpt[True]	= rtel	= UINT(		'elements', 	context='read_tag',   extension='.element',
+        rtpt[True]	= rtel	= UINT(		'elements', 	context='read_tag',   extension='.elements',
                                                 terminal=True )
-        # Read Tag Service (reply)
+        # Read Tag Service (reply).  Remainder of symbols are typed data.
         slct[self.transit[self.RD_TAG_RPY]] \
 			= Rtsv	= USINT(		 	context='service' )
         Rtsv[True]	= Rtrs	= octets_drop(	'reserved',	repeat=1 )
@@ -877,7 +877,7 @@ class logix( cpppo.dfa ):
         rfpt[True]	= rfel	= UINT(		'elements',	context='read_frag',  extension='.elements' )
         rfel[True]		= UDINT( 	'offset',   	context='read_frag',  extension='.offset',
                                                 terminal=True )
-        # Read Tag Fragmented Service (reply)
+        # Read Tag Fragmented Service (reply).  Remainder of symbols are typed data.
         slct[self.transit[self.RD_FRG_RPY]] \
 			= Rfsv	= USINT(			context='service' )
         Rfsv[True]	= Rfrs	= octets_drop(	'reserved',	repeat=1 )

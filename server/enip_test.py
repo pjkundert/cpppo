@@ -660,21 +660,84 @@ cip_tests			= [
                     "CIP.session": 285351425, 
                     "CIP.status": 0,
                 }
-#            ), (
-#                unk_014_reply,	{}
+##            ), (
+##                unk_014_reply,	{}
             ), (
                 unk_017_request,
                 {
                     "CIP.send_data.CPF.item[1].unconnected_send.logix.read_frag.elements": 20, 
                     "CIP.send_data.CPF.item[1].unconnected_send.logix.read_frag.offset": 2, 
                 }
+##            ), (
+##                unk_017_reply,	{}
             ), (
-                unk_017_reply,	{}
+                unk_020_request,	 
+                {
+                    "CIP.command": 111, 
+                    "CIP.length": 52, 
+                    "CIP.options": 0, 
+                    "CIP.send_data.CPF.count": 2, 
+                    "CIP.send_data.CPF.item[0].length": 0, 
+                    "CIP.send_data.CPF.item[0].type_id": 0, 
+                    "CIP.send_data.CPF.item[1].length": 36, 
+                    "CIP.send_data.CPF.item[1].type_id": 178, 
+                    "CIP.send_data.CPF.item[1].unconnected_send.length": 22, 
+                    "CIP.send_data.CPF.item[1].unconnected_send.logix.path.segment[0].length": 5, 
+                    "CIP.send_data.CPF.item[1].unconnected_send.logix.path.segment[0].symbolic": "SCADA", 
+                    "CIP.send_data.CPF.item[1].unconnected_send.logix.path.segment[1].element": 12, 
+                    "CIP.send_data.CPF.item[1].unconnected_send.logix.path.size": 5, 
+                    "CIP.send_data.CPF.item[1].unconnected_send.logix.service": 83, 
+                    "CIP.send_data.CPF.item[1].unconnected_send.logix.write_frag.data": [
+                        16585
+                    ], 
+                    "CIP.send_data.CPF.item[1].unconnected_send.logix.write_frag.elements": 1, 
+                    "CIP.send_data.CPF.item[1].unconnected_send.logix.write_frag.offset": 0, 
+                    "CIP.send_data.CPF.item[1].unconnected_send.logix.write_frag.type": 195, 
+                    "CIP.send_data.CPF.item[1].unconnected_send.path.segment[0].class": 6, 
+                    "CIP.send_data.CPF.item[1].unconnected_send.path.segment[1].instance": 1, 
+                    "CIP.send_data.CPF.item[1].unconnected_send.path.size": 2, 
+                    "CIP.send_data.CPF.item[1].unconnected_send.priority": 5, 
+                    "CIP.send_data.CPF.item[1].unconnected_send.service": 82, 
+                    "CIP.send_data.CPF.item[1].unconnected_send.timeout_ticks": 157, 
+                    "CIP.send_data.interface": 0, 
+                    "CIP.send_data.timeout": 5, 
+                    "CIP.session": 285351425, 
+                    "CIP.status": 0,
+                }
+#            ), (
+##                 unk_020_reply,	{} 
+            ), (
+                 unk_023_request, {
+                     "CIP.command": 111, 
+                     "CIP.length": 48, 
+                     "CIP.options": 0, 
+                     "CIP.send_data.CPF.count": 2, 
+                     "CIP.send_data.CPF.item[0].length": 0, 
+                     "CIP.send_data.CPF.item[0].type_id": 0, 
+                     "CIP.send_data.CPF.item[1].length": 32, 
+                     "CIP.send_data.CPF.item[1].type_id": 178, 
+                     "CIP.send_data.CPF.item[1].unconnected_send.length": 18, 
+                     "CIP.send_data.CPF.item[1].unconnected_send.logix.path.segment[0].length": 5, 
+                     "CIP.send_data.CPF.item[1].unconnected_send.logix.path.segment[0].symbolic": "SCADA", 
+                     "CIP.send_data.CPF.item[1].unconnected_send.logix.path.segment[1].element": 12, 
+                     "CIP.send_data.CPF.item[1].unconnected_send.logix.path.size": 5, 
+                     "CIP.send_data.CPF.item[1].unconnected_send.logix.read_frag.elements": 1, 
+                     "CIP.send_data.CPF.item[1].unconnected_send.logix.read_frag.offset": 0, 
+                     "CIP.send_data.CPF.item[1].unconnected_send.logix.service": 82, 
+                     "CIP.send_data.CPF.item[1].unconnected_send.path.segment[0].class": 6, 
+                     "CIP.send_data.CPF.item[1].unconnected_send.path.segment[1].instance": 1, 
+                     "CIP.send_data.CPF.item[1].unconnected_send.path.size": 2, 
+                     "CIP.send_data.CPF.item[1].unconnected_send.priority": 5, 
+                     "CIP.send_data.CPF.item[1].unconnected_send.service": 82, 
+                     "CIP.send_data.CPF.item[1].unconnected_send.timeout_ticks": 157, 
+                     "CIP.send_data.interface": 0, 
+                     "CIP.send_data.timeout": 5, 
+                     "CIP.session": 285351425, 
+                     "CIP.status": 0
+}
+##            ), (
+##                 unk_023_reply,	{}
             ),
-#            ( unk_020_request,	{} ),
-#            ( unk_020_reply,	{} ),
-#            ( unk_023_request,	{} ),
-#            ( unk_023_reply,	{} ),
 
 ]
   
