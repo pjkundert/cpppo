@@ -64,6 +64,7 @@ if __name__ == "__main__":
 
 log				= logging.getLogger( "enip.srv" )
 
+
 def enip_srv( conn, addr, enip_process=None ):
     """Serve one Ethernet/IP client 'til EOF; then close the socket.  Parses headers 'til either the
     parser fails (the Client has submitted an un-parsable request), or the request handler fails.

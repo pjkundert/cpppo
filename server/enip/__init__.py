@@ -25,6 +25,6 @@ __license__                     = "GNU General Public License, Version 3 (or lat
 __all__				= []
 
 # These form the public interface of cpppo.server.enip
-from .parser import *
 from .main import *
-
+from .parser import *
+from . import Device

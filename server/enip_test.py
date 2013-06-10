@@ -2,6 +2,7 @@ from __future__ import absolute_import
 from __future__ import print_function
 
 import array
+import json
 import logging
 import multiprocessing
 import os
@@ -157,6 +158,46 @@ def test_octets_struct():
     assert source.peek() == b'c'[0]
 
     assert data.octets_struct.ushort == 25185
+
+def test_enip_TYPES():
+    
+    pkt				= b'\x05abc123'
+    data			= cpppo.dotdict()
+    source			= cpppo.chainable( pkt )
+    with enip.SSTRING() as machine:
+        for i,(m,s) in enumerate( machine.run( source=source, data=data )):
+            log.info( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r", m.name_centered(),
+                      i, s, source.sent, source.peek(), data )
+        assert i == 8
+    assert data.SSTRING.length == 5
+    assert data.SSTRING.string == 'abc12'
+
+    res				= enip.SSTRING.produce( data.SSTRING )
+    assert len( res ) == data.SSTRING.length+1
+    assert res == b'\x05abc12'
+
+    data.SSTRING.length	       += 1
+    res				= enip.SSTRING.produce( data.SSTRING )
+    assert len( res ) == data.SSTRING.length+1
+    assert res == b'\x06abc12\x00'
+
+    data.SSTRING.length	        = None
+    res				= enip.SSTRING.produce( data.SSTRING )
+    assert len( res ) == data.SSTRING.length+1
+    assert res == b'\x05abc12'
+
+    del data.SSTRING['length']
+    res				= enip.SSTRING.produce( data.SSTRING )
+    assert len( res ) == data.SSTRING.length+1
+    assert res == b'\x05abc12'
+
+    data.SSTRING.length		= 0
+    res				= enip.SSTRING.produce( data.SSTRING )
+    assert len( res ) == data.SSTRING.length+1
+    assert res == b'\x00'
+
+    
+
 
 # pkt4
 # "4","0.000863000","192.168.222.128","10.220.104.180","ENIP","82","Register Session (Req)"
@@ -801,6 +842,53 @@ def test_enip_CIP():
             log.warning( "%r not in data, or != %r: %s", k, v, enip.enip_format( data ))
             raise
             
+
+
+def test_enip_Device():
+    # Find a new Class ID.
+    class_found			= True
+    while class_found:
+        class_num		= random.randrange( 1, 256 )
+        class_found		= enip.Device.lookup( class_id=class_num )
+
+    assert enip.Device.path( class_id=class_num, instance_id=1 ) == str( class_num ) + '.1.None'
+
+    class Test_Device( enip.Device.Object ):
+        class_id		= class_num
+
+    # Create an instance (creates class-level instance_id==0 automatically)
+    O				= Test_Device( 'Test Class', instance_id=1 )
+
+    # Confirm the new entries in the enip.Device.directory
+    assert sorted( enip.Device.directory[str(O.class_id)].keys() ) == [
+        '0.1', 				# the class-level attributes
+        '0.2',
+        '0.3',
+        '0.4',
+        '0.None',			# ... and class-level instance
+        str(O.instance_id)+'.None',	# The Instance we just created (it has no Attributes)
+    ]
+
+    assert enip.Device.lookup( class_id=class_num, instance_id=1 ) is O
+    assert enip.Device.directory[str(O.class_id)+'.0.1'].value == 0
+    assert enip.Device.directory[str(O.class_id)+'.0.3'].value == 1 # Number of Instances
+
+    O2				= Test_Device( 'Test Class' )
+    assert enip.Device.directory[str(O.class_id)+'.0.3'].value == 2 # Number of Instances
+    log.normal( "Device.directory: %s", json.dumps(
+        enip.Device.directory, indent=4, sort_keys=True,  default=lambda obj: repr( obj )))
+
+
+    Ix				= enip.Device.Identity( 'Test Identity' )
+    attrs			= enip.Device.directory[str(Ix.class_id)+'.'+str(Ix.instance_id)]
+    log.normal( "New Identity Instance directory: %s", json.dumps(
+        attrs, indent=4, sort_keys=True,  default=lambda obj: repr( obj )))
+    assert attrs['7'].produce() == b'\x141756-L61/B LOGIX5561'
+    
+    gaa				= Ix.request( cpppo.dotdict({'service': 0x01 }))
+    log.normal( "Identity Get Attributes All: %r", gaa )
+    assert gaa == b'\x01\x00\x0e\x006\x00\x14\x0b`1\x1a\x06l\x00\x141756-L61/B LOGIX5561'
+    
 
 # Run the bench-test.  Sends some request from a bunch of clients to a server, testing responses
 

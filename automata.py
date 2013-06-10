@@ -50,10 +50,10 @@ class NonTerminal( Exception ):
 
 log				= logging.getLogger( __package__ )
 log_cfg				= {
-    "level":	logging.WARNING,
+#    "level":	logging.WARNING,
 #    "level":	logging.NORMAL,
 #    "level":	logging.DETAIL,
-#    "level":	logging.INFO,
+    "level":	logging.INFO,
 #    "level":	logging.DEBUG,
     "datefmt":	'%m-%d %H:%M:%S',
     "format":	'%(asctime)s.%(msecs).03d %(thread)16x %(name)-8.8s %(levelname)-8.8s %(funcName)-10.10s %(message)s',

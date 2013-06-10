@@ -154,7 +154,13 @@ class words( words_base, cpppo.state ):
 # UDINT		-- Parse a 32-bit EtherNet/IP unsigned int 
 # 
 #     You must provide either a name or a context; if you provide neither, then both default to the
-# name of the class.
+# name of the class.  An instance of any of these types "is" a parser state machine, and has a
+# produce method that will re-produce the bytes stream from a (previously parsed) structure.  All
+# the simple data types are derived from TYPE, and simply drive from cpppo.state_struct to directly
+# parse the data value into the provided context.
+# 
+#     More complex data types are derived from STRUCT, are derived from cpppo.dfa, and require a
+# state machine to be constructed to parse the data.
 # 
 class TYPE( octets_struct ):
     """An EtherNet/IP data type"""
@@ -195,6 +201,49 @@ class DINT( TYPE ):
     """An EtherNet/IP INT; 16-bit signed integer"""
     tag_type			= 0x00c4
     struct_format		= '<i'
+
+class STRUCT( cpppo.dfa, cpppo.state ):
+    pass
+
+class SSTRING( STRUCT ):
+    """A Short String:
+
+        .SSTRING.length			USINT		1
+        .SSTRING.string			octets[*]	.size
+
+
+    """
+    tag_type			= None
+    def __init__( self, name=None, **kwds):
+        name			= name or kwds.setdefault( 'context', self.__class__.__name__ )
+
+        leng			= USINT(		context='length' )
+        leng[None]		= cpppo.string_bytes(	'string',
+                                                        context='string', limit='..length',
+                                                        initial='.*',	decode='iso-8859-1',
+                                                        terminal=True )
+
+        super( SSTRING, self ).__init__( name=name, initial=leng, **kwds )
+
+    @classmethod
+    def produce( cls, value ):
+        """Truncate or NUL-fill the provided .string to the given .length (if provided and not None).  Then, emit
+        the length """
+        result			= b''
+        
+        encoded			= value.string.encode( 'iso-8859-1' )
+        # If .length doesn't exist or is None, set the length to the actual string length
+        actual			= len( encoded )
+        desired			= value.setdefault( 'length', actual )
+        if desired is None:
+            value.length 	= actual
+        assert value.length < 256, "SSTRING must be < 256 bytes in length; %r" % value
+
+        result		       += USINT.produce( value.length )
+        result		       += encoded[:value.length]
+        if actual < value.length:
+            result	       += b'\x00' * ( value.length - actual )
+        return result
 
 # 
 # enip_header	-- Parse an EtherNet/IP header only 

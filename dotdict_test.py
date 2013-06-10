@@ -155,3 +155,13 @@ def test_hasattr():
     assert hasattr( d, 'a.b' )
     assert not hasattr( d, 'b' )
     assert hasattr( d, 'c' )
+
+def test_numeric():
+    """Addressing things numerically takes some special work"""
+
+    d = dotdict()
+    d[0] = dotdict()
+    d[0].a = 1
+    d[1] = dotdict()
+    d[1].b = 2
+    assert list( d.keys() ) == ['[0].a', '[1].b']
