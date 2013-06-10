@@ -267,10 +267,11 @@ def enip_format( data ):
 # 
 # EtherNet/IP CIP Parsing
 # 
-# See Vol2_1.14.pdf, Chapter 3-2.1 Unconnected Messages, for a simplified overview of parsing.  We 
-# parse the SendRRData, the CPF encapsulation, and the CFP Null Address and Unconnected Data itmes, 
-# and finally the CIP Message Router Request from the second CFP item.
+# See Vol2_1.14.pdf, Chapter 3-2.1 Unconnected Messages, for a simplified overview of parsing.  We
+# parse the SendRRData, the CPF encapsulation, and the CFP Null Address and [Un]connected Data
+# items, and finally the CIP Message Router Request from the second CFP item.
 # 
+
 class move_if( cpppo.decide ):
     """If the predicate is True (the default), then move (either append or assign) data[path+source] to
     data[path+destination], assigning init to it first if the target doesn't yet exist.  Then,
@@ -455,10 +456,11 @@ class EPATH( cpppo.dfa ):
         return USINT.produce( len( result ) // 2 ) + result
 
 
-class route( cpppo.dfa ):
-    """Unconnected message routing.
+class route_path( cpppo.dfa ):
+    """Unconnected message route path.  Not interpreted, just parsed as octets into .input array.
+    Consumes all available input symbols.
 
-        .route...
+        .route_path.input 		octets[*]
 
     """
     def __init__( self, name=None, **kwds ):
@@ -467,35 +469,48 @@ class route( cpppo.dfa ):
         rout			= octets( terminal=True )      	# Just soak up remaining data for now
         rout[True]		= rout
 
-        super( route, self ).__init__( name=name, initial=rout, **kwds )
+        super( route_path, self ).__init__( name=name, initial=rout, **kwds )
 
 
 class unconnected_send( cpppo.dfa ):
-    """A Message Router object must process Unconnected Send requests, which carry a message and a
-    routing path, allowing delivery of the message to a port.  When the request path contains only a
-    port, then the message is delivered
+    """See CIP Specification, Vol. 1, Chapter 3, 3-5.26.  A Message Router object must process
+    Unconnected Send requests, which carry a message and a routing path, allowing delivery of the
+    message to a port.  When the route_path contains only a port, then the message is delivered the
+    attached processor; otherwise, it needs to be forwarded; we do not handle these cases yet.
 
         .unconnected_send.service	USINT
-        .unconnected_send.path		EPATH
+        .unconnected_send.path		EPATH		?	object handling parsing (message router)
         .unconnected_send.priority	USINT
-        .unconnected_send.length	UINT
-        .unconnected_send.<parser>
         .unconnected_send.timeout_ticks	USINT
+        .unconnected_send.length	UINT
+        .unconnected_send.<parser>      ...	     .length
+                                        USINT		1 	optional pad, if length is odd)
+        .unconnected_send.route_path	EPATH (padded; one byte between EPATH size and EPATH payload)
+
     """
     def __init__( self, name=None, **kwds ):
         name 			= name or kwds.setdefault( 'context', self.__class__.__name__ )
 
         cmnd			= USINT(	context='service' )
-        cmnd[True]	= path	= EPATH(	context='path' )
+        cmnd[True]	= path	= EPATH(	context='request_path',	
+                                                terminal=True )
+        # Some commands (eg Get Attribute All) have no other content, and terminate here.
+
         path[True]	= prio	= USINT(	context='priority' )
         prio[True]	= timo	= USINT(	context='timeout_ticks' )
         timo[True]	= leng	= UINT(		context='length' )
 
+        # If length is odd, drop the pad byte, and then parse the route_path
         # TODO: Find object w/path, and use its parser!  cpppo.decide derived lookup?
-        leng[None]	= mesg	= logix( limit='..length' )
+        mesg			= logix( limit='..length' )
+        pad0			= octets_drop( 'pad', 	repeat=1 )
+        pad0[None]		= mesg
+        leng[None]		= cpppo.decide( 'pad',	state=pad0,
+                            predicate=lambda path=None, data=None, **kwds: data[path+'.length'] % 2 )
+        leng[None]		= mesg
 
         # route segments, like path but for hops/links/keys...
-        mesg[None]		= route( terminal=True )
+        mesg[None]		= route_path( terminal=True )
 
         super( unconnected_send, self ).__init__( name=name, initial=cmnd, **kwds )
 
@@ -826,6 +841,8 @@ class logix( cpppo.dfa ):
     deduced for the Fragmented versions.
 
     """
+    GA_ALL_REQ			= 0x01
+    GA_ALL_RPY			= GA_ALL_REQ | 0x80
     RD_TAG_REQ			= 0x4c
     RD_TAG_RPY			= RD_TAG_REQ | 0x80
     RD_FRG_REQ			= 0x52
@@ -836,7 +853,9 @@ class logix( cpppo.dfa ):
     WR_FRG_RPY			= WR_FRG_REQ | 0x80
     transit			= {}
     service			= {}
-    for x,xn in (( RD_TAG_REQ, "Read Tag Request" ),
+    for x,xn in (( GA_ALL_REQ, "Get Attribute All" ),
+                 ( GA_ALL_RPY, "Get Attribute All Reply" ),
+                 ( RD_TAG_REQ, "Read Tag Request" ),
                  ( RD_TAG_RPY, "Read Tag Request Reply" ),
                  ( RD_FRG_REQ, "Read Tag Fragmented" ),
                  ( RD_FRG_RPY, "Read Tag Fragmented Reply" ),
@@ -890,7 +909,7 @@ class logix( cpppo.dfa ):
 
         # Write Tag Service
         slct[self.transit[self.WR_TAG_REQ]] \
-			= wtsv	= USINT(	'service',  	context='service' )
+			= wtsv	= USINT(		  	context='service' )
         wtsv[True]	= wtpt	= EPATH(			context='path' )
         wtpt[True]	= wtty	= UINT(		'type',   	context='type' )
         wtty[True]		= typed_data( 	'write_tag',	context='write_tag' ,
@@ -898,17 +917,17 @@ class logix( cpppo.dfa ):
                                                 terminal=True )
         # Write Tag Service (reply)
         slct[self.transit[self.WR_TAG_RPY]] \
-			= Wtsv	= USINT(	'service',  	context='service' )
+			= Wtsv	= USINT(		  	context='service' )
         Wtsv[True]	= Wtrs	= octets_drop(	'reserved',	repeat=1 )
         Wtrs[True]	= Wtst	= USINT( 			context='status' )
-        Wtst[b'\x00'[0]]= Wtss	= octets_drop(	'status_size',	repeat=1,
-                                                terminal=True )
+        Wtst[b'\x00'[0]]= Wtss	= octets_drop(	'status_size',	repeat=1 )
         Wtss[None]		= move_if( 	'write_tag',	destination='.write_tag',
-                                                initializer=lambda **kwds: cpppo.dotdict() )
+                                                initializer=True, # was: lambda **kwds: cpppo.dotdict(),
+                                                state=octets_noop( terminal=True ))
 
         # Write Tag Fragmented Service
         slct[self.transit[self.WR_FRG_REQ]] \
-			= wfsv	= USINT(	'service',  	context='service' )
+			= wfsv	= USINT(		  	context='service' )
         wfsv[True]	= wfpt	= EPATH(			context='path' )
         wfpt[True]	= wfty	= UINT(		'type',     	context='write_frag', extension='.type' )
         wfty[True]	= wfel	= UINT(		'elements', 	context='write_frag', extension='.elements' )
@@ -921,11 +940,23 @@ class logix( cpppo.dfa ):
 			= Wfsv	= USINT(			context='service' )
         Wfsv[True]	= Wfrs	= octets_drop(	'reserved',	repeat=1 )
         Wfrs[True]	= Wfst	= USINT( 			context='status' )
-        Wfst[b'\x00'[0]]= Wfss	= octets_drop(	'status_size',	repeat=1,
-                                                terminal=True )
+        Wfst[b'\x00'[0]]= Wfss	= octets_drop(	'status_size',	repeat=1 )
         Wfss[None]		= move_if( 	'write_frag',	destination='.write_frag',
-                                                initializer=lambda **kwds: cpppo.dotdict() )
+                                                initializer=True, # was: lambda **kwds: cpppo.dotdict(),
+                                                state=octets_noop( terminal=True ))
 
+        # Get Attribute All
+        slct[self.transit[self.GA_ALL_REQ]] \
+			= gasv	= USINT(		 	context='service' )
+        gasv[True]	= gapt	= EPATH(			context='path')
+        gapt[None]		= move_if( 	'get_attr_all',	destination='.get_attributes_all',
+                                                initializer=True, # was: lambda **kwds: cpppo.dotdict(),
+                                                state=octets_noop( terminal=True ))
+
+
+        # By default, just collect the payload into .unrecognized.input
+        slct[None]		= octets(			context='unrecognized',
+                                                terminal=True )
 
         super( logix, self ).__init__( name=name, initial=slct, **kwds )
 
@@ -936,7 +967,10 @@ class logix( cpppo.dfa ):
          
          A Reply status of 0x06 to the read_frag command indicates that more data is available"""
         result			= b''
-        if 'read_tag' in data and data.setdefault( 'service', logix.RD_TAG_REQ ) == logix.RD_TAG_REQ:
+        if 'get_attributes_all' in data and data.setdefault( 'service', logix.GA_ALL_REQ ) == logix.GA_ALL_REQ:
+            result	       += USINT.produce(	data.service )
+            result	       += EPATH.produce(	data.path )
+        elif 'read_tag' in data and data.setdefault( 'service', logix.RD_TAG_REQ ) == logix.RD_TAG_REQ:
             result	       += USINT.produce(	data.service )
             result	       += EPATH.produce(	data.path )
             result	       += UINT.produce(		data.read_tag.elements )
@@ -987,4 +1021,3 @@ class logix( cpppo.dfa ):
         else:
             assert False, "Invalid logix CIP request/reply format: %r" % data
         return result
-
