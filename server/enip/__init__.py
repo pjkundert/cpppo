@@ -22,9 +22,9 @@ __email__                       = "perry@hardconsulting.com"
 __copyright__                   = "Copyright (c) 2013 Hard Consulting Corporation"
 __license__                     = "GNU General Public License, Version 3 (or later)"
 
-__all__				= []
+__all__				= ["logix"]
 
 # These form the public interface of cpppo.server.enip
-from .parser import *
 from .main import *
-
+from .parser import *
+from . import device
