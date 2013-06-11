@@ -35,6 +35,7 @@ import codecs
 import errno
 import logging
 import os
+import random
 import sys
 import threading
 import time
@@ -148,12 +149,12 @@ class Object( object ):
     """
     max_instance		= 0
 
-    def __init__( self, name, instance_id=None ):
+    def __init__( self, name=None, instance_id=None ):
         """Create the instance (default to the next available instance_id).  An instance_id of 0 holds
         the "class" attributes/commands.
 
         """
-        self.name		= name
+        self.name		= name or self.__class__.__name__
 
         # Allocate and/or keep track of maximum instance ID assigned thus far.
         if instance_id is None:
@@ -162,7 +163,9 @@ class Object( object ):
             self.__class__.max_instance = instance_id
         self.instance_id	= instance_id
 
-        log.normal( "%s, Instance ID %d created", self, instance_id )
+        ( log.normal if self.instance_id else log.info )( 
+            "%16s, Class ID %02x, Instance ID %d created",
+            self, self.class_id, self.instance_id )
 
         instance		= lookup( self.class_id, instance_id )
         assert instance is None, \
@@ -180,9 +183,9 @@ class Object( object ):
         # the default parameters.  If this isn't appropriate, then the user should create it using
         # the appropriate parameters.
         if lookup( self.class_id, 0 ) is None:
-            self.__class__( 'meta-'+name, 0 )
+            self.__class__( name='meta-'+self.name, instance_id=0 )
 
-        if instance_id == 0:
+        if self.instance_id == 0:
             # Set up the default Class-level values.
             self.attribute['1']= Attribute( 	'Revision', 		UINT, default=0 )
             self.attribute['2']= MaxInstance( 'Max Instance',		UINT,
@@ -233,10 +236,10 @@ class Object( object ):
 class Identity( Object ):
     class_id			= 0x01
 
-    def __init__( self, name, instance_id=None ):
-        super( Identity, self ).__init__( name=name, instance_id=instance_id )
+    def __init__( self, name=None, **kwds ):
+        super( Identity, self ).__init__( name=name, **kwds )
 
-        if instance_id == 0:
+        if self.instance_id == 0:
             # Extra Class-level Attributes
             pass
         else:
@@ -254,14 +257,65 @@ class Identity( Object ):
 class Connection_Manager( Object ):
     class_id			= 0x06
 
-    def __init__( self, name, vendor_number=None,   ):
-        super( Connection_Manager, self ).__init__( name=name, instance_id=instance_id )
+    def __init__( self, name=None, **kwds ):
+        super( Connection_Manager, self ).__init__( name=name, **kwds )
 
-        if instance_id == 0:
+        if self.instance_id == 0:
             # Extra Class-level Attributes
             pass
         else:
             # Instance Attributes
             pass
 
-        
+
+class Message_Router( Object ):
+    """Manages underlying EtherNet/IP connection, and processes incoming EtherNet/IP requests.  Parses
+    encapsulated message according to available CIP device objects, and then forwards parsed
+    messages to the appropriate object.  
+
+    Handles basic EtherNet/IP connection related messages itself (Register, Unregister).
+
+    No externally visible Attributes.
+    """
+    class_id			= 0x02
+    parser			= CIP() # TODO: must pass device Object lookup function...
+
+    def __init__( self, name=None, **kwds ):
+        super( Message_Router, self ).__init__( name=name, **kwds )
+
+        # All known session handles.
+        self.sessions		= set()
+
+        if self.instance_id == 0:
+            # Extra Class-level Attributes
+            pass
+        else:
+            # Instance Attributes
+            pass
+
+    def process( self, data ):
+        """Handles a parsed request.enip.*, and produces an appropriate response.enip.*.  For connection
+        related requests (Register, Unregister), handle locally.  Return True iff request processed
+        and connection should proceed to process further messages.
+
+        """
+        # Create a data.response with a structural copy of the request.enip.header.  This means that
+        # the dictionary structure is new (we won't alter the request.enip... when we add entries in
+        # the resonse...), but the actual mutable values (eg. array.array ) are copied.  If we need
+        # to change any values, replace them with new values instead of altering them!
+        data.response		= cpppo.dotdict( data.request )
+
+        if 'enip.CIP.register' in data.request:
+            # Allocates a new session_handle, and returns the register.protocol_version and
+            # .options_flags unchanged (if supported)
+
+            # TODO: Check if supported
+            session		= random.randint( 0, 2**32 )
+            while not session or session in self.sessions:
+                session		= random.randint( 0, 2**32 )
+            self.sessions.add( session )
+            data.response.enip.session_handle \
+                		= session
+            return True
+
+        assert False, "Unhandled request"

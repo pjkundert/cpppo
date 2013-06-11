@@ -137,6 +137,7 @@ def server_main( address, target, **kwds ):
     to this function."""
     sock			= socket.socket( socket.AF_INET, socket.SOCK_STREAM )
     sock.setsockopt( socket.SOL_SOCKET, socket.SO_REUSEADDR, 1 ) # Avoid delay on next bind due to TIME_WAIT
+    sock.setsockopt( socket.SOL_SOCKET, socket.SO_REUSEPORT, 1 )
     sock.bind( address )
     sock.listen( 100 ) # How may simultaneous unaccepted connection requests
 

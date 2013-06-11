@@ -260,12 +260,12 @@ class enip_header( cpppo.dfa ):
     """Scans either a complete EtherNet/IP encapsulation header, or nothing (EOF), into the context
     (default 'header'):
     
-        data.<context>.command		UINT         2
-        data.<context>.length		UINT         2
-        data.<context>.session_handle	UDINT        4
-        data.<context>.status		UDINT        4
-        data.<context>.sender_context	octets[8]    8
-        data.<context>.options		UDINT        4
+        .header.command			UINT         2
+        .header.length			UINT         2
+        .header.session_handle		UDINT        4
+        .header.status			UDINT        4
+        .header.sender_context		octets[8]    8
+        .header.options			UDINT        4
                                                     --
                                                     24
 
@@ -275,8 +275,7 @@ class enip_header( cpppo.dfa ):
     don't use None (no-input) transition, because we don't want to skip thru the state machine when
     no input is available."""
     def __init__( self, name=None, **kwds ):
-        kwds.setdefault( 'context', 'header' )
-        name 			= name or kwds.get( 'context' )
+        name 			= name or kwds.setdefault( 'context', 'header' )
         init			= cpppo.state(  "empty",  terminal=True )
         init[True] = cmnd	= UINT(		"command",	context="command" )
         cmnd[True] = leng	= UINT(		"length",	context="length" )
@@ -288,30 +287,42 @@ class enip_header( cpppo.dfa ):
 
         super( enip_header, self ).__init__( name=name, initial=init, **kwds )
 
+
 class enip_machine( cpppo.dfa ):
-    """Parses a complete EtherNet/IP message, including command-specific payload into
-    '<context>.encapsulated.input'.  Context defaults to 'enip' (unless explicitly set to ''),
-    and name default to context."""
+    """Parses a complete EtherNet/IP message, including header (into <context> and command-specific
+    encapsulated payload (into <context>.input).  Note that this does *not* put the EtherNet/IP
+    header in a separate '.header' context.  '<context>.input'.  Context defaults to 'enip' (unless
+    explicitly set to '').
+
+        .enip.command			(from enip_header)
+        .enip.length
+        ...
+        .enip.input			octets[*]	.length
+
+    """
     def __init__( self, name=None, **kwds ):
-        kwds.setdefault( 'context', 'enip' )
-        name 			= name or kwds.get( 'context' )
-        hedr			= enip_header()
-        hedr[None] = encp	= octets(	"encp_dat",	context="encapsulated",
-                                                repeat="..header.length", terminal=True )
+        name 			= name or kwds.setdefault( 'context', 'enip' )
+        hedr			= enip_header(	'header' ) # NOT in a separate context!
+        hedr[None] = encp	= octets(	'payload',
+                                                repeat=".length",
+                                                terminal=True )
 
         super( enip_machine, self ).__init__( name=name, initial=hedr, **kwds )
 
 def enip_encode( data ):
     """Produce an encoded EtherNet/IP message from the supplied data; assumes any encapsulated data has
-    been encoded to enip.encapsulated.input and is already available."""
+    been encoded to enip.input and is already available.  Assumes a data artifact is supplied like
+    the one produced by enip_machine.
+
+    """
     result			= b''.join( [
-        UINT.produce(	data.enip.header.command ),
-        UINT.produce(len(data.enip.encapsulated.input )),
-        UDINT.produce( 	data.enip.header.session_handle ),
-        UDINT.produce( 	data.enip.header.status ),
-        octets_encode(	data.enip.header.sender_context.input ),
-        UDINT.produce(	data.enip.header.options ),
-        octets_encode(	data.enip.encapsulated.input ),
+        UINT.produce(	data.command ),
+        UINT.produce(len(data.input )),
+        UDINT.produce( 	data.session_handle ),
+        UDINT.produce( 	data.status ),
+        octets_encode(	data.sender_context.input ),
+        UDINT.produce(	data.options ),
+        octets_encode(	data.input ),
     ])
     return result
     
@@ -557,7 +568,7 @@ class unconnected_send( cpppo.dfa ):
 
         # If length is odd, drop the pad byte, and then parse the route_path
         # TODO: Find object w/path, and use its parser!  cpppo.decide derived lookup?
-        mesg			= logix( limit='..length' )
+        mesg			= Tag( limit='..length' )
         pad0			= octets_drop( 'pad', 	repeat=1 )
         pad0[None]		= mesg
         leng[None]		= cpppo.decide( 'pad',	state=pad0,
@@ -671,6 +682,12 @@ class register( cpppo.dfa ):
 
         super( register, self ).__init__( name=name, initial=prto, **kwds )
 
+    @staticmethod
+    def produce( data ):
+        result			= b''
+        result		       += UINT.produce(	data.protocol_version )
+        result		       += UINT.produce(	data.options )
+        return result
 
 class unregister( octets_noop ):
     """Handle UnregisterSession request (no reply; session dropped)"""
@@ -694,19 +711,27 @@ class list_services( cpppo.dfa ):
         super( list_services, self ).__init__( name=name, initial=svcs, **kwds )
 
 
-
-
 class CIP( cpppo.dfa ):
     """The EtherNet/IP CIP Encapsulation transports various commands back and forth between a
     transmitter and a receiver.  There is no explicit designation of a request or a reply.  All have
-    a common prefix;
+    a common prefix; an EtherNet/IP header and encapsulated command (parsed elsewhere).  We expect
+    it to look something like this:
 
-        .CIP.command			UINT		2
-        .CIP.length			UINT		2
-        .CIP.session			UDINT		4
-        .CIP.status			UDINT		4
-        .CIP.sender_context		octets[8]	8
-        .CIP.options			UDINT		4
+        .command			UINT		2
+        .length				UINT		2
+        .session			UDINT		4
+        .status				UDINT		4
+        .sender_context			octets[8]	8
+        .options			UDINT		4
+        .input 				octets[*]       .length
+
+    We'll parse all our commands into the .CIP context (by default):
+
+        .CIP...
+
+    This parser is probably used to process that fixed-length encapsulated .input stream; however,
+    we can't depend on this; we will select the appropriate sub-parser using '..command', and will
+    limit our symbols to '..length'.
 
     The supported command values and their formats are:
 
@@ -715,54 +740,57 @@ class CIP( cpppo.dfa ):
     ListInterfaces		0x0064
 
     RegisterSession		0x0065
-        .CIP.register.protocol_version
-        .CIP.register.options
+        .CIP.register.protocol_version	UINT
+        .CIP.register.options		UINT
 
     UnregisterSession		0x0066
         .CIP.unregister
 
     ListServices		0x0004
-        .CIP.listservices.CPF...
+        .CIP.listservices.CPF...	...
 
     SendRRData			0x006f
     SendUnitData		0x0070
-        .CIP.send.inteface		UDINT
-        .CIP.send.timeout		UINT
-        .CIP.send.CPF...
+        .CIP.send_data.inteface		UDINT
+        .CIP.send_data.timeout		UINT
+        .CIP.send_data.CPF...
 
     """
     def __init__( self, name=None, **kwds ):
         name 			= name or kwds.setdefault( 'context', self.__class__.__name__ )
 
-        cmnd			= UINT(		context='command' )
-        cmnd[True]	= leng	= UINT(		context='length' )
-        leng[True]	= sess	= UDINT(	context='session' )	
-        sess[True]	= stts	= UDINT(	context='status' )	
-        stts[True]	= cntx	= octets(	context='sender_context', repeat=8 )
-        cntx[True]	= opts	= UDINT( 	context='options' )
+        slct			= octets_noop(	'select' )
+        slct[None]		= cpppo.decide( 'SendData',
+            predicate=lambda path=None, data=None, **kwds: data[path+'..command'] in ( 0x006f, 0x0070 ),
+                                                state=send_data(	limit='...length', terminal=True ))
+        slct[None]		= cpppo.decide( 'Register', 
+            predicate=lambda path=None, data=None, **kwds: data[path+'..command'] == 0x0065,
+                                               state=register(		limit='...length', terminal=True ))
+        slct[None]		= cpppo.decide( 'Unregister',
+            predicate=lambda path=None, data=None, **kwds: data[path+'..command'] == 0x0066,
+                                                state=unregister(	limit='...length', terminal=True ))
+        slct[None]		= cpppo.decide( 'ListServices',
+            predicate=lambda path=None, data=None, **kwds: data[path+'..command'] == 0x0004,
+                                                state=list_services(	limit='...length', terminal=True ))
 
-        opts[None]		= cpppo.decide( 'SendData',
-            predicate=lambda path=None, data=None, **kwds: data[path].command in ( 0x006f, 0x0070 ),
-                                                state=send_data(
-                                                    limit='..length',		terminal=True ))
-        opts[None]		= cpppo.decide( 'Register', 
-            predicate=lambda path=None, data=None, **kwds: data[path].command == 0x0065,
-                                               state=register(
-                                                   limit='..length', 		terminal=True ))
-        opts[None]		= cpppo.decide( 'Unregister',
-            predicate=lambda path=None, data=None, **kwds: data[path].command == 0x0066,
-                                                state=unregister(
-                                                    limit='..length',		terminal=True ))
-        opts[None]		= cpppo.decide( 'ListServices',
-            predicate=lambda path=None, data=None, **kwds: data[path].command == 0x0004,
-                                                state=list_services(
-                                                    limit='..length',		terminal=True))
-        # If unrecognized, default to just collect the data
-        opts[None]		= octets( 	context='unrecognized',
-                                                    limit='..length',		terminal=True )
+        super( CIP, self ).__init__( name=name, initial=slct, **kwds )
 
-        super( CIP, self ).__init__( name=name, initial=cmnd, **kwds )
+    @staticmethod
+    def produce( data ):
+        """Expects to find a recognized .service value and/or and parsed .register, .unregister, .etc. in
+        the provided data artifact as produced by our parser.  Produces the bytes string encoding
+        the command.  There is little difference between a request and a response at this level,
+        except that in a request the CIP.status is usually 0, while in a response it may indicate an
+        error.
+        """
+        result			= b''
+        # TODO: handle remaining requests; unregister, ...
+        if 'register' in data and data.setdefault( 'service', 0x65 ) == 0x65:
+            result	       += register.produce( data.register )
+        else:
+            assert False, "Invalid CIP request/reply format: %r" % data
 
+        return result
 
 class typed_data( cpppo.dfa ):
     """Parses CIP typed data, of the form specified by the datatype (must be a relative path within the
@@ -831,8 +859,8 @@ class typed_data( cpppo.dfa ):
             return b''.join(  DINT.produce( v ) for v in data.data )
 
 
-class logix( cpppo.dfa ):
-    """Parses a Logix vendor-specific CIP request.
+class Tag( cpppo.dfa ):
+    """Parses a Logix vendor-specific CIP Tag requests.
 
     If a Logix5000 Controller is being addressed (See Logix5000 Data Access manual, pp 16, Services
     Supported by Logix5000 Controllers), the ucmm.request_data. may contain:
@@ -1013,7 +1041,7 @@ class logix( cpppo.dfa ):
         slct[None]		= octets(			context='unrecognized',
                                                 terminal=True )
 
-        super( logix, self ).__init__( name=name, initial=slct, **kwds )
+        super( Tag, self ).__init__( name=name, initial=slct, **kwds )
 
     @staticmethod
     def produce( data ):
@@ -1022,19 +1050,19 @@ class logix( cpppo.dfa ):
          
          A Reply status of 0x06 to the read_frag command indicates that more data is available"""
         result			= b''
-        if 'get_attributes_all' in data and data.setdefault( 'service', logix.GA_ALL_REQ ) == logix.GA_ALL_REQ:
+        if 'get_attributes_all' in data and data.setdefault( 'service', Tag.GA_ALL_REQ ) == Tag.GA_ALL_REQ:
             result	       += USINT.produce(	data.service )
             result	       += EPATH.produce(	data.path )
-        elif 'read_tag' in data and data.setdefault( 'service', logix.RD_TAG_REQ ) == logix.RD_TAG_REQ:
+        elif 'read_tag' in data and data.setdefault( 'service', Tag.RD_TAG_REQ ) == Tag.RD_TAG_REQ:
             result	       += USINT.produce(	data.service )
             result	       += EPATH.produce(	data.path )
             result	       += UINT.produce(		data.read_tag.elements )
-        elif 'read_frag' in data and data.setdefault( 'service', logix.RD_FRG_REQ ) == logix.RD_FRG_REQ:
+        elif 'read_frag' in data and data.setdefault( 'service', Tag.RD_FRG_REQ ) == Tag.RD_FRG_REQ:
             result	       += USINT.produce(	data.service )
             result	       += EPATH.produce(	data.path )
             result	       += UINT.produce(		data.read_frag.elements )
             result	       += UDINT.produce(	data.read_frag.offset )
-        elif 'write_tag' in data and data.setdefault( 'service', logix.WR_TAG_REQ ) == logix.WR_TAG_REQ:
+        elif 'write_tag' in data and data.setdefault( 'service', Tag.WR_TAG_REQ ) == Tag.WR_TAG_REQ:
             # We can deduce the number of elements from len( data )
             result	       += USINT.produce(	data.service )
             result	       += EPATH.produce(	data.path )
@@ -1042,7 +1070,7 @@ class logix( cpppo.dfa ):
             result	       += UINT.produce(		data.write_tag.setdefault( 
                 'elements', len( data.write_tag.data )))
             result	       += typed_data.produce(	data.write_tag )
-        elif 'write_frag' in data and data.setdefault( 'service', logix.WR_FRG_REQ ) == logix.WR_FRG_REQ:
+        elif 'write_frag' in data and data.setdefault( 'service', Tag.WR_FRG_REQ ) == Tag.WR_FRG_REQ:
             # We can NOT deduce the number of elements from len( write_frag.data );
             # write_frag.elements must be the entire number of elements being shipped, while
             # write_frag.data contains ONLY the elements being shipped in this Write Tag Fragmented
@@ -1054,19 +1082,19 @@ class logix( cpppo.dfa ):
             result	       += UDINT.produce(	data.write_frag.setdefault(
                 'offset', 0x00000000 ))
             result	       += typed_data.produce(	data.write_frag )
-        elif (    'write_tag'  in data and data.service == logix.WR_TAG_RPY
-               or 'write_frag' in data and data.service == logix.WR_FRG_RPY ):
+        elif (    'write_tag'  in data and data.service == Tag.WR_TAG_RPY
+               or 'write_frag' in data and data.service == Tag.WR_FRG_RPY ):
             result	       += USINT.produce(	data.service )
             result	       += USINT.produce(	0x00 )
             result	       += USINT.produce(	data.setdefault( 'status', 0x00 ))
             result	       += USINT.produce( 	0x00 )	# ext_status_size
-        elif 'read_tag' in data and data.service == logix.RD_TAG_RPY:
+        elif 'read_tag' in data and data.service == Tag.RD_TAG_RPY:
             result	       += USINT.produce(	data.service )
             result	       += USINT.produce(	0x00 )
             result	       += USINT.produce(	data.setdefault( 'status', 0x00 ))
             result	       += USINT.produce( 	0x00 )	# ext_status_size
             result	       += typed_data.produce(	data.read_tag )
-        elif 'read_frag' in data and data.service == logix.RD_FRG_RPY:
+        elif 'read_frag' in data and data.service == Tag.RD_FRG_RPY:
             result	       += USINT.produce(	data.service )
             result	       += USINT.produce(	0x00 )
             result	       += USINT.produce(	data.setdefault( 'status', 0x00 ))
@@ -1074,5 +1102,5 @@ class logix( cpppo.dfa ):
             result	       += UINT.produce(		data.read_frag.type )
             result	       += typed_data.produce(	data.read_frag )
         else:
-            assert False, "Invalid logix CIP request/reply format: %r" % data
+            assert False, "Invalid Logix Tag request/reply format: %r" % data
         return result

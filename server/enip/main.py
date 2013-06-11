@@ -54,7 +54,7 @@ from   cpppo import misc
 import cpppo.server
 from   cpppo.server import network
 
-from .parser import *
+from . import parser
 
 address				= ('0.0.0.0', 44818)
 
@@ -68,19 +68,27 @@ log				= logging.getLogger( "enip.srv" )
 
 
 def enip_srv( conn, addr, enip_process=None ):
-    """Serve one Ethernet/IP client 'til EOF; then close the socket.  Parses headers 'til either the
-    parser fails (the Client has submitted an un-parsable request), or the request handler fails.
-    Use the supplied enip_process function to process each parsed EtherNet/IP CIP frame.
+    """Serve one Ethernet/IP client 'til EOF; then close the socket.  Parses headers and encapsulated
+    EtherNet/IP request data 'til either the parser fails (the Client has submitted an un-parsable
+    request), or the request handler fails.  Otherwise, encodes the data.response in an EtherNet/IP
+    packet and sends it back to the client.
+
+    Use the supplied enip_process function to process each parsed EtherNet/IP frame, returning True
+    if a data.response is formulated, False if the session has ended cleanly, or raise an Exception
+    if there is a processing failure (eg. an unparsable request, indicating that the Client is
+    speaking an unknown dialect and the session must close catastrophically.)
 
     If a partial EtherNet/IP header is parsed and an EOF is received, the enip_header parser will
     raise an AssertionError, and we'll simply drop the connection.  If we receive a valid header and
     request, the supplied enip_process function is expected to formulate an appropriate error
-    response, and we'll continue processing requests."""
+    response, and we'll continue processing requests.
+
+    """
     name			= "enip_%s" % addr[1]
     log.normal( "EtherNet/IP Server %s begins serving peer %s", name, addr )
 
     source			= cpppo.rememberable()
-    with enip_machine( name=name ) as enip_mesg:
+    with parser.enip_machine( name=name, context='enip' ) as enip_mesg:
         try:
             assert enip_process is not None, \
                 "Must specify an EtherNet/IP processing function via 'enip_process'"
@@ -91,7 +99,7 @@ def enip_srv( conn, addr, enip_process=None ):
                 data		= cpppo.dotdict()
                 source.forget()
                 # If no/partial EtherNet/IP header received, parsing will fail with a NonTerminal
-                # Exception (dfa exits in non-terminal state).
+                # Exception (dfa exits in non-terminal state).  Build data.request.enip:
                 for mch,sta in enip_mesg.run( path='request', source=source, data=data ):
                     if sta is None:
                         # No more transitions available.  Wait for input.  Either None (should never
@@ -110,32 +118,39 @@ def enip_srv( conn, addr, enip_process=None ):
 
                 # Terminal state and EtherNet/IP header recognized, or clean EOF (no partial
                 # message); process and return response
-                log.info( "%s req. data: %s", enip_mesg.name_centered(), enip_format( data ))
+                log.info( "%s req. data: %s", enip_mesg.name_centered(), parser.enip_format( data ))
                 if data:
                     requests   += 1
                 try:
                     # TODO: indicate successful composition of response?  enip_process must be able
                     # to handle no request, indicating the clean termination of the session.
-                    rpy		= enip_process( addr, source=source, data=data )
-                    if len( rpy ):
+                    
+                    if enip_process( addr, source=source, data=data ):
+                        # Produce an EtherNet/IP response carrying the encapsulated response data.
+                        assert 'response' in data, "Expected EtherNet/IP response; none found"
+                        rpy	= parser.enip_encode( data.response.enip )
                         log.detail( "%s send: %5d: %s", enip_mesg.name_centered(),
                                     len( rpy ), reprlib.repr( rpy ))
                         conn.send( rpy )
+                    else:
+                        log.normal( "%s session ended" , enip_mesg.name_centered())
+                        eof	= True
+                        
                 except:
-                    log.error( "Failed request: %s", enip_format( data ))
+                    log.error( "Failed request: %s", parser.enip_format( data ))
                     raise
 
-            processed			= source.sent
+            processed		= source.sent
         except:
             # Parsing failure.  We're done.  Suck out some remaining input to give us some context.
-            processed			= source.sent
-            memory			= bytes(bytearray(source.memory))
-            pos				= len( source.memory )
-            future			= bytes(bytearray( b for b in source ))
-            where			= "at %d total bytes:\n%s\n%s (byte %d)" % (
+            processed		= source.sent
+            memory		= bytes(bytearray(source.memory))
+            pos			= len( source.memory )
+            future		= bytes(bytearray( b for b in source ))
+            where		= "at %d total bytes:\n%s\n%s (byte %d)" % (
                 processed, repr(memory+future), '-' * (len(repr(memory))-1) + '^', pos )
-            log.warning( "%s failed with exception:\n%s\nEnterNet/IP parsing error %s", enip_mesg.name,
-                         ''.join( traceback.format_exception( *sys.exc_info() )), where )
+            log.error( "EtherNet/IP error %s\n\nFailed with exception:\n%s\n", where,
+                         ''.join( traceback.format_exception( *sys.exc_info() )))
             raise
         finally:
             # Not strictly necessary to close (network.server_main will discard the socket, implicitly

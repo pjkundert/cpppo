@@ -1101,8 +1101,9 @@ class dfa_base( object ):
         self.lock		= threading.Lock()
 
     def __enter__( self ):
-        """Must only be in use by a single state machine."""
-        assert self.lock.acquire( False ) is True
+        """Must only be in use by a single state machine.  Block 'til we can acquire the lock."""
+        # assert self.lock.acquire( False ) is True
+        self.lock.acquire()
         return self
 
     def __exit__( self, typ, val, tbk ):
