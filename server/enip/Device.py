@@ -203,18 +203,20 @@ class Object( object ):
         return self._path( self.class_id, self.instance_id )
 
     def request( self, data ):
-        """Process a request.  Must be a dotdict data artifact such as is produced by the Object's parser.  For example, a 
+        """Process a request.  Must be a dotdict data artifact such as is produced by the Object's parser.
+        For example, a request data containing either of the following:
 
-        {
-            'service':			0x01,
-            'get_attribute_all':	True,
-        }
+            {
+                'service':		0x01,
+                'get_attribute_all':	True,
+            }
 
         should run the Get Attribute All service, and return the binary payload that results from
         the command.  This may include any erroneous status codes that result from errors detected
         during the attempt to process the command.
 
         This is hacky, and we don't validate any request.
+
         """
         result			= b''
         if 'get_attribute_all' in data or data.service == 0x01:
@@ -246,7 +248,7 @@ class Identity( Object ):
             self.attribute['4']	= Attribute( 'Product Revision', 	UINT, default=0x0b14 )
             self.attribute['5']	= Attribute( 'Status Word', 		UINT, default=0x3160 )
             self.attribute['6']	= Attribute( 'Serial Number', 		UDINT,default=0x006c061a )
-            self.attribute['7']	= Attribute( 'Product Name', 		SSTRING, default=cpppo.dotdict({'string':'1756-L61/B LOGIX5561'} ))
+            self.attribute['7']	= Attribute( 'Product Name', 		SSTRING, default='1756-L61/B LOGIX5561' )
 
         
 

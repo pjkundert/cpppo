@@ -206,13 +206,13 @@ class STRUCT( cpppo.dfa, cpppo.state ):
     pass
 
 class SSTRING( STRUCT ):
-    """A Short String:
+    """Parses/produces a EtherNet/IP Short String:
 
         .SSTRING.length			USINT		1
-        .SSTRING.string			octets[*]	.size
+        .SSTRING.string			octets[*]	.length
 
-
-    """
+    The produce classmethod accepts this structure, or just a plain Python str, and will output the
+    equivalent length+string."""
     tag_type			= None
     def __init__( self, name=None, **kwds):
         name			= name or kwds.setdefault( 'context', self.__class__.__name__ )
@@ -227,10 +227,16 @@ class SSTRING( STRUCT ):
 
     @classmethod
     def produce( cls, value ):
-        """Truncate or NUL-fill the provided .string to the given .length (if provided and not None).  Then, emit
-        the length """
+        """Truncate or NUL-fill the provided .string to the given .length (if provided and not None).  Then,
+        emit the (one byte) length+string.  Accepts either a {.length: ..., .string:... } dotdict,
+        or a plain string.
+
+        """
         result			= b''
         
+        if isinstance( value, cpppo.type_str_base ):
+            value		= cpppo.dotdict( {'string': value } )
+
         encoded			= value.string.encode( 'iso-8859-1' )
         # If .length doesn't exist or is None, set the length to the actual string length
         actual			= len( encoded )
