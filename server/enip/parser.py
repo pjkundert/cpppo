@@ -290,28 +290,28 @@ class enip_header( cpppo.dfa ):
 
 class enip_machine( cpppo.dfa ):
     """Parses a complete EtherNet/IP message, including command-specific payload into
-    '<context>.encapsulated_data.input'.  Context defaults to 'enip' (unless explicitly set to ''),
+    '<context>.encapsulated.input'.  Context defaults to 'enip' (unless explicitly set to ''),
     and name default to context."""
     def __init__( self, name=None, **kwds ):
         kwds.setdefault( 'context', 'enip' )
         name 			= name or kwds.get( 'context' )
         hedr			= enip_header()
-        hedr[None] = encp	= octets(	"encp_dat",	context="encapsulated_data",
+        hedr[None] = encp	= octets(	"encp_dat",	context="encapsulated",
                                                 repeat="..header.length", terminal=True )
 
         super( enip_machine, self ).__init__( name=name, initial=hedr, **kwds )
 
 def enip_encode( data ):
     """Produce an encoded EtherNet/IP message from the supplied data; assumes any encapsulated data has
-    been encoded to enip.encapsulated_data.input and is already available."""
+    been encoded to enip.encapsulated.input and is already available."""
     result			= b''.join( [
         UINT.produce(	data.enip.header.command ),
-        UINT.produce(len(data.enip.encapsulated_data.input )),
+        UINT.produce(len(data.enip.encapsulated.input )),
         UDINT.produce( 	data.enip.header.session_handle ),
         UDINT.produce( 	data.enip.header.status ),
         octets_encode(	data.enip.header.sender_context.input ),
         UDINT.produce(	data.enip.header.options ),
-        octets_encode(	data.enip.encapsulated_data.input ),
+        octets_encode(	data.enip.encapsulated.input ),
     ])
     return result
     

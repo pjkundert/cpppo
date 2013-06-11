@@ -27,4 +27,4 @@ __all__				= []
 # These form the public interface of cpppo.server.enip
 from .main import *
 from .parser import *
-from . import Device
+from . import device

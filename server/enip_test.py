@@ -672,7 +672,18 @@ def test_enip_CPF():
 
  
 cip_tests			= [
-            (
+            ( 
+                rss_004_request,
+                { 
+                    "CIP.command": 101, 
+                    "CIP.length": 4, 
+                    "CIP.options": 0, 
+                    "CIP.register.options": 0, 
+                    "CIP.register.protocol_version": 1, 
+                    "CIP.session": 0, 
+                    "CIP.status": 0
+                }
+            ), (
                 gaa_008_request,
                 {
                     "CIP.command": 111, 
@@ -844,23 +855,23 @@ def test_enip_CIP():
             
 
 
-def test_enip_Device():
+def test_enip_device():
     # Find a new Class ID.
     class_found			= True
     while class_found:
         class_num		= random.randrange( 1, 256 )
-        class_found		= enip.Device.lookup( class_id=class_num )
+        class_found		= enip.device.lookup( class_id=class_num )
 
-    assert enip.Device.path( class_id=class_num, instance_id=1 ) == str( class_num ) + '.1.None'
+    assert enip.device.path( class_id=class_num, instance_id=1 ) == str( class_num ) + '.1.None'
 
-    class Test_Device( enip.Device.Object ):
+    class Test_Device( enip.device.Object ):
         class_id		= class_num
 
     # Create an instance (creates class-level instance_id==0 automatically)
     O				= Test_Device( 'Test Class', instance_id=1 )
 
-    # Confirm the new entries in the enip.Device.directory
-    assert sorted( enip.Device.directory[str(O.class_id)].keys() ) == [
+    # Confirm the new entries in the enip.device.directory
+    assert sorted( enip.device.directory[str(O.class_id)].keys() ) == [
         '0.1', 				# the class-level attributes
         '0.2',
         '0.3',
@@ -869,18 +880,18 @@ def test_enip_Device():
         str(O.instance_id)+'.None',	# The Instance we just created (it has no Attributes)
     ]
 
-    assert enip.Device.lookup( class_id=class_num, instance_id=1 ) is O
-    assert enip.Device.directory[str(O.class_id)+'.0.1'].value == 0
-    assert enip.Device.directory[str(O.class_id)+'.0.3'].value == 1 # Number of Instances
+    assert enip.device.lookup( class_id=class_num, instance_id=1 ) is O
+    assert enip.device.directory[str(O.class_id)+'.0.1'].value == 0
+    assert enip.device.directory[str(O.class_id)+'.0.3'].value == 1 # Number of Instances
 
     O2				= Test_Device( 'Test Class' )
-    assert enip.Device.directory[str(O.class_id)+'.0.3'].value == 2 # Number of Instances
-    log.normal( "Device.directory: %s", json.dumps(
-        enip.Device.directory, indent=4, sort_keys=True,  default=lambda obj: repr( obj )))
+    assert enip.device.directory[str(O.class_id)+'.0.3'].value == 2 # Number of Instances
+    log.normal( "device.directory: %s", json.dumps(
+        enip.device.directory, indent=4, sort_keys=True,  default=lambda obj: repr( obj )))
 
 
-    Ix				= enip.Device.Identity( 'Test Identity' )
-    attrs			= enip.Device.directory[str(Ix.class_id)+'.'+str(Ix.instance_id)]
+    Ix				= enip.device.Identity( 'Test Identity' )
+    attrs			= enip.device.directory[str(Ix.class_id)+'.'+str(Ix.instance_id)]
     log.normal( "New Identity Instance directory: %s", json.dumps(
         attrs, indent=4, sort_keys=True,  default=lambda obj: repr( obj )))
     assert attrs['7'].produce() == b'\x141756-L61/B LOGIX5561'
@@ -897,7 +908,7 @@ def enip_process_canned( addr, source, data ):
     response."""
     if not data:
         log.normal( "EtherNet/IP Request Empty; end of session" )
-        return
+        return b''
 
     log.detail( "EtherNet/IP Request: %s", enip.parser.enip_format( data.request ))
     if data.request.enip.header.command == 0x0065:
@@ -907,7 +918,10 @@ def enip_process_canned( addr, source, data ):
                 pass
             if machine.terminal:
                 log.debug( "EtherNet/IP Response: %s", enip.parser.enip_format( data.response ))
-        return
+
+    if 'response' in data:
+        rpy		= enip.parser.enip_encode( data.response )
+        return rpy
 
     raise Exception( "Unrecognized request: %s" % ( enip.parser.enip_format( data )))
 

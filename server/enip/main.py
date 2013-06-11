@@ -65,6 +65,8 @@ if __name__ == "__main__":
 log				= logging.getLogger( "enip.srv" )
 
 
+
+
 def enip_srv( conn, addr, enip_process=None ):
     """Serve one Ethernet/IP client 'til EOF; then close the socket.  Parses headers 'til either the
     parser fails (the Client has submitted an un-parsable request), or the request handler fails.
@@ -114,9 +116,8 @@ def enip_srv( conn, addr, enip_process=None ):
                 try:
                     # TODO: indicate successful composition of response?  enip_process must be able
                     # to handle no request, indicating the clean termination of the session.
-                    enip_process( addr, source=source, data=data )
-                    if 'response' in data:
-                        rpy	= enip_encode( data.response )
+                    rpy		= enip_process( addr, source=source, data=data )
+                    if len( rpy ):
                         log.detail( "%s send: %5d: %s", enip_mesg.name_centered(),
                                     len( rpy ), reprlib.repr( rpy ))
                         conn.send( rpy )

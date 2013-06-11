@@ -25,7 +25,7 @@ __license__                     = "GNU General Public License, Version 3 (or lat
 
 
 """
-enip.Device	-- support for implementing an EtherNet/IP Device
+enip.device	-- support for implementing an EtherNet/IP device
 
 
 """
@@ -58,7 +58,7 @@ if __name__ == "__main__":
 log				= logging.getLogger( "enip.dev" )
 
 # 
-# directory	-- All available Device.Objects and Attributes (including the "class" instance 0)
+# directory	-- All available device Objects and Attributes (including the "class" instance 0)
 # path		-- Returns the path for an object to class, instance or attribute level
 # lookup	-- Find a class/instance/attribute
 # 
@@ -66,8 +66,8 @@ log				= logging.getLogger( "enip.dev" )
 # 
 #         directory.6.0		Class 6 "Class" level Object and Attributes
 #         directory.6.1		Class 6, Instance 1 Object and Attributes
-#         directory.6.1.None	Class 6, Instance 1 Device.Object (python instance)
-#         directory.6.1.1	Class 6, Instance 1, Attribute 1 Device.Attribute (python instance)
+#         directory.6.1.None	Class 6, Instance 1 device.Object (python instance)
+#         directory.6.1.1	Class 6, Instance 1, Attribute 1 device.Attribute (python instance)
 # 
 directory			= cpppo.dotdict()
 
@@ -83,7 +83,7 @@ def lookup( class_id, instance_id=0, attribute_id=None ):
         key			= path(
             class_id=class_id, instance_id=instance_id, attribute_id=attribute_id )
     res				= directory.get( key, None )
-    log.info( "Device directory[%r] == %s", key, res )
+    log.info( "device directory[%r] == %s", key, res )
     return res
 
 # 
@@ -140,11 +140,10 @@ class NumInstances( MaxInstance ):
 # EtherNet/IP CIP Object
 # 
 class Object( object ):
-    """An EtherNet/IP Device.Object is capable of parsing and processing a number of requests.  It has a
-    class_id and an instance_id; an instance_id of 0 indicates the "class" instance of the
-    Device.Object, which has different (class level) Attributes (and responds to different commands)
+    """An EtherNet/IP device.Object is capable of parsing and processing a number of requests.  It has
+    a class_id and an instance_id; an instance_id of 0 indicates the "class" instance of the
+    device.Object, which has different (class level) Attributes (and responds to different commands)
     than the other instance_id's.
-
 
     """
     max_instance		= 0
