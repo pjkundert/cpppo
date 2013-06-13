@@ -24,7 +24,8 @@ if __name__ == "__main__" and __package__ is None:
     sys.path.insert( 0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 import cpppo
-from   cpppo.server import ( enip, network )
+from   cpppo import misc
+from   cpppo.server import (enip, network)
 from   cpppo.server.enip import logix
 
 logging.basicConfig( **cpppo.log_cfg )
@@ -377,6 +378,33 @@ unk_023_reply 		= bytes(bytearray([
     0x00, 0x00, 0xb2, 0x00, 0x08, 0x00, 0xd2, 0x00, #/* ........ */
     0x00, 0x00, 0xc3, 0x00, 0xc8, 0x40              #/* .....@ */
 ]))
+
+# Read Tag Fragmented Request SCADA[10000], 10 elements
+# 0030                    6f 00  32 00 02 67 02 10 00 00   9.. ..o. 2..g....
+# 0040  00 00 07 00 00 00 00 00  00 00 00 00 00 00 00 00   ........ ........
+# 0050  00 00 05 00 02 00 00 00  00 00 b2 00 22 00 52 02   ........ ....".R.
+# 0060  20 06 24 01 05 9d 14 00  52 06 91 05 53 43 41 44    .$..... R...SCAD
+# 0070  41 00 29 00 10 27 0a 00  00 00 00 00 01 00 01 00   A.)..'.. ........
+
+# Read Tag Fragmented Reply (error 0x05)
+# 0030                    6f 00  14 00 02 67 02 10 00 00   ..Im..o. ...g....
+# 0040  00 00 07 00 00 00 00 00  00 00 00 00 00 00 00 00   ........ ........
+# 0050  00 00 05 00 02 00 00 00  00 00 b2 00 04 00 d2 00   ........ ........
+# 0060  05 00                                              ..               
+
+# Read Tag Fragmented Request SCADAX (bad Tag), 10 elements
+# 0030                    6f 00  2e 00 02 6b 02 10 00 00   9.....o. ...k....
+# 0040  00 00 07 00 00 00 00 00  00 00 00 00 00 00 00 00   ........ ........
+# 0050  00 00 05 00 02 00 00 00  00 00 b2 00 1e 00 52 02   ........ ......R.
+# 0060  20 06 24 01 05 9d 10 00  52 04 91 06 53 43 41 44    .$..... R...SCAD
+# 0070  41 58 01 00 00 00 00 00  01 00 01 00               AX...... ....    
+
+# Read Tag Fragmented Reply (error 0x04 w/ 1 extended status 0x0000)
+# 0030                    6f 00  16 00 02 6b 02 10 00 00   ...o..o. ...k....
+# 0040  00 00 07 00 00 00 00 00  00 00 00 00 00 00 00 00   ........ ........
+# 0050  00 00 05 00 02 00 00 00  00 00 b2 00 06 00 d2 00   ........ ........
+# 0060  04 01 00 00                                        ....             
+
 
 eip_tests			= [
             ( b'', {} ),        # test that parsers handle/reject empty/EOF
@@ -869,6 +897,39 @@ def test_enip_CIP():
             raise
             
 
+def test_enip_device_symbolic():
+    enip.device.symbol['SCADA'] = {'class':0x401, 'instance':1, 'attribute':2}
+    path={'segment':[{'symbolic':'SCADA'}, {'element':4}]}
+    assert enip.device.resolve( path, attribute=True ) == (0x401,1,2)
+    assert enip.device.resolve( path ) == (0x401,1,None)
+
+    try:
+        result			= enip.device.resolve(
+            {'segment':[{'class':5},{'symbolic':'SCADA','length':5},{'element':4}]} )
+        assert False, "Should not have succeeded: %r" % result
+    except AssertionError as exc:
+        assert "Failed to override" in str(exc)
+
+    try:
+        result			= enip.device.resolve( 
+            {'segment':[{'class':5},{'symbolic':'BOO','length':5},{'element':4}]} )
+        assert False, "Should not have succeeded: %r" % result
+    except AssertionError as exc:
+        assert "Unrecognized symbolic name 'BOO'" in str(exc)
+
+    try:
+        result			= enip.device.resolve( {'segment':[{'instance':1}]} )
+        assert False, "Should not have succeeded: %r" % result
+    except AssertionError as exc:
+        assert "Failed to resolve" in str(exc)
+
+    try:
+        result			= enip.device.resolve(
+            {'segment':[{'class':0x404}, {'instance':1}, {'something':10}]}, attribute=True )
+        assert False, "Should not have succeeded: %r" % result
+    except AssertionError as exc:
+        assert "Invalid term" in str(exc)
+
 
 def test_enip_device():
     # Find a new Class ID.
@@ -877,8 +938,6 @@ def test_enip_device():
         class_num		= random.randrange( 1, 256 )
         class_found		= enip.device.lookup( class_id=class_num )
 
-    assert enip.device.path( class_id=class_num, instance_id=1 ) == str( class_num ) + '.1.None'
-
     class Test_Device( enip.device.Object ):
         class_id		= class_num
 
@@ -886,13 +945,13 @@ def test_enip_device():
     O				= Test_Device( 'Test Class', instance_id=1 )
 
     # Confirm the new entries in the enip.device.directory
-    assert sorted( enip.device.directory[str(O.class_id)].keys() ) == [
-        '0.1', 				# the class-level attributes
+    assert sorted( enip.device.directory[str(O.class_id)].keys(), key=misc.natural ) == [
+        '0.0',				# the class-level instance
+        '0.1', 				# ... and class-level attributes
         '0.2',
         '0.3',
         '0.4',
-        '0.None',			# ... and class-level instance
-        str(O.instance_id)+'.None',	# The Instance we just created (it has no Attributes)
+        str(O.instance_id)+'.0',	# The Instance we just created (it has no Attributes)
     ]
 
     assert enip.device.lookup( class_id=class_num, instance_id=1 ) is O
@@ -901,8 +960,10 @@ def test_enip_device():
 
     O2				= Test_Device( 'Test Class' )
     assert enip.device.directory[str(O.class_id)+'.0.3'].value == 2 # Number of Instances
-    log.normal( "device.directory: %s", json.dumps(
-        enip.device.directory, indent=4, sort_keys=True,  default=lambda obj: repr( obj )))
+    log.normal( "device.directory: %s", '\n'.join(
+        "%16s: %s" % ( k, enip.device.directory[k] )
+        for k in sorted( enip.device.directory.keys(), key=misc.natural)))
+
 
 
     Ix				= enip.device.Identity( 'Test Identity' )
@@ -914,7 +975,53 @@ def test_enip_device():
     gaa				= Ix.request( cpppo.dotdict({'service': 0x01 }))
     log.normal( "Identity Get Attributes All: %r", gaa )
     assert gaa == b'\x01\x00\x0e\x006\x00\x14\x0b`1\x1a\x06l\x00\x141756-L61/B LOGIX5561'
-    
+
+    # Look up Objects/Attribute by resolving a path
+    assert enip.device.lookup( *enip.device.resolve( {'segment':[{'class':class_num}, {'instance':1}]} )) is O
+    assert enip.device.lookup( *enip.device.resolve( {'segment':[{'class':class_num}, {'instance':2}]} )) is O2
+
+    enip.device.symbol['BOO'] = {'class': class_num, 'instance': 1}
+
+    path			= {'segment':[{'symbolic':'BOO', 'length':3}, {'attribute':2}, {'element':4}]}
+    assert enip.device.lookup( *enip.device.resolve( path )) is O
+
+    Oa1	= O.attribute['2'] 	= enip.device.Attribute('Something', enip.parser.INT, default=0)
+    assert '0' in O.attribute # the Object
+    assert '2' in O.attribute
+    assert enip.device.lookup( *enip.device.resolve( path, attribute=True )) is Oa1
+
+
+def test_enip_logix():
+    """The logix module implements some features of a Logix Controller."""
+    Obj				= logix.Logix_Data()
+    Obj_a1 = Obj.attribute['1']	= enip.device.Attribute( 'Something', enip.parser.INT, default=[n for n in range( 100 )])
+
+    assert len( Obj_a1 ) == 100
+
+    # Set up a symbolic tag referencing the Logix_Data Object's Attribute
+    enip.device.symbol['SCADA']	= {'class': Obj.class_id, 'instance': Obj.instance_id, 'attribute':1 }
+
+    # Lets get it to parse a request:
+    #     'service': 			0x52,
+    #     'path.segment': 		[{'symbolic': 'SCADA', 'length': 5}],
+    #     'read_frag.elements':		20,
+    #     'read_frag.offset':		2,
+
+    req_1	 		= bytes(bytearray([
+        0x52, 0x04, 0x91, 0x05, 0x53, 0x43, 0x41, 0x44, #/* R...SCAD */
+        0x41, 0x00, 0x14, 0x00, 0x02, 0x00, 0x00, 0x00, #/* A....... */
+    ]))
+    source			= cpppo.peekable( req_1 )
+    data 			= cpppo.dotdict()
+    with Obj.parser as machine:
+        for m,w in machine.run( source=source, data=data ):
+            pass
+    log.normal( "Logix Request parsed: %s", enip.enip_format( data ))
+
+    # If we ask a Logix_Data Object to process the request, it should respond.
+    proceed			= Obj.request( data )
+    log.normal("Logix Request processed: %s", enip.enip_format( data ))
+
 
 # Run the bench-test.  Sends some request from a bunch of clients to a server, testing responses
 
@@ -937,10 +1044,10 @@ def enip_process_canned( addr, source, data ):
 
     raise Exception( "Unrecognized request: %s" % ( enip.parser.enip_format( data )))
 
+# The default Client will wait for draindelay after 
 client_count, client_max	= 15, 10
 charrange, chardelay		= (2,10), .1	# split/delay outgoing msgs
-draindelay			= 5.   		# long in case server slow, but immediately upon EOF
-
+draindelay			= 10.  		# long in case server very slow (eg. logging), but immediately upon EOF
 
 def enip_cli( number, tests=None ):
     """Sends a series of test messages, testing response for expected results."""
@@ -951,42 +1058,67 @@ def enip_cli( number, tests=None ):
         
     successes			= 0
     try:
+        eof			= False
+        source			= cpppo.chainable()
         for req,tst in tests:
+            errors		= 0
             data		= cpppo.dotdict()
 
             log.normal( "EtherNet/IP Client %3d req.: %5d: %s ", number, len( req ), repr( req ))
+
             # Await response, sending request in chunks using inter-block chardelay if output
-            # remains, otherwise await response using draindelay.  Stop if EOF from server.
-            eof			= False
+            # remains, otherwise await response using draindelay.  Stop if EOF from server.  For
+            # each request, run a EtherNet/IP frame parser state machine 'til it reports terminal.
             rpy			= b''
-            while len( req ) and not eof:
-                out		= min( len( req ), random.randrange( *charrange ))
-                log.detail( "EtherNet/IP Client %3d send: %5d/%5d: %s", number, out, len( req ),
-                            repr( req[:out] ))
-                conn.send( req[:out] )
-                req		= req[out:]
-
-                rcvd		= network.recv( conn, timeout=chardelay if len( req ) else draindelay )
-                if rcvd is not None:
-                    log.detail( "EtherNet/IP Client %3d recv: %5d: %s", number, len( rcvd ),
-                                repr( rcvd ) if len( rcvd ) else "EOF" )
-                    eof		= not len( rcvd )
-                    rpy	       += rcvd
-
-            log.normal( "EtherNet/IP Client %3d rpy.: %5d: %s ", number, len( rpy ), repr( rpy ))
-            # Parse response
             sta			= None
             with enip.enip_machine( terminal=True ) as machine:
-                for mch,sta in machine.run( source=cpppo.peekable( rpy ), path='response', data=data ):
-                    pass
+                engine		= machine.run( source=source, path='response', data=data )
+                while not eof:
+                    if len( req ):
+                        if machine.terminal:
+                            log.warning(
+                                "EtherNet/IP Client %3d reply complete, before full request sent!" % (
+                                    number ))
+                            error += 1
+                        out	= min( len( req ), random.randrange( *charrange ))
+                        log.detail( "EtherNet/IP Client %3d send: %5d/%5d: %s", number, out, len( req ),
+                                    repr( req[:out] ))
+                        conn.send( req[:out] )
+                        req	= req[out:]
+                    # Wait up to draindelay if done request but machine not terminal
+                    done	= len( req ) == 0
+                    rcvd	= network.recv(
+                        conn, timeout=draindelay if done and not machine.terminal else chardelay )
+                    if rcvd is None:
+                        # No input; if we're done sending, we've waited long enough; either
+                        # chardelay or draindelay.  Quit.
+                        if done:
+                            if not machine.terminal:
+                                log.warning(
+                                    "EtherNet/IP Client %3d reply incomplete, but drained for %f seconds!" % (
+                                        number, draindelay ))
+                            break
+                    else:
+                        log.detail( "EtherNet/IP Client %3d recv: %5d: %s", number, len( rcvd ),
+                                    repr( rcvd ) if len( rcvd ) else "EOF" )
+                        eof		= not len( rcvd )
+                        rpy	       += rcvd
+
+                        # New data; keep running machine's engine (a generator)
+                        source.chain( rcvd )
+                        for mch,sta in engine:
+                            log.detail("EtherNet/IP Client %3d rpy.: %s -> %10.10s; next byte %3d: %-10.10r: %s",
+                                       number, machine.name_centered(), sta, source.sent, source.peek(), reprlib.repr( data ))
+
+                # Parsed response should be in data.
                 assert machine.terminal, \
                     "%3d client failed to decode EtherNet/IP response: %r\ndata: %s" % (
                         number, rpy, enip.parser.enip_format( data ))
 
-            log.normal( "EtherNet/IP Client %3d rpy. data: %s", number, enip.parser.enip_format( data ))
+            log.detail( "EtherNet/IP Client %3d rpy.: %5d: %s ", number, len( rpy ), repr( rpy ))
+            log.normal( "EtherNet/IP Client %3d rpy.: %s", number, enip.parser.enip_format( data ))
 
             # Successfully sent request and parsed response; can continue; test req/rpy parsed data
-            errors		= 0
             for k,v in tst.items():
                 if data[k] != v:
                     log.warning( "EtherNet/IP Client %3d test failed: %s != %s; %s", number, data[k], v,

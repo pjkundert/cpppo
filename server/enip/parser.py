@@ -162,6 +162,8 @@ class words( words_base, cpppo.state ):
 #     More complex data types are derived from STRUCT, are derived from cpppo.dfa, and require a
 # state machine to be constructed to parse the data.
 # 
+#     Any EtherNet/IP type based on TYPE has a .calcsize property; its size in bytes.
+# 
 class TYPE( octets_struct ):
     """An EtherNet/IP data type"""
     def __init__( self, name=None, **kwds ):
@@ -201,6 +203,7 @@ class DINT( TYPE ):
     """An EtherNet/IP INT; 16-bit signed integer"""
     tag_type			= 0x00c4
     struct_format		= '<i'
+
 
 class STRUCT( cpppo.dfa, cpppo.state ):
     pass
@@ -809,6 +812,7 @@ class typed_data( cpppo.dfa ):
     REAL			= 0x00ca	# 4 bytes
     DWORD			= 0x00d3	# 4 byte (32-bit boolean array)
     LINT			= 0x00c5	# 8 byte
+
     """
     def __init__( self, name=None, datatype=None, **kwds ):
         name 			= name or kwds.setdefault( 'context', self.__class__.__name__ )
@@ -858,6 +862,55 @@ class typed_data( cpppo.dfa ):
         elif data.type == DINT.tag_type:
             return b''.join(  DINT.produce( v ) for v in data.data )
 
+
+class status( cpppo.dfa ):
+    """Parses CIP status, and status_ext.size/.data:
+
+        .status				USINT		1
+	.status_ext.size		USINT		1
+	.status_ext.data		UINT[*]		.size
+
+    """
+    def __init__( self, name=None, **kwds ):
+        name 			= name or kwds.setdefault( 'context', self.__class__.__name__ )
+
+        # Parse the status, and status_ext.size
+        stts			= SINT( 	'status',	context=None )
+        stts[True]	= size	= SINT( 	'_ext.size',	extension='_ext.size' )
+
+        # Prepare a state-machine to parse each UINT into .UINT, and move it onto the .data list
+        exts			= UINT(		'_ext.UINT',	terminal=True )
+        exts[None]		= move_if( 	'_ext.data',	source='.UINT', 
+                                           destination='.data',	initializer=lambda **kwds: [],
+                                                state=exts )
+
+        # Parse all status_ext.data in a sub-dfa limited by the parsed status_ext.size (in words; double)
+        size[None]		= cpppo.dfa(    'each',		extension='_ext',
+                                                initial=exts,	terminal=True,
+            limit=lambda path=None, data=None, **kwds: data[path+'.size'] * 2 )
+        
+        super( status, self ).__init__( name=name, initial=stts, **kwds )
+
+    @staticmethod
+    def produce( data ):
+        """Produces a status + extended status size/data.  Expects to find (all optional):
+
+            .status
+            .status_ext.size
+            .status_ext.data
+
+        If not found, default .status to 0, and assume 0 for everything else.  Extended status only
+        allowed for non-zero .status """
+        result			= b''
+        status			= 0  if 'status' not in data else data.status
+        result		       += SINT.produce( status )
+        size			= 0  if not status or 'status_ext.size' not in data else data.status_ext.size
+        exts			= [] if not status or 'status_ext.data' not in data else data.status_ext.data
+        assert size == len( exts ), \
+            "Inconsistent extended status size and data: %r" % data
+        result		       += SINT.produce( size )
+        result		       += b''.join( UINT.produce( v ) for v in exts )
+        return result
 
 class Tag( cpppo.dfa ):
     """Parses a Logix vendor-specific CIP Tag requests.

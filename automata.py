@@ -1476,5 +1476,3 @@ class regex_bytes_promote( regex_bytes ):
         subs			= self.initial.context( ours )
         log.info( "data[%s] = data[%s]: %r", ours, subs, data[subs] if subs in data else data )
         data[ours]		= data[subs]
-
-

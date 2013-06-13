@@ -27,4 +27,4 @@ __all__				= ["logix"]
 # These form the public interface of cpppo.server.enip
 from .main import *
 from .parser import *
-from . import device
+from .device import *
