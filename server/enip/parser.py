@@ -388,14 +388,20 @@ class EPATH( cpppo.dfa ):
             { 'attribute':  # },
             { 'element':    # },
             { 'symbolic':   '...' },
+            { 'port':       #, link #/'1.2.3.4' },
          ]
          .EPATH.segment__... temp 
-    """
 
-    def __init__( self, name=None, **kwds ):
+    Also works as a Route Path (which has a pad after size), by setting padsize=True.
+    """
+    def __init__( self, name=None, padsize=False, **kwds ):
         name 			= name or kwds.setdefault( 'context', self.__class__.__name__ )
         
-        psiz			= USINT( context='size' )
+        # Get the size, and chain remaining machine onto rest.  When used as a Route Path, the size
+        # is padded, so insert a state to drop the pad, and chain rest to that instead.
+        size		= rest	= USINT(			context='size' )
+        if padsize:
+            size[True]	= rest	= octets_drop( 	'pad', 		repeat=1 )
 
         # After capturing each segment__ (pseg), move it onto the path segment list, and loop
         pseg			= octets_noop(	'type',		terminal=True )
@@ -446,9 +452,9 @@ class EPATH( cpppo.dfa ):
 
 
         pseg[b'\x91'[0]]= symt	= octets_drop(	'type',		repeat=1 )
-        symt[True]	= syml	= USINT(	'sym_len',	context='length' )
+        symt[True]	= syml	= USINT(	'sym_len',	context='symbolic.length' )
         syml[None]	= symv	= cpppo.string_bytes(
-            					'symbolic',	context='symbolic', limit='..length',
+            					'symbolic',	context='symbolic', limit='.length',
                                                 initial='.*',	decode='iso-8859-1' )
 
         # An odd-length ANSI Extended Symbolic name means an odd total.  Pad
@@ -456,37 +462,130 @@ class EPATH( cpppo.dfa ):
         symo[None]		= pmov
 
         symv[None]		= cpppo.decide(	'odd',
-                predicate=lambda path=None, data=None, **kwds: data[path+'.length'] % 2,
+                predicate=lambda path=None, data=None, **kwds: len( data[path].symbolic ) % 2,
                                                 state=symo )
         symv[None]		= pmov
 
 
+        # Route Path port/link-address.  See Vol 1-3.13, Table C-1.3 Port Segment Encoding.
+        # segment:  0b000spppp 
+        #                |\\\\+-> port number 0x01-0x0E; 0x0F=>extended
+        #                |
+        #                +------> link size+address; 0=>numeric, 1=>size+string
+        # 
+
+        def port_fix( path=None, data=None, **kwds ):
+            """Discard port values about 0x0F; return True (transition) if remaining port value is 0x0F
+            (Optional Extended port)"""
+            data[path].port    &= 0x0F
+            if data[path].port == 0x0F:
+                # Port is extended; discard and prepare to collect new port number
+                data[path].port	= cpppo.dotdict()
+                return True
+            # Port is OK; don't transition
+            return False
+
+        # [01-0E][LL] 				port 01-0E, link-address #LL
+        pseg[b'\x01'[0]]= pnum	= USINT(	'port_num',	context='port' )
+        pseg[b'\x02'[0]]	= pnum
+        pseg[b'\x03'[0]]	= pnum
+        pseg[b'\x04'[0]]	= pnum
+        pseg[b'\x05'[0]]	= pnum
+        pseg[b'\x06'[0]]	= pnum
+        pseg[b'\x07'[0]]	= pnum
+        pseg[b'\x08'[0]]	= pnum
+        pseg[b'\x09'[0]]	= pnum
+        pseg[b'\x0a'[0]]	= pnum
+        pseg[b'\x0b'[0]]	= pnum
+        pseg[b'\x0c'[0]]	= pnum
+        pseg[b'\x0d'[0]]	= pnum
+        pseg[b'\x0e'[0]]	= pnum
+
+        # [0F][PPPP][LL]			port 0xPPPP,  link-address 0xLL
+        pseg[b'\x0f'[0]]	= pnum
+
+        # A big port#; re-scan a UINT into .port (won't work 'til port_fix is called)
+        pnbg			= UINT(		'port_nbg',	context='port' )
+        pnbg[True]	= pnlk	= USINT(	'link_num',	context='link' )
+
+        # Fix the port#; if 0x0F, setup for extended port and transition to pnbg.  Otherwise,
+        # (not extended port), just go the the port numeric link.
+        pnum[None]		= cpppo.decide( 'port_nfix',	predicate=port_fix,
+                                                state=pnbg )
+        pnum[None]		= pnlk
+        pnlk[None]		= pmov	 	# and done; move segment, get next
+
+        # [11-1E][SS]'123.123.123.123'[00]	port 0x01-0E, link address '123.123.123.123' (pad if size 0xSS odd)
+        pseg[b'\x11']	= padr	= USINT(	'port_adr',	context='port' )
+        pseg[b'\x12'[0]]	= padr
+        pseg[b'\x13'[0]]	= padr
+        pseg[b'\x14'[0]]	= padr
+        pseg[b'\x15'[0]]	= padr
+        pseg[b'\x16'[0]]	= padr
+        pseg[b'\x17'[0]]	= padr
+        pseg[b'\x18'[0]]	= padr
+        pseg[b'\x19'[0]]	= padr
+        pseg[b'\x1a'[0]]	= padr
+        pseg[b'\x1b'[0]]	= padr
+        pseg[b'\x1c'[0]]	= padr
+        pseg[b'\x1d'[0]]	= padr
+        pseg[b'\x1e'[0]]	= padr
+
+        # [1F][SS][PPPP]'123.123.123.123'[00]	port 0xPPPP,  link address '123.123.123.123' (pad if size SS odd)
+        pseg[b'\x1f'[0]]	= padr
+
+        # Harvest the addresses into .link
+        adrv			= cpppo.string_bytes(
+            					'link_add',	context='link',	limit='.length',
+                                                initial='.*',	decode='iso-8859-1' )
+
+        # An odd-length link address means an odd total.  Pad
+        adro			= octets_drop(	'link_pad', 		repeat=1 )
+        adro[None]		= pmov
+
+        adrv[None]		= cpppo.decide(	'link_odd',
+                predicate=lambda path=None, data=None, **kwds: len( data[path+'.link'] ) % 2,
+                                                state=adro )
+        adrv[None]		= pmov
+
+        # A big port#; re-scan a UINT into .port (won't work 'til port_fix is called)
+        pabg			= UINT(		'port_abg',	context='port' )
+        pabg[None]		= adrv
+
+        # 
+        padr[True]	= adrl	= USINT(	'link_len',	context='link.length' )
+        adrl[None]		= cpppo.decide(	'port_afix', 	predicate=port_fix,
+                                                state=pabg )
+        adrl[None]	= adrv
+
         # Parse all segments in a sub-dfa limited by the parsed path.size (in words; double)
-        psiz[None]	= pall	= cpppo.dfa(    'each',		context='segment__',
+        rest[None]		= cpppo.dfa(    'each',		context='segment__',
                                                 initial=pseg,	terminal=True,
             limit=lambda path=None, data=None, **kwds: data[path+'..size'] * 2 )
 
-        super( EPATH, self ).__init__( name=name, initial=psiz, **kwds )
+        super( EPATH, self ).__init__( name=name, initial=size, **kwds )
 
     @staticmethod
-    def produce( data ):
+    def produce( data, padsize=False ):
         """Produce an encoded EtherNet/IP EPATH message from the supplied path data.  For example, here is
         an encoding a 8-bit instance ID 0x06, and ending with a 32-bit element ID 0x04030201:
     
            byte:	0	1	2	... 	N-6	N-5	N-4	N-3	N-2	N-1	N
                     <N/2>	0x24	0x06	... 	0x25	0x00	0x01	0x02	0x03	0x04
     
+        Optionally pad the size (eg. for Route Paths).
         """
         
         result			= b''
         for seg in data.segment:
             found			= False
             for segnam, segtyp in {
-                    'symbolic':	0x91,
-                    'class':	0x20,
-                    'instance':	0x24,
+                    'symbolic':		0x91,
+                    'class':		0x20,
+                    'instance':		0x24,
                     'attribute':	0x30,
-                    'element':	0x28, }.items():
+                    'element':		0x28,
+                    'port':		0x00, }.items():
                 if segnam not in seg:
                     continue
                 found		= True
@@ -494,14 +593,40 @@ class EPATH( cpppo.dfa ):
                 # An ANSI Extended Symbolic segment?
                 if segnam == 'symbolic':
                     result     += USINT.produce( segtyp )
-                    seglen	= len( segval )
+                    encoded     = segval.encode( 'iso-8859-1' )
+                    seglen	= len( encoded )
                     result     += USINT.produce( seglen )
-                    result     += segval.encode( 'iso-8859-1' )
+                    result     += encoded
                     if seglen % 2:
                         result += USINT.produce( 0 )
                     break
-               
-                # A numeric path segment.
+                
+                # A Port/Link segment?
+                if segnam == 'port':
+                    assert 'link' in seg, \
+                        "A path port segment requires a link #/address: %s" % ( seg )
+                    port, pext	= (seg.port, 0) if seg.port < 0x0F else (0x0F, seg.port)
+                    assert isinstance( seg.link, ( int, cpppo.type_str_base )), \
+                        "A path port link must be either an integer or a address string: % ( seg )"
+                    if type( seg.link ) is int:
+                        # 0x0_ port, optional extended port#, int link
+                        result += USINT.produce( port )
+                        if pext:
+                            result += UINT.produce( pext )
+                        result += USINT.produce( seg.link )
+                    else:
+                        # 0x1_ port, link size, optional extended port, link string, optional pad
+                        result += USINT.produce( port | 0x10 )
+                        encoded	= seg.link.encode( 'iso-8859-1' )
+                        result += USINT.produce( len( encoded ))
+                        if pext:
+                            result += UINT.produce( pext )
+                        result += encoded
+                        if len( encoded ) % 2:
+                            result += b'\00'
+                    break
+
+                # A numeric path segment; class, instance, attribute, element:
                 if segval <= 0xff:
                     result     += USINT.produce( segtyp )
                     result     += USINT.produce( segval )
@@ -522,23 +647,19 @@ class EPATH( cpppo.dfa ):
             assert len( result ) % 2 == 0, \
                 "Failed to retain even EPATH word length after %r in %r" % ( segnam, data )
     
-        return USINT.produce( len( result ) // 2 ) + result
+        return USINT.produce( len( result ) // 2 ) + ( b'\x00' if padsize else b'' ) + result
 
 
-class route_path( cpppo.dfa ):
-    """Unconnected message route path.  Not interpreted, just parsed as octets into .input array.
-    Consumes all available input symbols.
+class route_path( EPATH ):
+    """Unconnected message route path.  
 
-        .route_path.input 		octets[*]
+        .route_path.size		USINT		1 (in words)
+        (pad)				USINT		1 (pad)
+        .route_path.segment 		...
 
     """
     def __init__( self, name=None, **kwds ):
-        name 			= name or kwds.setdefault( 'context', self.__class__.__name__ )
-
-        rout			= octets( terminal=True )      	# Just soak up remaining data for now
-        rout[True]		= rout
-
-        super( route_path, self ).__init__( name=name, initial=rout, **kwds )
+        super( route_path, self ).__init__( name=name, padsize=True, **kwds )
 
 
 class unconnected_send( cpppo.dfa ):
@@ -556,6 +677,9 @@ class unconnected_send( cpppo.dfa ):
                                         USINT		1 	optional pad, if length is odd)
         .unconnected_send.route_path	EPATH (padded; one byte between EPATH size and EPATH payload)
 
+
+    We cannot parse the encapsulated message, because it may not be destined for local Objects, so
+    we may not have the correct parser; leave it in .octets.
     """
     def __init__( self, name=None, **kwds ):
         name 			= name or kwds.setdefault( 'context', self.__class__.__name__ )
@@ -563,23 +687,26 @@ class unconnected_send( cpppo.dfa ):
         cmnd			= USINT(	context='service' )
         cmnd[True]	= path	= EPATH(	context='request_path',	
                                                 terminal=True )
-        # Some commands (eg Get Attribute All) have no other content, and terminate here.
 
+        # Some commands (eg Get Attribute All) have no other content, and terminate here.
+        # Other have encapsulated request .input (an optional pad) and a route path.
         path[True]	= prio	= USINT(	context='priority' )
         prio[True]	= timo	= USINT(	context='timeout_ticks' )
         timo[True]	= leng	= UINT(		context='length' )
+        leng[None]	= mesg	= octets( 	context='request', repeat='..length' )
 
-        # If length is odd, drop the pad byte, and then parse the route_path
-        # TODO: Find object w/path, and use its parser!  cpppo.decide derived lookup?
-        mesg			= Tag( limit='..length' )
+        # Route segments, like path but for hops/links/keys...
+        rout			= route_path( terminal=True )
+
+        # If length is odd, drop the pad byte after the message, and then parse the route_path
         pad0			= octets_drop( 'pad', 	repeat=1 )
-        pad0[None]		= mesg
-        leng[None]		= cpppo.decide( 'pad',	state=pad0,
-                            predicate=lambda path=None, data=None, **kwds: data[path+'.length'] % 2 )
-        leng[None]		= mesg
+        pad0[None]		= rout
 
-        # route segments, like path but for hops/links/keys...
-        mesg[None]		= route_path( terminal=True )
+        mesg[None]		= cpppo.decide( 'pad',	state=pad0,
+                            predicate=lambda path=None, data=None, **kwds: data[path+'.length'] % 2 )
+
+        # But, if no pad, go parse the route path
+        mesg[None]		= rout
 
         super( unconnected_send, self ).__init__( name=name, initial=cmnd, **kwds )
 

@@ -129,7 +129,7 @@ class Unknown_Object( Object ):
             self.attribute['12']= Attribute( 'Unknown 12', 		UINT,  default=0x000a )
 
 
-class Logix_Data( Object ):
+class Logix( Object ):
     class_id			= 0x401
 
     # TODO: Arbitrary.  We're supposed to be able to return data sufficient to fill the remaining
@@ -161,7 +161,7 @@ class Logix_Data( Object ):
             pass
         else:
             # Not recognized; more generic command?
-            return super( Logix_Data, self ).request( data )
+            return super( Logix, self ).request( data )
 
         # It is a recognized request.  Set the data.status to the appropriate error code, should a
         # failure occur at that location during processing.
@@ -328,7 +328,7 @@ def __read_tag():
     path[True]		= elem	= UINT(		'elements', 	context='read_tag',   extension='.elements',
                                         terminal=True )
     return srvc
-Logix_Data.register_service_parser( number=Logix_Data.RD_TAG_REQ, name=Logix_Data.RD_TAG_NAM,
+Logix.register_service_parser( number=Logix.RD_TAG_REQ, name=Logix.RD_TAG_NAM,
                                     machine=__read_tag() )
 def __read_tag_reply():
     # Read Tag Service (reply).  Remainder of symbols are typed data.
@@ -344,7 +344,7 @@ def __read_tag_reply():
     stts[None]			= cpppo.decide(	'ok',		state=dtyp,
                 predicate=lambda path=None, data=None, **kwds: data[path+'.status'] in (0x00) )
     return srvc
-Logix_Data.register_service_parser( number=Logix_Data.RD_TAG_RPY, name=Logix_Data.RD_TAG_NAM + " Reply",
+Logix.register_service_parser( number=Logix.RD_TAG_RPY, name=Logix.RD_TAG_NAM + " Reply",
                                     machine=__read_tag_reply() )
 
 def __read_frag():
@@ -355,7 +355,7 @@ def __read_frag():
     elem[True]			= UDINT( 	'offset',   	context='read_frag',  extension='.offset',
                                         terminal=True )
     return srvc
-Logix_Data.register_service_parser( number=Logix_Data.RD_FRG_REQ, name=Logix_Data.RD_FRG_NAM,
+Logix.register_service_parser( number=Logix.RD_FRG_REQ, name=Logix.RD_FRG_NAM,
                                     machine=__read_frag() )
 def __read_frag_reply():
     # Read Tag Fragmented Service (reply).  Remainder of symbols are typed data.
@@ -372,7 +372,7 @@ def __read_frag_reply():
                 predicate=lambda path=None, data=None, **kwds: data[path+'.status'] in (0x00, 0x06) )
 
     return srvc
-Logix_Data.register_service_parser( number=Logix_Data.RD_FRG_RPY, name=Logix_Data.RD_FRG_NAM + " Reply",
+Logix.register_service_parser( number=Logix.RD_FRG_RPY, name=Logix.RD_FRG_NAM + " Reply",
                                     machine=__read_frag_reply() )
 
 def __write_tag():
@@ -384,7 +384,7 @@ def __write_tag():
                                         datatype='.type',
                                         terminal=True )
     return srvc
-Logix_Data.register_service_parser( number=Logix_Data.WR_TAG_REQ, name=Logix_Data.WR_TAG_NAM,
+Logix.register_service_parser( number=Logix.WR_TAG_REQ, name=Logix.WR_TAG_NAM,
                                     machine=__write_tag() )
 def __write_tag_reply():
     # Write Tag Service (reply)
@@ -395,7 +395,7 @@ def __write_tag_reply():
                                         initializer=True, # was: lambda **kwds: cpppo.dotdict(),
                                         state=octets_noop( terminal=True ))
     return srvc
-Logix_Data.register_service_parser( number=Logix_Data.WR_TAG_RPY, name=Logix_Data.WR_TAG_NAM + " Reply",
+Logix.register_service_parser( number=Logix.WR_TAG_RPY, name=Logix.WR_TAG_NAM + " Reply",
                                     machine=__write_tag_reply() )
 
 def __write_frag():
@@ -409,7 +409,7 @@ def __write_frag():
                                         datatype='.type',
                                         terminal=True )
     return srvc
-Logix_Data.register_service_parser( number=Logix_Data.WR_FRG_REQ, name=Logix_Data.WR_FRG_NAM,
+Logix.register_service_parser( number=Logix.WR_FRG_REQ, name=Logix.WR_FRG_NAM,
                                     machine=__write_frag() )
 def __write_frag_reply():
     # Write Tag Fragmented Service (reply)
@@ -420,7 +420,7 @@ def __write_frag_reply():
                                         initializer=True, # was: lambda **kwds: cpppo.dotdict(),
                                         state=octets_noop( terminal=True ))
     return srvc
-Logix_Data.register_service_parser( number=Logix_Data.WR_FRG_RPY, name=Logix_Data.WR_FRG_NAM + " Reply",
+Logix.register_service_parser( number=Logix.WR_FRG_RPY, name=Logix.WR_FRG_NAM + " Reply",
                                     machine=__write_frag_reply() )
 
 
@@ -440,7 +440,7 @@ def setup():
             
         Uo			= Unknown_Object()		# Class 0x66, Instance 1
 
-        Ld			= Logix_Data()			# Class 0x??, Instance 1 -- Attributes, addressed via Tags
+        Ld			= Logix()			# Class 0x??, Instance 1 -- Attributes, addressed via Tags
 
 setup.lock			= threading.Lock()
 setup.initialized		= False

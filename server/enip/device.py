@@ -258,6 +258,18 @@ class NumInstances( MaxInstance ):
 # 
 # EtherNet/IP CIP Object
 # 
+# Some of the standard objects (Vol 1-3.13, Table 5-1-1):
+# 
+#     Class Code	Object
+#     ----------	------
+#     0x01		Identity
+#     0x02		Message Router
+#     0x03		DeviceNet
+#     0x04		Assembly
+#     0x05 		Connection
+#     0x06		Conneciton Manager
+#     0x07		Register
+# 
 class Object( object ):
     """An EtherNet/IP device.Object is capable of parsing and processing a number of requests.  It has
     a class_id and an instance_id; an instance_id of 0 indicates the "class" instance of the
@@ -330,10 +342,13 @@ class Object( object ):
 
     """
     max_instance		= 0
-    parser			= cpppo.dfa( 'service', initial=cpppo.state( 'select' ))
-
+    lock			= threading.Lock()
     service			= {} # Service number/name mappings
     transit			= {} # Symbol to transition to service parser on
+
+    # The parser doesn't add a layer of context; run it with a path= keyword to add a layer
+    parser			= cpppo.dfa( service, initial=cpppo.state( 'select' ),
+                                             terminal=True )
 
     @classmethod
     def register_service_parser( cls, number, name, machine ):
@@ -452,9 +467,6 @@ Object.register_service_parser( number=Object.GA_ALL_REQ, name=Object.GA_ALL_NAM
 
 
 
-
-
-
 class Identity( Object ):
     class_id			= 0x01
 
@@ -492,21 +504,23 @@ class Connection_Manager( Object ):
 
 class Message_Router( Object ):
     """Manages underlying EtherNet/IP connection, and processes incoming EtherNet/IP requests.  Parses
-    encapsulated message according to available CIP device objects, and then forwards parsed
-    messages to the appropriate object.  
+    encapsulated message according to available CIP device objects; as the parsers run, when they
+    encounter a request that includes a path, the encapsulated portions of the request are parsed
+    using the addressed Object's parser.
 
     Handles basic EtherNet/IP connection related messages itself (Register, Unregister).
 
     No externally visible Attributes.  Does not parse or respond to normal service requests
+
     """
     class_id			= 0x02
-    parser			= CIP() # TODO: must pass device Object lookup function...
+    lock			= threading.Lock()
+    parser			= CIP()
+    sessions			= set()		# All known session handles are shared
 
     def __init__( self, name=None, **kwds ):
         super( Message_Router, self ).__init__( name=name, **kwds )
 
-        # All known session handles.
-        self.sessions		= set()
 
         if self.instance_id == 0:
             # Extra Class-level Attributes
@@ -533,9 +547,96 @@ class Message_Router( Object ):
 
             # TODO: Check if supported
             session		= random.randint( 0, 2**32 )
-            while not session or session in self.sessions:
+            while not session or session in self.__class__.sessions:
                 session		= random.randint( 0, 2**32 )
-            self.sessions.add( session )
+            self.__class__.sessions.add( session )
+            data.response.enip.session_handle \
+                		= session
+            return True
+
+        super( Message_Router, self ).request( data )
+
+
+class Unconnected_Message_Manager( Object ):
+    """
+
+    Forwards encapsulated messages to their destination port and link address, and returns the
+    encapsulated response.  The Unconnected Send message contains an encapsulated message and a
+    route path with 1 or more route segment groups.  If more than 1 group remains, the first group is
+    removed, and the address is used to establish a connection and send the message on; the response
+    is received and returned.
+
+    When only the final route path segment remains, the encapsulated message is sent to the local
+    Message Router, and its response is received and returned.
+
+    Presently, we only respond to Unconnected Send messages with one route path segment; a local
+    port/link address.
+
+    Here's what the incoming unconnected_send request looks like
+
+    "CPF.count": 2, 
+    "CPF.item[0].length": 0, 
+    "CPF.item[0].type_id": 0, 
+    "CPF.item[1].length": 30, 
+    "CPF.item[1].type_id": 178, 
+    "CPF.item[1].unconnected_send.service": 82, 
+    "CPF.item[1].unconnected_send.request_path.size": 2, 
+    "CPF.item[1].unconnected_send.request_path.segment[0].class": 6, 
+    "CPF.item[1].unconnected_send.request_path.segment[1].instance": 1, 
+    "CPF.item[1].unconnected_send.priority": 5, 
+    "CPF.item[1].unconnected_send.timeout_ticks": 157
+    "CPF.item[1].unconnected_send.length": 16, 
+    "CPF.item[1].unconnected_send.request.input": "array('B', [82, 4, 145, 5, 83, 67, 65, 68, 65, 0, 20, 0, 2, 0, 0, 0])", 
+    "CPF.item[1].unconnected_send.route_path.octets.input": "array('B', [1, 0, 1, 0])", 
+
+    At this level, we don't know how to interpret the request (in .input); however,  we know that the Object addressed by the request path 
+
+    "CPF.item[1].unconnected_send.request.service": 82, 
+    "CPF.item[1].unconnected_send.request.path.size": 4, 
+    "CPF.item[1].unconnected_send.request.path.segment[0].length": 5, 
+    "CPF.item[1].unconnected_send.request.path.segment[0].symbolic": "SCADA", 
+    "CPF.item[1].unconnected_send.request.read_frag.elements": 20, 
+    "CPF.item[1].unconnected_send.request.read_frag.offset": 2, 
+
+    """
+    class_id			= 0x02
+    lock			= threading.Lock()
+    parser			= CIP()
+    sessions			= set()		# All known session handles are shared
+
+    def __init__( self, name=None, **kwds ):
+        super( Unconnected_Message_Manager, self ).__init__( name=name, **kwds )
+
+
+        if self.instance_id == 0:
+            # Extra Class-level Attributes
+            pass
+        else:
+            # Instance Attributes
+            pass
+
+    def request( self, data ):
+        """
+        Handles a parsed request.enip.*, and produces an appropriate response.enip.*.  For connection
+        related requests (Register, Unregister), handle locally.  Return True iff request processed
+        and connection should proceed to process further messages.
+
+        """
+        # Create a data.response with a structural copy of the request.enip.header.  This means that
+        # the dictionary structure is new (we won't alter the request.enip... when we add entries in
+        # the resonse...), but the actual mutable values (eg. array.array ) are copied.  If we need
+        # to change any values, replace them with new values instead of altering them!
+        data.response		= cpppo.dotdict( data.request )
+
+        if 'enip.CIP.register' in data.request:
+            # Allocates a new session_handle, and returns the register.protocol_version and
+            # .options_flags unchanged (if supported)
+
+            # TODO: Check if supported
+            session		= random.randint( 0, 2**32 )
+            while not session or session in self.__class__.sessions:
+                session		= random.randint( 0, 2**32 )
+            self.__class__.sessions.add( session )
             data.response.enip.session_handle \
                 		= session
             return True
