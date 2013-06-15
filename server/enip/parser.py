@@ -283,8 +283,8 @@ class enip_header( cpppo.dfa ):
         init[True] = cmnd	= UINT(		"command",	context="command" )
         cmnd[True] = leng	= UINT(		"length",	context="length" )
         leng[True] = sess	= UDINT(	"sess_hdl",	context="session_handle" )
-        sess[True] = stts	= UDINT(	"status",	context="status" )
-        stts[True] = ctxt	= octets(	"sndr_ctx",	context="sender_context",
+        sess[True] = stat	= UDINT(	"status",	context="status" )
+        stat[True] = ctxt	= octets(	"sndr_ctx",	context="sender_context",
                                     repeat=8 )
         ctxt[True] = opts	= UDINT( 	"options",	context="options", terminal=True )
 
@@ -362,7 +362,7 @@ class move_if( cpppo.decide ):
                                     if not hasattr( self.ini, '__call__' )
                                     else self.ini(
                                             machine=machine, source=source, path=path, data=data ))
-                log.debug( "%s -- init. data[%r] to %r", self, pathdst, ini )
+                log.debug( "%s -- init. data[%r] to %r in data: %s", self, pathdst, ini, data )
                 data[pathdst]	= ini
             if self.src is not None:
                 pathsrc		= path + self.src
@@ -394,13 +394,15 @@ class EPATH( cpppo.dfa ):
 
     Also works as a Route Path (which has a pad after size), by setting padsize=True.
     """
-    def __init__( self, name=None, padsize=False, **kwds ):
+    padsize			= False
+
+    def __init__( self, name=None, **kwds ):
         name 			= name or kwds.setdefault( 'context', self.__class__.__name__ )
-        
+
         # Get the size, and chain remaining machine onto rest.  When used as a Route Path, the size
         # is padded, so insert a state to drop the pad, and chain rest to that instead.
         size		= rest	= USINT(			context='size' )
-        if padsize:
+        if self.padsize:
             size[True]	= rest	= octets_drop( 	'pad', 		repeat=1 )
 
         # After capturing each segment__ (pseg), move it onto the path segment list, and loop
@@ -565,8 +567,8 @@ class EPATH( cpppo.dfa ):
 
         super( EPATH, self ).__init__( name=name, initial=size, **kwds )
 
-    @staticmethod
-    def produce( data, padsize=False ):
+    @classmethod
+    def produce( cls, data ):
         """Produce an encoded EtherNet/IP EPATH message from the supplied path data.  For example, here is
         an encoding a 8-bit instance ID 0x06, and ending with a 32-bit element ID 0x04030201:
     
@@ -647,7 +649,7 @@ class EPATH( cpppo.dfa ):
             assert len( result ) % 2 == 0, \
                 "Failed to retain even EPATH word length after %r in %r" % ( segnam, data )
     
-        return USINT.produce( len( result ) // 2 ) + ( b'\x00' if padsize else b'' ) + result
+        return USINT.produce( len( result ) // 2 ) + ( b'\x00' if cls.padsize else b'' ) + result
 
 
 class route_path( EPATH ):
@@ -658,8 +660,7 @@ class route_path( EPATH ):
         .route_path.segment 		...
 
     """
-    def __init__( self, name=None, **kwds ):
-        super( route_path, self ).__init__( name=name, padsize=True, **kwds )
+    padsize			= True
 
 
 class unconnected_send( cpppo.dfa ):
@@ -710,6 +711,22 @@ class unconnected_send( cpppo.dfa ):
 
         super( unconnected_send, self ).__init__( name=name, initial=cmnd, **kwds )
 
+    @classmethod
+    def produce( cls, data ):
+        result			= b''
+        result		       += USINT.produce( data.service )
+        result		       += EPATH.produce( data.request_path )
+        if 'request' not in data:
+            return result
+        result		       += USINT.produce( data.priority )
+        result		       += USINT.produce( data.timeout_ticks )
+        result		       += UINT.produce( len( data.request.input ))
+        result		       += bytes( data.request.input )
+        if len( data.request.input ) % 2:
+            result	       += b'\x00'
+        result		       += route_path.produce( data.route_path )
+        return result
+
 
 class CPF( cpppo.dfa ):
 
@@ -740,8 +757,12 @@ class CPF( cpppo.dfa ):
         0x0100:		ListServices response
 
     
-
+    Presently we only handle NULL Address and Unconnected Messages.
     """
+    item_parsers		= {
+            0x00b2: 	unconnected_send,
+    } 
+
     def __init__( self, name=None, **kwds ):
         """Parse CPF list items 'til .count reached, which should be simultaneous with symbol exhaustion, if
         caller specified a symbol limit.
@@ -759,17 +780,13 @@ class CPF( cpppo.dfa ):
         # Prepare a parser for each recognized CPF item type.  It must establish one level of
         # context, because we need to pass it a limit='..length' denoting the length we just parsed.
 
-        send_parsers		= {
-            0x00b2: unconnected_send,
-        } 
-
-        for typ,cls in ( send_parsers or {} ).items():
+        for typ,cls in ( self.item_parsers or {} ).items():
             ilen[None]		= cpppo.decide( cls.__name__, state=cls( terminal=True, limit='..length' ),
                         predicate=lambda path=None, data=None, **kwds: data[path].type_id == typ )
 
-        # If we don't recognize the CPF item type, just parse remainder into .unrecognized.input
-        ilen[None]	= urec	= octets( context='unrecognized', repeat='..length',
-                                          terminal=True )
+        # If we don't recognize the CPF item type, just parse remainder into .input (so we could re-generate)
+        ilen[None]	= urec	= octets( 	'unrecognized',	context=None,
+                                                terminal=True )
         urec[True]		= urec
 
         # Each item is collected into '.item__', 'til no more input available, and then moved into
@@ -788,6 +805,22 @@ class CPF( cpppo.dfa ):
 
         super( CPF, self ).__init__( name=name, initial=loop, **kwds )
 
+    @classmethod
+    def produce( cls, data ):
+        """Regenerate a CPF message structure.   """
+        result			= b''
+        result		       += UINT.produce( len( data.item ))
+        for item in data.item:
+            result	       += UINT.produce( item.type_id )
+            if item.type_id in cls.item_parsers:
+                itmprs		= cls.item_parsers[item.type_id]
+                item.input	= itmprs.produce( item[itmprs.__name__] ) # eg 'unconnected_send'
+            if 'input' in item:
+                result	       += UINT.produce( len( item.input ))
+                result	       += bytes( item.input )
+            else:
+                result	       += UINT.produce( 0 )
+        return result
 
 class send_data( cpppo.dfa ):
     """Handle Connected (SendUnitData) or Unconnected (SendRRData) Send Data request/reply."""
@@ -1002,21 +1035,27 @@ class status( cpppo.dfa ):
         name 			= name or kwds.setdefault( 'context', self.__class__.__name__ )
 
         # Parse the status, and status_ext.size
-        stts			= SINT( 	'status',	context=None )
-        stts[True]	= size	= SINT( 	'_ext.size',	extension='_ext.size' )
+        stat			= SINT( 	'status',	context=None )
+        stat[True]	= size	= SINT( 	'_ext.size',	extension='_ext.size' )
 
         # Prepare a state-machine to parse each UINT into .UINT, and move it onto the .data list
-        exts			= UINT(		'_ext.UINT',	terminal=True )
+        exts			= UINT(		'_ext.UINT' )
         exts[None]		= move_if( 	'_ext.data',	source='.UINT', 
                                            destination='.data',	initializer=lambda **kwds: [],
+                                                state=octets_noop(  '_ext.done',
+                                                                    terminal=True ))
+        # Parse each status_ext.data in a sub-dfa, repeating status_ext.size times
+        each			= cpppo.dfa(    'each',		extension='_ext',
+                                                initial=exts,	repeat='_ext.size',
+                                                terminal=True )
+        # Only enter the state_ext.data dfa if status_ext.size is non-zero
+        size[None]		= cpppo.decide(	'_ext.size', 
+                            predicate=lambda path=None, data=None, **kwds: data[path+'_ext.size'],
                                                 state=exts )
-
-        # Parse all status_ext.data in a sub-dfa limited by the parsed status_ext.size (in words; double)
-        size[None]		= cpppo.dfa(    'each',		extension='_ext',
-                                                initial=exts,	terminal=True,
-            limit=lambda path=None, data=None, **kwds: data[path+'.size'] * 2 )
-        
-        super( status, self ).__init__( name=name, initial=stts, **kwds )
+        # Otherwise, we're done!
+        size[None]		= octets_noop( 'done', 
+                                               terminal=True )
+        super( status, self ).__init__( name=name, initial=stat, **kwds )
 
     @staticmethod
     def produce( data ):
@@ -1038,7 +1077,7 @@ class status( cpppo.dfa ):
         result		       += SINT.produce( size )
         result		       += b''.join( UINT.produce( v ) for v in exts )
         return result
-
+'''
 class Tag( cpppo.dfa ):
     """Parses a Logix vendor-specific CIP Tag requests.
 
@@ -1284,3 +1323,4 @@ class Tag( cpppo.dfa ):
         else:
             assert False, "Invalid Logix Tag request/reply format: %r" % data
         return result
+'''

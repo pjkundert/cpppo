@@ -139,32 +139,47 @@ class Logix( Object ):
     MAX_BYTES			= 200
 
     RD_TAG_NAM			= "Read Tag"
+    RD_TAG_CTX			= "read_tag"
     RD_TAG_REQ			= 0x4c
     RD_TAG_RPY			= RD_TAG_REQ | 0x80
     RD_FRG_NAM			= "Read Tag Fragmented"
+    RD_FRG_CTX			= "read_frag"
     RD_FRG_REQ			= 0x52
     RD_FRG_RPY			= RD_FRG_REQ | 0x80
     WR_TAG_NAM			= "Write Tag"
+    WR_TAG_CTX			= "write_tag"
     WR_TAG_REQ			= 0x4d
     WR_TAG_RPY			= WR_TAG_REQ | 0x80
     WR_FRG_NAM			= "Write Tag Fragmented"
+    WR_FRG_CTX			= "write_frag"
     WR_FRG_REQ			= 0x53
     WR_FRG_RPY			= WR_FRG_REQ | 0x80
 
     def request( self, data ):
         """Any exception should result in a reply being generated with a non-zero status."""
+        
+        # Pick out our services added at this level.  If not recognized, let superclass try; it'll
+        # return an appropriate error code if not recognized.
         if 'read_tag' in data and data.setdefault( 'service', self.RD_TAG_REQ ) == self.RD_TAG_REQ:
             # Read Tag --> Read Tag Reply.
             pass
         elif 'read_frag' in data and data.setdefault( 'service', self.RD_FRG_REQ ) == self.RD_FRG_REQ:
             # Read Tag Fragmented --> Read Tag Fragmented Reply.
             pass
+        if 'write_tag' in data and data.setdefault( 'service', self.WR_TAG_REQ ) == self.WR_TAG_REQ:
+            # Write Tag --> Write Tag Reply.
+            pass
+        elif 'write_frag' in data and data.setdefault( 'service', self.WR_FRG_REQ ) == self.WR_FRG_REQ:
+            # Write Tag Fragmented --> Write Tag Fragmented Reply.
+            pass
         else:
             # Not recognized; more generic command?
             return super( Logix, self ).request( data )
 
         # It is a recognized request.  Set the data.status to the appropriate error code, should a
-        # failure occur at that location during processing.
+        # failure occur at that location during processing.  We will be returning a reply beyond
+        # this point; any exceptions generated will be captured, logged and an appropriate reply
+        # .status error code returned.  
 
         # For Reads:
         # Error Code	Extended Error	Description of Error
@@ -244,41 +259,50 @@ class Logix( Object ):
                 data.status		= 0x00 if end == endactual else 0x06
                 data.pop( 'status_ext' ) # non-empty dotdict level; use pop instead of del
                 return True
-
-            assert False, "Unhandled request: %s" % enip_format( data )
+            else:
+                raise AssertionError( "Unhandled Service Reply" )
         except Exception as exc:
             # On Exception, if we haven't specified a more detailed error code, return General
             # Error.  Remember: 0x06 (Insufficent Packet Space) is a NORMAL response to a successful
             # Read Tag Fragmented that returns a subset of the requested data.
-            log.detail( "%s Failed on %s\n%s\n%s", self.service[data.service], self,
-                        repr( exc ),  ''.join( traceback.format_exception( *sys.exc_info() )))
+            log.warning( "%r Service 0x%02x %s failed with Exception: %s\nRequest: %s", self,
+                         data.service if 'service' in data else 0,
+                         ( self.service[data.service]
+                           if 'service' in data and data.service in self.service
+                           else "(Unknown)"), exc, enip_format( data ))
+            log.detail( "%s", ''.join( traceback.format_exception( *sys.exc_info() )))
             assert data.status not in ( 0x00, 0x06 ), \
                 "Implementation error: must specify .status not in (0x00, 0x06) before raising Exception!"
-        finally:
-            # Always produce a response payload; if a failure occured, will contain an error status
-            log.normal( "%s %s %s", self, self.service[data.service], enip_format( data ))
-            data.input			= array.array( cpppo.type_bytes_array_symbol, self.produce( data ))
+            pass
+
+        # Always produce a response payload; if a failure occured, will contain an error status
+        log.normal( "%s %s %s", self, self.service[data.service], enip_format( data ))
+        data.input		= self.produce( data )
         
-    @staticmethod
-    def produce( data ):
-        """Expects to find .type and .data.list, and produces the data encoded to bytes.  Defaults to 
-         produce the Request, if no .service specified, and just .read/write_tag/frag found.  
+    @classmethod
+    def produce( cls, data ):
+        """Expects to find .service and/or .<logix-command>, and produces the request/reply encoded to
+        bytes.  Defaults to produce the request, if no .service specified, and just
+        .read/write_tag/frag found.
          
-         A Reply status of 0x06 to the read_frag command indicates that more data is available"""
+        A .status of 0x06 in the read_tag/frag reply indicates that more data is available; it is
+        not a failure.
+
+        """
         result			= b''
-        if 'get_attributes_all' in data and data.setdefault( 'service', Tag.GA_ALL_REQ ) == Tag.GA_ALL_REQ:
-            result	       += USINT.produce(	data.service )
-            result	       += EPATH.produce(	data.path )
-        elif 'read_tag' in data and data.setdefault( 'service', Tag.RD_TAG_REQ ) == Tag.RD_TAG_REQ:
+        if ( data.get( 'service' ) == cls.RD_TAG_REQ
+             or 'read_tag' in data and data.setdefault( 'service', cls.RD_TAG_REQ ) == cls.RD_TAG_REQ ):
             result	       += USINT.produce(	data.service )
             result	       += EPATH.produce(	data.path )
             result	       += UINT.produce(		data.read_tag.elements )
-        elif 'read_frag' in data and data.setdefault( 'service', Tag.RD_FRG_REQ ) == Tag.RD_FRG_REQ:
+        elif ( data.get( 'service' ) == cls.RD_FRG_REQ
+               or 'read_frag' in data and data.setdefault( 'service', cls.RD_FRG_REQ ) == cls.RD_FRG_REQ ):
             result	       += USINT.produce(	data.service )
             result	       += EPATH.produce(	data.path )
             result	       += UINT.produce(		data.read_frag.elements )
             result	       += UDINT.produce(	data.read_frag.offset )
-        elif 'write_tag' in data and data.setdefault( 'service', Tag.WR_TAG_REQ ) == Tag.WR_TAG_REQ:
+        elif ( data.get( 'service' ) == cls.WR_TAG_REQ
+               or 'write_tag' in data and data.setdefault( 'service', cls.WR_TAG_REQ ) == cls.WR_TAG_REQ ):
             # We can deduce the number of elements from len( data )
             result	       += USINT.produce(	data.service )
             result	       += EPATH.produce(	data.path )
@@ -286,7 +310,8 @@ class Logix( Object ):
             result	       += UINT.produce(		data.write_tag.setdefault( 
                 'elements', len( data.write_tag.data )))
             result	       += typed_data.produce(	data.write_tag )
-        elif 'write_frag' in data and data.setdefault( 'service', Tag.WR_FRG_REQ ) == Tag.WR_FRG_REQ:
+        elif ( data.get( 'service') == cls.WR_FRG_REQ
+               or 'write_frag' in data and data.setdefault( 'service', cls.WR_FRG_REQ ) == cls.WR_FRG_REQ ):
             # We can NOT deduce the number of elements from len( write_frag.data );
             # write_frag.elements must be the entire number of elements being shipped, while
             # write_frag.data contains ONLY the elements being shipped in this Write Tag Fragmented
@@ -298,19 +323,19 @@ class Logix( Object ):
             result	       += UDINT.produce(	data.write_frag.setdefault(
                 'offset', 0x00000000 ))
             result	       += typed_data.produce(	data.write_frag )
-        elif (    'write_tag'  in data and data.service == Tag.WR_TAG_RPY
-               or 'write_frag' in data and data.service == Tag.WR_FRG_RPY ):
+        elif ( data.get( 'service' ) == cls.WR_TAG_RPY
+               or data.get( 'service' ) == cls.WR_FRG_RPY ):
             result	       += USINT.produce(	data.service )
             result	       += USINT.produce(	0x00 )
             result	       += status.produce(	data )
-        elif 'read_tag' in data and data.service == Tag.RD_TAG_RPY:
+        elif data.get( 'service' ) == cls.RD_TAG_RPY:
             result	       += USINT.produce(	data.service )
             result	       += USINT.produce(	0x00 )	# fill
             result	       += status.produce(	data )
             if data.status in (0x00):
                 result	       += UINT.produce(		data.read_tag.type )
                 result	       += typed_data.produce(	data.read_tag )
-        elif 'read_frag' in data and data.service == Tag.RD_FRG_RPY:
+        elif data.get( 'service' ) == cls.RD_FRG_RPY:
             result	       += USINT.produce(	data.service )
             result	       += USINT.produce(	0x00 )
             result	       += status.produce(	data )
@@ -318,8 +343,9 @@ class Logix( Object ):
                 result	       += UINT.produce(		data.read_frag.type )
                 result	       += typed_data.produce(	data.read_frag )
         else:
-            assert False, "Invalid Logix Tag request/reply format: %r" % data
+            result		= super( Logix, cls ).produce( data )
         return result
+
 
 def __read_tag():
     # Read Tag Service
@@ -329,7 +355,7 @@ def __read_tag():
                                         terminal=True )
     return srvc
 Logix.register_service_parser( number=Logix.RD_TAG_REQ, name=Logix.RD_TAG_NAM,
-                                    machine=__read_tag() )
+                               short=Logix.RD_TAG_CTX, machine=__read_tag() )
 def __read_tag_reply():
     # Read Tag Service (reply).  Remainder of symbols are typed data.
     srvc			= USINT(		 	context='service' )
@@ -345,7 +371,7 @@ def __read_tag_reply():
                 predicate=lambda path=None, data=None, **kwds: data[path+'.status'] in (0x00) )
     return srvc
 Logix.register_service_parser( number=Logix.RD_TAG_RPY, name=Logix.RD_TAG_NAM + " Reply",
-                                    machine=__read_tag_reply() )
+                               short=Logix.RD_TAG_CTX, machine=__read_tag_reply() )
 
 def __read_frag():
     # Read Tag Fragmented Service
@@ -356,7 +382,7 @@ def __read_frag():
                                         terminal=True )
     return srvc
 Logix.register_service_parser( number=Logix.RD_FRG_REQ, name=Logix.RD_FRG_NAM,
-                                    machine=__read_frag() )
+                               short=Logix.RD_FRG_CTX, machine=__read_frag() )
 def __read_frag_reply():
     # Read Tag Fragmented Service (reply).  Remainder of symbols are typed data.
     srvc			= USINT(			context='service' )
@@ -373,7 +399,7 @@ def __read_frag_reply():
 
     return srvc
 Logix.register_service_parser( number=Logix.RD_FRG_RPY, name=Logix.RD_FRG_NAM + " Reply",
-                                    machine=__read_frag_reply() )
+                               short=Logix.RD_FRG_CTX, machine=__read_frag_reply() )
 
 def __write_tag():
     # Write Tag Service
@@ -385,7 +411,7 @@ def __write_tag():
                                         terminal=True )
     return srvc
 Logix.register_service_parser( number=Logix.WR_TAG_REQ, name=Logix.WR_TAG_NAM,
-                                    machine=__write_tag() )
+                               short=Logix.WR_TAG_CTX, machine=__write_tag() )
 def __write_tag_reply():
     # Write Tag Service (reply)
     srvc			= USINT(		  	context='service' )
@@ -396,7 +422,7 @@ def __write_tag_reply():
                                         state=octets_noop( terminal=True ))
     return srvc
 Logix.register_service_parser( number=Logix.WR_TAG_RPY, name=Logix.WR_TAG_NAM + " Reply",
-                                    machine=__write_tag_reply() )
+                               short=Logix.WR_TAG_CTX, machine=__write_tag_reply() )
 
 def __write_frag():
     # Write Tag Fragmented Service
@@ -410,7 +436,7 @@ def __write_frag():
                                         terminal=True )
     return srvc
 Logix.register_service_parser( number=Logix.WR_FRG_REQ, name=Logix.WR_FRG_NAM,
-                                    machine=__write_frag() )
+                               short=Logix.WR_FRG_CTX, machine=__write_frag() )
 def __write_frag_reply():
     # Write Tag Fragmented Service (reply)
     srvc			= USINT(			context='service' )
@@ -421,7 +447,7 @@ def __write_frag_reply():
                                         state=octets_noop( terminal=True ))
     return srvc
 Logix.register_service_parser( number=Logix.WR_FRG_RPY, name=Logix.WR_FRG_NAM + " Reply",
-                                    machine=__write_frag_reply() )
+                               short=Logix.WR_FRG_CTX, machine=__write_frag_reply() )
 
 
 

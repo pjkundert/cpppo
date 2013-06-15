@@ -351,7 +351,10 @@ class Object( object ):
                                              terminal=True )
 
     @classmethod
-    def register_service_parser( cls, number, name, machine ):
+    def register_service_parser( cls, number, name, short, machine ):
+        """Registers a parser with the Object. """
+
+        log.detail( "%s Registers Service 0x%02x --> %s ", cls.__name__, number, name )
         assert number not in cls.service and name not in cls.service, \
             "Duplicate service #%d: %r registered for Object %s" % ( number, name, cls.__name__ )
 
@@ -359,10 +362,11 @@ class Object( object ):
         cls.service[name]	= number
         cls.transit[number]	= chr( number ) if sys.version_info.major < 3 else number
         cls.parser.initial[cls.transit[number]] \
-				= cpppo.dfa( name, initial=machine, terminal=True )
+				= cpppo.dfa( name=short, initial=machine, terminal=True )
 
     
     GA_ALL_NAM			= "Get Attributes All"
+    GA_ALL_CTX			= "get_attributes_all"
     GA_ALL_REQ			= 0x01
     GA_ALL_RPY			= GA_ALL_REQ | 0x80
     GA_SNG_NAM			= "Get Attribute Single"
@@ -421,7 +425,9 @@ class Object( object ):
 
     def __str__( self ):
         return self.name
-    __repr__ 			= __str__
+    
+    def __repr__( self ):
+        return "(0x%02x,%3d) %s" % ( self.class_id, self.instance_id, self )
 
     def request( self, data ):
         """Handle a request, converting it into a response.  Must be a dotdict data artifact such as is
@@ -433,37 +439,100 @@ class Object( object ):
                 'get_attributes_all':	True,
             }
 
-        should run the Get Attribute All service, and return the binary payload that results from
-        the command.  This may include any erroneous status codes that result from errors detected
-        during the attempt to process the command.
+        should run the Get Attribute All service, and return True if the channel should continue.
+        In addition, we produce the bytes used by any higher level encapsulation.
 
         TODO: Validate the request.
-
         """
         result			= b''
-        if 'get_attributes_all' in data or data.setdefault( 'service', 0x01 ) == 0x01:
-            a_id		= 1
-            while str(a_id) in self.attribute:
-                result	       += self.attribute[str(a_id)].produce()
-                a_id	       += 1
+
+        try:
+            # Validate the request.  As we process, ensure that .status is set to reflect the
+            # failure mode, should an exception be raised.  Return True iff the communications
+            # channel should continue.
+            data.status		= 0x08		# Service not supported, if not recognized
+            data.pop( 'status_ext', None )
+
+            if ( data.get( 'service' ) == self.GA_ALL_REQ
+                 or 'get_attributes_all' in data and data.setdefault( 'service', self.GA_ALL_REQ ) == self.GA_ALL_REQ ):
+                pass
+            else:
+                raise AssertionError( "Unrecognized Service Request" )
+
+            # A recognized request; process the request data artifact, converting it into a reply.
+            data.service           |= 0x80
                 
-            return result
+            if data.service == self.GA_ALL_RPY:
+                # Get Attributes All.  Collect up the bytes representing the attributes.  Replace
+                # the place-holder .get_attribute_all=True with a real dotdict.
+                data.status	= 0x08 # Service not supported, if we fail to access an Attribute
+                result		= b''
+                a_id		= 1
+                while str(a_id) in self.attribute:
+                    result     += self.attribute[str(a_id)].produce()
+                    a_id       += 1
+                data.get_attributes_all = cpppo.dotdict()
+                data.get_attributes_all.input = bytearray( result )
 
-        assert False, "%s (Class %x, Instance %x): Failed to process unknown service request: %s" % (
-            self.class_id, self.instance_id, data )
+                data.status		= 0x00
+                data.pop( 'status_ext', None )
 
+                # TODO: Other request processing here... 
+            else:
+                raise AssertionError( "Unrecognized Service Reply" )
+        except Exception as exc:
+            log.warning( "%r Service 0x%02x %s failed with Exception: %s\nRequest: %s", self,
+                         data.service if 'service' in data else 0,
+                         ( self.service[data.service]
+                           if 'service' in data and data.service in self.service
+                           else "(Unknown)" ), exc, enip_format( data ))
+            log.detail( "%s", ''.join( traceback.format_exception( *sys.exc_info() )))
+            assert data.status not in (0x00,), \
+                "Implementation error: must specify .status error code before raising Exception"
+            pass
+
+        # Always produce a response payload; if a failure occurred, will contain an error status.
+        # If this fails, we'll raise an exception for higher level encapsulation to handle.
+        log.normal( "%s %s %s", self, self.service[data.service], enip_format( data ))
+        data.input		= self.produce( data )
+        return True # We shouldn't be able to terminate a connection at this level
+
+    @classmethod
+    def produce( cls, data ):
+        result			= b''
+        if ( data.get( 'service' ) == cls.GA_ALL_REQ 
+             or 'get_attributes_all' in data and data.setdefault( 'service', cls.GA_ALL_REQ ) == cls.GA_ALL_REQ ):
+            # Get Attributes All
+            result	       += USINT.produce(	data.service )
+            result	       += EPATH.produce(	data.path )
+        elif data.get( 'service' ) == cls.GA_ALL_RPY:
+            # Get Attributes All Reply
+            result	       += USINT.produce(	data.service )
+            result	       += data.get_attributes_all.input
+        else:
+            assert False, "%s doesn't recognize request/reply format: %r" % ( cls.__name__, data )
+        return result
 
 # Register the standard Object parsers
 def __get_attributes_all():
     gasv			= USINT(		 	context='service' )
     gasv[True]	= gapt		= EPATH(			context='path')
-    gapt[None]			= move_if( 	'get_attr_all',	destination='.get_attributes_all',
-                                                initializer=True, # was: lambda **kwds: cpppo.dotdict(),
+    gapt[None]			= move_if( 	'get_attr_all', destination='get_attributes_all',
+                                                initializer=True,
                                                 state=octets_noop( terminal=True ))
     return gasv
 
-Object.register_service_parser( number=Object.GA_ALL_REQ, name=Object.GA_ALL_NAM,
-                                 machine=__get_attributes_all() )
+Object.register_service_parser( number=Object.GA_ALL_REQ, name=Object.GA_ALL_NAM, 
+                                short=Object.GA_ALL_CTX, machine=__get_attributes_all() )
+
+def __get_attributes_all_reply():
+    gasv			= USINT(		 	context='service' )
+    gasv[True]		= gadt	= octets(			context='get_attributes_all',
+                                            	terminal=True )
+    return gasv
+
+Object.register_service_parser( number=Object.GA_ALL_RPY, name=Object.GA_ALL_NAM + " Reply", 
+                                short=Object.GA_ALL_CTX, machine=__get_attributes_all_reply() )
 
 
 

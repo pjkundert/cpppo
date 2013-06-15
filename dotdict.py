@@ -204,14 +204,17 @@ class dotdict( dict ):
             return dict.__delitem__( self, mine )
         del target[rest]
 
-    def pop( self, key, default=None ):
+    def pop( self, *args ):
+        """Pop doesn't take keyword args, but default is optional.  So, we can only
+        override this by capturing args."""
+        key			= args[0]
         mine, rest              = self._resolve( key )
         if rest is None:
-            return dict.pop( self, mine )
+            return dict.pop( self, mine, *args[1:] )
         target                  = dict.__getitem__( self, mine )
         if not isinstance( target, dotdict ):
             raise KeyError( 'cannot pop "%s" in "%s" (%r)' % ( rest, mine, target ))
-        return target.pop( rest, default=default )
+        return target.pop( rest, *args[1:] )
 
     def setdefault( self, key, default ):
         if key not in self:
