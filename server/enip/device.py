@@ -326,7 +326,7 @@ class Object( object ):
                 0x00e4, 0x0000, 0x0064, 0x02b2,
                 0x80c8
             ]
-            'input':			array.array( 'B', [	# encoded response payload
+            'input':			bytearray( [	# encoded response payload
                                                         0xd2, 0x00, #/* ....,... */
                     0x00, 0x00, 0xc3, 0x00, 0x4c, 0x10, 0x08, 0x00, #/* ....L... */
                     0x03, 0x00, 0x02, 0x00, 0x02, 0x00, 0x02, 0x00, #/* ........ */
@@ -474,7 +474,7 @@ class Object( object ):
                 data.get_attributes_all = cpppo.dotdict()
                 data.get_attributes_all.input = bytearray( result )
 
-                data.status		= 0x00
+                data.status	= 0x00
                 data.pop( 'status_ext', None )
 
                 # TODO: Other request processing here... 
@@ -494,7 +494,7 @@ class Object( object ):
         # Always produce a response payload; if a failure occurred, will contain an error status.
         # If this fails, we'll raise an exception for higher level encapsulation to handle.
         log.normal( "%s %s %s", self, self.service[data.service], enip_format( data ))
-        data.input		= self.produce( data )
+        data.input		= bytearray( self.produce( data ))
         return True # We shouldn't be able to terminate a connection at this level
 
     @classmethod
@@ -508,7 +508,7 @@ class Object( object ):
         elif data.get( 'service' ) == cls.GA_ALL_RPY:
             # Get Attributes All Reply
             result	       += USINT.produce(	data.service )
-            result	       += data.get_attributes_all.input
+            result	       += bytes( data.get_attributes_all.input )
         else:
             assert False, "%s doesn't recognize request/reply format: %r" % ( cls.__name__, data )
         return result
@@ -606,7 +606,7 @@ class Message_Router( Object ):
         """
         # Create a data.response with a structural copy of the request.enip.header.  This means that
         # the dictionary structure is new (we won't alter the request.enip... when we add entries in
-        # the resonse...), but the actual mutable values (eg. array.array ) are copied.  If we need
+        # the resonse...), but the actual mutable values (eg. bytearray ) are copied.  If we need
         # to change any values, replace them with new values instead of altering them!
         data.response		= cpppo.dotdict( data.request )
 
@@ -693,7 +693,7 @@ class Unconnected_Message_Manager( Object ):
         """
         # Create a data.response with a structural copy of the request.enip.header.  This means that
         # the dictionary structure is new (we won't alter the request.enip... when we add entries in
-        # the resonse...), but the actual mutable values (eg. array.array ) are copied.  If we need
+        # the resonse...), but the actual mutable values (eg. bytearray ) are copied.  If we need
         # to change any values, replace them with new values instead of altering them!
         data.response		= cpppo.dotdict( data.request )
 

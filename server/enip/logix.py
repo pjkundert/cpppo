@@ -277,8 +277,8 @@ class Logix( Object ):
 
         # Always produce a response payload; if a failure occured, will contain an error status
         log.normal( "%s %s %s", self, self.service[data.service], enip_format( data ))
-        data.input		= self.produce( data )
-        
+        data.input		= bytearray( self.produce( data ))
+
     @classmethod
     def produce( cls, data ):
         """Expects to find .service and/or .<logix-command>, and produces the request/reply encoded to
@@ -502,7 +502,7 @@ def process( addr, source, data ):
                     enip_format( data.response ))
 
         rpy			= Mr.parser.produce( data.response.enip.CIP )
-        data.response.enip.input= array.array( cpppo.type_bytes_array_symbol, rpy )
+        data.response.enip.input= bytearray( rpy )
         log.detail( "EtherNet/IP CIP Response (Client %16s):  %r", addr, data.response.enip.input )
         return proceed
     except:

@@ -814,7 +814,7 @@ class CPF( cpppo.dfa ):
             result	       += UINT.produce( item.type_id )
             if item.type_id in cls.item_parsers:
                 itmprs		= cls.item_parsers[item.type_id]
-                item.input	= itmprs.produce( item[itmprs.__name__] ) # eg 'unconnected_send'
+                item.input	= bytearray( itmprs.produce( item[itmprs.__name__] )) # eg 'unconnected_send'
             if 'input' in item:
                 result	       += UINT.produce( len( item.input ))
                 result	       += bytes( item.input )
