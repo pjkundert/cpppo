@@ -780,9 +780,9 @@ CPF_tests			= [
         "CPF.item[1].unconnected_send.request.read_frag.elements": 20, 
         "CPF.item[1].unconnected_send.request.read_frag.offset": 2, 
         "CPF.item[1].unconnected_send.request.service": 82, 
-        "CPF.item[1].unconnected_send.request_path.segment[0].class": 6,
-        "CPF.item[1].unconnected_send.request_path.segment[1].instance": 1,
-        "CPF.item[1].unconnected_send.request_path.size": 2, 
+        "CPF.item[1].unconnected_send.path.segment[0].class": 6,
+        "CPF.item[1].unconnected_send.path.segment[1].instance": 1,
+        "CPF.item[1].unconnected_send.path.size": 2, 
         "CPF.item[1].unconnected_send.priority": 5, 
         "CPF.item[1].unconnected_send.service": 82, 
         "CPF.item[1].unconnected_send.timeout_ticks": 157,
@@ -860,9 +860,9 @@ cip_tests			= [
                     "enip.CIP.send_data.CPF.item[0].type_id": 0, 
                     "enip.CIP.send_data.CPF.item[1].length": 6, 
                     "enip.CIP.send_data.CPF.item[1].type_id": 178, 
-                    "enip.CIP.send_data.CPF.item[1].unconnected_send.request_path.segment[0].class": 102, 
-                    "enip.CIP.send_data.CPF.item[1].unconnected_send.request_path.segment[1].instance": 1, 
-                    "enip.CIP.send_data.CPF.item[1].unconnected_send.request_path.size": 2, 
+                    "enip.CIP.send_data.CPF.item[1].unconnected_send.path.segment[0].class": 102, 
+                    "enip.CIP.send_data.CPF.item[1].unconnected_send.path.segment[1].instance": 1, 
+                    "enip.CIP.send_data.CPF.item[1].unconnected_send.path.size": 2, 
                     "enip.CIP.send_data.CPF.item[1].unconnected_send.service": 1, 
                     "enip.CIP.send_data.interface": 0, 
                     "enip.CIP.send_data.timeout": 5, 
@@ -887,9 +887,9 @@ cip_tests			= [
                     "enip.CIP.send_data.CPF.item[1].unconnected_send.request.path.size": 2, 
                     "enip.CIP.send_data.CPF.item[1].unconnected_send.request.service": 1, 
                     "enip.CIP.send_data.CPF.item[1].unconnected_send.priority": 1, 
-                    "enip.CIP.send_data.CPF.item[1].unconnected_send.request_path.segment[0].class": 6, 
-                    "enip.CIP.send_data.CPF.item[1].unconnected_send.request_path.segment[1].instance": 1, 
-                    "enip.CIP.send_data.CPF.item[1].unconnected_send.request_path.size": 2, 
+                    "enip.CIP.send_data.CPF.item[1].unconnected_send.path.segment[0].class": 6, 
+                    "enip.CIP.send_data.CPF.item[1].unconnected_send.path.segment[1].instance": 1, 
+                    "enip.CIP.send_data.CPF.item[1].unconnected_send.path.size": 2, 
                     "enip.CIP.send_data.CPF.item[1].unconnected_send.service": 82, 
                     "enip.CIP.send_data.CPF.item[1].unconnected_send.timeout_ticks": 250, 
                     "enip.CIP.send_data.interface": 0, 
@@ -915,9 +915,9 @@ cip_tests			= [
                     "enip.CIP.send_data.CPF.item[1].unconnected_send.request.service": 82, 
                     "enip.CIP.send_data.CPF.item[1].unconnected_send.length": 16, 
                     "enip.CIP.send_data.CPF.item[1].unconnected_send.priority": 5, 
-                    "enip.CIP.send_data.CPF.item[1].unconnected_send.request_path.segment[0].class": 6,
-                    "enip.CIP.send_data.CPF.item[1].unconnected_send.request_path.segment[1].instance": 1,
-                    "enip.CIP.send_data.CPF.item[1].unconnected_send.request_path.size": 2, 
+                    "enip.CIP.send_data.CPF.item[1].unconnected_send.path.segment[0].class": 6,
+                    "enip.CIP.send_data.CPF.item[1].unconnected_send.path.segment[1].instance": 1,
+                    "enip.CIP.send_data.CPF.item[1].unconnected_send.path.size": 2, 
                     "enip.CIP.send_data.CPF.item[1].unconnected_send.service": 82, 
                     "enip.CIP.send_data.CPF.item[1].unconnected_send.timeout_ticks": 157,
                     "enip.CIP.send_data.interface": 0, 
@@ -952,9 +952,9 @@ cip_tests			= [
                   "enip.CIP.send_data.CPF.item[1].unconnected_send.request.write_frag.type": 195, 
                   "enip.CIP.send_data.CPF.item[1].unconnected_send.length": 22, 
                   "enip.CIP.send_data.CPF.item[1].unconnected_send.priority": 5, 
-                  "enip.CIP.send_data.CPF.item[1].unconnected_send.request_path.segment[0].class": 6, 
-                  "enip.CIP.send_data.CPF.item[1].unconnected_send.request_path.segment[1].instance": 1, 
-                  "enip.CIP.send_data.CPF.item[1].unconnected_send.request_path.size": 2, 
+                  "enip.CIP.send_data.CPF.item[1].unconnected_send.path.segment[0].class": 6, 
+                  "enip.CIP.send_data.CPF.item[1].unconnected_send.path.segment[1].instance": 1, 
+                  "enip.CIP.send_data.CPF.item[1].unconnected_send.path.size": 2, 
                   "enip.CIP.send_data.CPF.item[1].unconnected_send.service": 82, 
                   "enip.CIP.send_data.CPF.item[1].unconnected_send.timeout_ticks": 157, 
                   "enip.CIP.send_data.interface": 0, 
@@ -973,17 +973,20 @@ cip_tests			= [
                     "enip.CIP.send_data.CPF.item[0].type_id": 0, 
                     "enip.CIP.send_data.CPF.item[1].length": 32, 
                     "enip.CIP.send_data.CPF.item[1].type_id": 178, 
+                    "enip.CIP.send_data.CPF.item[1].unconnected_send.length": 18, 
+                    "enip.CIP.send_data.CPF.item[1].unconnected_send.priority": 5, 
                     "enip.CIP.send_data.CPF.item[1].unconnected_send.request.path.segment[0].symbolic": "SCADA", 
                     "enip.CIP.send_data.CPF.item[1].unconnected_send.request.path.segment[1].element": 12, 
                     "enip.CIP.send_data.CPF.item[1].unconnected_send.request.path.size": 5, 
                     "enip.CIP.send_data.CPF.item[1].unconnected_send.request.read_frag.elements": 1, 
                     "enip.CIP.send_data.CPF.item[1].unconnected_send.request.read_frag.offset": 0, 
                     "enip.CIP.send_data.CPF.item[1].unconnected_send.request.service": 82, 
-                    "enip.CIP.send_data.CPF.item[1].unconnected_send.length": 18, 
-                    "enip.CIP.send_data.CPF.item[1].unconnected_send.priority": 5, 
-                    "enip.CIP.send_data.CPF.item[1].unconnected_send.request_path.segment[0].class": 6, 
-                    "enip.CIP.send_data.CPF.item[1].unconnected_send.request_path.segment[1].instance": 1, 
-                    "enip.CIP.send_data.CPF.item[1].unconnected_send.request_path.size": 2, 
+                    "enip.CIP.send_data.CPF.item[1].unconnected_send.path.segment[0].class": 6, 
+                    "enip.CIP.send_data.CPF.item[1].unconnected_send.path.segment[1].instance": 1, 
+                    "enip.CIP.send_data.CPF.item[1].unconnected_send.path.size": 2, 
+                    "enip.CIP.send_data.CPF.item[1].unconnected_send.route_path.segment[0].link": 0, 
+                    "enip.CIP.send_data.CPF.item[1].unconnected_send.route_path.segment[0].port": 1, 
+                    "enip.CIP.send_data.CPF.item[1].unconnected_send.route_path.size": 1, 
                     "enip.CIP.send_data.CPF.item[1].unconnected_send.service": 82, 
                     "enip.CIP.send_data.CPF.item[1].unconnected_send.timeout_ticks": 157, 
                     "enip.CIP.send_data.interface": 0, 
@@ -1004,7 +1007,7 @@ def test_enip_CIP():
         # Parse just the CIP portion following the EtherNet/IP encapsulation header
         data			= cpppo.dotdict()
         source			= cpppo.chainable( pkt )
-        with enip.enip_header( 'header', context='enip' ) as machine:
+        with enip.enip_machine( context='enip' ) as machine:
             for i,(m,s) in enumerate( machine.run( source=source, data=data )):
                 log.detail( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r",
                           machine.name_centered(), i, s, source.sent, source.peek(), data )
@@ -1013,12 +1016,15 @@ def test_enip_CIP():
         if not data:
             log.normal( "EtherNet/IP Request: Empty (session terminated): %s", enip.enip_format( data ))
             continue
+
+        log.normal( "EtherNet/IP Request: %s", enip.enip_format( data ))
             
-        # We're not parsing an encapsulated.input; we're parsing from the same stream, so
-        # create the 
+        # Parse the encapsulated .input
+
         data.enip.encapsulated	= cpppo.dotdict()
+        
         with enip.CIP() as machine:
-            for i,(m,s) in enumerate( machine.run( path='enip', source=source, data=data )):
+            for i,(m,s) in enumerate( machine.run( path='enip', source=cpppo.peekable( data.enip.input ), data=data )):
                 log.detail( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r",
                           machine.name_centered(), i, s, source.sent, source.peek(), data )
 
@@ -1180,7 +1186,7 @@ def test_enip_logix():
 
 # Run the bench-test.  Sends some request from a bunch of clients to a server, testing responses
 
-def enip_process_canned( addr, source, data ):
+def enip_process_canned( addr, data ):
     """Process a request, recognizing a subset of the known requests, and returning a "canned"
     response."""
     if not data:
@@ -1336,7 +1342,29 @@ enip_cli_kwds_logix		= {
                 }
             ), ( 
                 gaa_008_request,
-                {}
+                {
+                    "response.enip.length": 		23, 
+                }
+            ), ( 
+                gaa_011_request,
+                {
+                    "response.enip.length": 		36, 
+                }
+            ), ( 
+                unk_014_request, # Read Frag, 1 element
+                {
+                    "response.enip.length": 		8, 
+                }
+            ), ( 
+                unk_020_request, # Write Frag, 1 elements (index 12)
+                {
+                    "response.enip.length": 		4, 
+                }
+            ), ( 
+                unk_023_request, # Read Frag, 1 elements (index 12)
+                {
+                    "response.enip.length": 		8, 
+                }
             ),
         ]
 }

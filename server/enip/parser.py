@@ -92,7 +92,12 @@ class octets( octets_base, cpppo.state ):
 
 
 def octets_encode( value ):
-    return value.tostring() if sys.version_info.major < 3 else value.tobytes()
+    if isinstance( value, array.array ):
+        log.warning( "Encountered array.array; convert to bytearray: %s" % value )
+        return value.tostring() if sys.version_info.major < 3 else value.tobytes()
+    elif isinstance( value, bytearray ):
+        return bytes( value )
+    raise AssertionError( "Unrecognized octets type: %r" % value )
 
 
 class octets_struct( octets_base, cpppo.state_struct ):
@@ -323,7 +328,7 @@ def enip_encode( data ):
         UINT.produce(len(data.input )),
         UDINT.produce( 	data.session_handle ),
         UDINT.produce( 	data.status ),
-        octets_encode(	data.sender_context.input ),
+        octets_encode( data.sender_context.input ),
         UDINT.produce(	data.options ),
         octets_encode(	data.input ),
     ])
@@ -686,7 +691,7 @@ class unconnected_send( cpppo.dfa ):
         name 			= name or kwds.setdefault( 'context', self.__class__.__name__ )
 
         cmnd			= USINT(	context='service' )
-        cmnd[True]	= path	= EPATH(	context='request_path',	
+        cmnd[True]	= path	= EPATH(	context='path',	
                                                 terminal=True )
 
         # Some commands (eg Get Attribute All) have no other content, and terminate here.
@@ -715,13 +720,13 @@ class unconnected_send( cpppo.dfa ):
     def produce( cls, data ):
         result			= b''
         result		       += USINT.produce( data.service )
-        result		       += EPATH.produce( data.request_path )
+        result		       += EPATH.produce( data.path )
         if 'request' not in data:
             return result
         result		       += USINT.produce( data.priority )
         result		       += USINT.produce( data.timeout_ticks )
         result		       += UINT.produce( len( data.request.input ))
-        result		       += bytes( data.request.input )
+        result		       += octets_encode( data.request.input )
         if len( data.request.input ) % 2:
             result	       += b'\x00'
         result		       += route_path.produce( data.route_path )
@@ -817,7 +822,7 @@ class CPF( cpppo.dfa ):
                 item.input	= bytearray( itmprs.produce( item[itmprs.__name__] )) # eg 'unconnected_send'
             if 'input' in item:
                 result	       += UINT.produce( len( item.input ))
-                result	       += bytes( item.input )
+                result	       += octets_encode( item.input )
             else:
                 result	       += UINT.produce( 0 )
         return result
@@ -877,20 +882,20 @@ class list_services( cpppo.dfa ):
 class CIP( cpppo.dfa ):
     """The EtherNet/IP CIP Encapsulation transports various commands back and forth between a
     transmitter and a receiver.  There is no explicit designation of a request or a reply.  All have
-    a common prefix; an EtherNet/IP header and encapsulated command (parsed elsewhere).  We expect
+    a common prefix; an EtherNet/IP header and encapsulated command (already parsed elsewhere).  We expect
     it to look something like this:
 
-        .command			UINT		2
-        .length				UINT		2
-        .session			UDINT		4
-        .status				UDINT		4
-        .sender_context			octets[8]	8
-        .options			UDINT		4
-        .input 				octets[*]       .length
+        enip.command			UINT		2
+        enip.length			UINT		2
+        enip.session			UDINT		4
+        enip.status			UDINT		4
+        enip.sender_context		octets[8]	8
+        enip.options			UDINT		4
+        enip.input 			octets[*]       .length
 
     We'll parse all our commands into the .CIP context (by default):
 
-        .CIP...
+        enip.CIP...
 
     This parser is probably used to process that fixed-length encapsulated .input stream; however,
     we can't depend on this; we will select the appropriate sub-parser using '..command', and will
@@ -940,16 +945,19 @@ class CIP( cpppo.dfa ):
 
     @staticmethod
     def produce( data ):
-        """Expects to find a recognized .service value and/or and parsed .register, .unregister, .etc. in
-        the provided data artifact as produced by our parser.  Produces the bytes string encoding
-        the command.  There is little difference between a request and a response at this level,
-        except that in a request the CIP.status is usually 0, while in a response it may indicate an
-        error.
+        """Expects to find a recognized .command value and/or and parsed .CIP.register,
+        .CIP.unregister, .etc. in the provided data artifact as produced by our parser.  Produces
+        the bytes string encoding the command.  There is little difference between a request and a
+        response at this level, except that in a request the CIP.status is usually 0, while in a
+        response it may indicate an error.
+
         """
         result			= b''
+        
         # TODO: handle remaining requests; unregister, ...
-        if 'register' in data and data.setdefault( 'service', 0x65 ) == 0x65:
-            result	       += register.produce( data.register )
+        if ( data.get( 'command' ) == 0x0065
+             or 'CIP.register' in data and data.setdefault( 'command', 0x0065 ) == 0x0065 ):
+            result	       += register.produce( data.CIP.register )
         else:
             assert False, "Invalid CIP request/reply format: %r" % data
 
@@ -1035,8 +1043,8 @@ class status( cpppo.dfa ):
         name 			= name or kwds.setdefault( 'context', self.__class__.__name__ )
 
         # Parse the status, and status_ext.size
-        stat			= SINT( 	'status',	context=None )
-        stat[True]	= size	= SINT( 	'_ext.size',	extension='_ext.size' )
+        stat			= USINT( 	'status',	context=None )
+        stat[True]	= size	= USINT( 	'_ext.size',	extension='_ext.size' )
 
         # Prepare a state-machine to parse each UINT into .UINT, and move it onto the .data list
         exts			= UINT(		'_ext.UINT' )

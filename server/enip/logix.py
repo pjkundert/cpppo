@@ -129,13 +129,19 @@ class Unknown_Object( Object ):
             self.attribute['12']= Attribute( 'Unknown 12', 		UINT,  default=0x000a )
 
 
-class Logix( Object ):
-    class_id			= 0x401
+class Logix( Message_Router ):
+    """A Logix Controller implementation of the CIP Message Router (Class 0x02, Instance 1).  This
+    object is targeted by the Connection Manager, to parse and process incoming requests.  
 
-    # TODO: Arbitrary.  We're supposed to be able to return data sufficient to fill the remaining
-    # reply package size, but how can we do that?  We'd have to be informed of the remaining packet
-    # size available, as an argument to the produce method...
-    
+    The target Object of the command may not be an Instance of this Object; however, for the
+    Logix-specific commands (eg. Read/Write Tag [Fragmented]), it should be (or it won't be able to
+    process the request or produce the reply).
+
+    """
+
+    # TODO: MAX_BYTES is arbitrary.  We're supposed to be able to return data sufficient to fill the
+    # remaining reply package size, but how can we do that?  We'd have to be informed of the
+    # remaining packet size available, as an argument to the produce method...
     MAX_BYTES			= 200
 
     RD_TAG_NAM			= "Read Tag"
@@ -158,18 +164,40 @@ class Logix( Object ):
     def request( self, data ):
         """Any exception should result in a reply being generated with a non-zero status."""
         
+        log.normal( "%s Request: %s", self, enip_format( data ))
+
+        # See if this request is for us; if not, route to the correct Object, and return its result
+        try:
+            path, ids, target	= None, None, None
+            path		= data.path
+            ids			= resolve( path )
+            target		= lookup( *ids )
+        except Exception as exc:
+            log.warning( "%s Failed attempting to resolve path %r: class,inst,addr: %r, target: %r",
+                         self, path, ids, target )
+            raise
+        if ids[0] != self.class_id or ids[1] != self.instance_id:
+            log.normal( "%s Routing to %s: %s", self, target, enip_format( data ))
+            return target.request( data )
+        
+        # This request is for this Object.
+        
         # Pick out our services added at this level.  If not recognized, let superclass try; it'll
         # return an appropriate error code if not recognized.
-        if 'read_tag' in data and data.setdefault( 'service', self.RD_TAG_REQ ) == self.RD_TAG_REQ:
+        if ( data.get( 'service' ) == self.RD_TAG_REQ
+             or 'read_tag' in data and data.setdefault( 'service', self.RD_TAG_REQ ) == self.RD_TAG_REQ ):
             # Read Tag --> Read Tag Reply.
             pass
-        elif 'read_frag' in data and data.setdefault( 'service', self.RD_FRG_REQ ) == self.RD_FRG_REQ:
+        elif ( data.get( 'service' ) == self.RD_FRG_REQ
+               or 'read_frag' in data and data.setdefault( 'service', self.RD_FRG_REQ ) == self.RD_FRG_REQ ):
             # Read Tag Fragmented --> Read Tag Fragmented Reply.
             pass
-        if 'write_tag' in data and data.setdefault( 'service', self.WR_TAG_REQ ) == self.WR_TAG_REQ:
+        elif ( data.get( 'service' ) == self.WR_TAG_REQ
+             or 'write_tag' in data and data.setdefault( 'service', self.WR_TAG_REQ ) == self.WR_TAG_REQ ):
             # Write Tag --> Write Tag Reply.
             pass
-        elif 'write_frag' in data and data.setdefault( 'service', self.WR_FRG_REQ ) == self.WR_FRG_REQ:
+        elif ( data.get( 'service' ) == self.WR_FRG_REQ
+               or 'write_frag' in data and data.setdefault( 'service', self.WR_FRG_REQ ) == self.WR_FRG_REQ ):
             # Write Tag Fragmented --> Write Tag Fragmented Reply.
             pass
         else:
@@ -218,36 +246,50 @@ class Logix( Object ):
 
             if data.service in (self.RD_TAG_RPY, self.RD_FRG_RPY):
                 # Read Tag [Fragmented] Reply.  Fill in .data and .type 
+                context		= 'read_frag' if data.service == self.RD_FRG_RPY else 'read_tag'
+                data[context].type= attribute.parser.tag_type
+            elif data.service in (self.WR_TAG_RPY, self.WR_FRG_RPY):
+                # Write Tag [Fragmented] Reply.
+                context		= 'write_frag'	 if data.service == self.WR_FRG_RPY else 'write_tag'
+                data.status	= 0xFF
+                data.status_ext= {'size': 1, 'data':[0x2107]}
+                assert attribute.parser.tag_type == data[context].type, \
+                    "Tag type %d in request doesn't match Attribute type %d" % ( 
+                        data[context].type, attribute.parser.tag_type )
+            else:
+                raise AssertionError( "Unhandled Service Reply" )
 
-                context			= 'read_frag' if data.service == self.RD_FRG_RPY else 'read_tag'
-                data[context].type	= attribute.parser.tag_type
+            # Find the actual beginning/ending element, and fill data.read_{t,fr}ag.data.  For
+            # example, we could read 1000 elements starting at element 30, then starting at
+            # requested offset of 900 (bytes); assuming a maximum element capacity of 150, the
+            # actual beginning element would be 30 + 450 == 480, and the ending element would be
+            # 480 + 150 == 630 (the element beyond ).
+            data.status		= 0xFF # On Failure: General Error
+            data.status_ext	= {'size': 1, 'data': [ 0x2105 ]} # Number of elements beyond of tag
+            index		= resolve_element( data.path )	
+            assert type( index ) is tuple and len( index ) == 1, \
+                "Unsupported/Multi-dimensional index: %s" % index
+            siz			= attribute.parser.calcsize
+            off			= data[context].get( 'offset', 0 )
+            assert siz and off % siz == 0, \
+                "Requested byte offset %d is not on a %d-byte data element boundary" % ( off, siz )
+            beg			= index[0]
+            beg		       += off // siz
+            cnt			= len( attribute )
+            elm			= data[context].get( 'elements', cnt ) # Read/Write Tag defaults to all
+            endactual	= end	= beg + elm
+            if ( data.service in ( self.RD_TAG_RPY, self.RD_FRG_RPY )):
+                endmax 		= beg + self.MAX_BYTES // siz
+                end		= min( endactual, endmax )
+            assert 0 <= beg < cnt, \
+                "Attribute %s initial element invalid: %r" % ( attribute, (beg, end) )
+            assert 0 <  end <= cnt, \
+                "Attribute %s ending element invalid: %r" % ( attribute,  (beg, end) )
+            value			= attribute.value
 
-                # Find the actual beginning/ending element, and fill data.read_{t,fr}ag.data.  For
-                # example, we could read 1000 elements starting at element 30, then starting at
-                # requested offset of 900 (bytes); assuming a maximum element capacity of 150, the
-                # actual beginning element would be 30 + 450 == 480, and the ending element would be
-                # 480 + 150 == 630 (the element beyond ).
-                data.status		= 0xFF # On Failure: General Error
-                data.status_ext		= {'size': 1, 'data': [ 0x2105 ]} # Number of elements beyond of tag
-                index			= resolve_element( data.path )	
-                assert type( index ) is tuple and len( index ) == 1, \
-                    "Unsupported/Multi-dimensional index: %s" % index
-                siz			= attribute.parser.calcsize
-                off			= data[context].get( 'offset', 0 )
-                assert siz and off % siz == 0, \
-                    "Requested byte offset %d is not on a %d-byte data element boundary" % ( off, siz )
-                beg			= index[0]
-                beg		       += off // siz
-                cnt			= len( attribute )
-                elm			= data[context].get( 'elements', cnt ) # Read Tag defaults to all
-                endactual		= beg + elm
-                endmax 			= beg + self.MAX_BYTES // siz
-                end	 		= min( endactual, endmax )
-                assert 0 <= beg < cnt, \
-                    "Attribute %s initial element invalid: %r" % ( attribute, (beg, end) )
-                assert 0 <  end <= cnt, \
-                    "Attribute %s ending element invalid: %r" % ( attribute,  (beg, end) )
-                value			= attribute.value
+            if data.service in (self.RD_TAG_RPY, self.RD_FRG_RPY):
+                # Read Tag [Fragmented]
+                log.normal( "%s Reading %3d elements %3d-%3d from %s", self, end - beg, beg, end-1, attribute )
                 if isinstance( value, list ):
                     data[context].data	= value[beg:end]
                 else:
@@ -258,26 +300,38 @@ class Logix( Object ):
                 # Final .status is 0x00 if all requested elements were shipped; 0x06 if not
                 data.status		= 0x00 if end == endactual else 0x06
                 data.pop( 'status_ext' ) # non-empty dotdict level; use pop instead of del
-                return True
             else:
-                raise AssertionError( "Unhandled Service Reply" )
+                # Write Tag [Fragmented].  We know the type is right.
+                log.normal( "%s Writing %3d elements %3d-%3d into %s", self, end - beg, beg, end-1, attribute )
+                for i,v in zip( range( beg, end ), data[context].data ):
+                    attribute[i]	= v
+                data.status		= 0x00
+                data.pop( 'status_ext' )
+
         except Exception as exc:
             # On Exception, if we haven't specified a more detailed error code, return General
             # Error.  Remember: 0x06 (Insufficent Packet Space) is a NORMAL response to a successful
             # Read Tag Fragmented that returns a subset of the requested data.
-            log.warning( "%r Service 0x%02x %s failed with Exception: %s\nRequest: %s", self,
+            log.warning( "%r Service 0x%02x %s failed with Exception: %s\nRequest: %s\n%s", self,
                          data.service if 'service' in data else 0,
                          ( self.service[data.service]
                            if 'service' in data and data.service in self.service
-                           else "(Unknown)"), exc, enip_format( data ))
-            log.detail( "%s", ''.join( traceback.format_exception( *sys.exc_info() )))
+                           else "(Unknown)"), exc, enip_format( data ),
+                         ''.join( traceback.format_exception( *sys.exc_info() )))
             assert data.status not in ( 0x00, 0x06 ), \
                 "Implementation error: must specify .status not in (0x00, 0x06) before raising Exception!"
             pass
 
         # Always produce a response payload; if a failure occured, will contain an error status
-        log.normal( "%s %s %s", self, self.service[data.service], enip_format( data ))
+        log.normal( "%s Service 0x%02x %s %s", self,
+                    data.service if 'service' in data else 0,
+                    ( self.service[data.service]
+                      if 'service' in data and data.service in self.service
+                      else "(Unknown)"), enip_format( data ))
         data.input		= bytearray( self.produce( data ))
+
+        log.normal( "%s Response: %s", self, enip_format( data ))
+        return True
 
     @classmethod
     def produce( cls, data ):
@@ -453,57 +507,127 @@ Logix.register_service_parser( number=Logix.WR_FRG_RPY, name=Logix.WR_FRG_NAM + 
 
 
 def setup():
-    """Create the required CIP device Objects.  First one in, setup(), and don't let anyone else
-    proceed 'til complete."""
-    with setup.lock:
-        if setup.initialized:
-            return
-        setup.initialized	= True
-
-        Id			= Identity()			# Class 0x01, Instance 1
-        Mr			= Message_Router()		# Class 0x02, Instance 1
-        Cm			= Connection_Manager()		# Class 0x06, Instance 1
-            
-        Uo			= Unknown_Object()		# Class 0x66, Instance 1
-
-        Ld			= Logix()			# Class 0x??, Instance 1 -- Attributes, addressed via Tags
-
-setup.lock			= threading.Lock()
-setup.initialized		= False
-
-
-
-def process( addr, source, data ):
-    """Processes an incoming EtherNet/IP encapsulated request, and produces a response with a prepared
-    encapsulated reply.  Returns True while session lives, False when the session is cleanly
-    terminated.  Raises an exception when a fatal protocol processing error occurs, and the session
-    should be terminated forcefully.
+    """Create the required CIP device Objects, return UCMM.  First one in initialize, and don't let
+    anyone else proceed 'til complete.  The UCMM isn't really an addressable CIP Object, so we just
+    have to return it.
 
     """
-    setup()
+    with setup.lock:
+        if not setup.ucmm:
+            Identity()				# Class 0x01, Instance 1
+            Lx			= Logix()	# Class 0x02, Instance 1 -- Message Router; knows Logix Tag requests
+            Connection_Manager()		# Class 0x06, Instance 1
+        
+            Unknown_Object()			# Class 0x66, Instance 1 -- Unknown purpose in Logix Controller
 
-    if not data:
-        return False # Incoming EOF.
+            # Set up the SCADA tag to redirect to the Logix attribute 11 Attribute
+            scada_attr_id	= 11
+            Lx.attribute['11']	= Attribute( 'SCADA', INT, default=[v for v in range( 1000 )] )
 
-    source			= cpppo.rememberable( data.request.enip.input )
+            redirect( 'SCADA', {
+                'class': Lx.class_id,
+                'instance': Lx.instance_id,
+                'attribute': scada_attr_id, 
+            })
+
+            setup.ucmm		= UCMM()
+
+    return setup.ucmm
+
+setup.lock			= threading.Lock()
+setup.ucmm			= None
+
+
+def process( addr, data ):
+    """Processes an incoming parsed EtherNet/IP encapsulated request in data.request.enip.input, and
+    produces a response with a prepared encapsulated reply, in data.response.enip.input, ready for
+    re-encapsulation and transmission as a response.
+
+    Returns True while session lives, False when the session is cleanly terminated.  Raises an
+    exception when a fatal protocol processing error occurs, and the session should be terminated
+    forcefully.
+
+    When a connection is closed, a final invocation with 
+
+    This roughly corresponds to the CIP Connection "client" object functionality.  We parse the raw
+    EtherNet/IP encapsulation to get something like this Register request, in data.request:
+
+        "enip.command": 101, 
+        "enip.input": "array('c', '\\x01\\x00\\x00\\x00')",
+        "enip.length": 4, 
+        "enip.options": 0, 
+        "enip.session_handle": 0, 
+        "enip.status": 0
+        "enip.length": 4
+
+
+    This is parsed by the Connection Manager:
+
+        "enip.CIP.register.options": 0, 
+        "enip.CIP.register.protocol_version": 1, 
+
+    Other requests such as:
+
+        "enip.command": 111, 
+        "enip.input": "array('c', '\\x00\\x00\\x00\\x00\\x05\\x00\\x02\\x00\\x00\\x00\\x00\\x00\\xb2\\x00\\x06\\x00\\x01\\x02 f$\\x01')", 
+        "enip.length": 22, 
+        "enip.options": 0, 
+        "enip.sender_context.input": "array('c', '\\x01\\x00\\x00\\x00\\x00\\x00\\x00\\x00')", 
+        "enip.session_handle": 285351425, 
+        "enip.status": 0
+
+    are parsed by the Connection Manager, and contain CPF entries requiring further processing by the Unconnected Message
+    Manager (UCMM):
+
+        "enip.CIP.send_data.CPF.count": 2, 
+        "enip.CIP.send_data.CPF.item[0].length": 0, 
+        "enip.CIP.send_data.CPF.item[0].type_id": 0, 
+        "enip.CIP.send_data.CPF.item[1].length": 6, 
+        "enip.CIP.send_data.CPF.item[1].type_id": 178, 
+        "enip.CIP.send_data.CPF.item[1].unconnected_send.request_path.segment[0].class": 102, 
+        "enip.CIP.send_data.CPF.item[1].unconnected_send.request_path.segment[1].instance": 1, 
+        "enip.CIP.send_data.CPF.item[1].unconnected_send.request_path.size": 2, 
+        "enip.CIP.send_data.CPF.item[1].unconnected_send.service": 1, 
+        "enip.CIP.send_data.interface": 0, 
+        "enip.CIP.send_data.timeout": 5,
+
+
+
+    """
+    ucmm			= setup()
+
+    source			= cpppo.rememberable()
     try:
-        # Parse the encapsulated EtherNet/IP request.
-        log.detail( "EtherNet/IP CIP Request  (Client %16s): %r", addr, data.request.enip.input )
-        Mr			= lookup( class_id=0x02, instance_id=1 )
-        with Mr.parser as machine:
-            for i,(m,s) in enumerate( machine.run( path='request.enip', source=source, data=data )):
-                log.detail( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r",
-                            machine.name_centered(), i, s, source.sent, source.peek(), data )
+        # Find the Connection Manager, and use it to parse the encapsulated EtherNet/IP request.  We
+        # pass an additional request.addr, to allow the Connection Manager to identify the
+        # connection, in the case where the connection is closed spontaneously (no request, no
+        # request.enip.session_handle).
+        data['request.addr']	= addr	  		# data.request may not exist, or be empty
 
-        log.normal( "EtherNet/IP CIP Request  (Client %16s): %s", addr,
-                    enip_format( data.request ))
-        proceed			= Mr.request( data )
-        log.normal( "EtherNet/IP CIP Response (Client %16s): %s", addr,
-                    enip_format( data.response ))
+        if 'enip' in data.request:
+            source.chain( data.request.enip.input )
+            with ucmm.parser as machine:
+                for i,(m,s) in enumerate( machine.run( path='request.enip', source=source, data=data )):
+                    log.detail( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r",
+                                machine.name_centered(), i, s, source.sent, source.peek(), data )
+            
+        log.normal( "EtherNet/IP CIP Request  (Client %16s): %s", addr, enip_format( data.request ))
 
-        rpy			= Mr.parser.produce( data.response.enip.CIP )
-        data.response.enip.input= bytearray( rpy )
-        log.detail( "EtherNet/IP CIP Response (Client %16s):  %r", addr, data.response.enip.input )
+        # Create a data.response with a structural copy of the request.enip.header.  This means that
+        # the dictionary structure is new (we won't alter the request.enip... when we add entries in
+        # the resonse...), but the actual mutable values (eg. bytearray ) are copied.  If we need
+        # to change any values, replace them with new values instead of altering them!
+        data.response		= cpppo.dotdict( data.request )
+
+        # Let the Connection Manager process the (copied) request in response.enip, producing the
+        # appropriate data.response.enip.input encapsulated EtherNet/IP message to return, along
+        # with other response.enip... values (eg. .session_handle for a new Register Session).  The
+        # enip.status should normally be 0x00; the encapsulated response will contain appropriate
+        # error indications if the encapsulated request failed.
+        
+        proceed			= ucmm.request( data.response )
+        log.normal( "EtherNet/IP CIP Response (Client %16s): %s", addr, enip_format( data.response ))
+
         return proceed
     except:
         # Parsing failure.  We're done.  Suck out some remaining input to give us some context.
@@ -514,5 +638,4 @@ def process( addr, source, data ):
         where			= "at %d total bytes:\n%s\n%s (byte %d)" % (
             processed, repr(memory+future), '-' * (len(repr(memory))-1) + '^', pos )
         log.error( "EtherNet/IP CIP error %s\n", where )
-
         raise

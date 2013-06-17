@@ -28,9 +28,9 @@ __license__                     = "GNU General Public License, Version 3 (or lat
 enip.device	-- support for implementing an EtherNet/IP device Objects and Attributes
 
 """
-__all__				= [ 'lookup', 'resolve', 'resolve_element',
+__all__				= [ 'lookup', 'redirect', 'resolve', 'resolve_element',
                                     'Object', 'Attribute',
-                                    'Connection_Manager', 'Message_Router', 'Identity' ]
+                                    'UCMM', 'Connection_Manager', 'Message_Router', 'Identity' ]
 
 import array
 import codecs
@@ -99,7 +99,7 @@ def lookup( class_id, instance_id=0, attribute_id=None ):
     finally:
         log.detail( "Class %5d/0x%04x, Instance %3d, Attribute %5r ==> %s",
                     class_id, class_id, instance_id, attribute_id, 
-                    res if not exception else "Failed: %s" % exception )
+                    res if not exception else ( "Failed: %s" % exception ))
     return res
 
 # 
@@ -111,7 +111,7 @@ def lookup( class_id, instance_id=0, attribute_id=None ):
 #     {
 #         'size':6,
 #         'segment':[
-#             {'symbolic':'SCADA','length':5}, 
+#             {'symbolic':'SCADA'}, 
 #             {'element':123}]
 #     }
 # 
@@ -130,6 +130,13 @@ def lookup( class_id, instance_id=0, attribute_id=None ):
 # The initial segments of the path must address a class and instance.
 # 
 symbol				= {}
+
+def redirect( tag, address ):
+    assert tag not in symbol, \
+        "Attempt to overwrite tag %r == %r with %r" % ( tag, symbol[tag], address )
+    assert type(address) is dict
+    assert all( k in ('class', 'instance', 'attribute') for k in address )
+    symbol[tag]			= address
 
 def resolve( path, attribute=False ):
     """Given a path, returns the fully resolved (class,instance[,attribute]) tuple required to lookup an
@@ -219,6 +226,15 @@ class Attribute( object ):
     def value( self ):
         return self.default
 
+    def __setitem__( self, key, value ):
+        """Allow setting a scalar or indexable array item."""
+        if not isinstance( key, int ) or key >= len( self ):
+            raise KeyError( "Attempt to set item at key %r beyond attribute length %d" % ( key, len( self )))
+        if isinstance( self.default, list ):
+            self.default[key] 	= value
+        else:
+            self.default	= value
+
     def produce( self, start=0, stop=None ):
         """Output the binary rendering of the current value, using enip type_cls instance configured, to
         produce the value in binary form ('produce' is normally a classmethod on the type_cls)."""
@@ -243,6 +259,9 @@ class MaxInstance( Attribute ):
         is the maximum instance number allocated thus far. """
         return lookup( self.class_id, 0 ).max_instance
 
+    def __setitem__( self, key, value ):
+        raise AssertionError("Cannot set value")
+
 
 class NumInstances( MaxInstance ):
     def __init__( self, name, type_cls, **kwds ):
@@ -254,6 +273,8 @@ class NumInstances( MaxInstance ):
         return sum( lookup( class_id=self.class_id, instance_id=i_id ) is not None
                     for i_id in range( 1, super( NumInstances, self ).value + 1 ))
 
+    def __setitem__( self, key, value ):
+        raise AssertionError("Cannot set value")
 
 # 
 # EtherNet/IP CIP Object
@@ -267,9 +288,41 @@ class NumInstances( MaxInstance ):
 #     0x03		DeviceNet
 #     0x04		Assembly
 #     0x05 		Connection
-#     0x06		Conneciton Manager
+#     0x06		Connection Manager
 #     0x07		Register
 # 
+# Figure 1-4.1 CIP Device Object Model
+#                                                       +-------------+
+#   Unconnected        -------------------------------->| Unconnected |
+#   Explicit Messages  <--------------------------------| Message     |
+#                                                       | Manager     |           
+#                                                       +-------------+
+#                                                            |^            
+#                                                            ||           
+#                                                            ||          +-------------+
+#                                                            ||          | Link        |
+#                                                            ||          | Specific    |
+#                                                            ||          | Objects     |
+#                                                            ||          +-------------+
+#                                                            v|              ^v
+#                                                       +-------------+      ||               
+#   Connection         -->       Explcit                | Message     |      ||
+#   Based              <--       Messaging      <--     | Router      |>-----+|                 
+#   Explicit                     Connection     -->     |             |<------+                 
+#   Message                      Objects                +-------------+                 
+#                                                            |^                          
+#                                                            ||                          
+#                                                            ||                                                    
+#                                                            ||                                                    
+#                                                            v|                                                    
+#                                                       +-------------+                               
+#   I/O                -->       I/O       ..+          | Application |                               
+#   Messages           <--       Connection  v  <..     | Objects     |                               
+#                                Objects   ..+  -->     |             |                               
+#                                                       +-------------+                               
+#                                                                                      
+#                                                                                      
+#                                                                                      
 class Object( object ):
     """An EtherNet/IP device.Object is capable of parsing and processing a number of requests.  It has
     a class_id and an instance_id; an instance_id of 0 indicates the "class" instance of the
@@ -481,20 +534,20 @@ class Object( object ):
             else:
                 raise AssertionError( "Unrecognized Service Reply" )
         except Exception as exc:
-            log.warning( "%r Service 0x%02x %s failed with Exception: %s\nRequest: %s", self,
+            log.warning( "%r Service 0x%02x %s failed with Exception: %s\nRequest: %s\n%s", self,
                          data.service if 'service' in data else 0,
                          ( self.service[data.service]
                            if 'service' in data and data.service in self.service
-                           else "(Unknown)" ), exc, enip_format( data ))
-            log.detail( "%s", ''.join( traceback.format_exception( *sys.exc_info() )))
+                           else "(Unknown)" ), exc, enip_format( data ),
+                         ''.join( traceback.format_exception( *sys.exc_info() )))
             assert data.status not in (0x00,), \
                 "Implementation error: must specify .status error code before raising Exception"
             pass
 
         # Always produce a response payload; if a failure occurred, will contain an error status.
         # If this fails, we'll raise an exception for higher level encapsulation to handle.
-        log.normal( "%s %s %s", self, self.service[data.service], enip_format( data ))
         data.input		= bytearray( self.produce( data ))
+        log.normal( "%s Response: %s: %s", self, self.service[data.service], enip_format( data ))
         return True # We shouldn't be able to terminate a connection at this level
 
     @classmethod
@@ -508,7 +561,7 @@ class Object( object ):
         elif data.get( 'service' ) == cls.GA_ALL_RPY:
             # Get Attributes All Reply
             result	       += USINT.produce(	data.service )
-            result	       += bytes( data.get_attributes_all.input )
+            result	       += octets_encode( data.get_attributes_all.input )
         else:
             assert False, "%s doesn't recognize request/reply format: %r" % ( cls.__name__, data )
         return result
@@ -555,85 +608,18 @@ class Identity( Object ):
             self.attribute['6']	= Attribute( 'Serial Number', 		DINT,	default=0x006c061a )
             self.attribute['7']	= Attribute( 'Product Name', 		SSTRING,default='1756-L61/B LOGIX5561' )
 
-        
 
-class Connection_Manager( Object ):
-    class_id			= 0x06
+class UCMM( Object ):
+    """Un-Connected Message Manager, handling Register/Unregister of connections, and sending
+    Unconnected Send messages to either directly to a local object, or to the local Connection
+    Manager for parsing/processing.
 
-    def __init__( self, name=None, **kwds ):
-        super( Connection_Manager, self ).__init__( name=name, **kwds )
-
-        if self.instance_id == 0:
-            # Extra Class-level Attributes
-            pass
-        else:
-            # Instance Attributes
-            pass
-
-
-class Message_Router( Object ):
-    """Manages underlying EtherNet/IP connection, and processes incoming EtherNet/IP requests.  Parses
-    encapsulated message according to available CIP device objects; as the parsers run, when they
-    encounter a request that includes a path, the encapsulated portions of the request are parsed
-    using the addressed Object's parser.
-
-    Handles basic EtherNet/IP connection related messages itself (Register, Unregister).
-
-    No externally visible Attributes.  Does not parse or respond to normal service requests
-
-    """
-    class_id			= 0x02
-    lock			= threading.Lock()
-    parser			= CIP()
-    sessions			= set()		# All known session handles are shared
-
-    def __init__( self, name=None, **kwds ):
-        super( Message_Router, self ).__init__( name=name, **kwds )
-
-
-        if self.instance_id == 0:
-            # Extra Class-level Attributes
-            pass
-        else:
-            # Instance Attributes
-            pass
-
-    def request( self, data ):
-        """Handles a parsed request.enip.*, and produces an appropriate response.enip.*.  For connection
-        related requests (Register, Unregister), handle locally.  Return True iff request processed
-        and connection should proceed to process further messages.
-
-        """
-        # Create a data.response with a structural copy of the request.enip.header.  This means that
-        # the dictionary structure is new (we won't alter the request.enip... when we add entries in
-        # the resonse...), but the actual mutable values (eg. bytearray ) are copied.  If we need
-        # to change any values, replace them with new values instead of altering them!
-        data.response		= cpppo.dotdict( data.request )
-
-        if 'enip.CIP.register' in data.request:
-            # Allocates a new session_handle, and returns the register.protocol_version and
-            # .options_flags unchanged (if supported)
-
-            # TODO: Check if supported
-            session		= random.randint( 0, 2**32 )
-            while not session or session in self.__class__.sessions:
-                session		= random.randint( 0, 2**32 )
-            self.__class__.sessions.add( session )
-            data.response.enip.session_handle \
-                		= session
-            return True
-
-        super( Message_Router, self ).request( data )
-
-
-class Unconnected_Message_Manager( Object ):
-    """
 
     Forwards encapsulated messages to their destination port and link address, and returns the
     encapsulated response.  The Unconnected Send message contains an encapsulated message and a
-    route path with 1 or more route segment groups.  If more than 1 group remains, the first group is
-    removed, and the address is used to establish a connection and send the message on; the response
-    is received and returned.
+    route path with 1 or more route segment groups.  If more than 1 group remains, the first group
+    is removed, and the address is used to establish a connection and send the message on; the
+    response is received and returned.
 
     When only the final route path segment remains, the encapsulated message is sent to the local
     Message Router, and its response is received and returned.
@@ -641,48 +627,221 @@ class Unconnected_Message_Manager( Object ):
     Presently, we only respond to Unconnected Send messages with one route path segment; a local
     port/link address.
 
-    Here's what the incoming unconnected_send request looks like
+    """
 
-    "CPF.count": 2, 
-    "CPF.item[0].length": 0, 
-    "CPF.item[0].type_id": 0, 
-    "CPF.item[1].length": 30, 
-    "CPF.item[1].type_id": 178, 
-    "CPF.item[1].unconnected_send.service": 82, 
-    "CPF.item[1].unconnected_send.request_path.size": 2, 
-    "CPF.item[1].unconnected_send.request_path.segment[0].class": 6, 
-    "CPF.item[1].unconnected_send.request_path.segment[1].instance": 1, 
-    "CPF.item[1].unconnected_send.priority": 5, 
-    "CPF.item[1].unconnected_send.timeout_ticks": 157
-    "CPF.item[1].unconnected_send.length": 16, 
-    "CPF.item[1].unconnected_send.request.input": "array('B', [82, 4, 145, 5, 83, 67, 65, 68, 65, 0, 20, 0, 2, 0, 0, 0])", 
-    "CPF.item[1].unconnected_send.route_path.octets.input": "array('B', [1, 0, 1, 0])", 
+    class_id			= 0x9999	# Not an addressable Object
 
-    At this level, we don't know how to interpret the request (in .input); however,  we know that the Object addressed by the request path 
+    parser			= CIP()
+    command			= {
+        0x0065: "Register Session",
+        0x0066: "Unregister Session",
+        0x006f: "SendRRData",
+    }
+    lock			= threading.Lock()
+    sessions			= {}		# All known session handles, by addr
 
-    "CPF.item[1].unconnected_send.request.service": 82, 
-    "CPF.item[1].unconnected_send.request.path.size": 4, 
-    "CPF.item[1].unconnected_send.request.path.segment[0].length": 5, 
-    "CPF.item[1].unconnected_send.request.path.segment[0].symbolic": "SCADA", 
-    "CPF.item[1].unconnected_send.request.read_frag.elements": 20, 
-    "CPF.item[1].unconnected_send.request.read_frag.offset": 2, 
+
+    def request( self, data ):
+        """Handles a parsed enip.* request, and converts it into an appropriate response.  For
+        connection related requests (Register, Unregister), handle locally.  Return True iff request
+        processed and connection should proceed to process further messages.
+
+        """
+        log.normal( "%r Request: %s", self, enip_format( data ))
+
+        proceed			= True
+
+        assert 'addr' in data, "Connection Manager requires client address"
+
+        # Each EtherNet/IP enip.command expects an appropriate encapsulated response
+        if 'enip' in data:
+            data.enip.pop( 'input', None )
+        try:
+            if 'enip.CIP.register' in data:
+                # Allocates a new session_handle, and returns the register.protocol_version and
+                # .options_flags unchanged (if supported)
+        
+                # TODO: Check if supported
+                session		= random.randint( 0, 2**32 )
+                while not session or session in self.__class__.sessions:
+                    session	= random.randint( 0, 2**32 )
+                self.__class__.sessions[data.addr] = session
+                data.enip.session_handle = session
+                log.normal( "EtherNet/IP (Client %r) Session Established: %r", data.addr, session )
+                data.enip.input	= bytearray( self.parser.produce( data.enip ))
+                data.enip.status= 0x00
+
+            elif 'enip.CIP.unregister' in data or 'enip' not in data:
+                # Session being closed.  There is no response for this command; return False
+                # inhibits any EtherNet/IP response from being generated, and closes connection.
+                
+                session		= self.__class__.sessions.pop( data.addr, None )
+                log.normal( "EtherNet/IP (Client %r) Session Terminated: %r", data.addr, 
+                            session or "(Unknown)" )
+                proceed		= False
+            
+            elif 'enip.CIP.send_data' in data:
+                # An Unconnected Send (SendRRData) message may be to a local object, eg:
+                # 
+                #     "enip.CIP.send_data.CPF.count": 2, 
+                #     "enip.CIP.send_data.CPF.item[0].length": 0, 
+                #     "enip.CIP.send_data.CPF.item[0].type_id": 0, 
+                #     "enip.CIP.send_data.CPF.item[1].length": 6, 
+                #     "enip.CIP.send_data.CPF.item[1].type_id": 178, 
+                #     "enip.CIP.send_data.CPF.item[1].unconnected_send.path.segment[0].class": 102, 
+                #     "enip.CIP.send_data.CPF.item[1].unconnected_send.path.segment[1].instance": 1, 
+                #     "enip.CIP.send_data.CPF.item[1].unconnected_send.path.size": 2, 
+                #     "enip.CIP.send_data.CPF.item[1].unconnected_send.service": 1, 
+                #     "enip.CIP.send_data.interface": 0, 
+                #     "enip.CIP.send_data.timeout": 5, 
+                
+                # via the Message Router (note the lack of ...unconnected_send.route_path), or
+                # potentially to a remote object, via the backplane or a network link route path:
+
+		#     "enip.CIP.send_data.CPF.count": 2, 
+		#     "enip.CIP.send_data.CPF.item[0].length": 0, 
+		#     "enip.CIP.send_data.CPF.item[0].type_id": 0, 
+		#     "enip.CIP.send_data.CPF.item[1].length": 20, 
+		#     "enip.CIP.send_data.CPF.item[1].type_id": 178, 
+		#     "enip.CIP.send_data.CPF.item[1].unconnected_send.length": 6, 
+		#     "enip.CIP.send_data.CPF.item[1].unconnected_send.priority": 1, 
+		#     "enip.CIP.send_data.CPF.item[1].unconnected_send.request.input": "array('c', '\\x01\\x02 \\x01$\\x01')", 
+		#     "enip.CIP.send_data.CPF.item[1].unconnected_send.path.segment[0].class": 6, 
+		#     "enip.CIP.send_data.CPF.item[1].unconnected_send.path.segment[1].instance": 1, 
+		#     "enip.CIP.send_data.CPF.item[1].unconnected_send.path.size": 2, 
+		#     "enip.CIP.send_data.CPF.item[1].unconnected_send.route_path.segment[0].link": 0, 
+		#     "enip.CIP.send_data.CPF.item[1].unconnected_send.route_path.segment[0].port": 1, 
+		#     "enip.CIP.send_data.CPF.item[1].unconnected_send.route_path.size": 1, 
+		#     "enip.CIP.send_data.CPF.item[1].unconnected_send.service": 82, 
+		#     "enip.CIP.send_data.CPF.item[1].unconnected_send.timeout_ticks": 250, 
+                # which carries:
+		#     "enip.CIP.send_data.CPF.item[1].unconnected_send.request.get_attributes_all": true, 
+		#     "enip.CIP.send_data.CPF.item[1].unconnected_send.request.path.segment[0].class": 1, 
+		#     "enip.CIP.send_data.CPF.item[1].unconnected_send.request.path.segment[1].instance": 1, 
+		#     "enip.CIP.send_data.CPF.item[1].unconnected_send.request.path.size": 2, 
+		#     "enip.CIP.send_data.CPF.item[1].unconnected_send.request.service": 1, 
+                # or:
+                #     "enip.CIP.send_data.CPF.count": 2, 
+                #     "enip.CIP.send_data.CPF.item[0].length": 0, 
+                #     "enip.CIP.send_data.CPF.item[0].type_id": 0, 
+                #     "enip.CIP.send_data.CPF.item[1].length": 32, 
+                #     "enip.CIP.send_data.CPF.item[1].type_id": 178, 
+                #     "enip.CIP.send_data.CPF.item[1].unconnected_send.length": 18, 
+                #     "enip.CIP.send_data.CPF.item[1].unconnected_send.priority": 5, 
+                #     "enip.CIP.send_data.CPF.item[1].unconnected_send.request.input": "array('c', 'R\\x05\\x91\\x05SCADA\\x00(\\x0c\\x01\\x00\\x00\\x00\\x00\\x00')", 
+                #     "enip.CIP.send_data.CPF.item[1].unconnected_send.path.segment[0].class": 6, 
+                #     "enip.CIP.send_data.CPF.item[1].unconnected_send.path.segment[1].instance": 1, 
+                #     "enip.CIP.send_data.CPF.item[1].unconnected_send.path.size": 2, 
+                #     "enip.CIP.send_data.CPF.item[1].unconnected_send.route_path.segment[0].link": 0, 
+                #     "enip.CIP.send_data.CPF.item[1].unconnected_send.route_path.segment[0].port": 1, 
+                #     "enip.CIP.send_data.CPF.item[1].unconnected_send.route_path.size": 1, 
+                #     "enip.CIP.send_data.CPF.item[1].unconnected_send.service": 82, 
+                #     "enip.CIP.send_data.CPF.item[1].unconnected_send.timeout_ticks": 157, 
+                #     "enip.CIP.send_data.interface": 0, 
+                #     "enip.CIP.send_data.timeout": 5,
+                # which encapsulates:
+                #     "enip.CIP.send_data.CPF.item[1].unconnected_send.request.path.segment[0].symbolic": "SCADA", 
+                #     "enip.CIP.send_data.CPF.item[1].unconnected_send.request.path.segment[1].element": 12, 
+                #     "enip.CIP.send_data.CPF.item[1].unconnected_send.request.path.size": 5, 
+                #     "enip.CIP.send_data.CPF.item[1].unconnected_send.request.read_frag.elements": 1, 
+                #     "enip.CIP.send_data.CPF.item[1].unconnected_send.request.read_frag.offs et": 0, 
+                #     "enip.CIP.send_data.CPF.item[1].unconnected_send.request.service": 82, 
+
+                # which must (also) be processed by the Message Router at the end of all the address
+                # or backplane hops.
+
+                # In this implementation, we can *only* process un-routed requests, or requests
+                # routed to the local backplane: port 1, link 0.  All Unconnected Requests have a
+                # NULL Address in CPF item 0.
+                assert 'enip.CIP.send_data.CPF' in data \
+                    and data.enip.CIP.send_data.CPF.count == 2 \
+                    and data.enip.CIP.send_data.CPF.item[0].length == 0, \
+                    "EtherNet/IP UCMM remote routed requests unimplemented"
+                try:
+                    path, ids, target	= None, None, None
+                    path		= data.enip.CIP.send_data.CPF.item[1].unconnected_send.path
+                    ids			= resolve( path )
+                    target		= lookup( *ids )
+                except Exception as exc:
+                    log.warning( "%s Failed attempting to resolve path %r: class,inst,addr: %r, target: %r",
+                                 self, path, ids, target )
+                    raise
+
+                # Let the target process the command.  This will sometimes be a direct Get
+                # Attributes All (eg. Service 1 on Class 102 Instance 1, above), but usually an
+                # Unconnected Send via the Connection Manager (Service 0x52/82 on Class 6, Instance
+                # 1 above), in which it must parse a request
+                target.request( data.enip.CIP.send_data.CPF.item[1].unconnected_send )
+                
+                # After successful processing of the Unconnected Send, the encapsulated
+                # ...unconnected_send.request.input response message becomes the EtherNet/IP
+                # response message.  Basically, all the Unconnected Send encapsulation and routing
+                # is used to deliver the request to the target Object, and then is discarded and the
+                # EtherNet/IP envelope is simply returned directly to the originator carrying the
+                # response payload.
+                data.enip.input	= data.enip.CIP.send_data.CPF.item[1].unconnected_send.input
+
+        except Exception as exc:
+            # On Exception, if we haven't specified a more detailed error code, return Service not
+            # supported.  This 
+            log.warning( "%r Command 0x%04x %s failed with Exception: %s\nRequest: %s\n%s", self,
+                         data.enip.command if 'enip.command' in data else 0,
+                         ( self.command[data.enip.command]
+                           if 'enip.command' in data and data.enip.command in self.command
+                           else "(Unknown)"), exc, enip_format( data ),
+                         ''.join( traceback.format_exception( *sys.exc_info() )))
+            if 'enip.status' not in data or data.enip.status == 0x00:
+                data['enip.status']	= 0x08 # Service not supported
+            pass
+
+
+        # The enip.input EtherNet/IP encapsulation is assumed to have been filled in.  Otherwise, no
+        # encapsulated response is expected.
+        log.normal( "%s Response: %s", self, enip_format( data ))
+        return proceed
+            
+
+class Message_Router( Object ):
+    """Processes incoming requests.  Normally a derived class would expand the normal set of Services
+    with any specific to the actual device.
 
     """
     class_id			= 0x02
-    lock			= threading.Lock()
-    parser			= CIP()
-    sessions			= set()		# All known session handles are shared
-
-    def __init__( self, name=None, **kwds ):
-        super( Unconnected_Message_Manager, self ).__init__( name=name, **kwds )
 
 
-        if self.instance_id == 0:
-            # Extra Class-level Attributes
-            pass
-        else:
-            # Instance Attributes
-            pass
+class Connection_Manager( Object ):
+    """The Connection Manager (Class 0x06, Instance 1) Handles Unconnected Send (0x82) requests, such as:
+
+        "unconnected_send.service": 82, 
+        "unconnected_send.path.size": 2, 
+        "unconnected_send.path.segment[0].class": 6, 
+        "unconnected_send.path.segment[1].instance": 1, 
+        "unconnected_send.priority": 5, 
+        "unconnected_send.timeout_ticks": 157
+        "unconnected_send.length": 16, 
+        "unconnected_send.request.input": "array('B', [82, 4, 145, 5, 83, 67, 65, 68, 65, 0, 20, 0, 2, 0, 0, 0])", 
+        "unconnected_send.route_path.octets.input": "array('B', [1, 0, 1, 0])", 
+
+    If the message contains an request (.length > 0), we get the Message Router (Class 0x02,
+    Instance 1) to parse and process the request, eg:
+
+        "unconnected_send.request.service": 82, 
+        "unconnected_send.request.path.size": 4, 
+        "unconnected_send.request.path.segment[0].length": 5, 
+        "unconnected_send.request.path.segment[0].symbolic": "SCADA", 
+        "unconnected_send.request.read_frag.elements": 20, 
+        "unconnected_send.request.read_frag.offset": 2, 
+
+    We assume that the Message Router will convert the .request to a Response and fill it its .input
+    with the encoded response.
+
+    """
+    class_id			= 0x06
+
+    UC_SND_REQ			= 0x52 		# Unconnected Send
+    FW_OPN_REQ			= 0x54		# Forward Open (unimplemented)
+    FW_CLS_REQ			= 0x4E		# Forward Close (unimplemented)
+
 
     def request( self, data ):
         """
@@ -691,23 +850,41 @@ class Unconnected_Message_Manager( Object ):
         and connection should proceed to process further messages.
 
         """
-        # Create a data.response with a structural copy of the request.enip.header.  This means that
-        # the dictionary structure is new (we won't alter the request.enip... when we add entries in
-        # the resonse...), but the actual mutable values (eg. bytearray ) are copied.  If we need
-        # to change any values, replace them with new values instead of altering them!
-        data.response		= cpppo.dotdict( data.request )
+        log.normal( "%s Request: %s", self, enip_format( data ))
 
-        if 'enip.CIP.register' in data.request:
-            # Allocates a new session_handle, and returns the register.protocol_version and
-            # .options_flags unchanged (if supported)
+        if data.get( 'service' ) == self.UC_SND_REQ:
+            # Unconnected Send
+            pass
+        else:
+            return super( Connection_Manager, self ).request( data )
 
-            # TODO: Check if supported
-            session		= random.randint( 0, 2**32 )
-            while not session or session in self.__class__.sessions:
-                session		= random.randint( 0, 2**32 )
-            self.__class__.sessions.add( session )
-            data.response.enip.session_handle \
-                		= session
-            return True
+        assert 'length' in data and data.length > 0 and 'input' in data.request, \
+            "Unconnected Send message with empty request"
 
-        super( Message_Router, self ).request( data )
+        # Get the Message Router to parse and process the request into a response, producing a
+        # data.request.input encoded response, which we will pass back as our own encoded response.
+        MR			= lookup( class_id=0x02, instance_id=1 )
+        source			= cpppo.rememberable( data.request.input )
+        try: 
+            with MR.parser as machine:
+                for i,(m,s) in enumerate( machine.run( path='request', source=source, data=data )):
+                    log.detail( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r",
+                                machine.name_centered(), i, s, source.sent, source.peek(), data )
+
+            MR.request( data.request )
+        except:
+            # Parsing failure.  We're done.  Suck out some remaining input to give us some context.
+            processed		= source.sent
+            memory		= bytes(bytearray(source.memory))
+            pos			= len( source.memory )
+            future		= bytes(bytearray( b for b in source ))
+            where		= "at %d total bytes:\n%s\n%s (byte %d)" % (
+                processed, repr(memory+future), '-' * (len(repr(memory))-1) + '^', pos )
+            log.error( "EtherNet/IP CIP error %s\n", where )
+            raise
+        
+        # Our encoded response is our encapsulated request's encoded response
+        data.input		= data.request.input
+
+        log.normal( "%s Response: %s", self, enip_format( data ))
+        return True

@@ -55,6 +55,7 @@ import cpppo.server
 from   cpppo.server import network
 
 from . import parser
+from . import logix
 
 address				= ('0.0.0.0', 44818)
 
@@ -97,6 +98,7 @@ def enip_srv( conn, addr, enip_process=None ):
             eof			= False
             while not eof:
                 data		= cpppo.dotdict()
+
                 source.forget()
                 # If no/partial EtherNet/IP header received, parsing will fail with a NonTerminal
                 # Exception (dfa exits in non-terminal state).  Build data.request.enip:
@@ -119,25 +121,27 @@ def enip_srv( conn, addr, enip_process=None ):
                 # Terminal state and EtherNet/IP header recognized, or clean EOF (no partial
                 # message); process and return response
                 log.info( "%s req. data: %s", enip_mesg.name_centered(), parser.enip_format( data ))
-                if data:
+                if 'request' in data:
                     requests   += 1
                 try:
-                    # TODO: indicate successful composition of response?  enip_process must be able
-                    # to handle no request, indicating the clean termination of the session.
-                    
-                    if enip_process( addr, source=source, data=data ):
+                    # enip_process must be able to handle no request (empty data), indicating the
+                    # clean termination of the session if closed from this end (not required if
+                    # enip_process returned False, indicating the connection was terminated by request.)
+                    if enip_process( addr, data=data ):
                         # Produce an EtherNet/IP response carrying the encapsulated response data.
                         assert 'response' in data, "Expected EtherNet/IP response; none found"
+                        assert 'enip.input' in data.response, "Expected EtherNet/IP response encapsulated message; none found"
                         rpy	= parser.enip_encode( data.response.enip )
                         log.detail( "%s send: %5d: %s", enip_mesg.name_centered(),
                                     len( rpy ), reprlib.repr( rpy ))
                         conn.send( rpy )
                     else:
+                        # Session terminated.  No response, just drop connection.
                         log.normal( "%s session ended" , enip_mesg.name_centered())
                         eof	= True
-                        
                 except:
                     log.error( "Failed request: %s", parser.enip_format( data ))
+                    enip_process( addr, data=cpppo.dotdict() ) # Terminate.
                     raise
 
             processed		= source.sent
@@ -166,6 +170,9 @@ def enip_srv( conn, addr, enip_process=None ):
 def main( **kwds ):
     # TODO: parse arguments to select the appropriate EtherNet/IP CIP processor, if one isn't
     # specified
+    
+    # Use the Logix simulator by default. ('SCADA' tag, 1000 INT values)
+    kwds.setdefault( 'enip_process', logix.process )
     return network.server_main( address=address, target=enip_srv, **kwds )
 
 if __name__ == "__main__":
