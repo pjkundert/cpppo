@@ -24,7 +24,8 @@ if __name__ == "__main__" and __package__ is None:
     sys.path.insert( 0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 import cpppo
-from   cpppo.server import ( enip, network )
+from   cpppo import misc
+from   cpppo.server import (enip, network)
 from   cpppo.server.enip import logix
 
 logging.basicConfig( **cpppo.log_cfg )
@@ -368,7 +369,7 @@ unk_023_request 		= bytes(bytearray([
 ]))
 # pkt 25
 # "25","0.687210000","10.220.104.180","192.168.222.128","CIP","102","Success"
-unk_023_reply 		= bytes(bytearray([
+unk_023_reply 			= bytes(bytearray([
                                         0x6f, 0x00, #/* ...c..o. */
     0x18, 0x00, 0x01, 0x1e, 0x02, 0x11, 0x00, 0x00, #/* ........ */
     0x00, 0x00, 0x06, 0x00, 0x00, 0x00, 0x00, 0x00, #/* ........ */
@@ -377,6 +378,40 @@ unk_023_reply 		= bytes(bytearray([
     0x00, 0x00, 0xb2, 0x00, 0x08, 0x00, 0xd2, 0x00, #/* ........ */
     0x00, 0x00, 0xc3, 0x00, 0xc8, 0x40              #/* .....@ */
 ]))
+
+# Read Tag Fragmented Request SCADA[10000], 10 elements
+rfg_001_request			= bytes(bytearray([
+                                  0x6f,0x00, 0x32,0x00,0x02,0x67,0x02,0x10,0x00,0x00,  #9.. ..o. 2..g....
+    0x00,0x00,0x07,0x00,0x00,0x00,0x00,0x00, 0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,  #........ ........
+    0x00,0x00,0x05,0x00,0x02,0x00,0x00,0x00, 0x00,0x00,0xb2,0x00,0x22,0x00,0x52,0x02,  #........ ....".R.
+    0x20,0x06,0x24,0x01,0x05,0x9d,0x14,0x00, 0x52,0x06,0x91,0x05,0x53,0x43,0x41,0x44,  # .$..... R...SCAD
+    0x41,0x00,0x29,0x00,0x10,0x27,0x0a,0x00, 0x00,0x00,0x00,0x00,0x01,0x00,0x01,0x00  #A.)..'.. ........
+]))
+# Read Tag Fragmented Reply (error 0x05)
+rfg_001_reply			= bytes(bytearray([
+                                  0x6f,0x00, 0x14,0x00,0x02,0x67,0x02,0x10,0x00,0x00,  #..Im..o. ...g....
+    0x00,0x00,0x07,0x00,0x00,0x00,0x00,0x00, 0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,  #........ ........
+    0x00,0x00,0x05,0x00,0x02,0x00,0x00,0x00, 0x00,0x00,0xb2,0x00,0x04,0x00,0xd2,0x00,  #........ ........
+    0x05,0x00                                                                          #..               
+]))
+
+# Read Tag Fragmented Request SCADAX (bad Tag), 10 elements
+rfg_002_request			= bytes(bytearray([
+                                  0x6f,0x00, 0x2e,0x00,0x02,0x6b,0x02,0x10,0x00,0x00,  #9.....o. ...k....
+    0x00,0x00,0x07,0x00,0x00,0x00,0x00,0x00, 0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,  #........ ........
+    0x00,0x00,0x05,0x00,0x02,0x00,0x00,0x00, 0x00,0x00,0xb2,0x00,0x1e,0x00,0x52,0x02,  #........ ......R.
+    0x20,0x06,0x24,0x01,0x05,0x9d,0x10,0x00, 0x52,0x04,0x91,0x06,0x53,0x43,0x41,0x44,  # .$..... R...SCAD
+    0x41,0x58,0x01,0x00,0x00,0x00,0x00,0x00, 0x01,0x00,0x01,0x00                       #AX...... ....    
+]))
+
+# Read Tag Fragmented Reply (error,0x04 w/ 1 extended status,0x0000)
+rfg_002_reply			= bytes(bytearray([
+                                  0x6f,0x00, 0x16,0x00,0x02,0x6b,0x02,0x10,0x00,0x00,  #...o..o. ...k....
+    0x00,0x00,0x07,0x00,0x00,0x00,0x00,0x00, 0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,  #........ ........
+    0x00,0x00,0x05,0x00,0x02,0x00,0x00,0x00, 0x00,0x00,0xb2,0x00,0x06,0x00,0xd2,0x00,  #........ ........
+    0x04,0x01,0x00,0x00                                                                #....             
+]))
+
 
 eip_tests			= [
             ( b'', {} ),        # test that parsers handle/reject empty/EOF
@@ -394,6 +429,10 @@ eip_tests			= [
             ( unk_020_reply,	{} ),
             ( unk_023_request,	{} ),
             ( unk_023_reply,	{} ),
+            ( rfg_001_request,	{} ),
+            ( rfg_001_reply,	{} ),
+            ( rfg_002_request,	{} ),
+            ( rfg_002_reply,	{} ),
 ]
 
 def test_enip_header():
@@ -486,21 +525,84 @@ extpath_4		= bytes(bytearray([
     b'x'[0], b'y'[0], b'z'[0], b'1'[0], b'2'[0], 0x00,	# 5-character symbolic + pad
     0xff,						# Decoy -- shouldn't be processed!
 ]))
+extpath_5		= bytes(bytearray([
+    0x01, 0x00, 0x01, 0x00				# 1 word (pad) port #1, link 0x00
+]))
+extpath_6		= bytes(bytearray([
+    0x02, 0x00, 0x0F, 0x01, 0x02, 0x99			# 1 word (pad) port #513, link 0x00
+]))
+extpath_7		= bytes(bytearray([
+    # From Vol 1-3.13, Table 10-6.15
+    0x0E, 0x00,						# 14 word (pad), port 3, link 130.151.137.105
+    0x13, 0x0F, 0x31, 0x33,
+    0x30, 0x2E, 0x31, 0x35,
+    0x31, 0x2E, 0x31, 0x33,
+    0x37, 0x2E, 0x31, 0x30,
+    0x35, 
+          0x00,            # < errata (added)
+          0x21, 0x00, 0x04,				# Class ID 4, Instance ID 2, Attribute ID 3
+    0x00, 0x25, 0x00, 0x02,
+    0x00, 0x30, 0x03,#0x00,  < errata (deleted)
+]))
+extpath_7_prod		= bytes(bytearray([		# The produced path is shorter (uses 8-bit formats)
+    # From Vol 1-3.13, Table 10-6.15
+    0x0C, 0x00,						# 14 word (pad), port 3, link 130.151.137.105
+    0x13, 0x0F, 0x31, 0x33,
+    0x30, 0x2E, 0x31, 0x35,
+    0x31, 0x2E, 0x31, 0x33,
+    0x37, 0x2E, 0x31, 0x30,
+    0x35, 
+          0x00,            # < errata (added)
+          0x20,       0x04,				# Class ID 4, Instance ID 2, Attribute ID 3
+          0x24,       0x02,
+          0x30, 0x03,#0x00,  < errata (deleted)
+]))
+
+extpath_8		= bytes(bytearray([
+    # From Vol 1-3.13, Table 10-6.15 (w/extended path)
+    0x0F, 0x00,						# 14 word (pad), port 3, link 130.151.137.105
+    0x1F, 0x0F, 
+                0x03, 0x01,# extended path == 0x0103 
+                0x31, 0x33,
+    0x30, 0x2E, 0x31, 0x35,
+    0x31, 0x2E, 0x31, 0x33,
+    0x37, 0x2E, 0x31, 0x30,
+    0x35, 
+          0x00,            # < errata (added)
+          0x21, 0x00, 0x04,				# Class ID 4, Instance ID 2, Attribute ID 3
+    0x00, 0x25, 0x00, 0x02,
+    0x00, 0x30, 0x03,#0x00,  < errata (deleted)
+]))
+extpath_8_prod		= bytes(bytearray([		# The produced path is shorter (uses 8-bit formats)
+    # From Vol 1-3.13, Table 10-6.15
+    0x0D, 0x00,						# 14 word (pad), port 3, link 130.151.137.105
+    0x1F, 0x0F,
+                0x03, 0x01, # 
+                0x31, 0x33,
+    0x30, 0x2E, 0x31, 0x35,
+    0x31, 0x2E, 0x31, 0x33,
+    0x37, 0x2E, 0x31, 0x30,
+    0x35, 
+          0x00,            # < errata (added)
+          0x20,       0x04,				# Class ID 4, Instance ID 2, Attribute ID 3
+          0x24,       0x02,
+          0x30, 0x03,#0x00,  < errata (deleted)
+]))
 
 # The byte order of EtherNet/IP CIP data is little-endian; the lowest-order byte
 # of the value arrives first.
 extpath_tests			= [
-            ( extpath_1,	{
+            ( extpath_1, enip.EPATH,	{
                 'request.EPATH.size': 1,
                 'request.EPATH.segment': [{'element': 1}]
             } ),
-            ( extpath_2,	{ 
+            ( extpath_2, enip.EPATH,	{ 
                 'request.EPATH.size': 5,
                 'request.EPATH.segment': [
                     {'element':		0x01}, {'element':	0x02}, {'element':	0x04030201}
                 ]
             } ),
-            ( extpath_3,	{ 
+            ( extpath_3, enip.EPATH,	{ 
                 'request.EPATH.size': 15,
                 'request.EPATH.segment': [
                     {'element':		0x01}, {'element':	0x0201}, {'element':	0x04030201},
@@ -509,20 +611,55 @@ extpath_tests			= [
                     {'attribute':	0x31}, {'attribute':	0x0231},
                 ]
             } ),
-            ( extpath_4,	{ 
+            ( extpath_4, enip.EPATH,	{ 
                 'request.EPATH.size': 8,
                 'request.EPATH.segment': [
-                    {'symbolic':	'abc123', 'length': 6 },
-                    {'symbolic':	'xyz12',  'length': 5 },
+                    {'symbolic':	'abc123'},
+                    {'symbolic':	'xyz12'},
                 ]
-            } )
+            } ), 
+            ( extpath_5, enip.route_path, { 
+                'request.route_path.size': 1,
+                'request.route_path.segment': [
+                    {'port': 1, 'link': 0},
+                ],
+            } ), 
+            ( extpath_6, enip.route_path, { 
+                'request.route_path.size': 2,
+                'request.route_path.segment': [
+                    {'port': 513, 'link': 0x99},
+                ],
+            } ), 
+            ( (extpath_7, extpath_7_prod), enip.route_path, { 
+                'request.route_path.size': 14,
+                'request.route_path.segment': [
+                    {'port': 		3, 'link': '130.151.137.105'},
+                    {'class': 		4},
+                    {'instance': 	2},
+                    {'attribute': 	3},
+                ],
+            } ), 
+            ( (extpath_8, extpath_8_prod), enip.route_path, { 
+                'request.route_path.size': 15,
+                'request.route_path.segment': [
+                    {'port': 	    0x103, 'link': '130.151.137.105'},
+                    {'class': 		4},
+                    {'instance': 	2},
+                    {'attribute': 	3},
+                ],
+            } ), 
 ]
 
 def test_enip_EPATH():
-    for pkt,tst in extpath_tests:
+    for pkt,cls,tst in extpath_tests:
+        # We may supply an expected produced value 'prod'; or, get it from the packet
+        prod			= None
+        if type( pkt ) is tuple:
+            pkt,prod		= pkt
+
         data			= cpppo.dotdict()
         source			= cpppo.chainable( pkt )
-        with enip.EPATH() as machine:
+        with cls() as machine:
             for i,(m,s) in enumerate( machine.run( source=source, path='request', data=data )):
                 log.detail( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r",
                           machine.name_centered(), i, s, source.sent, source.peek(), data )
@@ -534,8 +671,12 @@ def test_enip_EPATH():
             raise
 
         # And, ensure that we can get the original EPATH back (ignoring extra decoy bytes)
-        assert enip.EPATH.produce( data.request.EPATH ) == pkt[:1+data.request.EPATH.size*2], \
-            "Invalid EPATH data: %r" % data
+        if not prod:
+            prod		= pkt[:(2 if cls is enip.route_path else 1)+data.request[cls.__name__].size*2]
+
+        out			= cls.produce( data.request[cls.__name__] )
+        assert out == prod, \
+            "Invalid EPATH data: %r\nexpect: %r\nactual: %r" % ( data, prod, out )
 
 
 
@@ -570,17 +711,17 @@ writetag_1_rpy	 		= bytes(bytearray([
 tag_tests			= [
     (
         readfrag_1_req,	{
-            'request.logix.service': 		0x52,
-            'request.logix.path.segment': 		[{'symbolic': 'SCADA', 'length': 5}],
-            'request.logix.read_frag.elements':	20,
-            'request.logix.read_frag.offset':	2,
+            'request.service': 			0x52,
+            'request.path.segment': 		[{'symbolic': 'SCADA'}],
+            'request.read_frag.elements':	20,
+            'request.read_frag.offset':	2,
         }
     ), ( 
         readfrag_1_rpy,	{
-            'request.logix.service': 		0xd2,
-            'request.logix.status':			0x00,
-            'request.logix.read_frag.type':		0x00c3,
-            'request.logix.read_frag.data':	[
+            'request.service': 			0xd2,
+            'request.status':			0x00,
+            'request.read_frag.type':		0x00c3,
+            'request.read_frag.data':	[
                 0x104c, 0x0008,
                 0x0003, 0x0002, 0x0002, 0x0002,
                 0x000e, 0x0000, 0x0000, 0x42e6,
@@ -596,11 +737,11 @@ tag_tests			= [
     )
 ]
 
-def test_enip_Tag():
+def test_enip_Logix():
     for pkt,tst in tag_tests:
         data			= cpppo.dotdict()
         source			= cpppo.chainable( pkt )
-        with enip.Tag(context='logix') as machine:
+        with logix.Logix.parser as machine:
             for i,(m,s) in enumerate( machine.run( source=source, path='request', data=data )):
                 log.detail( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r",
                           machine.name_centered(), i, s, source.sent, source.peek(), data )
@@ -613,7 +754,7 @@ def test_enip_Tag():
 
         # And, ensure that we can get the original EPATH back (ignoring extra decoy bytes)
         try:
-            assert enip.Tag.produce( data.request.logix ) == pkt
+            assert logix.Logix.produce( data.request ) == pkt
         except:
             log.warning ( "Invalid packet produced from logix data: %r", data )
             raise
@@ -634,14 +775,14 @@ CPF_tests			= [
         "CPF.item[1].length": 30, 
         "CPF.item[1].type_id": 178, 
         "CPF.item[1].unconnected_send.length": 16, 
-        "CPF.item[1].unconnected_send.Tag.path.segment[0].symbolic": "SCADA",
-        "CPF.item[1].unconnected_send.Tag.path.size": 4, 
-        "CPF.item[1].unconnected_send.Tag.read_frag.elements": 20, 
-        "CPF.item[1].unconnected_send.Tag.read_frag.offset": 2, 
-        "CPF.item[1].unconnected_send.Tag.service": 82, 
-        "CPF.item[1].unconnected_send.request_path.segment[0].class": 6,
-        "CPF.item[1].unconnected_send.request_path.segment[1].instance": 1,
-        "CPF.item[1].unconnected_send.request_path.size": 2, 
+        "CPF.item[1].unconnected_send.request.path.segment[0].symbolic": "SCADA",
+        "CPF.item[1].unconnected_send.request.path.size": 4, 
+        "CPF.item[1].unconnected_send.request.read_frag.elements": 20, 
+        "CPF.item[1].unconnected_send.request.read_frag.offset": 2, 
+        "CPF.item[1].unconnected_send.request.service": 82, 
+        "CPF.item[1].unconnected_send.path.segment[0].class": 6,
+        "CPF.item[1].unconnected_send.path.segment[1].instance": 1,
+        "CPF.item[1].unconnected_send.path.size": 2, 
         "CPF.item[1].unconnected_send.priority": 5, 
         "CPF.item[1].unconnected_send.service": 82, 
         "CPF.item[1].unconnected_send.timeout_ticks": 157,
@@ -656,21 +797,45 @@ def test_enip_CPF():
             for i,(m,s) in enumerate( machine.run( source=source, data=data )):
                 log.detail( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r",
                           machine.name_centered(), i, s, source.sent, source.peek(), data )
+
+        # Now, parse the encapsulated message(s).  We'll assume it is destined for a Logix Object.
+        Lx			= logix.Logix()
+        assert 'CPF' in data
+        for item in data.CPF.item:
+            if 'unconnected_send' in item:
+                assert 'request' in item.unconnected_send # the encapsulated request
+                with Lx.parser as machine:
+                    log.normal( "Parsing %3d bytes using %s.parser, from %s", len( item.unconnected_send.request.input ),
+                                Lx, enip.enip_format( item ))
+                    # Parse the unconnected_send.request.input octets, putting parsed items into the
+                    # same request context
+                    for i,(m,s) in enumerate( machine.run( source=cpppo.peekable( item.unconnected_send.request.input ),
+                                                           data=item.unconnected_send.request )):
+                        log.detail( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r",
+                                    machine.name_centered(), i, s, source.sent, source.peek(), data )
+                    log.normal( "Parsed  %3d bytes using %s.parser, into %s", len( item.unconnected_send.request.input ),
+                                Lx, enip.enip_format( data ))
+
         try:
             for k,v in tst.items():
                 assert data[k] == v
         except:
             log.warning( "%r not in data, or != %r: %s", k, v, enip.enip_format( data ))
             raise
-            
-        '''
-        # And, ensure that we can get the original EPATH back (ignoring extra decoy bytes)
+
+
+        # And, ensure that we can get the original CPF back (ignoring extra decoy bytes)
         try:
-            assert enip.logix.produce( data.request.logix ) == pkt
+            for item in data.CPF.item:
+                if 'unconnected_send' in item:
+                    item.unconnected_send.request.input	= Lx.produce( item.unconnected_send.request )
+                    log.normal("Produce Logix message from: %r", item.unconnected_send.request )
+            log.normal( "Produce CPF message from: %r", data.CPF )
+            data.input		= bytearray( enip.CPF.produce( data.CPF ))
+            assert data.input == pkt
         except:
-            log.warning ( "Invalid packet produced from logix data: %r", data )
+            log.warning ( "Invalid packet produced from CPF data: %r", data )
             raise
-        '''
 
  
 cip_tests			= [
@@ -695,9 +860,9 @@ cip_tests			= [
                     "enip.CIP.send_data.CPF.item[0].type_id": 0, 
                     "enip.CIP.send_data.CPF.item[1].length": 6, 
                     "enip.CIP.send_data.CPF.item[1].type_id": 178, 
-                    "enip.CIP.send_data.CPF.item[1].unconnected_send.request_path.segment[0].class": 102, 
-                    "enip.CIP.send_data.CPF.item[1].unconnected_send.request_path.segment[1].instance": 1, 
-                    "enip.CIP.send_data.CPF.item[1].unconnected_send.request_path.size": 2, 
+                    "enip.CIP.send_data.CPF.item[1].unconnected_send.path.segment[0].class": 102, 
+                    "enip.CIP.send_data.CPF.item[1].unconnected_send.path.segment[1].instance": 1, 
+                    "enip.CIP.send_data.CPF.item[1].unconnected_send.path.size": 2, 
                     "enip.CIP.send_data.CPF.item[1].unconnected_send.service": 1, 
                     "enip.CIP.send_data.interface": 0, 
                     "enip.CIP.send_data.timeout": 5, 
@@ -716,15 +881,15 @@ cip_tests			= [
                     "enip.CIP.send_data.CPF.item[1].length": 20, 
                     "enip.CIP.send_data.CPF.item[1].type_id": 178, 
                     "enip.CIP.send_data.CPF.item[1].unconnected_send.length": 6, 
-                    "enip.CIP.send_data.CPF.item[1].unconnected_send.Tag.get_attributes_all": True, 
-                    "enip.CIP.send_data.CPF.item[1].unconnected_send.Tag.path.segment[0].class": 1, 
-                    "enip.CIP.send_data.CPF.item[1].unconnected_send.Tag.path.segment[1].instance": 1, 
-                    "enip.CIP.send_data.CPF.item[1].unconnected_send.Tag.path.size": 2, 
-                    "enip.CIP.send_data.CPF.item[1].unconnected_send.Tag.service": 1, 
+                    "enip.CIP.send_data.CPF.item[1].unconnected_send.request.get_attributes_all": True, 
+                    "enip.CIP.send_data.CPF.item[1].unconnected_send.request.path.segment[0].class": 1, 
+                    "enip.CIP.send_data.CPF.item[1].unconnected_send.request.path.segment[1].instance": 1, 
+                    "enip.CIP.send_data.CPF.item[1].unconnected_send.request.path.size": 2, 
+                    "enip.CIP.send_data.CPF.item[1].unconnected_send.request.service": 1, 
                     "enip.CIP.send_data.CPF.item[1].unconnected_send.priority": 1, 
-                    "enip.CIP.send_data.CPF.item[1].unconnected_send.request_path.segment[0].class": 6, 
-                    "enip.CIP.send_data.CPF.item[1].unconnected_send.request_path.segment[1].instance": 1, 
-                    "enip.CIP.send_data.CPF.item[1].unconnected_send.request_path.size": 2, 
+                    "enip.CIP.send_data.CPF.item[1].unconnected_send.path.segment[0].class": 6, 
+                    "enip.CIP.send_data.CPF.item[1].unconnected_send.path.segment[1].instance": 1, 
+                    "enip.CIP.send_data.CPF.item[1].unconnected_send.path.size": 2, 
                     "enip.CIP.send_data.CPF.item[1].unconnected_send.service": 82, 
                     "enip.CIP.send_data.CPF.item[1].unconnected_send.timeout_ticks": 250, 
                     "enip.CIP.send_data.interface": 0, 
@@ -743,17 +908,16 @@ cip_tests			= [
                     "enip.CIP.send_data.CPF.item[0].type_id": 0,
                     "enip.CIP.send_data.CPF.item[1].length": 30, 
                     "enip.CIP.send_data.CPF.item[1].type_id": 178, 
-                    "enip.CIP.send_data.CPF.item[1].unconnected_send.Tag.path.segment[0].length": 5,
-                    "enip.CIP.send_data.CPF.item[1].unconnected_send.Tag.path.segment[0].symbolic": "SCADA",
-                    "enip.CIP.send_data.CPF.item[1].unconnected_send.Tag.path.size": 4, 
-                    "enip.CIP.send_data.CPF.item[1].unconnected_send.Tag.read_frag.elements": 1, 
-                    "enip.CIP.send_data.CPF.item[1].unconnected_send.Tag.read_frag.offset": 0, 
-                    "enip.CIP.send_data.CPF.item[1].unconnected_send.Tag.service": 82, 
+                    "enip.CIP.send_data.CPF.item[1].unconnected_send.request.path.segment[0].symbolic": "SCADA",
+                    "enip.CIP.send_data.CPF.item[1].unconnected_send.request.path.size": 4, 
+                    "enip.CIP.send_data.CPF.item[1].unconnected_send.request.read_frag.elements": 1, 
+                    "enip.CIP.send_data.CPF.item[1].unconnected_send.request.read_frag.offset": 0, 
+                    "enip.CIP.send_data.CPF.item[1].unconnected_send.request.service": 82, 
                     "enip.CIP.send_data.CPF.item[1].unconnected_send.length": 16, 
                     "enip.CIP.send_data.CPF.item[1].unconnected_send.priority": 5, 
-                    "enip.CIP.send_data.CPF.item[1].unconnected_send.request_path.segment[0].class": 6,
-                    "enip.CIP.send_data.CPF.item[1].unconnected_send.request_path.segment[1].instance": 1,
-                    "enip.CIP.send_data.CPF.item[1].unconnected_send.request_path.size": 2, 
+                    "enip.CIP.send_data.CPF.item[1].unconnected_send.path.segment[0].class": 6,
+                    "enip.CIP.send_data.CPF.item[1].unconnected_send.path.segment[1].instance": 1,
+                    "enip.CIP.send_data.CPF.item[1].unconnected_send.path.size": 2, 
                     "enip.CIP.send_data.CPF.item[1].unconnected_send.service": 82, 
                     "enip.CIP.send_data.CPF.item[1].unconnected_send.timeout_ticks": 157,
                     "enip.CIP.send_data.interface": 0, 
@@ -767,8 +931,8 @@ cip_tests			= [
           ), (
               unk_017_request,
               {
-                  "enip.CIP.send_data.CPF.item[1].unconnected_send.Tag.read_frag.elements": 20, 
-                  "enip.CIP.send_data.CPF.item[1].unconnected_send.Tag.read_frag.offset": 2, 
+                  "enip.CIP.send_data.CPF.item[1].unconnected_send.request.read_frag.elements": 20, 
+                  "enip.CIP.send_data.CPF.item[1].unconnected_send.request.read_frag.offset": 2, 
               }
           ), (
               unk_020_request,	 
@@ -778,20 +942,19 @@ cip_tests			= [
                   "enip.CIP.send_data.CPF.item[0].type_id": 0, 
                   "enip.CIP.send_data.CPF.item[1].length": 36, 
                   "enip.CIP.send_data.CPF.item[1].type_id": 178, 
-                  "enip.CIP.send_data.CPF.item[1].unconnected_send.Tag.path.segment[0].length": 5, 
-                  "enip.CIP.send_data.CPF.item[1].unconnected_send.Tag.path.segment[0].symbolic": "SCADA", 
-                  "enip.CIP.send_data.CPF.item[1].unconnected_send.Tag.path.segment[1].element": 12, 
-                  "enip.CIP.send_data.CPF.item[1].unconnected_send.Tag.path.size": 5, 
-                  "enip.CIP.send_data.CPF.item[1].unconnected_send.Tag.service": 83, 
-                  "enip.CIP.send_data.CPF.item[1].unconnected_send.Tag.write_frag.data": [ 16585 ], 
-                  "enip.CIP.send_data.CPF.item[1].unconnected_send.Tag.write_frag.elements": 1, 
-                  "enip.CIP.send_data.CPF.item[1].unconnected_send.Tag.write_frag.offset": 0, 
-                  "enip.CIP.send_data.CPF.item[1].unconnected_send.Tag.write_frag.type": 195, 
+                  "enip.CIP.send_data.CPF.item[1].unconnected_send.request.path.segment[0].symbolic": "SCADA", 
+                  "enip.CIP.send_data.CPF.item[1].unconnected_send.request.path.segment[1].element": 12, 
+                  "enip.CIP.send_data.CPF.item[1].unconnected_send.request.path.size": 5, 
+                  "enip.CIP.send_data.CPF.item[1].unconnected_send.request.service": 83, 
+                  "enip.CIP.send_data.CPF.item[1].unconnected_send.request.write_frag.data": [ 16585 ], 
+                  "enip.CIP.send_data.CPF.item[1].unconnected_send.request.write_frag.elements": 1, 
+                  "enip.CIP.send_data.CPF.item[1].unconnected_send.request.write_frag.offset": 0, 
+                  "enip.CIP.send_data.CPF.item[1].unconnected_send.request.write_frag.type": 195, 
                   "enip.CIP.send_data.CPF.item[1].unconnected_send.length": 22, 
                   "enip.CIP.send_data.CPF.item[1].unconnected_send.priority": 5, 
-                  "enip.CIP.send_data.CPF.item[1].unconnected_send.request_path.segment[0].class": 6, 
-                  "enip.CIP.send_data.CPF.item[1].unconnected_send.request_path.segment[1].instance": 1, 
-                  "enip.CIP.send_data.CPF.item[1].unconnected_send.request_path.size": 2, 
+                  "enip.CIP.send_data.CPF.item[1].unconnected_send.path.segment[0].class": 6, 
+                  "enip.CIP.send_data.CPF.item[1].unconnected_send.path.segment[1].instance": 1, 
+                  "enip.CIP.send_data.CPF.item[1].unconnected_send.path.size": 2, 
                   "enip.CIP.send_data.CPF.item[1].unconnected_send.service": 82, 
                   "enip.CIP.send_data.CPF.item[1].unconnected_send.timeout_ticks": 157, 
                   "enip.CIP.send_data.interface": 0, 
@@ -810,18 +973,20 @@ cip_tests			= [
                     "enip.CIP.send_data.CPF.item[0].type_id": 0, 
                     "enip.CIP.send_data.CPF.item[1].length": 32, 
                     "enip.CIP.send_data.CPF.item[1].type_id": 178, 
-                    "enip.CIP.send_data.CPF.item[1].unconnected_send.Tag.path.segment[0].length": 5, 
-                    "enip.CIP.send_data.CPF.item[1].unconnected_send.Tag.path.segment[0].symbolic": "SCADA", 
-                    "enip.CIP.send_data.CPF.item[1].unconnected_send.Tag.path.segment[1].element": 12, 
-                    "enip.CIP.send_data.CPF.item[1].unconnected_send.Tag.path.size": 5, 
-                    "enip.CIP.send_data.CPF.item[1].unconnected_send.Tag.read_frag.elements": 1, 
-                    "enip.CIP.send_data.CPF.item[1].unconnected_send.Tag.read_frag.offset": 0, 
-                    "enip.CIP.send_data.CPF.item[1].unconnected_send.Tag.service": 82, 
                     "enip.CIP.send_data.CPF.item[1].unconnected_send.length": 18, 
                     "enip.CIP.send_data.CPF.item[1].unconnected_send.priority": 5, 
-                    "enip.CIP.send_data.CPF.item[1].unconnected_send.request_path.segment[0].class": 6, 
-                    "enip.CIP.send_data.CPF.item[1].unconnected_send.request_path.segment[1].instance": 1, 
-                    "enip.CIP.send_data.CPF.item[1].unconnected_send.request_path.size": 2, 
+                    "enip.CIP.send_data.CPF.item[1].unconnected_send.request.path.segment[0].symbolic": "SCADA", 
+                    "enip.CIP.send_data.CPF.item[1].unconnected_send.request.path.segment[1].element": 12, 
+                    "enip.CIP.send_data.CPF.item[1].unconnected_send.request.path.size": 5, 
+                    "enip.CIP.send_data.CPF.item[1].unconnected_send.request.read_frag.elements": 1, 
+                    "enip.CIP.send_data.CPF.item[1].unconnected_send.request.read_frag.offset": 0, 
+                    "enip.CIP.send_data.CPF.item[1].unconnected_send.request.service": 82, 
+                    "enip.CIP.send_data.CPF.item[1].unconnected_send.path.segment[0].class": 6, 
+                    "enip.CIP.send_data.CPF.item[1].unconnected_send.path.segment[1].instance": 1, 
+                    "enip.CIP.send_data.CPF.item[1].unconnected_send.path.size": 2, 
+                    "enip.CIP.send_data.CPF.item[1].unconnected_send.route_path.segment[0].link": 0, 
+                    "enip.CIP.send_data.CPF.item[1].unconnected_send.route_path.segment[0].port": 1, 
+                    "enip.CIP.send_data.CPF.item[1].unconnected_send.route_path.size": 1, 
                     "enip.CIP.send_data.CPF.item[1].unconnected_send.service": 82, 
                     "enip.CIP.send_data.CPF.item[1].unconnected_send.timeout_ticks": 157, 
                     "enip.CIP.send_data.interface": 0, 
@@ -842,7 +1007,7 @@ def test_enip_CIP():
         # Parse just the CIP portion following the EtherNet/IP encapsulation header
         data			= cpppo.dotdict()
         source			= cpppo.chainable( pkt )
-        with enip.enip_header( 'header', context='enip' ) as machine:
+        with enip.enip_machine( context='enip' ) as machine:
             for i,(m,s) in enumerate( machine.run( source=source, data=data )):
                 log.detail( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r",
                           machine.name_centered(), i, s, source.sent, source.peek(), data )
@@ -851,16 +1016,40 @@ def test_enip_CIP():
         if not data:
             log.normal( "EtherNet/IP Request: Empty (session terminated): %s", enip.enip_format( data ))
             continue
+
+        log.normal( "EtherNet/IP Request: %s", enip.enip_format( data ))
             
-        # We're not parsing an encapsulated.input; we're parsing from the same stream, so
-        # create the 
+        # Parse the encapsulated .input
+
         data.enip.encapsulated	= cpppo.dotdict()
+        
         with enip.CIP() as machine:
-            for i,(m,s) in enumerate( machine.run( path='enip', source=source, data=data )):
+            for i,(m,s) in enumerate( machine.run( path='enip', source=cpppo.peekable( data.enip.input ), data=data )):
                 log.detail( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r",
                           machine.name_centered(), i, s, source.sent, source.peek(), data )
 
         log.normal( "EtherNet/IP CIP Request: %s", enip.enip_format( data ))
+
+        # Assume the request in the CIP's CPF items are Logix requests.
+        # Now, parse the encapsulated message(s).  We'll assume it is destined for a Logix Object.
+        if 'enip.CIP.send_data' in data:
+            Lx		= logix.Logix()
+            for item in data.enip.CIP.send_data.CPF.item:
+                if 'unconnected_send.request' in item:
+                    # An Unconnected Send that contained an encapsulated request (ie. not just a Get
+                    # Attribute All)
+                    with Lx.parser as machine:
+                        log.normal( "Parsing %3d bytes using %s.parser, from %s", len( item.unconnected_send.request.input ),
+                                    Lx, enip.enip_format( item ))
+                        # Parse the unconnected_send.request.input octets, putting parsed items into the
+                        # same request context
+                        for i,(m,s) in enumerate( machine.run( source=cpppo.peekable( item.unconnected_send.request.input ),
+                                                               data=item.unconnected_send.request )):
+                            log.detail( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r",
+                                        machine.name_centered(), i, s, source.sent, source.peek(), data )
+                        log.normal( "Parsed  %3d bytes using %s.parser, into %s", len( item.unconnected_send.request.input ),
+                                    Lx, enip.enip_format( data ))
+
         try:
             for k,v in tst.items():
                 assert data[k] == v
@@ -868,6 +1057,39 @@ def test_enip_CIP():
             log.warning( "%r not in data, or != %r: %s", k, v, enip.enip_format( data ))
             raise
             
+
+def test_enip_device_symbolic():
+    enip.device.symbol['SCADA'] = {'class':0x401, 'instance':1, 'attribute':2}
+    path={'segment':[{'symbolic':'SCADA'}, {'element':4}]}
+    assert enip.device.resolve( path, attribute=True ) == (0x401,1,2)
+    assert enip.device.resolve( path ) == (0x401,1,None)
+
+    try:
+        result			= enip.device.resolve(
+            {'segment':[{'class':5},{'symbolic':'SCADA'},{'element':4}]} )
+        assert False, "Should not have succeeded: %r" % result
+    except AssertionError as exc:
+        assert "Failed to override" in str(exc)
+
+    try:
+        result			= enip.device.resolve( 
+            {'segment':[{'class':5},{'symbolic':'BOO','length':5},{'element':4}]} )
+        assert False, "Should not have succeeded: %r" % result
+    except AssertionError as exc:
+        assert "Unrecognized symbolic name 'BOO'" in str(exc)
+
+    try:
+        result			= enip.device.resolve( {'segment':[{'instance':1}]} )
+        assert False, "Should not have succeeded: %r" % result
+    except AssertionError as exc:
+        assert "Failed to resolve" in str(exc)
+
+    try:
+        result			= enip.device.resolve(
+            {'segment':[{'class':0x404}, {'instance':1}, {'something':10}]}, attribute=True )
+        assert False, "Should not have succeeded: %r" % result
+    except AssertionError as exc:
+        assert "Invalid term" in str(exc)
 
 
 def test_enip_device():
@@ -877,8 +1099,6 @@ def test_enip_device():
         class_num		= random.randrange( 1, 256 )
         class_found		= enip.device.lookup( class_id=class_num )
 
-    assert enip.device.path( class_id=class_num, instance_id=1 ) == str( class_num ) + '.1.None'
-
     class Test_Device( enip.device.Object ):
         class_id		= class_num
 
@@ -886,13 +1106,13 @@ def test_enip_device():
     O				= Test_Device( 'Test Class', instance_id=1 )
 
     # Confirm the new entries in the enip.device.directory
-    assert sorted( enip.device.directory[str(O.class_id)].keys() ) == [
-        '0.1', 				# the class-level attributes
+    assert sorted( enip.device.directory[str(O.class_id)].keys(), key=misc.natural ) == [
+        '0.0',				# the class-level instance
+        '0.1', 				# ... and class-level attributes
         '0.2',
         '0.3',
         '0.4',
-        '0.None',			# ... and class-level instance
-        str(O.instance_id)+'.None',	# The Instance we just created (it has no Attributes)
+        str(O.instance_id)+'.0',	# The Instance we just created (it has no Attributes)
     ]
 
     assert enip.device.lookup( class_id=class_num, instance_id=1 ) is O
@@ -901,24 +1121,72 @@ def test_enip_device():
 
     O2				= Test_Device( 'Test Class' )
     assert enip.device.directory[str(O.class_id)+'.0.3'].value == 2 # Number of Instances
-    log.normal( "device.directory: %s", json.dumps(
-        enip.device.directory, indent=4, sort_keys=True,  default=lambda obj: repr( obj )))
+    log.normal( "device.directory: %s", '\n'.join(
+        "%16s: %s" % ( k, enip.device.directory[k] )
+        for k in sorted( enip.device.directory.keys(), key=misc.natural)))
+
 
 
     Ix				= enip.device.Identity( 'Test Identity' )
     attrs			= enip.device.directory[str(Ix.class_id)+'.'+str(Ix.instance_id)]
-    log.normal( "New Identity Instance directory: %s", json.dumps(
-        attrs, indent=4, sort_keys=True,  default=lambda obj: repr( obj )))
+    log.normal( "New Identity Instance directory: %s", enip.enip_format( attrs ))
     assert attrs['7'].produce() == b'\x141756-L61/B LOGIX5561'
     
-    gaa				= Ix.request( cpppo.dotdict({'service': 0x01 }))
-    log.normal( "Identity Get Attributes All: %r", gaa )
-    assert gaa == b'\x01\x00\x0e\x006\x00\x14\x0b`1\x1a\x06l\x00\x141756-L61/B LOGIX5561'
-    
+    request			= cpppo.dotdict({'service': 0x01, 'path':{'segment':[{'class':Ix.class_id},{'instance':Ix.instance_id}]}})
+    gaa				= Ix.request( request )
+    log.normal( "Identity Get Attributes All: %r, data: %s", gaa, enip.enip_format( request ))
+    assert request.input == b'\x81\x01\x00\x0e\x006\x00\x14\x0b`1\x1a\x06l\x00\x141756-L61/B LOGIX5561'
+
+    # Look up Objects/Attribute by resolving a path
+    assert enip.device.lookup( *enip.device.resolve( {'segment':[{'class':class_num}, {'instance':1}]} )) is O
+    assert enip.device.lookup( *enip.device.resolve( {'segment':[{'class':class_num}, {'instance':2}]} )) is O2
+
+    enip.device.symbol['BOO'] = {'class': class_num, 'instance': 1}
+
+    path			= {'segment':[{'symbolic':'BOO', 'length':3}, {'attribute':2}, {'element':4}]}
+    assert enip.device.lookup( *enip.device.resolve( path )) is O
+
+    Oa1	= O.attribute['2'] 	= enip.device.Attribute('Something', enip.parser.INT, default=0)
+    assert '0' in O.attribute # the Object
+    assert '2' in O.attribute
+    assert enip.device.lookup( *enip.device.resolve( path, attribute=True )) is Oa1
+
+
+def test_enip_logix():
+    """The logix module implements some features of a Logix Controller."""
+    Obj				= logix.Logix()
+    Obj_a1 = Obj.attribute['1']	= enip.device.Attribute( 'Something', enip.parser.INT, default=[n for n in range( 100 )])
+
+    assert len( Obj_a1 ) == 100
+
+    # Set up a symbolic tag referencing the Logix Object's Attribute
+    enip.device.symbol['SCADA']	= {'class': Obj.class_id, 'instance': Obj.instance_id, 'attribute':1 }
+
+    # Lets get it to parse a request:
+    #     'service': 			0x52,
+    #     'path.segment': 		[{'symbolic': 'SCADA', 'length': 5}],
+    #     'read_frag.elements':		20,
+    #     'read_frag.offset':		2,
+
+    req_1	 		= bytes(bytearray([
+        0x52, 0x04, 0x91, 0x05, 0x53, 0x43, 0x41, 0x44, #/* R...SCAD */
+        0x41, 0x00, 0x14, 0x00, 0x02, 0x00, 0x00, 0x00, #/* A....... */
+    ]))
+    source			= cpppo.peekable( req_1 )
+    data 			= cpppo.dotdict()
+    with Obj.parser as machine:
+        for m,w in machine.run( source=source, data=data ):
+            pass
+    log.normal( "Logix Request parsed: %s", enip.enip_format( data ))
+
+    # If we ask a Logix Object to process the request, it should respond.
+    proceed			= Obj.request( data )
+    log.normal("Logix Request processed: %s", enip.enip_format( data ))
+
 
 # Run the bench-test.  Sends some request from a bunch of clients to a server, testing responses
 
-def enip_process_canned( addr, source, data ):
+def enip_process_canned( addr, data ):
     """Process a request, recognizing a subset of the known requests, and returning a "canned"
     response."""
     if not data:
@@ -937,10 +1205,10 @@ def enip_process_canned( addr, source, data ):
 
     raise Exception( "Unrecognized request: %s" % ( enip.parser.enip_format( data )))
 
-client_count, client_max	= 15, 10
+# The default Client will wait for draindelay after 
+client_count, client_max	= 1, 10 #15, 10
 charrange, chardelay		= (2,10), .1	# split/delay outgoing msgs
-draindelay			= 5.   		# long in case server slow, but immediately upon EOF
-
+draindelay			= 10.  		# long in case server very slow (eg. logging), but immediately upon EOF
 
 def enip_cli( number, tests=None ):
     """Sends a series of test messages, testing response for expected results."""
@@ -951,42 +1219,67 @@ def enip_cli( number, tests=None ):
         
     successes			= 0
     try:
+        eof			= False
+        source			= cpppo.chainable()
         for req,tst in tests:
+            errors		= 0
             data		= cpppo.dotdict()
 
             log.normal( "EtherNet/IP Client %3d req.: %5d: %s ", number, len( req ), repr( req ))
+
             # Await response, sending request in chunks using inter-block chardelay if output
-            # remains, otherwise await response using draindelay.  Stop if EOF from server.
-            eof			= False
+            # remains, otherwise await response using draindelay.  Stop if EOF from server.  For
+            # each request, run a EtherNet/IP frame parser state machine 'til it reports terminal.
             rpy			= b''
-            while len( req ) and not eof:
-                out		= min( len( req ), random.randrange( *charrange ))
-                log.detail( "EtherNet/IP Client %3d send: %5d/%5d: %s", number, out, len( req ),
-                            repr( req[:out] ))
-                conn.send( req[:out] )
-                req		= req[out:]
-
-                rcvd		= network.recv( conn, timeout=chardelay if len( req ) else draindelay )
-                if rcvd is not None:
-                    log.detail( "EtherNet/IP Client %3d recv: %5d: %s", number, len( rcvd ),
-                                repr( rcvd ) if len( rcvd ) else "EOF" )
-                    eof		= not len( rcvd )
-                    rpy	       += rcvd
-
-            log.normal( "EtherNet/IP Client %3d rpy.: %5d: %s ", number, len( rpy ), repr( rpy ))
-            # Parse response
             sta			= None
             with enip.enip_machine( terminal=True ) as machine:
-                for mch,sta in machine.run( source=cpppo.peekable( rpy ), path='response', data=data ):
-                    pass
+                engine		= machine.run( source=source, path='response', data=data )
+                while not eof:
+                    if len( req ):
+                        if machine.terminal:
+                            log.warning(
+                                "EtherNet/IP Client %3d reply complete, before full request sent!" % (
+                                    number ))
+                            error += 1
+                        out	= min( len( req ), random.randrange( *charrange ))
+                        log.detail( "EtherNet/IP Client %3d send: %5d/%5d: %s", number, out, len( req ),
+                                    repr( req[:out] ))
+                        conn.send( req[:out] )
+                        req	= req[out:]
+                    # Wait up to draindelay if done request but machine not terminal
+                    done	= len( req ) == 0
+                    rcvd	= network.recv(
+                        conn, timeout=draindelay if done and not machine.terminal else chardelay )
+                    if rcvd is None:
+                        # No input; if we're done sending, we've waited long enough; either
+                        # chardelay or draindelay.  Quit.
+                        if done:
+                            if not machine.terminal:
+                                log.warning(
+                                    "EtherNet/IP Client %3d reply incomplete, but drained for %f seconds!" % (
+                                        number, draindelay ))
+                            break
+                    else:
+                        log.detail( "EtherNet/IP Client %3d recv: %5d: %s", number, len( rcvd ),
+                                    repr( rcvd ) if len( rcvd ) else "EOF" )
+                        eof		= not len( rcvd )
+                        rpy	       += rcvd
+
+                        # New data; keep running machine's engine (a generator)
+                        source.chain( rcvd )
+                        for mch,sta in engine:
+                            log.detail("EtherNet/IP Client %3d rpy.: %s -> %10.10s; next byte %3d: %-10.10r: %s",
+                                       number, machine.name_centered(), sta, source.sent, source.peek(), reprlib.repr( data ))
+
+                # Parsed response should be in data.
                 assert machine.terminal, \
                     "%3d client failed to decode EtherNet/IP response: %r\ndata: %s" % (
                         number, rpy, enip.parser.enip_format( data ))
 
-            log.normal( "EtherNet/IP Client %3d rpy. data: %s", number, enip.parser.enip_format( data ))
+            log.detail( "EtherNet/IP Client %3d rpy.: %5d: %s ", number, len( rpy ), repr( rpy ))
+            log.normal( "EtherNet/IP Client %3d rpy.: %s", number, enip.parser.enip_format( data ))
 
             # Successfully sent request and parsed response; can continue; test req/rpy parsed data
-            errors		= 0
             for k,v in tst.items():
                 if data[k] != v:
                     log.warning( "EtherNet/IP Client %3d test failed: %s != %s; %s", number, data[k], v,
@@ -1041,10 +1334,38 @@ def test_enip_bench_basic():
 
 enip_cli_kwds_logix		= {
 	'tests':	[
-            ( rss_004_request, {
-                'response.enip.command':	 	0x0065,
-                #'response.enip.session_handle':	285351425, # Server generates
-            }),
+            ( 
+                rss_004_request,
+                {
+                    'response.enip.command':	 	0x0065,
+                    #'response.enip.session_handle':	285351425, # Server generates
+                }
+            ), ( 
+                gaa_008_request,
+                {
+                    "response.enip.length": 		23, 
+                }
+            ), ( 
+                gaa_011_request,
+                {
+                    "response.enip.length": 		36, 
+                }
+            ), ( 
+                unk_014_request, # Read Frag, 1 element
+                {
+                    "response.enip.length": 		8, 
+                }
+            ), ( 
+                unk_020_request, # Write Frag, 1 elements (index 12)
+                {
+                    "response.enip.length": 		4, 
+                }
+            ), ( 
+                unk_023_request, # Read Frag, 1 elements (index 12)
+                {
+                    "response.enip.length": 		8, 
+                }
+            ),
         ]
 }
 

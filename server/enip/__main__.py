@@ -22,9 +22,11 @@ __email__                       = "perry@hardconsulting.com"
 __copyright__                   = "Copyright (c) 2013 Hard Consulting Corporation"
 __license__                     = "GNU General Public License, Version 3 (or later)"
 
-__all__				= ["logix"]
+import logging
 
-# These form the public interface of cpppo.server.enip
-from .main import *
-from .parser import *
-from .device import *
+import cpppo
+if __name__ == "__main__":
+    logging.basicConfig( **cpppo.log_cfg )
+
+from .main import main
+main()

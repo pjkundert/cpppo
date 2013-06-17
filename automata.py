@@ -50,9 +50,9 @@ class NonTerminal( Exception ):
 
 log				= logging.getLogger( __package__ )
 log_cfg				= {
-    "level":	logging.WARNING,
+#    "level":	logging.WARNING,
 #    "level":	logging.NORMAL,
-#    "level":	logging.DETAIL,
+    "level":	logging.DETAIL,
 #    "level":	logging.INFO,
 #    "level":	logging.DEBUG,
     "datefmt":	'%m-%d %H:%M:%S',
@@ -630,8 +630,10 @@ class state( dict ):
         exception		= None
         try:
             # If instance establishes input source symbol constraints, prepare to enforce them.  Any
-            # self.limit supplied may serve to establish or reduce an incoming ending symbol sent amount
-            # (never increase it).
+            # self.limit supplied may serve to establish or reduce an incoming ending symbol sent
+            # amount (never increase it).  The limit is harvested once before running the
+            # sub-machine, so it is OK for the referenced limit to disappear during processing
+            # (eg. the length erased by new values harvested by the sub-machine).
             if limit is not None:
                 if isinstance( limit, type_str_base ):
                     limit_src	= self.context( path, limit_src )
@@ -1476,5 +1478,3 @@ class regex_bytes_promote( regex_bytes ):
         subs			= self.initial.context( ours )
         log.info( "data[%s] = data[%s]: %r", ours, subs, data[subs] if subs in data else data )
         data[ours]		= data[subs]
-
-
