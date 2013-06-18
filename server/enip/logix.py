@@ -164,8 +164,6 @@ class Logix( Message_Router ):
     def request( self, data ):
         """Any exception should result in a reply being generated with a non-zero status."""
         
-        log.normal( "%s Request: %s", self, enip_format( data ))
-
         # See if this request is for us; if not, route to the correct Object, and return its result.
         try:
             path, ids, target	= None, None, None
@@ -180,10 +178,10 @@ class Logix( Message_Router ):
             ids			= (self.class_id, self.instance_id, None)
             pass
         if ids[0] != self.class_id or ids[1] != self.instance_id:
-            log.normal( "%s Routing to %s: %s", self, target, enip_format( data ))
+            log.detail( "%s Routing to %s: %s", self, target, enip_format( data ))
             return target.request( data )
         
-        log.normal( "%s Processing: %s", self, enip_format( data ))
+        log.normal( "%s Request: %s", self, enip_format( data ))
         # This request is for this Object.
         
         # Pick out our services added at this level.  If not recognized, let superclass try; it'll
@@ -619,8 +617,9 @@ def process( addr, data ):
             source.chain( data.request.enip.input )
             with ucmm.parser as machine:
                 for i,(m,s) in enumerate( machine.run( path='request.enip', source=source, data=data )):
-                    log.detail( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r",
-                                machine.name_centered(), i, s, source.sent, source.peek(), data )
+                    log.detail( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %s",
+                                machine.name_centered(), i, s, source.sent, source.peek(),
+                                repr( data ) if log.getEffectiveLevel() < logging.DETAIL else reprlib.repr( data ))
             
         log.normal( "EtherNet/IP CIP Request  (Client %16s): %s", addr, enip_format( data.request ))
 

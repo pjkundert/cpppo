@@ -94,7 +94,6 @@ class octets( octets_base, cpppo.state ):
 
 def octets_encode( value ):
     if isinstance( value, array.array ):
-        log.warning( "Encountered array.array; convert to bytearray: %s" % value )
         return value.tostring() if sys.version_info.major < 3 else value.tobytes()
     elif isinstance( value, bytearray ):
         return bytes( value )

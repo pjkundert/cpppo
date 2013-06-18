@@ -35,10 +35,12 @@ BACKGROUND
 
 """
 
+import argparse
 import array
 import codecs
 import errno
 import logging
+from logging import handlers
 import os
 import sys
 import threading
@@ -66,9 +68,7 @@ if __name__ == "__main__":
 log				= logging.getLogger( "enip.srv" )
 
 
-
-
-def enip_srv( conn, addr, enip_process=None ):
+def enip_srv( conn, addr, enip_process=None, delay=None ):
     """Serve one Ethernet/IP client 'til EOF; then close the socket.  Parses headers and encapsulated
     EtherNet/IP request data 'til either the parser fails (the Client has submitted an un-parsable
     request), or the request handler fails.  Otherwise, encodes the data.response in an EtherNet/IP
@@ -83,6 +83,8 @@ def enip_srv( conn, addr, enip_process=None ):
     raise an AssertionError, and we'll simply drop the connection.  If we receive a valid header and
     request, the supplied enip_process function is expected to formulate an appropriate error
     response, and we'll continue processing requests.
+
+    An option numeric 'delay' may be specified; every response will be delayed by the specified number of seconds
 
     """
     name			= "enip_%s" % addr[1]
@@ -132,8 +134,11 @@ def enip_srv( conn, addr, enip_process=None ):
                         assert 'response' in data, "Expected EtherNet/IP response; none found"
                         assert 'enip.input' in data.response, "Expected EtherNet/IP response encapsulated message; none found"
                         rpy	= parser.enip_encode( data.response.enip )
-                        log.detail( "%s send: %5d: %s", enip_mesg.name_centered(),
-                                    len( rpy ), reprlib.repr( rpy ))
+                        log.detail( "%s send: %5d: %s %s", enip_mesg.name_centered(),
+                                    len( rpy ), reprlib.repr( rpy ),
+                                    ("delay: %r" % delay) if delay else "" )
+                        if delay:
+                            time.sleep( delay )
                         conn.send( rpy )
                     else:
                         # Session terminated.  No response, just drop connection.
@@ -168,12 +173,62 @@ def enip_srv( conn, addr, enip_process=None ):
 
 
 def main( **kwds ):
-    # TODO: parse arguments to select the appropriate EtherNet/IP CIP processor, if one isn't
-    # specified
-    
+    # Parse args
+    parser			= argparse.ArgumentParser(
+        description = "Provide an EtherNet/IP Server",
+        epilog = "" )
+
+    # -v[v...]/--verbose
+    parser.add_argument( '-v', '--verbose',
+                         default=0, action="count",
+                         help="Display logging information." )
+    parser.add_argument( '-a', '--address',
+                         default="%s:%d" % address,
+                         help="Default interface[:port] to bind to (default: all, port 80)" )
+    parser.add_argument( '-l', '--log',
+                         help="Log file, if desired" )
+    parser.add_argument( '-d', '--delay',
+                         help="Delay response to each request by a certain number of seconds (default: 0.0)",
+                         default="0.0" )
+
+    args			= parser.parse_args()
+
+    # Deduce interface:port address to bind, and correct types (default is address, above)
+    bind			= args.address.split(':')
+    assert 1 <= len( bind ) <= 2
+    bind			= ( str( bind[0] ) if bind[0] else address[0],		# Handle :<port>
+                                    int( bind[1] ) if len( bind ) > 1 else address[1] )	# Handle <address>
+
+    # Set up logging level (-v...) and --log <file>
+    levelmap 			= {
+        0: logging.WARNING,
+        1: logging.NORMAL,
+        2: logging.DETAIL,
+        3: logging.INFO,
+        4: logging.DEBUG,
+        }
+    level			= ( levelmap[args.verbose] 
+                                    if args.verbose in levelmap
+                                    else logging.DEBUG )
+    rootlog			= logging.getLogger("")
+    rootlog.setLevel( level )
+    if args.log:
+        formatter		= rootlog.handlers[0].formatter
+        while len( rootlog.handlers ):
+            rootlog.removeHandler( rootlog.handlers[0] )
+        handler			= logging.handlers.RotatingFileHandler( args.log, maxBytes=10*1024*1024, backupCount=5 )
+        handler.setFormatter( formatter )
+        rootlog.addHandler( handler )
+
+    # Specify a global response delay
+    delay			= float( args.delay )
+    if delay:
+        log.normal( "Delaying all responses by %f seconds" , delay )
+
     # Use the Logix simulator by default. ('SCADA' tag, 1000 INT values)
     kwds.setdefault( 'enip_process', logix.process )
-    return network.server_main( address=address, target=enip_srv, **kwds )
+    kwds.update( delay=delay )
+    return network.server_main( address=bind, target=enip_srv, **kwds )
 
 if __name__ == "__main__":
     sys.exit( main() )

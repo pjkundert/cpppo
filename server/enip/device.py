@@ -444,7 +444,7 @@ class Object( object ):
         self.instance_id	= instance_id
 
         ( log.normal if self.instance_id else log.info )( 
-            "%16s, Class ID %02x, Instance ID %d created",
+            "%24s, Class ID 0x%04x, Instance ID %3d created",
             self, self.class_id, self.instance_id )
 
         instance		= lookup( self.class_id, instance_id )
@@ -499,7 +499,7 @@ class Object( object ):
         """
         result			= b''
 
-        log.normal( "%s Request: %s", self, enip_format( data ))
+        log.detail( "%s Request: %s", self, enip_format( data ))
         try:
             # Validate the request.  As we process, ensure that .status is set to reflect the
             # failure mode, should an exception be raised.  Return True iff the communications
@@ -550,7 +550,7 @@ class Object( object ):
         # Always produce a response payload; if a failure occurred, will contain an error status.
         # If this fails, we'll raise an exception for higher level encapsulation to handle.
         data.input		= bytearray( self.produce( data ))
-        log.normal( "%s Response: %s: %s", self, self.service[data.service], enip_format( data ))
+        log.detail( "%s Response: %s: %s", self, self.service[data.service], enip_format( data ))
         return True # We shouldn't be able to terminate a connection at this level
 
     @classmethod
@@ -657,7 +657,7 @@ class UCMM( Object ):
         processed and connection should proceed to process further messages.
 
         """
-        log.normal( "%r Request: %s", self, enip_format( data ))
+        log.detail( "%r Request: %s", self, enip_format( data ))
 
         proceed			= True
 
@@ -813,7 +813,7 @@ class UCMM( Object ):
 
         # The enip.input EtherNet/IP encapsulation is assumed to have been filled in.  Otherwise, no
         # encapsulated response is expected.
-        log.normal( "%s Response: %s", self, enip_format( data ))
+        log.detail( "%s Response: %s", self, enip_format( data ))
         return proceed
             
 
@@ -877,7 +877,7 @@ class Connection_Manager( Object ):
         assert 'input' in data.request, \
             "Unconnected Send message with empty request"
 
-        log.normal( "%s Parsing: %s", self, enip_format( data.request ))
+        log.detail( "%s Parsing: %s", self, enip_format( data.request ))
         # Get the Message Router to parse and process the request into a response, producing a
         # data.request.input encoded response, which we will pass back as our own encoded response.
         MR			= lookup( class_id=0x02, instance_id=1 )
@@ -885,8 +885,9 @@ class Connection_Manager( Object ):
         try: 
             with MR.parser as machine:
                 for i,(m,s) in enumerate( machine.run( path='request', source=source, data=data )):
-                    log.detail( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r",
-                                machine.name_centered(), i, s, source.sent, source.peek(), data )
+                    log.detail( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %s",
+                                machine.name_centered(), i, s, source.sent, source.peek(),
+                                repr( data ) if log.getEffectiveLevel() < logging.DETAIL else reprlib.repr( data ))
 
             log.normal( "%s Executing: %s", self, enip_format( data.request ))
             MR.request( data.request )
@@ -901,6 +902,6 @@ class Connection_Manager( Object ):
             log.error( "EtherNet/IP CIP error %s\n", where )
             raise
 
-        log.normal( "%s Response: %s", self, enip_format( data ))
+        log.detail( "%s Response: %s", self, enip_format( data ))
         return True
 

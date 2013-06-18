@@ -7,6 +7,26 @@
   described in terms of state machines which change state in response to input
   events, collecting the data and producing output data artifacts.
 
+** Protocols
+
+*** EtherNet/IP CIP Logix Controller Simulation
+
+    To run a simulation of a small subset of a Logix(tm) Controller, run:
+    : python -m cpppo.server.enip
+
+    The following options apply:
+
+    Specify a different local interface and/or port to bind to (default is 0.0.0.0:44818):
+    : -a|--address [<interface>][:<port>]
+
+    Change the verbosity (supply more to increase further):
+    : -v[vv...]|--verbose 
+
+    Specify a constant delay to apply to every response, in fractional seconds:
+    : -d|--delay #.#
+
+    
+
 ** Deterministic Finite Automata
 
    A cpppo.dfa will consume symbols from its source iterable, and yield
