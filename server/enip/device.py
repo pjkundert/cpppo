@@ -499,6 +499,7 @@ class Object( object ):
         """
         result			= b''
 
+        log.normal( "%s Request: %s", self, enip_format( data ))
         try:
             # Validate the request.  As we process, ensure that .status is set to reflect the
             # failure mode, should an exception be raised.  Return True iff the communications
@@ -525,7 +526,7 @@ class Object( object ):
                     result     += self.attribute[str(a_id)].produce()
                     a_id       += 1
                 data.get_attributes_all = cpppo.dotdict()
-                data.get_attributes_all.input = bytearray( result )
+                data.get_attributes_all.data = bytearray( result )
 
                 data.status	= 0x00
                 data.pop( 'status_ext', None )
@@ -534,13 +535,15 @@ class Object( object ):
             else:
                 raise AssertionError( "Unrecognized Service Reply" )
         except Exception as exc:
-            log.warning( "%r Service 0x%02x %s failed with Exception: %s\nRequest: %s\n%s", self,
+            log.warning( "%r Service 0x%02x %s failed with Exception: %s\nRequest: %s\n%s\nStack %s", self,
                          data.service if 'service' in data else 0,
                          ( self.service[data.service]
                            if 'service' in data and data.service in self.service
                            else "(Unknown)" ), exc, enip_format( data ),
-                         ''.join( traceback.format_exception( *sys.exc_info() )))
-            assert data.status not in (0x00,), \
+                         ''.join( traceback.format_exception( *sys.exc_info() )),
+                         ''.join( traceback.format_stack()))
+
+            assert data.status != 0x00, \
                 "Implementation error: must specify .status error code before raising Exception"
             pass
 
@@ -561,28 +564,35 @@ class Object( object ):
         elif data.get( 'service' ) == cls.GA_ALL_RPY:
             # Get Attributes All Reply
             result	       += USINT.produce(	data.service )
-            result	       += octets_encode( data.get_attributes_all.input )
+            result	       += b'\x00' # reserved
+            result	       += status.produce( 	data )
+            result	       += octets_encode( 	data.get_attributes_all.data )
         else:
             assert False, "%s doesn't recognize request/reply format: %r" % ( cls.__name__, data )
         return result
 
 # Register the standard Object parsers
 def __get_attributes_all():
-    gasv			= USINT(		 	context='service' )
-    gasv[True]	= gapt		= EPATH(			context='path')
-    gapt[None]			= move_if( 	'get_attr_all', destination='get_attributes_all',
-                                                initializer=True,
-                                                state=octets_noop( terminal=True ))
-    return gasv
+    srvc			= USINT(		 	context='service' )
+    srvc[True]		= path	= EPATH(			context='path')
+    path[None]		= mark	= octets_noop(			context='get_attributes_all',
+                                                terminal=True )
+    mark.initial[None]		= move_if( 	'mark',		initializer=True )
+    return srvc
 
 Object.register_service_parser( number=Object.GA_ALL_REQ, name=Object.GA_ALL_NAM, 
                                 short=Object.GA_ALL_CTX, machine=__get_attributes_all() )
 
 def __get_attributes_all_reply():
-    gasv			= USINT(		 	context='service' )
-    gasv[True]		= gadt	= octets(			context='get_attributes_all',
+    srvc			= USINT(		 	context='service' )
+    srvc[True]	 	= rsvd	= octets_drop(	'reserved',	repeat=1 )
+    rsvd[True]		= stts	= status()
+    stts[None]		= data	= octets(			context='get_attributes_all',
+                                                octets_extension='.data',
                                             	terminal=True )
-    return gasv
+    data[True]		= data	# Soak up all remaining data
+
+    return srvc
 
 Object.register_service_parser( number=Object.GA_ALL_RPY, name=Object.GA_ALL_NAM + " Reply", 
                                 short=Object.GA_ALL_CTX, machine=__get_attributes_all_reply() )
@@ -757,30 +767,36 @@ class UCMM( Object ):
                     and data.enip.CIP.send_data.CPF.count == 2 \
                     and data.enip.CIP.send_data.CPF.item[0].length == 0, \
                     "EtherNet/IP UCMM remote routed requests unimplemented"
-                try:
-                    path, ids, target	= None, None, None
-                    path		= data.enip.CIP.send_data.CPF.item[1].unconnected_send.path
-                    ids			= resolve( path )
-                    target		= lookup( *ids )
-                except Exception as exc:
-                    log.warning( "%s Failed attempting to resolve path %r: class,inst,addr: %r, target: %r",
-                                 self, path, ids, target )
-                    raise
-
-                # Let the target process the command.  This will sometimes be a direct Get
-                # Attributes All (eg. Service 1 on Class 102 Instance 1, above), but usually an
-                # Unconnected Send via the Connection Manager (Service 0x52/82 on Class 6, Instance
-                # 1 above), in which it must parse a request
-                target.request( data.enip.CIP.send_data.CPF.item[1].unconnected_send )
+                unc_send		= data.enip.CIP.send_data.CPF.item[1].unconnected_send
+                if 'path' in unc_send:
+                    ids			= resolve( unc_send.path )
+                    assert ids[0] == 0x06 and ids[1] == 1, \
+                        "Unconnected Send targeted Object other than Connection Manager: 0x%04x/%d" % ( ids[0], ids[1] )
+                if 'route_path.segment' in unc_send:
+                    assert len( unc_send.route_path.segment ) == 1 \
+                        and unc_send.route_path.segment[0] == {'link': 0, 'port':1}, \
+                        "Unconnected Send routed to link other than backplane link 1, port 0: %r" % unc_send.route_path
+                CM			= lookup( class_id=0x06, instance_id=1 )
+                CM.request( unc_send )
                 
-                # After successful processing of the Unconnected Send, the encapsulated
-                # ...unconnected_send.request.input response message becomes the EtherNet/IP
-                # response message.  Basically, all the Unconnected Send encapsulation and routing
-                # is used to deliver the request to the target Object, and then is discarded and the
-                # EtherNet/IP envelope is simply returned directly to the originator carrying the
-                # response payload.
-                data.enip.input	= data.enip.CIP.send_data.CPF.item[1].unconnected_send.input
+                # After successful processing of the Unconnected Send on the target node, we
+                # eliminate the Unconnected Send wrapper (the unconnected_send.service = 0x52,
+                # route_path, etc), and replace it with a simple encapsulated raw request.input.  We
+                # do that by emptying out the unconnected_send, except for the bare request.
+                # Basically, all the Unconnected Send encapsulation and routing is used to deliver
+                # the request to the target Object, and then is discarded and the EtherNet/IP
+                # envelope is simply returned directly to the originator carrying the response
+                # payload.
+                log.detail( "%s Repackaged: %s", self, enip_format( data ))
+                
+                data.enip.CIP.send_data.CPF.item[1].unconnected_send  = cpppo.dotdict()
+                data.enip.CIP.send_data.CPF.item[1].unconnected_send.request = unc_send.request
 
+                # And finally, re-encapsulate the CIP SendRRData, with its (now unwrapped)
+                # Unconnected Send request response payload.
+                log.detail( "%s Regenerating: %s", self, enip_format( data ))
+                data.enip.input		= bytearray( self.parser.produce( data.enip ))
+                
         except Exception as exc:
             # On Exception, if we haven't specified a more detailed error code, return Service not
             # supported.  This 
@@ -845,22 +861,24 @@ class Connection_Manager( Object ):
 
     def request( self, data ):
         """
-        Handles a parsed request.enip.*, and produces an appropriate response.enip.*.  For connection
-        related requests (Register, Unregister), handle locally.  Return True iff request processed
-        and connection should proceed to process further messages.
+        Handles an unparsed request.input, parses it and processes the request with the Message Router.
+        
 
         """
         log.normal( "%s Request: %s", self, enip_format( data ))
 
+        '''
         if data.get( 'service' ) == self.UC_SND_REQ:
             # Unconnected Send
             pass
         else:
             return super( Connection_Manager, self ).request( data )
+        '''
 
-        assert 'length' in data and data.length > 0 and 'input' in data.request, \
+        assert 'input' in data.request, \
             "Unconnected Send message with empty request"
 
+        log.normal( "%s Parsing: %s", self, enip_format( data.request ))
         # Get the Message Router to parse and process the request into a response, producing a
         # data.request.input encoded response, which we will pass back as our own encoded response.
         MR			= lookup( class_id=0x02, instance_id=1 )
@@ -871,6 +889,7 @@ class Connection_Manager( Object ):
                     log.detail( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r",
                                 machine.name_centered(), i, s, source.sent, source.peek(), data )
 
+            log.normal( "%s Executing: %s", self, enip_format( data.request ))
             MR.request( data.request )
         except:
             # Parsing failure.  We're done.  Suck out some remaining input to give us some context.
@@ -883,8 +902,7 @@ class Connection_Manager( Object ):
             log.error( "EtherNet/IP CIP error %s\n", where )
             raise
         
-        # Our encoded response is our encapsulated request's encoded response
-        data.input		= data.request.input
 
         log.normal( "%s Response: %s", self, enip_format( data ))
         return True
+

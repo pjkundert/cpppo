@@ -180,6 +180,7 @@ class Logix( Message_Router ):
             log.normal( "%s Routing to %s: %s", self, target, enip_format( data ))
             return target.request( data )
         
+        log.normal( "%s Processing: %s", self, enip_format( data ))
         # This request is for this Object.
         
         # Pick out our services added at this level.  If not recognized, let superclass try; it'll
@@ -278,7 +279,7 @@ class Logix( Message_Router ):
             cnt			= len( attribute )
             elm			= data[context].get( 'elements', cnt ) # Read/Write Tag defaults to all
             endactual	= end	= beg + elm
-            if ( data.service in ( self.RD_TAG_RPY, self.RD_FRG_RPY )):
+            if ( data.service in (self.RD_TAG_RPY, self.RD_FRG_RPY) ):
                 endmax 		= beg + self.MAX_BYTES // siz
                 end		= min( endactual, endmax )
             assert 0 <= beg < cnt, \
@@ -289,7 +290,6 @@ class Logix( Message_Router ):
 
             if data.service in (self.RD_TAG_RPY, self.RD_FRG_RPY):
                 # Read Tag [Fragmented]
-                log.normal( "%s Reading %3d elements %3d-%3d from %s", self, end - beg, beg, end-1, attribute )
                 if isinstance( value, list ):
                     data[context].data	= value[beg:end]
                 else:
@@ -297,12 +297,15 @@ class Logix( Message_Router ):
                         "Attribute %s indexed beyond first element of a scalar value: %r" % (
                             attribute, (beg, end) )
                     data[context].data	= [ value ]
+                log.normal( "%s Reading %3d elements %3d-%3d from %s: %s",
+                            self, end - beg, beg, end-1, attribute, data[context].data )
                 # Final .status is 0x00 if all requested elements were shipped; 0x06 if not
                 data.status		= 0x00 if end == endactual else 0x06
                 data.pop( 'status_ext' ) # non-empty dotdict level; use pop instead of del
             else:
                 # Write Tag [Fragmented].  We know the type is right.
-                log.normal( "%s Writing %3d elements %3d-%3d into %s", self, end - beg, beg, end-1, attribute )
+                log.normal( "%s Writing %3d elements %3d-%3d into %s: %r",
+                            self, end - beg, beg, end-1, attribute, data[context].data )
                 for i,v in zip( range( beg, end ), data[context].data ):
                     attribute[i]	= v
                 data.status		= 0x00
@@ -318,7 +321,7 @@ class Logix( Message_Router ):
                            if 'service' in data and data.service in self.service
                            else "(Unknown)"), exc, enip_format( data ),
                          ''.join( traceback.format_exception( *sys.exc_info() )))
-            assert data.status not in ( 0x00, 0x06 ), \
+            assert data.status not in (0x00, 0x06), \
                 "Implementation error: must specify .status not in (0x00, 0x06) before raising Exception!"
             pass
 
@@ -386,7 +389,7 @@ class Logix( Message_Router ):
             result	       += USINT.produce(	data.service )
             result	       += USINT.produce(	0x00 )	# fill
             result	       += status.produce(	data )
-            if data.status in (0x00):
+            if data.status == 0x00:
                 result	       += UINT.produce(		data.read_tag.type )
                 result	       += typed_data.produce(	data.read_tag )
         elif data.get( 'service' ) == cls.RD_FRG_RPY:
@@ -414,15 +417,17 @@ def __read_tag_reply():
     # Read Tag Service (reply).  Remainder of symbols are typed data.
     srvc			= USINT(		 	context='service' )
     srvc[True]		= rsvd	= octets_drop(	'reserved',	repeat=1 )
-    rsvd[True]		= stts	= status( terminal=True )
+    rsvd[True]		= stts	= status()
+    stts[None]		= schk	= octets_noop(	'check',
+                                                terminal=True )
 
     dtyp			= UINT( 	'type',   	context='read_tag',  extension='.type' )
     dtyp[True]			= typed_data( 	'data',   	context='read_tag',
                                         datatype='.type',
                                         terminal=True )
     # For status 0x00 (Success), type/data follows.
-    stts[None]			= cpppo.decide(	'ok',		state=dtyp,
-                predicate=lambda path=None, data=None, **kwds: data[path+'.status'] in (0x00) )
+    schk[None]			= cpppo.decide(	'ok',		state=dtyp,
+        predicate=lambda path=None, data=None, **kwds: data[path+'.status' if path else 'status']== 0x00 )
     return srvc
 Logix.register_service_parser( number=Logix.RD_TAG_RPY, name=Logix.RD_TAG_NAM + " Reply",
                                short=Logix.RD_TAG_CTX, machine=__read_tag_reply() )
@@ -441,15 +446,17 @@ def __read_frag_reply():
     # Read Tag Fragmented Service (reply).  Remainder of symbols are typed data.
     srvc			= USINT(			context='service' )
     srvc[True]	 	= rsvd	= octets_drop(	'reserved',	repeat=1 )
-    rsvd[True]		= stts	= status( terminal=True )
+    rsvd[True]		= stts	= status()
+    stts[None]		= schk	= octets_noop(	'check',
+                                                terminal=True )
 
     dtyp			= UINT( 	'type',   	context='read_frag',  extension='.type' )
     dtyp[True]			= typed_data( 	'data',   	context='read_frag',
                                         datatype='.type',
                                         terminal=True )
     # For status 0x00 (Success) and 0x06 (Not all data returned), type/data follows.
-    stts[None]			= cpppo.decide(	'ok',		state=dtyp,
-                predicate=lambda path=None, data=None, **kwds: data[path+'.status'] in (0x00, 0x06) )
+    schk[None]			= cpppo.decide(	'ok',		state=dtyp,
+        predicate=lambda path=None, data=None, **kwds: data[path+'.status' if path else 'status'] in (0x00, 0x06) )
 
     return srvc
 Logix.register_service_parser( number=Logix.RD_FRG_RPY, name=Logix.RD_FRG_NAM + " Reply",
@@ -471,9 +478,10 @@ def __write_tag_reply():
     srvc			= USINT(		  	context='service' )
     srvc[True]		= rsvd	= octets_drop(	'reserved',	repeat=1 )
     rsvd[True]		= stts	= status()
-    stts[None]			= move_if( 	'write_tag',	destination='.write_tag',
-                                        initializer=True, # was: lambda **kwds: cpppo.dotdict(),
-                                        state=octets_noop( terminal=True ))
+    stts[None]		= mark	= octets_noop(			context='write_tag',
+                                                terminal=True )
+    mark.initial[None]		= move_if( 	'mark',		initializer=True )
+
     return srvc
 Logix.register_service_parser( number=Logix.WR_TAG_RPY, name=Logix.WR_TAG_NAM + " Reply",
                                short=Logix.WR_TAG_CTX, machine=__write_tag_reply() )
@@ -495,10 +503,10 @@ def __write_frag_reply():
     # Write Tag Fragmented Service (reply)
     srvc			= USINT(			context='service' )
     srvc[True]		= rsvd	= octets_drop(	'reserved',	repeat=1 )
-    rsvd[True]		= stts	= status( 	terminal=True )
-    stts[None]			= move_if( 	'write_frag',	destination='.write_frag',
-                                        initializer=True, # was: lambda **kwds: cpppo.dotdict(),
-                                        state=octets_noop( terminal=True ))
+    rsvd[True]		= stts	= status()
+    stts[None]		= mark	= octets_noop(			context='write_frag',
+                                                terminal=True )
+    mark.initial[None]		= move_if( 	'mark',		initializer=True )
     return srvc
 Logix.register_service_parser( number=Logix.WR_FRG_RPY, name=Logix.WR_FRG_NAM + " Reply",
                                short=Logix.WR_FRG_CTX, machine=__write_frag_reply() )
