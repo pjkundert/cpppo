@@ -17,3 +17,4 @@
 *.pdf
 *.tex
 auto/
+*.out

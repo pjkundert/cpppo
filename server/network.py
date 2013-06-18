@@ -143,7 +143,7 @@ def server_main( address, target, **kwds ):
 
     name			= target.__name__
     threads			= {}
-    log.info( "%s server PID [%5d] running on %r", name, os.getpid(), address )
+    log.normal( "%s server PID [%5d] running on %r", name, os.getpid(), address )
     done			= False
     while not done:
         try:

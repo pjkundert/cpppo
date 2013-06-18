@@ -73,6 +73,7 @@ class octets_base( cpppo.dfa_base ):
     self.terminal be True."""
     def __init__( self, name=None, initial=None,
                   octets_name="byte",
+                  octets_extension=None, # .input is state_input's default
                   octets_state=cpppo.state_input,
                   octets_alphabet=cpppo.type_bytes_iter,
                   octets_encoder=None,
@@ -82,7 +83,7 @@ class octets_base( cpppo.dfa_base ):
         name			= name or kwds.setdefault( 'context', self.__class__.__name__ )
         super( octets_base, self ).__init__( name=name, initial=octets_state(
             name=octets_name, terminal=True, alphabet=octets_alphabet, encoder=octets_encoder,
-            typecode=octets_typecode ), **kwds )
+            typecode=octets_typecode, extension=octets_extension ), **kwds )
    
 
 class octets( octets_base, cpppo.state ):
@@ -670,11 +671,11 @@ class route_path( EPATH ):
 
 class unconnected_send( cpppo.dfa ):
     """See CIP Specification, Vol. 1, Chapter 3, 3-5.26.  A Message Router object must process
-    Unconnected Send requests, which carry a message and a routing path, allowing delivery of the
+    Unconnected Send (0x52) requests, which carry a message and a routing path, allowing delivery of the
     message to a port.  When the route_path contains only a port, then the message is delivered the
     attached processor; otherwise, it needs to be forwarded; we do not handle these cases yet.
 
-        .unconnected_send.service	USINT
+        .unconnected_send.service	USINT 		0x52
         .unconnected_send.path		EPATH		?	object handling parsing (message router)
         .unconnected_send.priority	USINT
         .unconnected_send.timeout_ticks	USINT
@@ -686,16 +687,20 @@ class unconnected_send( cpppo.dfa ):
 
     We cannot parse the encapsulated message, because it may not be destined for local Objects, so
     we may not have the correct parser; leave it in .octets.
+
+    Any other requests/replies carried in the 
+    Get Attributes All Request (0x01) and Reply (0x81).
+
     """
     def __init__( self, name=None, **kwds ):
         name 			= name or kwds.setdefault( 'context', self.__class__.__name__ )
 
-        cmnd			= USINT(	context='service' )
-        cmnd[True]	= path	= EPATH(	context='path',	
-                                                terminal=True )
+        slct			= octets_noop(	'select' )
 
-        # Some commands (eg Get Attribute All) have no other content, and terminate here.
-        # Other have encapsulated request .input (an optional pad) and a route path.
+        usnd			= USINT(	context='service' )
+        usnd[True]	= path	= EPATH(	context='path' )
+        # All Unconnected Send (0x52) encapsulated request.input have a length, followed by an
+        # optional pad, and then a route path.
         path[True]	= prio	= USINT(	context='priority' )
         prio[True]	= timo	= USINT(	context='timeout_ticks' )
         timo[True]	= leng	= UINT(		context='length' )
@@ -714,27 +719,34 @@ class unconnected_send( cpppo.dfa ):
         # But, if no pad, go parse the route path
         mesg[None]		= rout
 
-        super( unconnected_send, self ).__init__( name=name, initial=cmnd, **kwds )
+        # So; 0x52 Unconnected Send parses an request with a Route Path, but anything else is just
+        # an opaque encapsulated request; just copy all remaining bytes to the request.input.
+        slct[b'\x52'[0]]	= usnd
+        slct[True]	= othr	= octets(	context='request', terminal=True )
+        othr[True]		= othr
+
+        super( unconnected_send, self ).__init__( name=name, initial=slct, **kwds )
 
     @classmethod
     def produce( cls, data ):
         result			= b''
-        result		       += USINT.produce( data.service )
-        result		       += EPATH.produce( data.path )
-        if 'request' not in data:
-            return result
-        result		       += USINT.produce( data.priority )
-        result		       += USINT.produce( data.timeout_ticks )
-        result		       += UINT.produce( len( data.request.input ))
-        result		       += octets_encode( data.request.input )
-        if len( data.request.input ) % 2:
-            result	       += b'\x00'
-        result		       += route_path.produce( data.route_path )
+        if data.get( 'service' ) == 0x52:
+            result	       += USINT.produce( data.service )
+            result	       += EPATH.produce( data.path )
+            result	       += USINT.produce( data.priority )
+            result	       += USINT.produce( data.timeout_ticks )
+            result	       += UINT.produce( len( data.request.input ))
+            result	       += octets_encode( data.request.input )
+            if len( data.request.input ) % 2:
+                result	       += b'\x00'
+            result	       += route_path.produce( data.route_path )
+        else:
+            # Not an Unconnected Send; just return the encapsulated request.input payload
+            result	       += octets_encode( data.request.input )
         return result
 
 
 class CPF( cpppo.dfa ):
-
     """A SendRRData Common Packet Format specifies the number and type of the encapsulated CIP address
     items or data items that follow:
 
@@ -838,6 +850,14 @@ class send_data( cpppo.dfa ):
 
         super( send_data, self ).__init__( name=name, initial=ifce, **kwds )
 
+    @staticmethod
+    def produce( data ):
+        result			= b''
+        result		       += UDINT.produce( data.interface )
+        result		       += UINT.produce(  data.timeout )
+        result		       += CPF.produce( data.CPF )
+        return result
+
 
 class register( cpppo.dfa ):
     """Handle RegisterSession request/reply (identical)"""
@@ -856,6 +876,7 @@ class register( cpppo.dfa ):
         result		       += UINT.produce(	data.protocol_version )
         result		       += UINT.produce(	data.options )
         return result
+
 
 class unregister( octets_noop ):
     """Handle UnregisterSession request (no reply; session dropped)"""
@@ -958,6 +979,9 @@ class CIP( cpppo.dfa ):
         if ( data.get( 'command' ) == 0x0065
              or 'CIP.register' in data and data.setdefault( 'command', 0x0065 ) == 0x0065 ):
             result	       += register.produce( data.CIP.register )
+        elif ( data.get( 'command' ) == 0x006f
+               or 'CIP.send_data' in data and  data.setdefault( 'command', 0x006f ) == 0x006f ):
+            result	       += send_data.produce( data.CIP.send_data )
         else:
             assert False, "Invalid CIP request/reply format: %r" % data
 
