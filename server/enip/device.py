@@ -867,13 +867,12 @@ class Connection_Manager( Object ):
         """
         log.normal( "%s Request: %s", self, enip_format( data ))
 
-        '''
-        if data.get( 'service' ) == self.UC_SND_REQ:
-            # Unconnected Send
-            pass
-        else:
-            return super( Connection_Manager, self ).request( data )
-        '''
+        # We don't check for Unconnected Send 0x52, because replies (and some requests) don't
+        # include the full wrapper, just the raw command.  This is quite confusing; especially since
+        # some of the commands have the same code (eg. Read Tag Fragmented, 0x52).  Of course, their
+        # replies don't (0x52|0x80 == 0xd2).  The CIP.produce recognizes the absence of the
+        # .command, and simply copies the encapsulated request.input as the response payload.  We
+        # don't encode the response here; it is done by the UCMM.
 
         assert 'input' in data.request, \
             "Unconnected Send message with empty request"
@@ -901,7 +900,6 @@ class Connection_Manager( Object ):
                 processed, repr(memory+future), '-' * (len(repr(memory))-1) + '^', pos )
             log.error( "EtherNet/IP CIP error %s\n", where )
             raise
-        
 
         log.normal( "%s Response: %s", self, enip_format( data ))
         return True

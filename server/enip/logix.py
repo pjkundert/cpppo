@@ -166,16 +166,19 @@ class Logix( Message_Router ):
         
         log.normal( "%s Request: %s", self, enip_format( data ))
 
-        # See if this request is for us; if not, route to the correct Object, and return its result
+        # See if this request is for us; if not, route to the correct Object, and return its result.
         try:
             path, ids, target	= None, None, None
             path		= data.path
             ids			= resolve( path )
             target		= lookup( *ids )
         except Exception as exc:
+            # The resolution/lookup fails (eg. bad symbolic Tag); ignore it and continue processing,
+            # so we can return a proper .status error code from the actual request, below.
             log.warning( "%s Failed attempting to resolve path %r: class,inst,addr: %r, target: %r",
                          self, path, ids, target )
-            raise
+            ids			= (self.class_id, self.instance_id, None)
+            pass
         if ids[0] != self.class_id or ids[1] != self.instance_id:
             log.normal( "%s Routing to %s: %s", self, target, enip_format( data ))
             return target.request( data )
