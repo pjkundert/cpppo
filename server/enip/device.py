@@ -526,7 +526,7 @@ class Object( object ):
                     result     += self.attribute[str(a_id)].produce()
                     a_id       += 1
                 data.get_attributes_all = cpppo.dotdict()
-                data.get_attributes_all.input = bytearray( result )
+                data.get_attributes_all.data = bytearray( result )
 
                 data.status	= 0x00
                 data.pop( 'status_ext', None )
@@ -768,40 +768,16 @@ class UCMM( Object ):
                     and data.enip.CIP.send_data.CPF.item[0].length == 0, \
                     "EtherNet/IP UCMM remote routed requests unimplemented"
                 unc_send		= data.enip.CIP.send_data.CPF.item[1].unconnected_send
-                try:
-                    path, ids, target	= None, None, None
-                    if 'path' in unc_send:
-                        path		= unc_send.path
-                        ids		= resolve( path )
-                    else:
-                        # Otherwise, default to the Message Router
-                        ids		= 0x02,1,None
-                    target		= lookup( *ids )
-                except Exception as exc:
-                    log.warning( "%s Failed attempting to resolve path %r: class,inst,addr: %r, target: %r",
-                                 self, path, ids, target )
-                    raise
-
-                # Let the target parse and process the command
-                
-                source			= cpppo.rememberable( unc_send.request.input )
-                try: 
-                    with target.parser as machine:
-                        for i,(m,s) in enumerate( machine.run( path='request', source=source, data=unc_send )):
-                            log.detail( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r",
-                                        machine.name_centered(), i, s, source.sent, source.peek(), data )
-                except:
-                    # Parsing failure.  We're done.  Suck out some remaining input to give us some context.
-                    processed		= source.sent
-                    memory		= bytes(bytearray(source.memory))
-                    pos			= len( source.memory )
-                    future		= bytes(bytearray( b for b in source ))
-                    where		= "at %d total bytes:\n%s\n%s (byte %d)" % (
-                        processed, repr(memory+future), '-' * (len(repr(memory))-1) + '^', pos )
-                    log.error( "%s Parsing error %s\n", self, where )
-                    raise
-                
-                target.request( unc_send.request )
+                if 'path' in unc_send:
+                    ids			= resolve( unc_send.path )
+                    assert ids[0] == 0x06 and ids[1] == 1, \
+                        "Unconnected Send targeted Object other than Connection Manager: 0x%04x/%d" % ( ids[0], ids[1] )
+                if 'route_path.segment' in unc_send:
+                    assert len( unc_send.route_path.segment ) == 1 \
+                        and unc_send.route_path.segment[0] == {'link': 0, 'port':1}, \
+                        "Unconnected Send routed to link other than backplane link 1, port 0: %r" % unc_send.route_path
+                CM			= lookup( class_id=0x06, instance_id=1 )
+                CM.request( unc_send )
                 
                 # After successful processing of the Unconnected Send on the target node, we
                 # eliminate the Unconnected Send wrapper (the unconnected_send.service = 0x52,
@@ -885,22 +861,24 @@ class Connection_Manager( Object ):
 
     def request( self, data ):
         """
-        Handles a parsed request.enip.*, and produces an appropriate response.enip.*.  For connection
-        related requests (Register, Unregister), handle locally.  Return True iff request processed
-        and connection should proceed to process further messages.
+        Handles an unparsed request.input, parses it and processes the request with the Message Router.
+        
 
         """
         log.normal( "%s Request: %s", self, enip_format( data ))
 
+        '''
         if data.get( 'service' ) == self.UC_SND_REQ:
             # Unconnected Send
             pass
         else:
             return super( Connection_Manager, self ).request( data )
+        '''
 
         assert 'input' in data.request, \
             "Unconnected Send message with empty request"
 
+        log.normal( "%s Parsing: %s", self, enip_format( data.request ))
         # Get the Message Router to parse and process the request into a response, producing a
         # data.request.input encoded response, which we will pass back as our own encoded response.
         MR			= lookup( class_id=0x02, instance_id=1 )
@@ -911,6 +889,7 @@ class Connection_Manager( Object ):
                     log.detail( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r",
                                 machine.name_centered(), i, s, source.sent, source.peek(), data )
 
+            log.normal( "%s Executing: %s", self, enip_format( data.request ))
             MR.request( data.request )
         except:
             # Parsing failure.  We're done.  Suck out some remaining input to give us some context.

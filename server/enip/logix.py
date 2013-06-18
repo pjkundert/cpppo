@@ -290,7 +290,6 @@ class Logix( Message_Router ):
 
             if data.service in (self.RD_TAG_RPY, self.RD_FRG_RPY):
                 # Read Tag [Fragmented]
-                log.normal( "%s Reading %3d elements %3d-%3d from %s", self, end - beg, beg, end-1, attribute )
                 if isinstance( value, list ):
                     data[context].data	= value[beg:end]
                 else:
@@ -298,12 +297,15 @@ class Logix( Message_Router ):
                         "Attribute %s indexed beyond first element of a scalar value: %r" % (
                             attribute, (beg, end) )
                     data[context].data	= [ value ]
+                log.normal( "%s Reading %3d elements %3d-%3d from %s: %s",
+                            self, end - beg, beg, end-1, attribute, data[context].data )
                 # Final .status is 0x00 if all requested elements were shipped; 0x06 if not
                 data.status		= 0x00 if end == endactual else 0x06
                 data.pop( 'status_ext' ) # non-empty dotdict level; use pop instead of del
             else:
                 # Write Tag [Fragmented].  We know the type is right.
-                log.normal( "%s Writing %3d elements %3d-%3d into %s", self, end - beg, beg, end-1, attribute )
+                log.normal( "%s Writing %3d elements %3d-%3d into %s: %r",
+                            self, end - beg, beg, end-1, attribute, data[context].data )
                 for i,v in zip( range( beg, end ), data[context].data ):
                     attribute[i]	= v
                 data.status		= 0x00
