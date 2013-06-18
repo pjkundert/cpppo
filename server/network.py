@@ -99,7 +99,10 @@ class server_thread( threading.Thread ):
     """A generic server handler Thread.  Supply a handler taking an open socket connection to target=...
     Assumes at least one or two arg=(conn,[addr,[...]]), and a callable target with an __name__
     attribute.  The 'args' argument is required, and must contain at least the connect socket, and
-    (optional) peer address; all other keyword options (eg. kwargs, ...) are passed along to Thread."""
+    (optional) peer address; all other keyword options (eg. kwargs, ...) are passed along to Thread.
+
+    The kwargs keyword argument is passed unmolested to Thread, which in turn breaks it out as
+    keyword arguments to the Threads's target function."""
     def __init__( self, **kwds ):
         super( server_thread, self ).__init__( **kwds )
         self._name		= kwds['target'].__name__
@@ -130,11 +133,17 @@ class server_thread( threading.Thread ):
                       os.getpid(), self.ident, self.addr )
 
 
-def server_main( address, target, **kwds ):
+def server_main( address, target, kwargs=None ):
     """A generic server main, binding to address, and serving each incoming connection with a separate
     server_thread (threading.Thread) instance running target function.  Each server is passed two
     positional arguments (the connect socket and the peer address), plush any keyword args supplied
-    to this function."""
+    to this function.
+
+    The kwargs (default: None) container is passed to each thread; it is *shared*, and each thread
+    must treat its contents with appropriate care.  It can be used as a conduit to transmit changing
+    configuration information to all running threads.  Pass keys with values that are mutable
+    container objects (eg. dict, list), so that the original object is retained when the kwargs is
+    broken out into arguments for the Thread's target function."""
     sock			= socket.socket( socket.AF_INET, socket.SOCK_STREAM )
     sock.setsockopt( socket.SOL_SOCKET, socket.SO_REUSEADDR, 1 ) # Avoid delay on next bind due to TIME_WAIT
     try:
@@ -153,7 +162,7 @@ def server_main( address, target, **kwds ):
             acceptable		= accept( sock, timeout=.1 )
             if acceptable:
                 conn, addr	= acceptable
-                threads[addr]	= server_thread( target=target, args=(conn, addr), kwargs=kwds )
+                threads[addr]	= server_thread( target=target, args=(conn, addr), kwargs=kwargs )
                 threads[addr].start()
         except KeyboardInterrupt as exc:
             log.warning( "%s server termination: %r", name, exc )

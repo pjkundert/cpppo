@@ -42,6 +42,7 @@ import errno
 import logging
 from logging import handlers
 import os
+import random
 import sys
 import threading
 import time
@@ -84,7 +85,10 @@ def enip_srv( conn, addr, enip_process=None, delay=None ):
     request, the supplied enip_process function is expected to formulate an appropriate error
     response, and we'll continue processing requests.
 
-    An option numeric 'delay' may be specified; every response will be delayed by the specified number of seconds
+    An option numeric delay value (or any delay object with a .value attribute evaluating to a
+    numeric value) may be specified; every response will be delayed by the specified number of
+    seconds.  We assume that such a value may be altered over time, so we access it afresh for each
+    use.
 
     """
     name			= "enip_%s" % addr[1]
@@ -113,7 +117,7 @@ def enip_srv( conn, addr, enip_process=None, delay=None ):
                         if msg is not None:
                             received += len( msg )
                             eof	= not len( msg )
-                            log.detail( "%s recv: %5d: %s", enip_mesg.name_centered(),
+                            log.normal( "%s recv: %5d: %s", enip_mesg.name_centered(),
                                         len( msg ) if msg is not None else 0, reprlib.repr( msg ))
                             if not eof:
                                 source.chain( msg )
@@ -134,11 +138,12 @@ def enip_srv( conn, addr, enip_process=None, delay=None ):
                         assert 'response' in data, "Expected EtherNet/IP response; none found"
                         assert 'enip.input' in data.response, "Expected EtherNet/IP response encapsulated message; none found"
                         rpy	= parser.enip_encode( data.response.enip )
-                        log.detail( "%s send: %5d: %s %s", enip_mesg.name_centered(),
+                        log.normal( "%s send: %5d: %s %s", enip_mesg.name_centered(),
                                     len( rpy ), reprlib.repr( rpy ),
                                     ("delay: %r" % delay) if delay else "" )
                         if delay:
-                            time.sleep( delay )
+                            # A delay (anything with a delay.value attribute) == #[.#] is acceptable.
+                            time.sleep( delay.value if hasattr( delay, 'value' ) else delay )
                         conn.send( rpy )
                     else:
                         # Session terminated.  No response, just drop connection.
@@ -184,9 +189,12 @@ def main( **kwds ):
                          help="Display logging information." )
     parser.add_argument( '-a', '--address',
                          default="%s:%d" % address,
-                         help="Default interface[:port] to bind to (default: all, port 80)" )
+                         help="Default interface[:port] to bind to (default: %s:%d)" % (
+                             address[0], address[1] ))
     parser.add_argument( '-l', '--log',
                          help="Log file, if desired" )
+    parser.add_argument( '-w', '--web',
+                         help="Default [interface]:port to bind to (default: all, port 80)" )
     parser.add_argument( '-d', '--delay',
                          help="Delay response to each request by a certain number of seconds (default: 0.0)",
                          default="0.0" )
@@ -220,15 +228,47 @@ def main( **kwds ):
         handler.setFormatter( formatter )
         rootlog.addHandler( handler )
 
+    # Maintain a cpppo.dotdict containing all our incoming keywords.  This'll be passed (ultimately)
+    # to  the server Thread target function, broken out as keyword parameters.  As a result, the
+    # second (and lower) levels of this dotdict will remain as dotdict objects.
+    kwargs			= cpppo.dotdict( kwds )
+
     # Specify a global response delay
-    delay			= float( args.delay )
-    if delay:
-        log.normal( "Delaying all responses by %f seconds" , delay )
+    def delay_range( *args, **kwds ):
+        """If a delay.range like ".1-.9" is specified, then change the delay.value every second to something
+        in that range."""
+        assert 'delay' in kwds and 'range' in kwds['delay'] and '-' in kwds['delay']['range'], \
+            "No delay=#-# specified"
+        log.normal( "Delaying all responses by %s seconds", kwds['delay']['range'] )
+        while True:
+            # Once we start, changes to delay.range will be re-evaluated each loop
+            time.sleep( 1 )
+            try:
+                lo,hi		= map( float, kwds['delay']['range'].split( '-' ))
+                kwds['delay']['value'] = random.uniform( lo, hi )
+                log.info( "Mutated delay == %g", kwds['delay']['value'] )
+            except Exception as exc:
+                log.warning( "No delay=#[.#]-#[.#] range specified: %s", exc )
+
+    kwargs.delay		= cpppo.dotdict()
+    try:
+        kwargs.delay.value	= float( args.delay )
+        log.normal( "Delaying all responses by %r seconds" , kwargs.delay.value )
+    except:
+        assert '-' in args.delay, \
+            "Unrecognized --delay=%r option" % args.delay
+        # A range #-#; set up a thread to mutate the kwargs.delay.value over the .range
+        kwargs.delay.range	= args.delay
+        kwargs.delay.value	= 0.0
+        mutator			= threading.Thread( target=delay_range, kwargs=kwargs )
+        mutator.daemon		= True
+        mutator.start()
 
     # Use the Logix simulator by default. ('SCADA' tag, 1000 INT values)
-    kwds.setdefault( 'enip_process', logix.process )
-    kwds.update( delay=delay )
-    return network.server_main( address=bind, target=enip_srv, **kwds )
+    kwargs.setdefault( 'enip_process', logix.process )
+
+    return network.server_main( address=bind, target=enip_srv, kwargs=kwargs )
+
 
 if __name__ == "__main__":
     sys.exit( main() )
