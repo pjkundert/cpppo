@@ -1409,7 +1409,7 @@ def test_enip_device():
     request			= cpppo.dotdict({'service': 0x01, 'path':{'segment':[{'class':Ix.class_id},{'instance':Ix.instance_id}]}})
     gaa				= Ix.request( request )
     log.normal( "Identity Get Attributes All: %r, data: %s", gaa, enip.enip_format( request ))
-    assert request.input == b'\x81\x01\x00\x0e\x006\x00\x14\x0b`1\x1a\x06l\x00\x141756-L61/B LOGIX5561'
+    assert request.input == b'\x81\x00\x00\x00\x01\x00\x0e\x006\x00\x14\x0b`1\x1a\x06l\x00\x141756-L61/B LOGIX5561'
 
     # Look up Objects/Attribute by resolving a path
     assert enip.device.lookup( *enip.device.resolve( {'segment':[{'class':class_num}, {'instance':1}]} )) is O
@@ -1460,7 +1460,7 @@ def test_enip_logix():
 
 # Run the bench-test.  Sends some request from a bunch of clients to a server, testing responses
 
-def enip_process_canned( addr, data ):
+def enip_process_canned( addr, data, **kwds ):
     """Process a request, recognizing a subset of the known requests, and returning a "canned"
     response."""
     if not data:
@@ -1470,17 +1470,20 @@ def enip_process_canned( addr, data ):
     log.detail( "EtherNet/IP Request: %s", enip.parser.enip_format( data.request ))
     if data.request.enip.command == 0x0065:
         source			= cpppo.chainable( rss_004_reply )
-        with enip.enip_machine() as machine: # Load data.response.enip
+        with enip.enip_machine( terminal=True ) as machine: # Load data.response.enip
             for m,s in machine.run( path='response', source=source, data=data ):
                 pass
             if machine.terminal:
                 log.debug( "EtherNet/IP Response: %s", enip.parser.enip_format( data.response ))
+            else:
+                log.error( "EtherNet/IP Response failed to parse: %s", enip.parser.enip_format( data.response ))
+        log.detail( "EtherNet/IP Response: %s", enip.parser.enip_format( data.request ))
         return True
 
     raise Exception( "Unrecognized request: %s" % ( enip.parser.enip_format( data )))
 
 # The default Client will wait for draindelay after 
-client_count, client_max	= 15, 10
+client_count, client_max	= 1, 1 # 15, 10
 charrange, chardelay		= (2,10), .1	# split/delay outgoing msgs
 draindelay			= 10.  		# long in case server very slow (eg. logging), but immediately upon EOF
 
@@ -1589,6 +1592,7 @@ enip_cli_kwds_basic		= {
 
 enip_svr_kwds_basic		= { 
     'enip_process': 	enip_process_canned,
+    'argv':		[ '-vv', 'SCADA=INT[1000]' ],
 }
 
 def test_enip_bench_basic():
@@ -1645,6 +1649,7 @@ enip_cli_kwds_logix		= {
 
 enip_svr_kwds_logix 		= { 
     'enip_process': 	logix.process,
+    'argv':		[ '-v', 'SCADA=INT[1000]' ],
 }
 
 

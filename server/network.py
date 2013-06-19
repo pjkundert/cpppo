@@ -115,8 +115,8 @@ class server_thread( threading.Thread ):
         try:
             super( server_thread, self ).run()
         except Exception as exc:
-            log.warning( "%s server failure: %r\n%s", self._name,
-                         exc, traceback.format_exc() )
+            log.warning( "%s server failure: %s\n%s", self._name,
+                         exc, ''.join( traceback.format_exc() ))
         log.info( "%s server TID [%5d/%5d] stopping on %r", self._name,
                   os.getpid(), self.ident, self.addr )
 
@@ -168,8 +168,8 @@ def server_main( address, target, kwargs=None ):
             log.warning( "%s server termination: %r", name, exc )
             done		= True
         except Exception as exc:
-            log.warning( "%s server failure: %r\n%s", name,
-                         exc, traceback.format_exc() )
+            log.warning( "%s server failure: %s\n%s", name,
+                         exc, ''.join( traceback.format_exc() ))
             done		= True
         finally:
             # Tidy up any dead threads (or all, if done)

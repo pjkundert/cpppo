@@ -50,8 +50,8 @@ class NonTerminal( Exception ):
 
 log				= logging.getLogger( __package__ )
 log_cfg				= {
-#    "level":	logging.WARNING,
-    "level":	logging.NORMAL,
+    "level":	logging.WARNING,
+#    "level":	logging.NORMAL,
 #    "level":	logging.DETAIL,
 #    "level":	logging.INFO,
 #    "level":	logging.DEBUG,

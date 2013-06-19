@@ -144,8 +144,29 @@ def test_indexes():
     assert d.get( 'l[a.b+c-1].d' ) == None
     assert d.get( 'l[a.b+c].d' ) == 3
 
+    # Also allow indexes in __setattr__/__setitem__, while finding path down to
+    # dotdict item to change:
+    d['l[3].d'] = 4
+    assert d.get( 'l[a.b+c].d' ) == 4
+    d['l[a.b+c].d'] = 5
+    assert d.get( 'l[a.b+c].d' ) == 5
+
+    # Also allow (valid) indexes (even using local dotdict names) in the final level
+    assert d['l[c-1]'] == 2
+    d['l[c-1]'] = 99
+    assert d['l[c-1]'] == 99
+
+    try:
+        d['l[c+3]'] = 3
+        assert False, "Indexing with a bad index should fail"
+    except IndexError as exc:
+        assert "list assignment index out of range" in str(exc)
+        pass
+    
+
 def test_hasattr():
-    """Indexing failures returns KeyError, attribute access failures return AttributeError for hasattr etc. work"""
+    """Indexing failures returns KeyError, attribute access failures return AttributeError for hasattr
+    etc. work.  Also, the concept of attributes is roughly equivalent to our top-level dict keys."""
     d = dotdict()
 
     d['.a.b'] = 1
@@ -155,3 +176,10 @@ def test_hasattr():
     assert hasattr( d, 'a.b' )
     assert not hasattr( d, 'b' )
     assert hasattr( d, 'c' )
+
+    attrs = [ a for a in dir( d ) if not a.startswith('__') ]
+    assert 'c' in attrs
+    assert 'a' in attrs
+    assert 'b' not in attrs
+    assert len( attrs ) == 2
+    #print( dir( d ))

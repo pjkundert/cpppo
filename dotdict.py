@@ -69,12 +69,32 @@ class dotdict( dict ):
     def __init__( self, *args, **kwds ):
         """Load from args, update from kwds"""
         dict.__init__( self )
+        self.update( *args, **kwds )
+
+    def update( self, *args, **kwds ):
+        """Give each dict and keyword a chance to be converted into a dotdict() layer"""
         if args:
             for key, val in dict( *args ).items():
                 self.__setitem__( key, val )
         if kwds:
             for key, val in kwds.items():
                 self.__setitem__( key, val )
+
+    def __dir__( self ):
+        """We try to present a sensible .attribute interface.  Therefore, it doesn't make sense for
+        dir(<dotdict>) to return all the normal attributes available in a dict() object's .__dict__;
+        we'll return the top-level keys in the underlying dict instead (and the magic methods).
+        This is more or less consistent with an object (except it won't return any of the expected
+        "magic" __methods__).  So, creating attribute .a with:
+
+            >>> d = dotdict()
+            >>> d.a = 1
+            >>> dir( d )
+            [ ..., "a", ... ]
+
+        """
+
+        return sorted( [ a for a in dir( super( dotdict, self )) if a.startswith( '__' ) ] + list( dict.keys( self )))
 
     def _resolve( self, key ):
         """Return next segment in key as (mine, rest), solving for any '..'
@@ -111,16 +131,30 @@ class dotdict( dict ):
         return mine, rest
 
     def __setitem__( self, key, value ):
+        """Assign a value to an item. """
         mine, rest          	= self._resolve( key )
         if rest:
-            target              = dict.setdefault( self, mine, dotdict() )
+            if '[' in mine:
+                # If indexing used in path down to target, must be pre-existing values
+                target          = eval( mine, {'__builtins__':{}}, self )
+            else:
+                target          = dict.setdefault( self, mine, dotdict() )
             if not isinstance( target, dotdict ):
                 raise KeyError( 'cannot set "%s" in "%s" (%r)' % ( rest, mine, target ))
             target[rest]        = value
         else:
             if isinstance( value, dict ) and not isinstance( value, dotdict ):
+                # When inserting other dicts, convert them to dotdict layers (recursively)
                 value           = dotdict( value )
-            dict.__setitem__( self, key, value )
+            if '[' in mine and mine[-1] == ']':
+                # If indexing used within the final item/attr key, it must encompass the entire
+                # final portion of the key; break out the attr[indx], and safely eval it to get the
+                # actual index.  Finally, get the object and let it do its own __setitem__.
+                mine, indx	= mine.split( '[', 1 )
+                indx		= eval( indx[:-1], {'__builtins__':{}}, self )
+                dict.__getitem__( self, mine )[indx] = value
+            else:
+                dict.__setitem__( self, mine, value )
 
     __setattr__			= __setitem__
 
@@ -131,11 +165,12 @@ class dotdict( dict ):
            <dotdict>.name
 
         If we find something like 'name[1]' or 'name[a.b[c+3]]', etc: resolve it allowing no access
-        globals or builtin functions, and only our own dotdict as locals: cannot index using values
-        from higher levels of the dotdict, eg. 'name[..above]'
+        to globals or builtin functions, and only our own dotdict as locals: cannot index using
+        values from higher levels of the dotdict, eg. 'name[..above]'
 
         Note also that the hasattr builtin used getattr to identify the existence of attributes; it
         must return AttributeError if the attribute doesn't exist.
+
         """
         mine, rest              = self._resolve( key )
         if '[' in mine:

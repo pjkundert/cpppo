@@ -22,8 +22,12 @@
     Change the verbosity (supply more to increase further):
     : -v[vv...]|--verbose 
 
-    Specify a constant delay to apply to every response, in fractional seconds:
-    : -d|--delay #.#
+    Specify a constant or variable delay to apply to every response, in fractional seconds:
+    : -d|--delay #.#[-#.#]
+
+    Specify interface and/or port, if a Web API is desired (just ':' will enable
+    API on defaults 0.0.0.0:80, or whatever interface was specified for --address)
+    : -w|--web [<interface>]:[<port>]
 
     
 

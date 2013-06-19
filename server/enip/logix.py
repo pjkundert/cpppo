@@ -181,7 +181,7 @@ class Logix( Message_Router ):
             log.detail( "%s Routing to %s: %s", self, target, enip_format( data ))
             return target.request( data )
         
-        log.normal( "%s Request: %s", self, enip_format( data ))
+        log.detail( "%s Request: %s", self, enip_format( data ))
         # This request is for this Object.
         
         # Pick out our services added at this level.  If not recognized, let superclass try; it'll
@@ -309,8 +309,14 @@ class Logix( Message_Router ):
                             self, end - beg, beg, end-1, attribute, data[context].data )
                 for i,v in zip( range( beg, end ), data[context].data ):
                     attribute[i]	= v
+
                 data.status		= 0x00
                 data.pop( 'status_ext' )
+
+            # Successful completion; return any desired error code (normally should be 0)
+            if attribute.error:
+                data.status		= attribute.error
+                raise AssertionError( "Forced failure due to configured Attribute error code %r" % attribute.error )
 
         except Exception as exc:
             # On Exception, if we haven't specified a more detailed error code, return General
@@ -321,20 +327,21 @@ class Logix( Message_Router ):
                          ( self.service[data.service]
                            if 'service' in data and data.service in self.service
                            else "(Unknown)"), exc, enip_format( data ),
-                         ''.join( traceback.format_exception( *sys.exc_info() )))
+                         ( '' if log.getEffectiveLevel() >= logging.NORMAL
+                           else ''.join( traceback.format_exception( *sys.exc_info() ))))
             assert data.status not in (0x00, 0x06), \
                 "Implementation error: must specify .status not in (0x00, 0x06) before raising Exception!"
             pass
 
         # Always produce a response payload; if a failure occured, will contain an error status
-        log.normal( "%s Service 0x%02x %s %s", self,
+        log.detail( "%s Service 0x%02x %s %s", self,
                     data.service if 'service' in data else 0,
                     ( self.service[data.service]
                       if 'service' in data and data.service in self.service
                       else "(Unknown)"), enip_format( data ))
         data.input		= bytearray( self.produce( data ))
 
-        log.normal( "%s Response: %s", self, enip_format( data ))
+        log.detail( "%s Response: %s", self, enip_format( data ))
         return True
 
     @classmethod
@@ -524,20 +531,10 @@ def setup():
     with setup.lock:
         if not setup.ucmm:
             Identity()				# Class 0x01, Instance 1
-            Lx			= Logix()	# Class 0x02, Instance 1 -- Message Router; knows Logix Tag requests
+            Logix()				# Class 0x02, Instance 1 -- Message Router; knows Logix Tag requests
             Connection_Manager()		# Class 0x06, Instance 1
         
             Unknown_Object()			# Class 0x66, Instance 1 -- Unknown purpose in Logix Controller
-
-            # Set up the SCADA tag to redirect to the Logix attribute 11 Attribute
-            scada_attr_id	= 11
-            Lx.attribute['11']	= Attribute( 'SCADA', INT, default=[v for v in range( 1000 )] )
-
-            redirect( 'SCADA', {
-                'class': Lx.class_id,
-                'instance': Lx.instance_id,
-                'attribute': scada_attr_id, 
-            })
 
             setup.ucmm		= UCMM()
 
@@ -547,7 +544,7 @@ setup.lock			= threading.Lock()
 setup.ucmm			= None
 
 
-def process( addr, data ):
+def process( addr, data, **kwds ):
     """Processes an incoming parsed EtherNet/IP encapsulated request in data.request.enip.input, and
     produces a response with a prepared encapsulated reply, in data.response.enip.input, ready for
     re-encapsulation and transmission as a response.
@@ -605,6 +602,28 @@ def process( addr, data ):
     """
     ucmm			= setup()
 
+    # If tags are specified, check that we've got them all set up right.  If the tag doesn't exist,
+    # add it.  If it's error code doesn't match, change it.
+    if 'tags' in kwds:
+        for key,val in dict( kwds['tags'] ).items():
+            if not resolve_tag( key ):
+                # A new tag!  Allocate a new attribute ID in the Logix (Message Router).
+                cls, ins	= 0x02, 1 # The Logix Message Router
+                Lx		= lookup( cls, ins )
+                att		= len( Lx.attribute )
+                while ( str( att ) in Lx.attribute ):
+                    att	       += 1
+                log.normal( "%24s.%s Attribute %3d added", Lx, val.attribute, att )
+                Lx.attribute[str(att)]= val.attribute
+                redirect_tag( key, {'class': cls, 'instance': ins, 'attribute': att })
+            # Attribute (now) exists; find it, and make sure its error code is right.
+            attribute		= lookup( *resolve_tag( key ))
+            assert attribute is not None, "Failed to find existing tag: %r" % key
+            if 'error' in val and attribute.error != val.error:
+                log.warning( "Attribute %s error code changed: 0x%02x", attribute, val.error )
+                attribute.error	= val.error
+
+
     source			= cpppo.rememberable()
     try:
         # Find the Connection Manager, and use it to parse the encapsulated EtherNet/IP request.  We
@@ -621,7 +640,7 @@ def process( addr, data ):
                                 machine.name_centered(), i, s, source.sent, source.peek(),
                                 repr( data ) if log.getEffectiveLevel() < logging.DETAIL else reprlib.repr( data ))
             
-        log.normal( "EtherNet/IP CIP Request  (Client %16s): %s", addr, enip_format( data.request ))
+        log.detail( "EtherNet/IP CIP Request  (Client %16s): %s", addr, enip_format( data.request ))
 
         # Create a data.response with a structural copy of the request.enip.header.  This means that
         # the dictionary structure is new (we won't alter the request.enip... when we add entries in
@@ -636,7 +655,7 @@ def process( addr, data ):
         # error indications if the encapsulated request failed.
         
         proceed			= ucmm.request( data.response )
-        log.normal( "EtherNet/IP CIP Response (Client %16s): %s", addr, enip_format( data.response ))
+        log.detail( "EtherNet/IP CIP Response (Client %16s): %s", addr, enip_format( data.response ))
 
         return proceed
     except:

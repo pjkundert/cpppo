@@ -28,9 +28,10 @@ __license__                     = "GNU General Public License, Version 3 (or lat
 enip.device	-- support for implementing an EtherNet/IP device Objects and Attributes
 
 """
-__all__				= [ 'lookup', 'redirect', 'resolve', 'resolve_element',
-                                    'Object', 'Attribute',
-                                    'UCMM', 'Connection_Manager', 'Message_Router', 'Identity' ]
+__all__				= ['lookup', 'resolve', 'resolve_element',
+                                   'redirect_tag', 'resolve_tag', 
+                                   'Object', 'Attribute',
+                                   'UCMM', 'Connection_Manager', 'Message_Router', 'Identity']
 
 import array
 import codecs
@@ -85,7 +86,7 @@ def __directory_path( class_id, instance_id=0, attribute_id=None ):
         + '.' + ( str( attribute_id if attribute_id else 0 ))
 
 def lookup( class_id, instance_id=0, attribute_id=None ):
-    """Lookup by path (string type), or class/instance/attribute ID"""
+    """Lookup by path ("#.#.#" string type), or class/instance/attribute ID, or """
     exception			= None
     try:
         key			= class_id
@@ -96,6 +97,7 @@ def lookup( class_id, instance_id=0, attribute_id=None ):
         res			= directory.get( key, None )
     except Exception as exc:
         exception		= exc
+        res			= None
     finally:
         log.detail( "Class %5d/0x%04x, Instance %3d, Attribute %5r ==> %s",
                     class_id, class_id, instance_id, attribute_id, 
@@ -104,7 +106,8 @@ def lookup( class_id, instance_id=0, attribute_id=None ):
 
 # 
 # symbol	-- All known symbolic address
-# resolve()	-- Resolve the class, instance [and attribute] from a path.
+# redirect_tag	-- Direct a tag to a class, instance and attribute
+# resolve*	-- Resolve the class, instance [and attribute] from a path or tag.
 # 
 # A path is something of the form:
 # 
@@ -130,13 +133,25 @@ def lookup( class_id, instance_id=0, attribute_id=None ):
 # The initial segments of the path must address a class and instance.
 # 
 symbol				= {}
+symbol_keys			= ('class', 'instance', 'attribute')
 
-def redirect( tag, address ):
-    assert tag not in symbol, \
-        "Attempt to overwrite tag %r == %r with %r" % ( tag, symbol[tag], address )
-    assert type(address) is dict
-    assert all( k in ('class', 'instance', 'attribute') for k in address )
+def redirect_tag( tag, address ):
+    """Establish (or change) a tag, redirecting it to the specified class/instance/attribute address.
+    Make sure we stay with only str type tags (mostly for Python2, in case somehow we get a Unicode
+    tag)"""
+    tag				= str( tag )
+    assert isinstance( address, dict )
+    assert all( k in symbol_keys for k in address )
+    assert all( k in address     for k in symbol_keys )
     symbol[tag]			= address
+
+def resolve_tag( tag ):
+    """Return the (class_id, instance_id, attribute_id) tuple corresponding to tag, or None if not specified"""
+    address			= symbol.get( str( tag ), None )
+    if address:
+        return tuple( address[k] for k in symbol_keys )
+    return None
+
 
 def resolve( path, attribute=False ):
     """Given a path, returns the fully resolved (class,instance[,attribute]) tuple required to lookup an
@@ -166,7 +181,7 @@ def resolve( path, attribute=False ):
             if working:
                 assert 'symbolic' in working, \
                     "Invalid term %r found in path %r" % ( working, path['segment'] )
-                sym	= working['symbolic']
+                sym	= str( working['symbolic'] )
                 assert sym in symbol, \
                     "Unrecognized symbolic name %r found in path %r" % ( sym, path['segment'] )
                 working	= dict( symbol[sym] )
@@ -198,22 +213,24 @@ def resolve_element( path ):
 # EtherNet/IP CIP Object Attribute
 # 
 class Attribute( object ):
-    """A simple Attribute just has a default value of 0.  We'll instantiate an instance of the supplied
-    enip.TYPE/STRUCT class as the Attribute's .parser property.  This can be used to parse incoming
-    data, and produce the current value in bytes form.
+    """A simple Attribute just has a default scalar value of 0.  We'll instantiate an instance of the
+    supplied enip.TYPE/STRUCT class as the Attribute's .parser property.  This can be used to parse
+    incoming data, and produce the current value in bytes form.
     
     The value defaults to a scalar 0, but may be configured as an array by setting default to a list
     of values of the desired array size.
 
+    If an error code is supplied, requests on the Attribute should fail with that code.
     """
-    def __init__( self, name, type_cls, default=0 ):
+    def __init__( self, name, type_cls, default=0, error=0x00 ):
         self.name		= name
         self.default	       	= default
         self.parser		= type_cls()
+        self.error		= error		# If an error code is desired on access
 
     def __str__( self ):
         value			= self.value
-        return "%-24.24s %8s[%3d] == %s" % (
+        return "%-24.24s %8s[%4d] == %s" % (
             self.name, self.parser.__class__.__name__, len( self ), reprlib.repr( self.value ))
     __repr__ 			= __str__
 
@@ -225,6 +242,15 @@ class Attribute( object ):
     @property
     def value( self ):
         return self.default
+
+    # Indexing.  This allows us to get/set individual values in the Attribute's underlying data repository.
+    def __getitem__( self, key ):
+        if not isinstance( key, int ) or key >= len( self ):
+            raise KeyError( "Attempt to get item at key %r beyond attribute length %d" % ( key, len( self )))
+        if isinstance( self.default, list ):
+            return self.default[key]
+        else:
+            return self.default
 
     def __setitem__( self, key, value ):
         """Allow setting a scalar or indexable array item."""
@@ -671,11 +697,11 @@ class UCMM( Object ):
                 # Allocates a new session_handle, and returns the register.protocol_version and
                 # .options_flags unchanged (if supported)
         
-                # TODO: Check if supported
-                session		= random.randint( 0, 2**32 )
-                while not session or session in self.__class__.sessions:
+                with self.lock:
                     session	= random.randint( 0, 2**32 )
-                self.__class__.sessions[data.addr] = session
+                    while not session or session in self.__class__.sessions:
+                        session	= random.randint( 0, 2**32 )
+                    self.__class__.sessions[data.addr] = session
                 data.enip.session_handle = session
                 log.normal( "EtherNet/IP (Client %r) Session Established: %r", data.addr, session )
                 data.enip.input	= bytearray( self.parser.produce( data.enip ))
@@ -684,8 +710,8 @@ class UCMM( Object ):
             elif 'enip.CIP.unregister' in data or 'enip' not in data:
                 # Session being closed.  There is no response for this command; return False
                 # inhibits any EtherNet/IP response from being generated, and closes connection.
-                
-                session		= self.__class__.sessions.pop( data.addr, None )
+                with self.lock:
+                    session	= self.__class__.sessions.pop( data.addr, None )
                 log.normal( "EtherNet/IP (Client %r) Session Terminated: %r", data.addr, 
                             session or "(Unknown)" )
                 proceed		= False
@@ -865,7 +891,7 @@ class Connection_Manager( Object ):
         
 
         """
-        log.normal( "%s Request: %s", self, enip_format( data ))
+        log.detail( "%s Request: %s", self, enip_format( data ))
 
         # We don't check for Unconnected Send 0x52, because replies (and some requests) don't
         # include the full wrapper, just the raw command.  This is quite confusing; especially since
@@ -877,7 +903,7 @@ class Connection_Manager( Object ):
         assert 'input' in data.request, \
             "Unconnected Send message with empty request"
 
-        log.detail( "%s Parsing: %s", self, enip_format( data.request ))
+        log.info( "%s Parsing: %s", self, enip_format( data.request ))
         # Get the Message Router to parse and process the request into a response, producing a
         # data.request.input encoded response, which we will pass back as our own encoded response.
         MR			= lookup( class_id=0x02, instance_id=1 )
@@ -889,7 +915,7 @@ class Connection_Manager( Object ):
                                 machine.name_centered(), i, s, source.sent, source.peek(),
                                 repr( data ) if log.getEffectiveLevel() < logging.DETAIL else reprlib.repr( data ))
 
-            log.normal( "%s Executing: %s", self, enip_format( data.request ))
+            log.info( "%s Executing: %s", self, enip_format( data.request ))
             MR.request( data.request )
         except:
             # Parsing failure.  We're done.  Suck out some remaining input to give us some context.

@@ -1100,12 +1100,12 @@ class status( cpppo.dfa ):
         allowed for non-zero .status """
         result			= b''
         status			= 0  if 'status' not in data else data.status
-        result		       += SINT.produce( status )
+        result		       += USINT.produce( status )
         size			= 0  if not status or 'status_ext.size' not in data else data.status_ext.size
         exts			= [] if not status or 'status_ext.data' not in data else data.status_ext.data
         assert size == len( exts ), \
             "Inconsistent extended status size and data: %r" % data
-        result		       += SINT.produce( size )
+        result		       += USINT.produce( size )
         result		       += b''.join( UINT.produce( v ) for v in exts )
         return result
 '''
