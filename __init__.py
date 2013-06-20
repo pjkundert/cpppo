@@ -29,3 +29,4 @@ __all__                         = ["automata", "dotdict", "greenery", "misc"]
 from .automata import *
 from .dotdict  import *
 from .misc     import *
+from .misc     import __version__

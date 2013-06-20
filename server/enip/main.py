@@ -69,7 +69,6 @@ from . import device
 
 if __name__ == "__main__":
     logging.basicConfig( **cpppo.log_cfg )
-    #logging.getLogger().setLevel( logging.DETAIL )
 
 
 # Globals
@@ -825,7 +824,6 @@ def main( argv=None, **kwds ):
                                                     default=( 0 if tag_size == 1 
                                                               else [0 for i in range( tag_size )]))
         tags[tag_name].error	= 0x00
-    log.normal( "EtherNet/IP Tags defined: %r", tags )
 
     # Use the Logix simulator by default (unless some other one was supplied as a keyword options to
     # main(), loaded above into 'options').  This key indexes an immutable value (not another dotdict
@@ -843,9 +841,9 @@ def main( argv=None, **kwds ):
     http			= ( str( http[0] ) if http[0] else bind[0],
                                     int( http[1] ) if len( http ) > 1 and http[1] else 80 )
 
-    logging.info( "EtherNet/IP Simulator Web API Server: %r" % ( address, ))
 
     if args.web:
+        logging.normal( "EtherNet/IP Simulator Web API Server: %r" % ( http, ))
         webserver		= threading.Thread( target=web_api, kwargs={'http': http} )
         webserver.daemon	= True
         webserver.start()
@@ -853,8 +851,8 @@ def main( argv=None, **kwds ):
         
     # The EtherNet/IP Simulator.  Pass all the top-level options keys/values as keywords, and pass
     # the entire tags dotdict as a tags=... keyword.
+    logging.normal( "EtherNet/IP Simulator: %r" % ( http, ))
     kwargs			= dict( options, tags=tags )
-    log.detail( "Keywords to EtherNet/IP Server: %r", kwargs )
     return network.server_main( address=bind, target=enip_srv, kwargs=kwargs )
 
 

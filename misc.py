@@ -104,6 +104,19 @@ def __detail( self, msg, *args, **kwargs ):
 logging.Logger.normal		= __normal
 logging.Logger.detail		= __detail
 
+def __normal_root( msg, *args, **kwargs ):
+    if len( logging.root.handlers ) == 0:
+        basicConfig()
+    logging.root.normal( msg, *args, **kwargs )
+
+def __detail_root( msg, *args, **kwargs ):
+    if len( logging.root.handlers ) == 0:
+        basicConfig()
+    logging.root.detail( msg, *args, **kwargs )
+
+logging.normal			= __normal_root
+logging.detail			= __detail_root
+
 # 
 # function_name -- Attempt to elaborate on the module/class heritage of the given function
 #

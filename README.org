@@ -7,15 +7,45 @@
   described in terms of state machines which change state in response to input
   events, collecting the data and producing output data artifacts.
 
+** Installing
+
+   Cpppo depends on several Python packages; 'greenery', a Regular Expression
+   parsing and state machinery library, 'web', the web.py framework, and (for
+   testing) 'pytest'.
+
+   To install 'cpppo' straight from the source repository using pip:
+   : $ pip install git+https://github.com/pjkundert/cpppo.git
+   : $ pip install git+https://github.com/pjkundert/greenery.git
+
+   If you desire the --web :<port> option, install the web.py:
+   : $ pip install web
+   
+   If you need system admin privileges to install packages, you may need to use
+   'sudo' on the above pip commands:
+   : $ sudo pip instal ...
+
+
 * Protocols
+
+  The protocols implemented (presently, few) are described here.
 
 ** EtherNet/IP CIP Logix Controller Simulation
 
-   To run a simulation of a small subset of a Logix(tm) Controller with a tag
-   SCADA you can read/write, run:
-   : python -m cpppo.server.enip -v SCADA=INT[1000]
+   A subset of the EtherNet/IP client and server protocol is implemented, and a
+   simulation of a very small subset of a *Logix Controller is provided.  It is
+   capable of simulating Logix "tags", and the Read/Write Tag [Fragmented]
+   services.
 
-   The following options are available:
+   Only EtherNet/IP "Unconnected" type connections are supported.  These are
+   (anomalously) persistent connections to a single EtherNet/IP device (such as
+   a Controller), which allow a sequence of CIP service requests (commands) to
+   be sent to arbitrary CIP objects resident on the target device.
+
+   To run a simulation of a small subset of a Logix(tm) Controller with the tag
+   'SCADA' for you to read/write, run:
+   : $ python -m cpppo.server.enip -v SCADA=INT[1000]
+
+   These options are available when you execute the cpppo.server.enip module:
 
    Specify a different local interface and/or port to bind to (default is 0.0.0.0:44818):
    : -a|--address [<interface>][:<port>]
@@ -26,14 +56,16 @@
    Specify a constant or variable delay to apply to every response, in fractional seconds:
    : -d|--delay #.#[-#.#]
 
-   Specify interface and/or port, if a Web API is desired (just ':' will enable
-   API on defaults 0.0.0.0:80, or whatever interface was specified for --address)
+   Specify an HTTP web server interface and/or port, if a web API is desired
+   (just ':' will enable the web API on defaults 0.0.0.0:80, or whatever
+   interface was specified for --address):
    : -w|--web [<interface>]:[<port>]
 
-   To send log output to a file (limits to 10MB, rotates through 5 copies)
+   To send log output to a file (limited to 10MB, rotates through 5 copies):
    : -l|--log <file>
 
-   You may specify as many tags as you like on the command line:
+   You may specify as many tags as you like on the command line; at least one
+   is required, eg. 'SCADA=INT\[1000\]':
    : <tag>=<type>[<length>]
 
    The available types are INT (16-bit), SINT (8-bit) and DINT (32-bit) integer.
