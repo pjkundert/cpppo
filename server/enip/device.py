@@ -230,7 +230,7 @@ class Attribute( object ):
 
     def __str__( self ):
         value			= self.value
-        return "%-24.24s %8s[%4d] == %s" % (
+        return "%-12s %5s[%4d] == %s" % (
             self.name, self.parser.__class__.__name__, len( self ), reprlib.repr( self.value ))
     __repr__ 			= __str__
 

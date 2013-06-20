@@ -182,15 +182,25 @@ def server_main( address, target, kwargs=None ):
     log.info( "%s server PID [%5d] shutting down", name, os.getpid() )
     return 0
 
+
 def bench( server_func, client_func, client_count,
            server_kwds=None, client_kwds=None, client_max=10, server_join_timeout=1.0 ):
     """Bench-test the server_func (with optional keyword args from server_kwds) as a process; will fail
     if one already bound to port.  Creates a thread pool (default 10) of client_func.  Each client
     is supplied a unique number argument, and the supplied client_kwds as keywords, and should
-    return 0 on success, !0 on failure."""
+    return 0 on success, !0 on failure.
 
-    #from multiprocessing 	import Process
-    from threading import Thread as Process
+    TODO: Both threading.Thread and multiprocessing.Process work fine for running a bench server.
+    However, we need to augment server_main with some out-of-band means to force termination (since
+    we can't terminate a Thread).  This should be quite simple to add to server_main, as a container
+    (eg. dict) containing a done signal.  In the mean time, if you switch to threading.Thread as
+    Process below, you will observe tests failing, since the server from the previous test hasn't
+    exited, and begins receiving input from the subsequent test.
+
+    """
+
+    from multiprocessing 	import Process
+    #from threading import Thread as Process
 
     from multiprocessing.pool	import ThreadPool as Pool
     #from multiprocessing.dummy	import Pool

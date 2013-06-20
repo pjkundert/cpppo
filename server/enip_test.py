@@ -1483,7 +1483,7 @@ def enip_process_canned( addr, data, **kwds ):
     raise Exception( "Unrecognized request: %s" % ( enip.parser.enip_format( data )))
 
 # The default Client will wait for draindelay after 
-client_count, client_max	= 1, 1 # 15, 10
+client_count, client_max	= 15, 10
 charrange, chardelay		= (2,10), .1	# split/delay outgoing msgs
 draindelay			= 10.  		# long in case server very slow (eg. logging), but immediately upon EOF
 

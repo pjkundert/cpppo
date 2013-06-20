@@ -321,69 +321,65 @@ def api_request( group, match, command, value,
     # Effectively:
     #     group.match.command = value
     # Look through each "group" object's dir of available attributes for "match".  Then, see if 
-    # that target attribute exists, and is an instance of dict.
+    # that target attribute exists, and is something we can get attributes from.
     for grp, obj in [ 
             ('options',		options),
             ('connections', 	connections),
             ('tags',		tags )]: 
-      for mch in [ m for m in dir( obj ) if not m.startswith( '_' ) ]:
-        log.detail( "Evaluating %s.%s: %r", grp, mch, getattr( obj, mch, None ))
-        if not fnmatch.fnmatch( grp, group ):
-            continue
-        if not fnmatch.fnmatch( mch, match ):
-            continue
-        target		= getattr( obj, mch, None )
-        if not target:
-            log.warning( "Couldn't find advertised attribute %s.%s", grp, mch )
-            continue
-        if not isinstance( target, dict ):
-            continue
-
-        # The dct's group name 'nam' matches requested group (glob), and the dct 'key' matches
-        # request match (glob).   /<group>/<match> matches this dct[key].
-        result		= {}
-        if command and command.lower() != "get":
-            try:
-                # Retain the same type as the current value, and allow indexing!  We want to ensure that we don't cause
-                # failures by corrupting the types of value.  Unfortunately, this makes it tricky to
-                # support "bool", as coercion from string is not supported.
-                cur	= getattr( target, command )
-                log.normal( "%s/%s: Setting %s to %r (was %r)" % ( grp, mch, command, value, cur ))
-                typ	= type( cur )
+        for mch in [ m for m in dir( obj ) if not m.startswith( '_' ) ]:
+            log.detail( "Evaluating %s.%s: %r", grp, mch, getattr( obj, mch, None ))
+            if not fnmatch.fnmatch( grp, group ):
+                continue
+            if not fnmatch.fnmatch( mch, match ):
+                continue
+            target		= getattr( obj, mch, None )
+            if not target:
+                log.warning( "Couldn't find advertised attribute %s.%s", grp, mch )
+                continue
+            if not hasattr( target, '__getattr__' ):
+                continue
+          
+            # The obj's group name 'grp' matches requested group (glob), and the entry 'mch' matches
+            # request match (glob).  /<group>/<match> matches this obj.key.
+            result		= {}
+            if command is not None:
+                # A request/assignment is being made.  Retain the same type as the current value,
+                # and allow indexing!  We want to ensure that we don't cause failures by corrupting
+                # the types of value.  Unfortunately, this makes it tricky to support "bool", as
+                # coercion from string is not supported.
                 try:
-                    cvt	= typ( value )
-                except TypeError:
-                    if typ is bool:
-                        # Either 'true'/'yes' or 'false'/'no', is acceptable, otherwise it better be
-                        # a number
-                        if value.lower() in ('true', 'yes'):
-                            cvt = True
-                        elif value.lower() in ('false', 'no'):
-                            cvt = False
-                        else:
-                            cvt = bool( int( value ))
-                    else:
-                        raise
-                setattr( target, command, cvt )
-                result["success"] = True
-                result["message"] = "%s.%s.%s=%r (%r) successful" % ( grp, mch, command, value, cvt )
-            except Exception as exc:
-                result["success"] = False
-                result["message"] = "%s.%s..%s=%r failed: %s" % ( grp, mch, command, value, exc )
-                logging.warning( "%s.%s..%s=%s failed: %s\n%s" % ( grp, mch, command, value, exc,
-                                                                   traceback.format_exc() ))
+                    cur		= getattr( target, command )
+                    result["message"] = "%s.%s.%s: %r" % ( grp, mch, command, cur )
+                    if value is not None:
+                        typ	= type( cur )
+                        try:
+                            cvt	= typ( value )
+                        except TypeError:
+                            if typ is bool:
+                                # Either 'true'/'yes' or 'false'/'no', otherwise it must be a number
+                                if value.lower() in ('true', 'yes'):
+                                    cvt	= True
+                                elif value.lower() in ('false', 'no'):
+                                    cvt	= False
+                                else:
+                                    cvt	= bool( int( value ))
+                            else:
+                                raise
+                        setattr( target, command, cvt )
+                        result["message"] = "%s.%s.%s=%r (%r)" % ( grp, mch, command, value, cvt )
+                    result["success"]	= True
+                except Exception as exc:
+                    result["success"]	= False
+                    result["message"]	= "%s.%s.%s=%r failed: %s" % ( grp, mch, command, value, exc )
+                    logging.warning( "%s.%s.%s=%s failed: %s\n%s" % ( grp, mch, command, value, exc,
+                                                                       traceback.format_exc() ))
 
-        # Get all of target's attributes (except _*) advertised by its dir() results
-        attrs		= [ a for a in dir( target ) if not a.startswith('_') ]
-        data		= { a: getattr( target, a ) for a in attrs }
-        content["command"] = result
-        content["data"].setdefault( grp, {} )[mch] = data
-
-        # and capture each of the target._events() in content["alarms"], purging
-        # old events, and producing only those events since the supplied time.
-        if hasattr( target, '_events' ):
-            content["alarm"].extend( target._events( since=since, purge=True ))
-    content["alarm"].sort( key=lambda event: event["time"], reverse=True )
+            # Get all of target's attributes (except _*) advertised by its dir() results
+            attrs		= [ a for a in dir( target ) if not a.startswith('_') ]
+            data		= { a: getattr( target, a ) for a in attrs }
+            content["command"]	= result
+            content["data"].setdefault( grp, {} )[mch] = data
+        
 
     # Report the end of the time-span of alarm results returned; if none, then
     # the default time will be the _timer() at beginning of this function.  This
@@ -414,7 +410,7 @@ def api_request( group, match, command, value,
                                   for query, value in iterable )), tag="pre" ) \
                   	+ response
         response        = html_head( response,
-                                     title='/'.join( ["api", group, match, command] ))
+                                     title='/'.join( ["api", group or '', match or '', command or ''] ))
     elif accept and accept not in ("application/json", "text/javascript", "text/plain"):
         # Invalid encoding requested.  Return appropriate 406 Not Acceptable
         message		=  "Invalid encoding: %s, for Accept: %s" % (
@@ -509,8 +505,11 @@ class api:
 			= [ clean( a ) for a in args ]
         except:
             raise http_exception( 500, "/api requires 4 arguments" )
-        if not command:
-            command		= 'get'
+        if not value and command and '=' in command:
+            # Treat a trailing command=value like command/value, for convenience
+            command, value	= command.split( '=', 1)
+            if not value:
+                value		= None
 
         log.detail( "group: %s, match: %s, command: %s, value: %s, accept: %s",
                     group, match, command, value, clean.accept )

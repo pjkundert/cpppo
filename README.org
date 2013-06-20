@@ -7,156 +7,309 @@
   described in terms of state machines which change state in response to input
   events, collecting the data and producing output data artifacts.
 
-** Protocols
+* Protocols
 
-*** EtherNet/IP CIP Logix Controller Simulation
+** EtherNet/IP CIP Logix Controller Simulation
 
-    To run a simulation of a small subset of a Logix(tm) Controller, run:
-    : python -m cpppo.server.enip
+   To run a simulation of a small subset of a Logix(tm) Controller with a tag
+   SCADA you can read/write, run:
+   : python -m cpppo.server.enip -v SCADA=INT[1000]
 
-    The following options apply:
+   The following options are available:
 
-    Specify a different local interface and/or port to bind to (default is 0.0.0.0:44818):
-    : -a|--address [<interface>][:<port>]
+   Specify a different local interface and/or port to bind to (default is 0.0.0.0:44818):
+   : -a|--address [<interface>][:<port>]
 
-    Change the verbosity (supply more to increase further):
-    : -v[vv...]|--verbose 
+   Change the verbosity (supply more to increase further):
+   : -v[vv...]|--verbose 
 
-    Specify a constant or variable delay to apply to every response, in fractional seconds:
-    : -d|--delay #.#[-#.#]
+   Specify a constant or variable delay to apply to every response, in fractional seconds:
+   : -d|--delay #.#[-#.#]
 
-    Specify interface and/or port, if a Web API is desired (just ':' will enable
-    API on defaults 0.0.0.0:80, or whatever interface was specified for --address)
-    : -w|--web [<interface>]:[<port>]
+   Specify interface and/or port, if a Web API is desired (just ':' will enable
+   API on defaults 0.0.0.0:80, or whatever interface was specified for --address)
+   : -w|--web [<interface>]:[<port>]
 
-    
+   To send log output to a file (limits to 10MB, rotates through 5 copies)
+   : -l|--log <file>
 
-** Deterministic Finite Automata
+   You may specify as many tags as you like on the command line:
+   : <tag>=<type>[<length>]
 
-   A cpppo.dfa will consume symbols from its source iterable, and yield
-   (machine,state) transitions 'til a terminal state is reached.  If 'greedy',
-   it will transition 'til we reach a terminal state and the next symbol does
-   not product a transition.
+   The available types are INT (16-bit), SINT (8-bit) and DINT (32-bit) integer.
 
-   For example, if 'abbb,ab' is presented to the following machine with a
-   no-input state E, and input processing states A and (terminal) B, it will
-   accept 'ab' and terminate, unless greedy is specified in which case it will
-   accept 'abbb' and terminate.
+*** Web Interface
 
-*** Basic State Machines
+    The following actions are available via the web interface.  It is designed
+    to be primarily a REST-ful HTTP API returning JSON, but any of these
+    requests may be made via a web browser, and a minimal HTML response will be
+    issued.
 
-#   #+BEGIN_DITAA abplus.png -r -S
+    Start a Logix Controller simulator on port 44818 (the default), with a web
+    API on port 12345:
+    : python -m cpppo.server.enip -v --web :12345 SCADA=INT[1000]
+
+    The api is simple: api/<group>/<match>/<command>/<value> .  There are 3
+    groups: "options", "tags" and "connections".  If you don't specify <group>
+    or <match>, they default to the wildard "*", which matches anything.
+
+    So, to get everything, you should now be able to hit the root of the api
+    with a browser at: http://localhost:12345/api, or with wget or curl:
+    : $ wget -qO - http://localhost:12345/api
+    : $ curl http://localhost:12345/api
+
+    and you should get something like:
     #+BEGIN_EXAMPLE
-        +-----+ 'a' +-----+ 'b' +-----+ 'b'
-        |  E  |---->|  A  |---->| (B) |----+
-        +-----+     +-----+     +-----+    |
-                                   ^       |
-                                   |       |
-                                   +-------+
+    $ curl http://localhost:12345/api
+    {
+        "alarm": [],
+        "command": {},
+        "data": {
+            "options": {
+                "delay": {
+                    "value": 0.0
+                }
+            },
+            "tags": {
+                "SCADA": {
+                "attribute": "SCADA          INT[1000] == [0, 0, 0, 0, 0, 0,...]",
+                "error": 0
+                }
+            }
+        },
+        "since": null,
+        "until": 1371731588.230987
+    }
     #+END_EXAMPLE
-#   #+END_DITAA
+
+**** options/delay/value
+
+     To access or modify some specific thing in the matching object(s), add a
+     <command> and <value>:
     
-    This machine is easily created like this:
+     #+BEGIN_EXAMPLE
+     $ curl http://localhost:12345/api/options/delay/value/0.5
+     {
+         "alarm": [],
+         "command": {
+             "message": "options.delay.value=u'0.5' (0.5)",
+             "success": true
+         },
+         "data": {
+             "options": {
+                 "delay": {
+                     "value": 0.5
+                 }
+             }
+         },
+         "since": null,
+         "until": 1371732496.23366
+     }
+     #+END_EXAMPLE
     
-    #+BEGIN_SRC python
-    # Basic DFA that accepts ab+
-    E			= cpppo.state( "E" )
-    A			= cpppo.state_input( "A" )
-    B			= cpppo.state_input( "B", terminal=True )
-    E['a']		= A
-    A['b']		= B
-    B['b']		= B
-
-    BASIC		= cpppo.dfa( 'ab+', initial=E, context='basic' )
-    #+END_SRC
-
-*** Composite Machines
-
-    A higher-level DFA can be produced by wrapping this one in a cpppo.dfa, and
-    giving it some of its own transitions.  For example, lets make a machine that
-    accepts 'ab+' separated by ',[ ]*'.
+     It will perform the action of assigning the <value> to all of the matching
+     <command> entities.  In this case, since you specified a precise <group>
+     "options", and <match> "delay", exactly one entity was affected: "value" was
+     assigned "0.5".  If you are running a test client against the simulator, you
+     will see the change in response time.
     
-#   #+BEGIN_DITAA abplus_csv.png -r -S
-    #+BEGIN_EXAMPLE
-                           +------------------------------+    
-                           |                              |
-                           v                              |
-        +----------------------------------------+        | None
-        | (CSV)                                  |        |
-        |  +-----+ 'a' +-----+ 'b' +-----+  'b'  | ',' +-----+ ' '
-        |  |  E  |---->|  A  |---->| (B) |----+  |---->| SEP |----+
-        |  +-----+     +-----+     +-----+    |  |     +-----+    |
-        |                             ^       |  |        ^       |
-        |                             |       |  |        |       |
-        |                             +-------+  |        +-------+
-        +----------------------------------------+
-    #+END_EXAMPLE
-#   #+END_DITAA
+     As a convenience, you can use /<value> or =<value> as the last term in the
+     URL:
     
-    This is implemented:
-    
-    #+BEGIN_SRC python
-    # Composite state machine accepting ab+, ignoring ,[ ]* separators
-    ABP			= cpppo.dfa( "ab+", initial=E, terminal=True )
-    SEP			= cpppo.state_drop( "SEP" )
-    ABP[',']		= SEP
-    SEP[' ']		= SEP
-    SEP[None]		= ABP
+     : $ curl http://localhost:12345/api/options/delay/value/0.5
+     : $ curl http://localhost:12345/api/options/delay/value=0.5
 
-    CSV			= cpppo.dfa( 'CSV', initial=ABP, context='csv' )
-    #+END_SRC
-    
-    When the lower level state machine doesn't recognize the input symbol for a
-    transition, the higher level machine is given a chance to recognize them; in
-    this case, a ',' followed by any number of spaces leads to a state_drop
-    instance, which throws away the symbol.  Finally, it uses an "epsilon"
-    (no-input) transition (indicated by a transition on None) to re-enter the
-    main CSV machine to process subsequent symbols.
-    
-*** Machines from Regular Expressions
 
-    We use [[https://github.com/ferno/greenery]] to convert regular expressions into
-    greenery.fsm machines, and post-process these to produce a cpppo.dfa.  The
-    regular expression '(ab+)((,[ ]*)(ab+))*' is equivalent to the above (except
-    that it doesn't ignore the separators), and produces the following state
-    machine:
+**** options/delay/range
+     If you've started the simulator with --delay=0.1-0.9 (a delay range), you
+     can adjust this range to a new range, using:
+     : $ curl http://localhost:12345/api/options/delay/range=0.5-1.5
 
-#   #+BEGIN_DITAA abplus_regex.png -r -S
-    #+BEGIN_EXAMPLE
-                       +----------------------------+
-                       |                            |
-                       v                            | 'a' 
-        +-----+ 'a' +-----+ 'b' +-----+ ',' +-----+ |
-        |  0' |---->|  2  |---->| (3) |---->|  4  |-+
-        +-----+     +-----+     +-----+     +-----+
-                                  ^ |         ^ |    
-                                  | | 'b'     | | ' '
-                                  +-+         +-+    
-    #+END_EXAMPLE
-#   #+END_DITAA
+**** Preventing Connections
+     To prevent any future connections, do so indirectly by setting the response
+     delay to a number greater than the connection timeout:
+     : $ curl http://localhost:12345/api/options/delay/value=10.0
 
-    A regular expression based cpppo.dfa is created thus:
+     Or, if you've configured a delay range using --delay=#-#, use:
+     : $ curl http://localhost:12345/api/options/delay/range=10.0-10.0
 
-    #+BEGIN_SRC python
-    # A regular expression; he default dfa name is the regular expression itself.
-    REGEX		= cpppo.regex( initial='(ab+)((,[ ]*)(ab+))*', context='regex' )
-    #+END_SRC
+     Restore connection responses by restoring a reasonable response timeout.
 
-** Running State Machines
+**** tags/<tagname>/error
+     To force all successful accesses to a certain tag (eg. SCADA) to return a
+     certain error code, you can set it using:
+     : $ curl http://localhost:12345/api/tags/SCADA/error=8
+     
+     Restore it to return success:
+     : $ curl http://localhost:12345/api/tags/SCADA/error/0
 
-   State machines define the grammar for a language which can be run against a
-   sentence of input.  All these machines ultimately use state_input instances
-   to store their data; the path used is the cpppo.dfa's <context> + '_input':
+**** tags/<tagname>/attribute[x]
+
+     To access or change a certain element of a tag, access its attribute at a
+     certain index (curl has problems with this kind of URL):
+     : wget -qO -  http://localhost:12345/api/tags/SCADA/attribute[3]=4
+
+     You can access any specific value to confirm:
+     #+BEGIN_EXAMPLE
+     wget -qO -  http://localhost:12345/api/tags/SCADA/attribute[3]
+     {
+         "alarm": [],
+         "command": {
+             "message": "tags.SCADA.attribute[2]: 0",
+             "success": true
+         },
+         "data": {
+             "tags": {
+                 "SCADA": {
+                     "attribute": "SCADA          INT[1000] == [0, 0, 0, 4, 0, 0,
+                     ...]",
+                     "error": 0
+                 }
+             }
+         },
+         "since": null,
+         "until": 1371734234.553135
+     }
+     #+END_EXAMPLE
+
+**** connections/*/eof
+     To immediately terminate all connections, you can signal them that they've
+     experienced an EOF:
+     : $ curl http://localhost:12345/api/connections/*/eof/true
+
+     If there are any matching connections, all will be terminated.  If you know
+     the port and IP address of the interface from which your client is
+     connecting to the simulator, you can access its connection specifically:
+     : $ curl http://localhost:12345/api/connections/10_0_111_121_60592/eof/true
+
+
+
+* Deterministic Finite Automata
+
+  A cpppo.dfa will consume symbols from its source iterable, and yield
+  (machine,state) transitions 'til a terminal state is reached.  If 'greedy',
+  it will transition 'til we reach a terminal state and the next symbol does
+  not product a transition.
+
+  For example, if 'abbb,ab' is presented to the following machine with a
+  no-input state E, and input processing states A and (terminal) B, it will
+  accept 'ab' and terminate, unless greedy is specified in which case it will
+  accept 'abbb' and terminate.
+
+** Basic State Machines
+
+   #+BEGIN_DITAA abplus.png -r -S
+#   #+BEGIN_EXAMPLE
+       +-----+ 'a' +-----+ 'b' +-----+ 'b'
+       |  E  |---->|  A  |---->| (B) |----+
+       +-----+     +-----+     +-----+    |
+                                  ^       |
+                                  |       |
+                                  +-------+
+#   #+END_EXAMPLE
+   #+END_DITAA
+   
+   This machine is easily created like this:
+   
+   #+BEGIN_SRC python
+   # Basic DFA that accepts ab+
+   E			= cpppo.state( "E" )
+   A			= cpppo.state_input( "A" )
+   B			= cpppo.state_input( "B", terminal=True )
+   E['a']		= A
+   A['b']		= B
+   B['b']		= B
+
+   BASIC		= cpppo.dfa( 'ab+', initial=E, context='basic' )
+   #+END_SRC
+
+** Composite Machines
+
+   A higher-level DFA can be produced by wrapping this one in a cpppo.dfa, and
+   giving it some of its own transitions.  For example, lets make a machine that
+   accepts 'ab+' separated by ',[ ]*'.
+   
+   #+BEGIN_DITAA abplus_csv.png -r -S
+#   #+BEGIN_EXAMPLE
+                          +------------------------------+    
+                          |                              |
+                          v                              |
+       +----------------------------------------+        | None
+       | (CSV)                                  |        |
+       |  +-----+ 'a' +-----+ 'b' +-----+  'b'  | ',' +-----+ ' '
+       |  |  E  |---->|  A  |---->| (B) |----+  |---->| SEP |----+
+       |  +-----+     +-----+     +-----+    |  |     +-----+    |
+       |                             ^       |  |        ^       |
+       |                             |       |  |        |       |
+       |                             +-------+  |        +-------+
+       +----------------------------------------+
+#   #+END_EXAMPLE
+   #+END_DITAA
+   
+   This is implemented:
+   
+   #+BEGIN_SRC python
+   # Composite state machine accepting ab+, ignoring ,[ ]* separators
+   ABP			= cpppo.dfa( "ab+", initial=E, terminal=True )
+   SEP			= cpppo.state_drop( "SEP" )
+   ABP[',']		= SEP
+   SEP[' ']		= SEP
+   SEP[None]		= ABP
+
+   CSV			= cpppo.dfa( 'CSV', initial=ABP, context='csv' )
+   #+END_SRC
+   
+   When the lower level state machine doesn't recognize the input symbol for a
+   transition, the higher level machine is given a chance to recognize them; in
+   this case, a ',' followed by any number of spaces leads to a state_drop
+   instance, which throws away the symbol.  Finally, it uses an "epsilon"
+   (no-input) transition (indicated by a transition on None) to re-enter the
+   main CSV machine to process subsequent symbols.
+   
+** Machines from Regular Expressions
+
+   We use [[https://github.com/ferno/greenery]] to convert regular expressions into
+   greenery.fsm machines, and post-process these to produce a cpppo.dfa.  The
+   regular expression '(ab+)((,[ ]*)(ab+))*' is equivalent to the above (except
+   that it doesn't ignore the separators), and produces the following state
+   machine:
+
+   #+BEGIN_DITAA abplus_regex.png -r -S
+#   #+BEGIN_EXAMPLE
+                      +----------------------------+
+                      |                            |
+                      v                            | 'a' 
+       +-----+ 'a' +-----+ 'b' +-----+ ',' +-----+ |
+       |  0' |---->|  2  |---->| (3) |---->|  4  |-+
+       +-----+     +-----+     +-----+     +-----+
+                                 ^ |         ^ |    
+                                 | | 'b'     | | ' '
+                                 +-+         +-+    
+#   #+END_EXAMPLE
+   #+END_DITAA
+
+   A regular expression based cpppo.dfa is created thus:
 
    #+BEGIN_SRC python
-    data		= cpppo.dotdict()
-    for machine in [ BASIC, CSV, REGEX ]:
-        path		= machine.context() + '.input' # default for state_input data
-        source		= cpppo.peekable( str( 'abbbb, ab' ))
-        with machine:
-            for i,(m,s) in enumerate( machine.run( source=source, data=data )):
-                print( "%s #%3d; next byte %3d: %-10.10r: %r" % (
-                       m.name_centered(), i, source.sent, source.peek(), data.get(path) ))
-        print( "Accepted: %r; remaining: %r\n" % ( data.get(path), ''.join( source )))
-    print( "Final: %r" % ( data ))
-    #+END_SRC
+   # A regular expression; he default dfa name is the regular expression itself.
+   REGEX		= cpppo.regex( initial='(ab+)((,[ ]*)(ab+))*', context='regex' )
+   #+END_SRC
+
+* Running State Machines
+
+  State machines define the grammar for a language which can be run against a
+  sentence of input.  All these machines ultimately use state_input instances
+  to store their data; the path used is the cpppo.dfa's <context> + '_input':
+
+  #+BEGIN_SRC python
+   data		= cpppo.dotdict()
+   for machine in [ BASIC, CSV, REGEX ]:
+       path		= machine.context() + '.input' # default for state_input data
+       source		= cpppo.peekable( str( 'abbbb, ab' ))
+       with machine:
+           for i,(m,s) in enumerate( machine.run( source=source, data=data )):
+               print( "%s #%3d; next byte %3d: %-10.10r: %r" % (
+                      m.name_centered(), i, source.sent, source.peek(), data.get(path) ))
+       print( "Accepted: %r; remaining: %r\n" % ( data.get(path), ''.join( source )))
+   print( "Final: %r" % ( data ))
+   #+END_SRC
