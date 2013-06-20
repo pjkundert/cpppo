@@ -10,6 +10,7 @@ setup(
     package_dir = {'': '.'},
     extra_path = 'cpppo',
     author = "Perry Kundert",
+    author_email = "perry@hardconsulting.com",
     description = "Cpppo is a Communication Protocol Python Parser and Originator",
     long_description = """\
 Cpppo is used to create event-driven state machines which consume a stream

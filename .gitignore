@@ -18,3 +18,5 @@
 auto/
 *.out
 build/
+MANIFEST
+dist/
