@@ -13,10 +13,10 @@
    parsing and state machinery library, 'web', the web.py framework, and (for
    testing) 'pytest'.
 
-   To install 'cpppo', 'greenery' (from the source repository), and web.py (if
-   you desire the web API) using pip:
+   To install 'cpppo', 'greenery', and web.py (if you desire the web API) using
+   pip:
    : $ pip install cpppo
-   : $ pip install git+https://github.com/pjkundert/greenery.git
+   : $ pip install greenery
    : $ pip install web
    
    If you need system admin privileges to install packages, you may need to use
