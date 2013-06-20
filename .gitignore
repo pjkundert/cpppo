@@ -17,3 +17,4 @@
 *.tex
 auto/
 *.out
+build/

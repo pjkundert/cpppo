@@ -20,7 +20,7 @@ from __future__ import print_function
 __author__                      = "Perry Kundert"
 __email__                       = "perry@hardconsulting.com"
 __copyright__                   = "Copyright (c) 2013 Hard Consulting Corporation"
-__license__                     = "GNU General Public License, Version 3 (or later)"
+__license__                     = "Dual License: GPLv3 (or later) and Commercial (see LICENSE)"
 
 import logging
 import os
