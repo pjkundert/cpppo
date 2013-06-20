@@ -198,16 +198,16 @@
 
 ** Basic State Machines
 
-   #+BEGIN_DITAA abplus.png -r -S
-#   #+BEGIN_EXAMPLE
+#   #+BEGIN_DITAA abplus.png -r -S
+   #+BEGIN_EXAMPLE
        +-----+ 'a' +-----+ 'b' +-----+ 'b'
        |  E  |---->|  A  |---->| (B) |----+
        +-----+     +-----+     +-----+    |
                                   ^       |
                                   |       |
                                   +-------+
-#   #+END_EXAMPLE
-   #+END_DITAA
+   #+END_EXAMPLE
+#   #+END_DITAA
    
    This machine is easily created like this:
    
@@ -229,8 +229,8 @@
    giving it some of its own transitions.  For example, lets make a machine that
    accepts 'ab+' separated by ',[ ]*'.
    
-   #+BEGIN_DITAA abplus_csv.png -r -S
-#   #+BEGIN_EXAMPLE
+#   #+BEGIN_DITAA abplus_csv.png -r -S
+   #+BEGIN_EXAMPLE
                           +------------------------------+    
                           |                              |
                           v                              |
@@ -243,8 +243,8 @@
        |                             |       |  |        |       |
        |                             +-------+  |        +-------+
        +----------------------------------------+
-#   #+END_EXAMPLE
-   #+END_DITAA
+   #+END_EXAMPLE
+#   #+END_DITAA
    
    This is implemented:
    
@@ -274,8 +274,8 @@
    that it doesn't ignore the separators), and produces the following state
    machine:
 
-   #+BEGIN_DITAA abplus_regex.png -r -S
-#   #+BEGIN_EXAMPLE
+#   #+BEGIN_DITAA abplus_regex.png -r -S
+   #+BEGIN_EXAMPLE
                       +----------------------------+
                       |                            |
                       v                            | 'a' 
@@ -285,8 +285,8 @@
                                  ^ |         ^ |    
                                  | | 'b'     | | ' '
                                  +-+         +-+    
-#   #+END_EXAMPLE
-   #+END_DITAA
+   #+END_EXAMPLE
+#   #+END_DITAA
 
    A regular expression based cpppo.dfa is created thus:
 
