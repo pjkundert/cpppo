@@ -37,13 +37,20 @@ PYTESTOPTS=--capture=no
 PY2TEST=$(PY2) -m pytest $(PYTESTOPTS)
 PY3TEST=$(PY3) -m pytest $(PYTESTOPTS)
 
-.PHONY: all test
+.PHONY: all test clean upload
 all:
 
 # Only run tests in this directory.
 test:
 	$(PY2TEST)
 	$(PY3TEST)
+
+clean:
+	rm -f MANIFEST *.png $(shell find . -name '*.pyc' )
+	rm -rf build dist auto __pycache__ *.egg-info
+
+upload:
+	python setup.py sdist upload
 
 # Run only tests with a prefix containing the target string, eg test-blah
 test-%:

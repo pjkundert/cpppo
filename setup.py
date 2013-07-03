@@ -1,15 +1,23 @@
 from setuptools import setup
-
+import os
 from misc import __version__
+
+here = os.path.abspath( os.path.dirname( __file__ ))
 
 setup(
     name = "cpppo",
     version = __version__,
-    tests_require = [ 'pytest' ],
-    install_requires = open( 'requirements.txt' ).readlines(),
-    packages = ['', 'server', 'server/enip'],
-    package_dir = {'': '.'},
-    extra_path = 'cpppo',
+    tests_require = [ "pytest" ],
+    install_requires = open( os.path.join( here, "requirements.txt" )).readlines(),
+    packages = [ 
+        "cpppo",
+        "cpppo/server",
+        "cpppo/server/enip" ],
+    package_dir = {
+        "cpppo":		".", 
+        "cpppo/server":		"./server",
+        "cpppo/server/enip":	"./server/enip" },
+    include_package_data = True,
     author = "Perry Kundert",
     author_email = "perry@hardconsulting.com",
     description = "Cpppo is a Communication Protocol Python Parser and Originator",

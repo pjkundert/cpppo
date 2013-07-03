@@ -1,2 +1,2 @@
-greenery>=1.0
+greenery>=1.1
 web.py>=0.37

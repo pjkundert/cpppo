@@ -61,8 +61,8 @@
    : -l|--log <file>
 
    You may specify as many tags as you like on the command line; at least one
-   is required, eg. 'SCADA=INT\[1000\]':
-   : <tag>=<type>[<length>]
+   is required:
+   : <tag>=<type>[<length>]   # eg. SCADA=INT[1000]
 
    The available types are INT (16-bit), SINT (8-bit) and DINT (32-bit) integer.
 
