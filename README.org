@@ -153,15 +153,26 @@
      can adjust this range to a new range, using:
      : $ curl http://localhost:12345/api/options/delay/range=0.5-1.5
 
-**** Preventing Connections
-     To prevent any future connections, do so indirectly by setting the response
-     delay to a number greater than the connection timeout:
+     You can cause it to never response (in time), to cause future connection
+     attempts to fail:
      : $ curl http://localhost:12345/api/options/delay/value=10.0
 
      Or, if you've configured a delay range using --delay=#-#, use:
      : $ curl http://localhost:12345/api/options/delay/range=10.0-10.0
 
      Restore connection responses by restoring a reasonable response timeout.
+
+**** server/control/done or disable
+     To prevent any future connections, you can (temporarily) disable the 
+     server, which will close its port and await further instructions:
+     : $ curl http://localhost:12345/api/server/control/disable/true
+
+     Re-enable it using:
+     : $ curl http://localhost:12345/api/server/control/disable/false
+
+     To cause the server to exit completely (and of course, causing it to not
+     respond to future requests):
+     : $ curl http://localhost:12345/api/server/control/done/true
 
 **** tags/<tagname>/error
      To force all successful accesses to a certain tag (eg. SCADA) to return a
@@ -210,6 +221,44 @@
      connecting to the simulator, you can access its connection specifically:
      : $ curl http://localhost:12345/api/connections/10_0_111_121_60592/eof/true
 
+     To wait for all connections to close, you can issue a request to get all connections, and wait
+     for the 'data' attribute to become empty:
+     #+BEGIN_EXAMPLE
+     $ curl http://localhost:12345/api/connections
+     {
+         "alarm": [], 
+         "command": {}, 
+         "data": {
+             "connections": {
+                 "127_0_0_1_52590": {
+                     "eof": false, 
+                     "interface": "127.0.0.1", 
+                     "port": 52590, 
+                     "received": 1610, 
+                     "requests": 17
+                 }, 
+                 "127_0_0_1_52591": {
+                     "eof": false, 
+                     "interface": "127.0.0.1", 
+                     "port": 52591, 
+                     "received": 290, 
+                     "requests": 5
+                 }
+             }
+         }, 
+         "since": null, 
+         "until": 1372889099.908609
+     }
+     $ # ... wait a while (a few tenths of a second should be OK)...
+     $ curl http://localhost:12345/api/connections
+     {
+         "alarm": [], 
+         "command": null, 
+         "data": {}, 
+         "since": null, 
+         "until": 1372889133.079849
+     }
+     #+END_EXAMPLE
 
 
 * Deterministic Finite Automata
@@ -226,16 +275,16 @@
 
 ** Basic State Machines
 
-#   #+BEGIN_DITAA abplus.png -r -S
-   #+BEGIN_EXAMPLE
+   #+BEGIN_DITAA abplus.png -r -S
+#   #+BEGIN_EXAMPLE
        +-----+ 'a' +-----+ 'b' +-----+ 'b'
        |  E  |---->|  A  |---->| (B) |----+
        +-----+     +-----+     +-----+    |
                                   ^       |
                                   |       |
                                   +-------+
-   #+END_EXAMPLE
-#   #+END_DITAA
+#   #+END_EXAMPLE
+   #+END_DITAA
    
    This machine is easily created like this:
    
@@ -330,14 +379,14 @@
   to store their data; the path used is the cpppo.dfa's <context> + '_input':
 
   #+BEGIN_SRC python
-   data		= cpppo.dotdict()
-   for machine in [ BASIC, CSV, REGEX ]:
-       path		= machine.context() + '.input' # default for state_input data
-       source		= cpppo.peekable( str( 'abbbb, ab' ))
-       with machine:
-           for i,(m,s) in enumerate( machine.run( source=source, data=data )):
-               print( "%s #%3d; next byte %3d: %-10.10r: %r" % (
-                      m.name_centered(), i, source.sent, source.peek(), data.get(path) ))
-       print( "Accepted: %r; remaining: %r\n" % ( data.get(path), ''.join( source )))
-   print( "Final: %r" % ( data ))
-   #+END_SRC
+  data			= cpppo.dotdict()
+  for machine in [ BASIC, CSV, REGEX ]:
+      path		= machine.context() + '.input' # default for state_input data
+      source		= cpppo.peekable( str( 'abbbb, ab' ))
+      with machine:
+          for i,(m,s) in enumerate( machine.run( source=source, data=data )):
+              print( "%s #%3d; next byte %3d: %-10.10r: %r" % (
+                     m.name_centered(), i, source.sent, source.peek(), data.get(path) ))
+      print( "Accepted: %r; remaining: %r\n" % ( data.get(path), ''.join( source )))
+  print( "Final: %r" % ( data ))
+  #+END_SRC

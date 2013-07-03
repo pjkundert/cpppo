@@ -92,6 +92,10 @@ connections			= cpppo.dotdict()
 # All known tags, their CIP Attribute and desired error code
 tags				= cpppo.dotdict()
 
+# Server control signals
+srv_ctl				= cpppo.dotdict()
+
+
 # Optional modules
 try:
     import web
@@ -265,6 +269,7 @@ def api_request( group, match, command, value,
     global options
     global connections
     global tags
+    global srv_ctl
     accept		= deduce_encoding( [ "application/json",
                                              "text/javascript",
                                              "text/plain",
@@ -324,7 +329,8 @@ def api_request( group, match, command, value,
     for grp, obj in [ 
             ('options',		options),
             ('connections', 	connections),
-            ('tags',		tags )]: 
+            ('tags',		tags ),
+            ('server',		srv_ctl )]: 
         for mch in [ m for m in dir( obj ) if not m.startswith( '_' ) ]:
             log.detail( "Evaluating %s.%s: %r", grp, mch, getattr( obj, mch, None ))
             if not fnmatch.fnmatch( grp, group ):
@@ -351,19 +357,16 @@ def api_request( group, match, command, value,
                     result["message"] = "%s.%s.%s: %r" % ( grp, mch, command, cur )
                     if value is not None:
                         typ	= type( cur )
-                        try:
-                            cvt	= typ( value )
-                        except TypeError:
-                            if typ is bool:
-                                # Either 'true'/'yes' or 'false'/'no', otherwise it must be a number
-                                if value.lower() in ('true', 'yes'):
-                                    cvt	= True
-                                elif value.lower() in ('false', 'no'):
-                                    cvt	= False
-                                else:
-                                    cvt	= bool( int( value ))
+                        if typ is bool:
+                            # Either 'true'/'yes' or 'false'/'no', otherwise it must be a number
+                            if value.lower() in ('true', 'yes'):
+                                cvt	= True
+                            elif value.lower() in ('false', 'no'):
+                                cvt	= False
                             else:
-                                raise
+                                cvt	= bool( int( value ))
+                        else:
+                            cvt		= typ( value )
                         setattr( target, command, cvt )
                         result["message"] = "%s.%s.%s=%r (%r)" % ( grp, mch, command, value, cvt )
                     result["success"]	= True
@@ -701,6 +704,7 @@ def main( argv=None, **kwds ):
     global address
     global options
     global tags
+    global srv_ctl
 
     if argv is None:
         argv			= []
@@ -850,10 +854,17 @@ def main( argv=None, **kwds ):
 
         
     # The EtherNet/IP Simulator.  Pass all the top-level options keys/values as keywords, and pass
-    # the entire tags dotdict as a tags=... keyword.
+    # the entire tags dotdict as a tags=... keyword.  The server_main server.control signals (.done,
+    # .disable) are also passed as the server= keyword.
     logging.normal( "EtherNet/IP Simulator: %r" % ( http, ))
-    kwargs			= dict( options, tags=tags )
-    return network.server_main( address=bind, target=enip_srv, kwargs=kwargs )
+    srv_ctl.control		= cpppo.dotdict()
+    srv_ctl.control.done	= False
+    srv_ctl.control.disable	= False
+    kwargs			= dict( options, tags=tags, server=srv_ctl )
+    while not srv_ctl.control.done:
+        if not srv_ctl.control.disable:
+            network.server_main( address=bind, target=enip_srv, kwargs=kwargs )
+        time.sleep( .1 )
 
 
 if __name__ == "__main__":

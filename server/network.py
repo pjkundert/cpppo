@@ -136,14 +136,24 @@ class server_thread( threading.Thread ):
 def server_main( address, target, kwargs=None ):
     """A generic server main, binding to address, and serving each incoming connection with a separate
     server_thread (threading.Thread) instance running target function.  Each server is passed two
-    positional arguments (the connect socket and the peer address), plush any keyword args supplied
+    positional arguments (the connect socket and the peer address), plus any keyword args supplied
     to this function.
 
     The kwargs (default: None) container is passed to each thread; it is *shared*, and each thread
     must treat its contents with appropriate care.  It can be used as a conduit to transmit changing
     configuration information to all running threads.  Pass keys with values that are mutable
     container objects (eg. dict, list), so that the original object is retained when the kwargs is
-    broken out into arguments for the Thread's target function."""
+    broken out into arguments for the Thread's target function.
+
+    If a 'server' keyword is passed, it is assumed to be a dict contain the server's status and
+    control attributes.  When either the 'done' or 'disable' entry is set to True, the server_main
+    will terminate all existing server threads, close the listening socket and return.  If a
+    KeyboardInterrupt or other Exception occurs, then server['done'] will be forced True.
+
+    Thus, the caller can optionally pass the 'server' kwarg dict; the 'disable' entry will force the
+    server_main to stop listening on the socket temporarily (for later resumption), and 'done' to
+    signal (or respond to) a forced termination.
+    """
     sock			= socket.socket( socket.AF_INET, socket.SOCK_STREAM )
     sock.setsockopt( socket.SOL_SOCKET, socket.SO_REUSEADDR, 1 ) # Avoid delay on next bind due to TIME_WAIT
     try:
@@ -156,30 +166,34 @@ def server_main( address, target, kwargs=None ):
     name			= target.__name__
     threads			= {}
     log.normal( "%s server PID [%5d] running on %r", name, os.getpid(), address )
-    done			= False
-    while not done:
+    control			= kwargs.get( 'server', {} ).get( 'control', {} ) if kwargs else {}
+    control['done']		= False
+    control['disable']		= False
+    while not control['disable'] and not control['done']:
         try:
             acceptable		= accept( sock, timeout=.1 )
             if acceptable:
                 conn, addr	= acceptable
                 threads[addr]	= server_thread( target=target, args=(conn, addr), kwargs=kwargs )
+                threads[addr].daemon = True
                 threads[addr].start()
         except KeyboardInterrupt as exc:
             log.warning( "%s server termination: %r", name, exc )
-            done		= True
+            control['done']	= True
         except Exception as exc:
             log.warning( "%s server failure: %s\n%s", name,
                          exc, ''.join( traceback.format_exc() ))
-            done		= True
+            control['done']	= True
         finally:
-            # Tidy up any dead threads (or all, if done)
+            # Tidy up any dead threads (or all, if done/disable)
             for addr in list( threads ):
-                if done or not threads[addr].is_alive():
+                if control['disable'] or control['done'] or not threads[addr].is_alive():
                     threads[addr].join()
                     del threads[addr]
 
     sock.close()
-    log.info( "%s server PID [%5d] shutting down", name, os.getpid() )
+    log.info( "%s server PID [%5d] shutting down (%s)", name, os.getpid(),
+              "disabled" if control['disable'] else "done" if control['done'] else "unknown reason" )
     return 0
 
 
