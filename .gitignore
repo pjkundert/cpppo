@@ -20,3 +20,4 @@ auto/
 build/
 MANIFEST
 dist/
+*.egg-info/

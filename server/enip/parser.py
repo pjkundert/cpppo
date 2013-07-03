@@ -326,9 +326,9 @@ def enip_encode( data ):
     result			= b''.join( [
         UINT.produce(	data.command ),
         UINT.produce(len(data.input )),
-        UDINT.produce( 	data.session_handle ),
-        UDINT.produce( 	data.status ),
-        octets_encode( data.sender_context.input ),
+        UDINT.produce(	data.session_handle ),
+        UDINT.produce(	data.status ),
+        octets_encode(	data.sender_context.input ),
         UDINT.produce(	data.options ),
         octets_encode(	data.input ),
     ])

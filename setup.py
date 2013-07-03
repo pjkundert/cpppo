@@ -1,11 +1,12 @@
-from distutils.core import setup
+from setuptools import setup
 
 from misc import __version__
 
 setup(
     name = "cpppo",
     version = __version__,
-    requires = ['greenery', 'web'],
+    tests_require = [ 'pytest' ],
+    install_requires = open( 'requirements.txt' ).readlines(),
     packages = ['', 'server', 'server/enip'],
     package_dir = {'': '.'},
     extra_path = 'cpppo',
@@ -29,7 +30,7 @@ requests in this protocol (eg. as a client, sending commands to a
 Controller).""",
     license = "Dual License; GPLv3 and Proprietary",
     keywords = "cpppo protocol parser DFA",
-    url = "https://github.com/pkundert/cpppo",
+    url = "https://github.com/pjkundert/cpppo",
     classifiers = [
         "License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)",
         "License :: Other/Proprietary License",
