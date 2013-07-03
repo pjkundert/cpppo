@@ -279,10 +279,13 @@ class Logix( Message_Router ):
             beg		       += off // siz
             cnt			= len( attribute )
             elm			= data[context].get( 'elements', cnt ) # Read/Write Tag defaults to all
-            endactual	= end	= beg + elm
-            if ( data.service in (self.RD_TAG_RPY, self.RD_FRG_RPY) ):
-                endmax 		= beg + self.MAX_BYTES // siz
-                end		= min( endactual, endmax )
+            endactual		= beg + elm
+            # Maximum elements for read is the capacity of the reply message, for write is the
+            # number actually provided in request
+            endmax 		= ( beg + self.MAX_BYTES // siz
+                                    if ( data.service in (self.RD_TAG_RPY, self.RD_FRG_RPY) )
+                                    else beg + len( data[context].data ))
+            end			= min( endactual, endmax )
             assert 0 <= beg < cnt, \
                 "Attribute %s initial element invalid: %r" % ( attribute, (beg, end) )
             assert 0 <  end <= cnt, \
