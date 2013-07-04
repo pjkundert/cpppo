@@ -230,24 +230,26 @@ def html_wrap( thing, tag="div", **kwargs ):
 #
 # URL request handlers
 #
-#     device_request	-- Returns all specified, after executing (optional) command
+#     api_request	-- Returns all specified, after executing (optional) command
 # 
 # 
-#   group / match / command / value	description
-#   -----   -----   -------   -----	----------- 
-#   cip   / o.i.a / value[x]/ 1000	Set the given object, instance, attribute's value[x] to 1000
-#   cip   / <tag> / value   / [1,2,3]
+#   group       / match   / command / value	description
+#   -----         -----     -------   -----	----------- 
+#   tag         / <tag>   / value[x]/ 1000	Set the given tag's attribute's value[x] to 1000
+#   tag         / <tag>   / value   / [1,2,3]
 # 
-#   option/ delay / value   / 1.2	Set the option delay.value=1.2
-# 
+#   option      / delay   / value   / 1.2	Set the option delay.value=1.2
+#   connections / *       / eof     / true	Signal an EOF to the specified connection
+#   server      / control / disable / true      Disable the server, dropping connections (false re-enable)
+#   server      / control / done    / true      Terminate the server (as if hit with a ^C)
 # 
 def api_request( group, match, command, value,
                       queries=None, environ=None, accept=None,
                       framework=None ):
-    """Return a JSON object:
+    """Return a JSON object containing the response to the request:
       {
-        data:     [ {}, ... ]
-        messages: [ "2012-12-21 11:22:33 M46 Motor Fault", ... ]
+        data:     { ... },
+        ...,
       }
 
     The data list contains objects representing all matching objects, executing
@@ -612,6 +614,13 @@ def enip_srv( conn, addr, enip_process=None, delay=None, **kwds ):
                         msg	= None
                         while msg is None and not stats.eof:
                             msg	= network.recv( conn, timeout=.1 if source.peek() is None else 0 )
+                            # After each block of input (or None), check if the server is being
+                            # signalled done/disabled; we need to shut down so signal eof.  Assumes
+                            # that (shared) server.control.{done,disable} dotdict be in kwds.
+                            if kwds['server'].control.done or kwds['server'].control.disable:
+                                log.detail( "%s done, due to server done/disable", 
+                                            enip_mesg.name_centered() )
+                                stats.eof	= True
                             if msg is not None:
                                 stats.received += len( msg )
                                 stats.eof       = stats.eof or not len( msg )
@@ -619,11 +628,11 @@ def enip_srv( conn, addr, enip_process=None, delay=None, **kwds ):
                                             len( msg ) if msg is not None else 0, reprlib.repr( msg ))
                                 source.chain( msg )
                             else:
-                                # No input.  If we have input available, no problem; continue.  This
-                                # can occur if the state machine cannot make a transition on the
-                                # input symbol, indicating an unacceptable sentence for the grammar.
-                                # If it cannot make progress, the machine will terminate in a
-                                # non-terminal state, rejecting the sentence.
+                                # No input.  If we have symbols available, no problem; continue.
+                                # This can occur if the state machine cannot make a transition on
+                                # the input symbol, indicating an unacceptable sentence for the
+                                # grammar.  If it cannot make progress, the machine will terminate
+                                # in a non-terminal state, rejecting the sentence.
                                 if source.peek() is not None:
                                     break
                                 # We're at a None (can't proceed), and no input is available.  This
@@ -637,11 +646,13 @@ def enip_srv( conn, addr, enip_process=None, delay=None, **kwds ):
                 try:
                     # enip_process must be able to handle no request (empty data), indicating the
                     # clean termination of the session if closed from this end (not required if
-                    # enip_process returned False, indicating the connection was terminated by request.)
+                    # enip_process returned False, indicating the connection was terminated by
+                    # request.)
                     if enip_process( addr, data=data, **kwds ):
                         # Produce an EtherNet/IP response carrying the encapsulated response data.
                         assert 'response' in data, "Expected EtherNet/IP response; none found"
-                        assert 'enip.input' in data.response, "Expected EtherNet/IP response encapsulated message; none found"
+                        assert 'enip.input' in data.response, \
+                            "Expected EtherNet/IP response encapsulated message; none found"
                         rpy	= parser.enip_encode( data.response.enip )
                         log.detail( "%s send: %5d: %s %s", enip_mesg.name_centered(),
                                     len( rpy ), reprlib.repr( rpy ),
