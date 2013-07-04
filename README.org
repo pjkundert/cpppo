@@ -275,16 +275,16 @@
 
 ** Basic State Machines
 
-   #+BEGIN_DITAA abplus.png -r -S
-#   #+BEGIN_EXAMPLE
+#   #+BEGIN_DITAA abplus.png -r -S
+   #+BEGIN_EXAMPLE
        +-----+ 'a' +-----+ 'b' +-----+ 'b'
        |  E  |---->|  A  |---->| (B) |----+
        +-----+     +-----+     +-----+    |
                                   ^       |
                                   |       |
                                   +-------+
-#   #+END_EXAMPLE
-   #+END_DITAA
+   #+END_EXAMPLE
+#   #+END_DITAA
    
    This machine is easily created like this:
    
@@ -368,15 +368,15 @@
    A regular expression based cpppo.dfa is created thus:
 
    #+BEGIN_SRC python
-   # A regular expression; he default dfa name is the regular expression itself.
+   # A regular expression; the default dfa name is the regular expression itself.
    REGEX		= cpppo.regex( initial='(ab+)((,[ ]*)(ab+))*', context='regex' )
    #+END_SRC
 
 * Running State Machines
 
   State machines define the grammar for a language which can be run against a
-  sentence of input.  All these machines ultimately use state_input instances
-  to store their data; the path used is the cpppo.dfa's <context> + '_input':
+  sentence of input.  All these machines ultimately use state\_input instances
+  to store their data; the path used is the cpppo.dfa's <context> + '\_input':
 
   #+BEGIN_SRC python
   data			= cpppo.dotdict()
