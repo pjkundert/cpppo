@@ -4,6 +4,9 @@ from __future__ import print_function
 import logging
 import os
 import sys
+import time
+
+from . import misc
 
 from .dotdict import *
 
@@ -183,3 +186,63 @@ def test_hasattr():
     assert 'b' not in attrs
     assert len( attrs ) == 2
     #print( dir( d ))
+
+def test_apidict():
+    
+    def release( when, dd, attr=None, item=None ):
+        now = misc.timer()
+        if when > now:
+            time.sleep( when - now )
+        if attr:
+            val = getattr( ad, attr )
+        else:
+            val = ad[item]
+        #print( "got: ", val )
+
+    # Ensure that latency doesn't apply to initial import of values by constructor, or to setting
+    # items by indexing; only setting by attribute assignment.
+
+    latency = 0.2
+    significance = .1 # w/in 10%
+    beg = misc.timer()
+    ad = apidict( latency, something='a', another='b' )
+    dif = misc.timer() - beg
+    assert dif < latency*significance # should be nowhere near latency (close to zero)
+    assert ad.something == 'a'
+
+    beg = misc.timer()
+    ad.boo = 1
+    dif = misc.timer() - beg
+    assert misc.near( dif, latency, significance=significance )
+
+    beg = misc.timer()
+    ad['boo'] = 2
+    dif = misc.timer() - beg
+    assert dif < latency * significance # but setting items by indexing does not delay!
+
+    # Now, start a thread with a shorter delay; it should invoke __get{attr,item}__, shortening the
+    # wait.  Under python 3.3, threading.Condition's wait is implemented using non-polling
+    # intrinsic; under prior versions, they poll (max .05s; see threading.py, _Condition.wait) -- so
+    # the resolution of the timeout test is reduced to be greater than that margin of error.  The
+    # 'significance' of the error is expressed as a multiplication factor of the tested values;
+    # eg. .1 --> 10% error allowed vs. the greatest absolute value.  For version of python < 3.3, 
+    # allow for a factor at least 0.05 vs. the shorter latency, increased by 10%.  
+    
+    shorter = latency/2.0
+    if (sys.version_info.major, sys.version_info.minor) < (3,3):
+        significance = max( significance, 0.05 / shorter * 1.1 )
+
+    for kwargs in [ {'attr': 'boo'}, {'item': 'boo'}, {'attr': 'noo'}, {'item': 'noo'} ]:
+        beg = misc.timer()
+        t = threading.Thread( target=release, args=(beg + shorter, ad), kwargs=kwargs)
+        t.start()
+        #print( "set; significance: ", significance )
+        ad.noo = 3
+        dif = misc.timer() - beg
+        err = abs( shorter - dif )
+        #print( "end; dif: ", dif, "err: ", err, " ==> ", err/shorter )
+        assert misc.near( dif, shorter if 'attr' in kwargs else latency, significance=significance )
+        assert ad.noo == 3
+        t.join()
+
+    

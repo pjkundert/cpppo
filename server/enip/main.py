@@ -72,11 +72,14 @@ if __name__ == "__main__":
 
 
 # Globals
+latency				=  0.1 	# network I/O polling (should allow several round-trips)
+timeout				= 20.0	# Await completion of all I/O, thread activity (on many threads)
 
 log				= logging.getLogger( "enip.srv" )
 
 # The default cpppo.enip.address
 address				= ('0.0.0.0', 44818)
+
 
 # Maintain a global 'options' cpppo.dotdict() containing all our configuration options, configured
 # from incoming parsed command-line options.  This'll be passed (ultimately) to the server and
@@ -576,6 +579,9 @@ def enip_srv( conn, addr, enip_process=None, delay=None, **kwds ):
 
     All remaining keywords are passed along to the supplied enip_process function.
     """
+    global latency
+    global timeout
+
     name			= "enip_%s" % addr[1]
     log.normal( "EtherNet/IP Server %s begins serving peer %s", name, addr )
 
@@ -585,20 +591,24 @@ def enip_srv( conn, addr, enip_process=None, delay=None, **kwds ):
 
         # We can be provided a dotdict() to contain our stats.  If one has been passed in, then this
         # means that our stats for this connection will be available to the web API; it may set
-        # stats.eof to True at any time, terminating the connection!  The web API will try to coerce its
-        # input into the same type as the variable, so we'll keep it an int (type bool doesn't handle
-        # coercion from strings)
-        stats			= cpppo.dotdict()
+        # stats.eof to True at any time, terminating the connection!  The web API will try to coerce
+        # its input into the same type as the variable, so we'll keep it an int (type bool doesn't
+        # handle coercion from strings).  We'll use an apidict, to ensure that attribute values set
+        # via the web API thread (eg. stats.eof) are blocking 'til this thread wakes up and reads
+        # them.  Thus, the web API will block setting .eof, and won't return to the caller until the
+        # thread is actually in the process of shutting down.  Internally, we'll use __setitem__
+        # indexing to change stats values, so we don't block ourself!
+        stats			= cpppo.apidict( timeout=timeout )
         connkey			= ( "%s_%d" % addr ).replace( '.', '_' )
         connections[connkey]	= stats
         try:
             assert enip_process is not None, \
                 "Must specify an EtherNet/IP processing function via 'enip_process'"
-            stats.requests	= 0
-            stats.received	= 0
-            stats.eof		= False
-            stats.interface	= addr[0]
-            stats.port		= addr[1]
+            stats['requests']	= 0
+            stats['received']	= 0
+            stats['eof']	= False
+            stats['interface']	= addr[0]
+            stats['port']	= addr[1]
             while not stats.eof:
                 data		= cpppo.dotdict()
 
@@ -610,20 +620,24 @@ def enip_srv( conn, addr, enip_process=None, delay=None, **kwds ):
                         # No more transitions available.  Wait for input.  EOF (b'') will lead to
                         # termination.  We will simulate non-blocking by looping on None (so we can
                         # check our options, in case they've been changed).  If we still have input
-                        # available to process right now in 'source', we'll just check (0 timeout).
+                        # available to process right now in 'source', we'll just check (0 timeout);
+                        # otherwise, use the specified server.control.latency.
                         msg	= None
                         while msg is None and not stats.eof:
-                            msg	= network.recv( conn, timeout=.1 if source.peek() is None else 0 )
+                            msg	= network.recv( conn, timeout=( kwds['server']['control']['latency']
+                                                                if source.peek() is None else 0 ))
                             # After each block of input (or None), check if the server is being
                             # signalled done/disabled; we need to shut down so signal eof.  Assumes
-                            # that (shared) server.control.{done,disable} dotdict be in kwds.
-                            if kwds['server'].control.done or kwds['server'].control.disable:
+                            # that (shared) server.control.{done,disable} dotdict be in kwds.  We do
+                            # *not* read using attributes here, to avoid reporting completion to
+                            # external APIs (eg. web) awaiting reception of these signals.
+                            if kwds['server']['control']['done'] or kwds['server']['control']['disable']:
                                 log.detail( "%s done, due to server done/disable", 
                                             enip_mesg.name_centered() )
-                                stats.eof	= True
+                                stats['eof']	= True
                             if msg is not None:
-                                stats.received += len( msg )
-                                stats.eof       = stats.eof or not len( msg )
+                                stats['received']+= len( msg )
+                                stats['eof']	= stats['eof'] or not len( msg )
                                 log.detail( "%s recv: %5d: %s", enip_mesg.name_centered(),
                                             len( msg ) if msg is not None else 0, reprlib.repr( msg ))
                                 source.chain( msg )
@@ -642,7 +656,7 @@ def enip_srv( conn, addr, enip_process=None, delay=None, **kwds ):
                 # message); process and return response
                 log.info( "%s req. data: %s", enip_mesg.name_centered(), parser.enip_format( data ))
                 if 'request' in data:
-                    stats.requests += 1
+                    stats['requests'] += 1
                 try:
                     # enip_process must be able to handle no request (empty data), indicating the
                     # clean termination of the session if closed from this end (not required if
@@ -672,17 +686,18 @@ def enip_srv( conn, addr, enip_process=None, delay=None, **kwds ):
                             eof	= True
                     else:
                         # Session terminated.  No response, just drop connection.
-                        log.detail( "%s session ended (client initiated): %s", enip_mesg.name_centered(), parser.enip_format( data ))
+                        log.detail( "%s session ended (client initiated): %s", enip_mesg.name_centered(),
+                                    parser.enip_format( data ))
                         eof	= True
                 except:
                     log.error( "Failed request: %s", parser.enip_format( data ))
                     enip_process( addr, data=cpppo.dotdict() ) # Terminate.
                     raise
 
-            stats.processed	= source.sent
+            stats['processed']	= source.sent
         except:
             # Parsing failure.  We're done.  Suck out some remaining input to give us some context.
-            stats.processed	= source.sent
+            stats['processed']	= source.sent
             memory		= bytes(bytearray(source.memory))
             pos			= len( source.memory )
             future		= bytes(bytearray( b for b in source ))
@@ -716,6 +731,8 @@ def main( argv=None, **kwds ):
     global options
     global tags
     global srv_ctl
+    global latency
+    global timeout
 
     if argv is None:
         argv			= []
@@ -866,16 +883,16 @@ def main( argv=None, **kwds ):
         
     # The EtherNet/IP Simulator.  Pass all the top-level options keys/values as keywords, and pass
     # the entire tags dotdict as a tags=... keyword.  The server_main server.control signals (.done,
-    # .disable) are also passed as the server= keyword.
+    # .disable) are also passed as the server= keyword.  We are using an cpppo.apidict with a long
+    # timeout; this will block the web API for several seconds to allow all threads to respond to
+    # the signals delivered via the web API.
     logging.normal( "EtherNet/IP Simulator: %r" % ( http, ))
-    srv_ctl.control		= cpppo.dotdict()
-    srv_ctl.control.done	= False
-    srv_ctl.control.disable	= False
-    kwargs			= dict( options, tags=tags, server=srv_ctl )
+    srv_ctl.control		= cpppo.apidict( timeout=timeout, done=False, disable=False, latency=latency )
+    kwargs			= dict( options, latency=latency, tags=tags, server=srv_ctl )
     while not srv_ctl.control.done:
         if not srv_ctl.control.disable:
             network.server_main( address=bind, target=enip_srv, kwargs=kwargs )
-        time.sleep( .1 )
+        time.sleep( latency )
 
 
 if __name__ == "__main__":

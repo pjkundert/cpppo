@@ -23,7 +23,7 @@ __author__                      = "Perry Kundert"
 __email__                       = "perry@hardconsulting.com"
 __copyright__                   = "Copyright (c) 2013 Hard Consulting Corporation"
 __license__                     = "Dual License: GPLv3 (or later) and Commercial (see LICENSE)"
-__version__			= "1.4"
+__version__			= "1.5"
 
 """
 Miscellaneous functionality used by various other modules.

@@ -30,6 +30,7 @@ import threading
 import traceback
 
 from .. import misc
+from ..dotdict import *
 
 log				= logging.getLogger( "network" )
 
@@ -122,22 +123,36 @@ class server_thread( threading.Thread ):
 
     def join( self, timeout=None ):
         """Caller is awaiting completion of this thread; try to shutdown (output) on the socket, which
-        should (eventually) result in EOF on input and termination of the target service method."""
+        should (eventually) result in EOF on input and termination of the target service method.
+        This procedure allows for a default "clean" shutdown of sockets on server termination.
+
+        If clients are possibly misbehaving (eg. could be hung or the network could be arbitrarily
+        delayed), supply a timeout and perform more aggressive shutdown/cleanup procedures on
+        failure to stop cleanly.
+
+        """
         try:
             self.conn.shutdown( socket.SHUT_WR )
         except:
             pass
-        result			= super( server_thread, self ).join( timeout=timeout )
-        if not self.is_alive():
+        super( server_thread, self ).join( timeout=timeout )
+        if self.is_alive():
+            # We must have timed out; server Thread hasn't responded to clean shutdown.  Override to
+            # respond more aggressively.
+            log.warning( "%s server TID [%5d/%5d] hanging on %r", self._name,
+                         os.getpid(), self.ident, self.addr )
+        else:
             log.info( "%s server TID [%5d/%5d] complete on %r", self._name,
                       os.getpid(), self.ident, self.addr )
 
 
-def server_main( address, target, kwargs=None ):
+
+def server_main( address, target=None, kwargs=None, thread_factory=server_thread ):
     """A generic server main, binding to address, and serving each incoming connection with a separate
-    server_thread (threading.Thread) instance running target function.  Each server is passed two
-    positional arguments (the connect socket and the peer address), plus any keyword args supplied
-    to this function.
+    thread_factory (server_thread by default, a threading.Thread) instance running the target
+    function (or its overridden run method, if desired).  Each server must be passed two positional
+    arguments in the 'args' keyword (the connect socket and the peer address), plus any keyword args
+    required by the target function in the 'kwargs' keyword.
 
     The kwargs (default: None) container is passed to each thread; it is *shared*, and each thread
     must treat its contents with appropriate care.  It can be used as a conduit to transmit changing
@@ -145,14 +160,21 @@ def server_main( address, target, kwargs=None ):
     container objects (eg. dict, list), so that the original object is retained when the kwargs is
     broken out into arguments for the Thread's target function.
 
-    If a 'server' keyword is passed, it is assumed to be a dict contain the server's status and
-    control attributes.  When either the 'done' or 'disable' entry is set to True, the server_main
-    will terminate all existing server threads, close the listening socket and return.  If a
-    KeyboardInterrupt or other Exception occurs, then server['done'] will be forced True.
+    If a 'server' keyword is passed, it is assumed to be a dict/dotdict/apidict contain the server's
+    status and control attributes.  When either the 'done' or 'disable' entry is set to True, the
+    server_main will attempt to terminate all existing server threads, close the listening socket
+    and return.  If a KeyboardInterrupt or other Exception occurs, then server.control.done will be
+    forced True.
 
     Thus, the caller can optionally pass the 'server' kwarg dict; the 'disable' entry will force the
     server_main to stop listening on the socket temporarily (for later resumption), and 'done' to
     signal (or respond to) a forced termination.
+    
+    An optional 'latency' and 'timeout' kwarg entries are recognized, and sets the accept timeout
+    (default: .1s): the time between loops checking our control status, when no incoming connections
+    are available, and the join timeout (default: latency) allowed for each thread to respond to the
+    server being done/disabled.
+
     """
     sock			= socket.socket( socket.AF_INET, socket.SOCK_STREAM )
     sock.setsockopt( socket.SOL_SOCKET, socket.SO_REUSEADDR, 1 ) # Avoid delay on next bind due to TIME_WAIT
@@ -163,18 +185,32 @@ def server_main( address, target, kwargs=None ):
     sock.bind( address )
     sock.listen( 100 ) # How may simultaneous unaccepted connection requests
 
-    name			= target.__name__
+    name			= target.__name__ if target else thread_factory.__name__
     threads			= {}
     log.normal( "%s server PID [%5d] running on %r", name, os.getpid(), address )
+    # Ensure that any server.control in kwds is a dotdict.  Specifically, we can handle an
+    # cpppo.apidict, which responds to getattr by releasing the corresponding setattr.  We will
+    # respond to server.control.done and .disable.  When this loop awakens it will sense
+    # done/disable (without releasing the setattr, if an apidict was used!), and attempt to join the
+    # server thread(s).  This will (usually) invoke a clean shutdown procedure.  Finally, after all
+    # threads have been joined, the .disable/done will be released (via getattr) at top of loop
     control			= kwargs.get( 'server', {} ).get( 'control', {} ) if kwargs else {}
+    if not isinstance( control, dotdict ):
+        control			= dotdict( control )
     control['done']		= False
     control['disable']		= False
-    while not control['disable'] and not control['done']:
+    if 'latency' not in control:
+        control['latency']	= .1
+    if 'timeout' not in control:
+        control['timeout']	= 2 * control.latency
+    control['latency']		= float( control['latency'] )
+    control['timeout']		= float( control['timeout'] )
+    while not control.disable and not control.done: # and report completion to external API (eg. web)
         try:
-            acceptable		= accept( sock, timeout=.1 )
+            acceptable		= accept( sock, timeout=control['latency'] )
             if acceptable:
                 conn, addr	= acceptable
-                threads[addr]	= server_thread( target=target, args=(conn, addr), kwargs=kwargs )
+                threads[addr]	= thread_factory( target=target, args=(conn, addr), kwargs=kwargs )
                 threads[addr].daemon = True
                 threads[addr].start()
         except KeyboardInterrupt as exc:
@@ -185,10 +221,11 @@ def server_main( address, target, kwargs=None ):
                          exc, ''.join( traceback.format_exc() ))
             control['done']	= True
         finally:
-            # Tidy up any dead threads (or all, if done/disable)
+            # Tidy up any dead threads (or all, if done/disable).  We detect done/disable here, but
+            # do not report it (yet) to external API if an apidict is used.
             for addr in list( threads ):
                 if control['disable'] or control['done'] or not threads[addr].is_alive():
-                    threads[addr].join()
+                    threads[addr].join( timeout=control['timeout'] )
                     del threads[addr]
 
     sock.close()

@@ -1,4 +1,4 @@
-* cpppo -- Communication Protocol Python Parser and Originator
+* Communication Protocol Python Parser and Originator
 
   Cpppo (pronounced 
   : 'c'+3*'p'+'o' 
@@ -98,6 +98,14 @@
                     "value": 0.0
                 }
             },
+            "server": {
+                "control": {
+                    "disable": false, 
+                    "done": false, 
+                    "latency": 5.0, 
+                    "timeout": 5.0
+                }
+            },     
             "tags": {
                 "SCADA": {
                 "attribute": "SCADA          INT[1000] == [0, 0, 0, 0, 0, 0,...]",
@@ -110,8 +118,8 @@
     }
     #+END_EXAMPLE
 
-**** options/delay/value
 
+**** options/delay/value
      To access or modify some specific thing in the matching object(s), add a
      <command> and <value>:
     
@@ -148,7 +156,7 @@
      : $ curl http://localhost:12345/api/options/delay/value=0.5
 
 
-**** options/delay/range
+**** api/options/delay/range
      If you've started the simulator with --delay=0.1-0.9 (a delay range), you
      can adjust this range to a new range, using:
      : $ curl http://localhost:12345/api/options/delay/range=0.5-1.5
@@ -162,9 +170,10 @@
 
      Restore connection responses by restoring a reasonable response timeout.
 
-**** server/control/done or disable
-     To prevent any future connections, you can (temporarily) disable the 
-     server, which will close its port and await further instructions:
+**** api/server/control/done or disable
+     To prevent any future connections, you can (temporarily) disable the
+     server, which will close its port (and all connections) and await further
+     instructions:
      : $ curl http://localhost:12345/api/server/control/disable/true
 
      Re-enable it using:
@@ -174,7 +183,16 @@
      respond to future requests):
      : $ curl http://localhost:12345/api/server/control/done/true
 
-**** tags/<tagname>/error
+**** api/server/control/latency or timeout
+     The default socket I/O blocking 'latency' is .1s; this is the time it may
+     take for each existing connection to detect changes made via the web API,
+     eg. signalling EOF via api/connections/eof/true.  The 'timeout' on each
+     thread responding defaults to twice the latency, to give the thread's
+     socket I/O machinery time to respond and then complete.  These may be
+     changed, if necessary, if simulation of high-latency links (eg. satellite)
+     is implemented (using other network latency manipulation software).
+
+**** api/tags/<tagname>/error
      To force all successful accesses to a certain tag (eg. SCADA) to return a
      certain error code, you can set it using:
      : $ curl http://localhost:12345/api/tags/SCADA/error=8
@@ -182,7 +200,7 @@
      Restore it to return success:
      : $ curl http://localhost:12345/api/tags/SCADA/error/0
 
-**** tags/<tagname>/attribute[x]
+**** api/tags/<tagname>/attribute[x]
 
      To access or change a certain element of a tag, access its attribute at a
      certain index (curl has problems with this kind of URL):
@@ -211,7 +229,7 @@
      }
      #+END_EXAMPLE
 
-**** connections/*/eof
+**** api/connections/*/eof
      To immediately terminate all connections, you can signal them that they've
      experienced an EOF:
      : $ curl http://localhost:12345/api/connections/*/eof/true

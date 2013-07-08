@@ -1,5 +1,6 @@
 
 import logging
+import threading
 import sys
 
 class dotdict( dict ):
@@ -93,7 +94,6 @@ class dotdict( dict ):
             [ ..., "a", ... ]
 
         """
-
         return sorted( [ a for a in dir( super( dotdict, self )) if a.startswith( '__' ) ] + list( dict.keys( self )))
 
     def _resolve( self, key ):
@@ -156,7 +156,10 @@ class dotdict( dict ):
             else:
                 dict.__setitem__( self, mine, value )
 
-    __setattr__			= __setitem__
+    def __setattr__( self, key, value ):
+        """Create attributes as easily as creating keys, so AttributeError should be unexpected.  Specify a
+        method (instead of __setattr__ = __setitem__) to support overriding."""
+        self.__setitem__( key, value )
 
     def __getitem__( self, key ):
         """Locate an item by key: either via indexing, or attribute access:
@@ -169,9 +172,7 @@ class dotdict( dict ):
         values from higher levels of the dotdict, eg. 'name[..above]'
 
         Note also that the hasattr builtin used getattr to identify the existence of attributes; it
-        must return AttributeError if the attribute doesn't exist.
-
-        """
+        must return AttributeError if the attribute doesn't exist."""
         mine, rest              = self._resolve( key )
         if '[' in mine:
             target              = eval( mine, {'__builtins__':{}}, self )
@@ -301,3 +302,45 @@ class dotdict( dict ):
     values			= __listvalues if sys.version_info.major < 3 else itervalues
     items			= __listitems  if sys.version_info.major < 3 else iteritems
 
+
+class apidict( dotdict ):
+    """A dotdict that ensures that any new values assigned to its attributes are very likely received by
+    some other thread (via getattr) before the corresponding setattr returns; setting/getting values
+    by indexing (ie. like a normal dict) is *not* affected (except for locking), allowing the user
+    to selectively force timeout 'til read on some assignments but not others, and to indicate
+    reception of the value on some reads and not others.
+
+    A specified timeout (required as first argument) is enforced after setattr, which is only
+    shortened when another thread executes a getattr.
+
+    Note that getting *any* attr on the apidict releases all threads blocked setting *any* attr!
+    So, use index access to read the bulk of values, and finally a single getattr to access the last
+    value, and indicate completion of access.
+    """
+    def __init__( self, timeout, *args, **kwds ):
+        self.__dict__['_lck']	= threading.RLock()
+        self.__dict__['_cnd']	= threading.Condition( self._lck )
+        self.__dict__['_tmo']	= timeout
+        super( apidict, self ).__init__( *args, **kwds )
+
+    def __setitem__( self, key, value ):
+        with self._cnd:
+            super( apidict, self ).__setitem__( key, value )
+        
+    def __setattr__( self, key, value ):
+        with self._cnd:
+            super( apidict, self ).__setattr__( key, value )
+            self._cnd.wait( self._tmo )
+
+    def __getitem__( self, key ):
+        with self._cnd:
+            return super( apidict, self ).__getitem__( key )
+
+    def __getattr__( self, key ):
+        with self._cnd:
+            try:
+                return super( apidict, self ).__getattr__( key )
+            finally:
+                self._cnd.notify_all()
+
+        
