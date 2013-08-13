@@ -163,7 +163,7 @@ def test_indexes():
         d['l[c+3]'] = 3
         assert False, "Indexing with a bad index should fail"
     except IndexError as exc:
-        assert "list assignment index out of range" in str(exc)
+        assert "index out of range" in str(exc)
         pass
     
 
