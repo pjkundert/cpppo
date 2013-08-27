@@ -25,6 +25,6 @@ __license__                     = "Dual License: GPLv3 (or later) and Commercial
 __all__				= ["logix"]
 
 # These form the public interface of cpppo.server.enip
-from .main import *
+from .main   import *
 from .parser import *
 from .device import *

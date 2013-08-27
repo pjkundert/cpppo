@@ -443,8 +443,8 @@ class state( dict ):
         if not isinstance( target, state ) and target is not None and not hasattr( target, '__call__' ):
             raise KeyError( "Target must be a state, None, or a state decision function" )
         if hasattr( inp, '__call__' ):
-            log.debug( "%s   [%-10.10r] == %-10s (via %r)", self.name_centered(),
-                       "*", target, inp )
+            #log.debug( "%s   [%-10.10r] == %-10s (via %r)", self.name_centered(),
+            #           "*", target, inp )
             self.recognizers.append( (inp,target) )
         else:
             # We can allow zero or more "decide" callables followed by zero or one state.
@@ -459,8 +459,8 @@ class state( dict ):
             if type( present ) is list:
                 # and make sure we only allow: <decide>, ... <decide>, [<state>]
                 assert all( not isinstance( v, state ) for v in present[:-1] )
-            log.debug( "%s   [%-10.10r] == %-10s%s", self.name_centered(),
-                       inp, present, ( "" if enc is inp else (" (via encoding, on %s)" % repr( enc ))))
+            #log.debug( "%s   [%-10.10r] == %-10s%s", self.name_centered(),
+            #           inp, present, ( "" if enc is inp else (" (via encoding, on %s)" % repr( enc ))))
 
     def __getitem__( self, inp ):
         """Default is a dictionary lookup of the target state, for the encoded input from most specific
@@ -474,31 +474,31 @@ class state( dict ):
         enc			= self.encode( inp )
         try:
             target		= super( state, self ).__getitem__( enc )
-            log.debug( "%s   [%-10.10r] == %-10s%s", self.name_centered(),
-                       inp, target, ("" if enc is inp else " (via encoding, on %s)" % repr( enc )))
+            #log.debug( "%s   [%-10.10r] == %-10s%s", self.name_centered(),
+            #           inp, target, ("" if enc is inp else " (via encoding, on %s)" % repr( enc )))
             return target
         except KeyError:
             pass
         if enc is not None:
             for pred,target in self.recognizers:
                 if pred( enc ):
-                    log.debug( "%s   [%-10.10r] == %-10s (via %r(%r))", self.name_centered(), 
-                               inp, target, pred, enc )
+                    #log.debug( "%s   [%-10.10r] == %-10s (via %r(%r))", self.name_centered(), 
+                    #           inp, target, pred, enc )
                     return target
             try:
                 target		= super( state, self ).__getitem__( True )
-                log.debug( "%s   [%-10.10r] == %-10s (via wildcard, on %r)", self.name_centered(),
-                           inp, target, enc )
+                #log.debug( "%s   [%-10.10r] == %-10s (via wildcard, on %r)", self.name_centered(),
+                #           inp, target, enc )
                 return target
             except KeyError:
                 pass
         try:
             target		= super( state, self ).__getitem__( None )
-            log.debug( "%s   [%-10.10r] == %-10s (via epsilon,  on %r)", self.name_centered(),
-                       inp, target, enc )
+            #log.debug( "%s   [%-10.10r] == %-10s (via epsilon,  on %r)", self.name_centered(),
+            #           inp, target, enc )
             return target
         except KeyError:
-            log.debug( "%s   [%-10.10r] xx (no match for %r)", self.name_centered(), inp, enc )
+            #log.debug( "%s   [%-10.10r] xx (no match for %r)", self.name_centered(), inp, enc )
             raise
 
     def get( self, inp, default=None ):
@@ -525,8 +525,8 @@ class state( dict ):
             result		= self.alphabet( inp )
         else:
             raise TypeError("Unknown alphabet: %r" % ( self.alphabet ))
-        log.debug( "%s   [%-10.10r]=%s=%r", self.name_centered(),
-                    inp, ( "~" if result else "!" ), self.alphabet )
+        #log.debug( "%s   [%-10.10r]=%s=%r", self.name_centered(),
+        #            inp, ( "~" if result else "!" ), self.alphabet )
         return result
 
     def accepts( self, source, machine=None, path=None, data=None ):
@@ -534,8 +534,8 @@ class state( dict ):
         available; default implematation logs."""
         inp			= source.peek()
         valid			= self.validate( inp )
-        log.debug( "%s    %-10.10r(#%5d): %s", ( machine or self ).name_centered(),
-                   inp, source.sent, "accepted" if valid else "rejected" )
+        #log.debug( "%s    %-10.10r(#%5d): %s", ( machine or self ).name_centered(),
+        #           inp, source.sent, "accepted" if valid else "rejected" )
 
         return valid
 
@@ -679,7 +679,7 @@ class state( dict ):
             typ, exc, tbk	= sys.exc_info()
             exception		= exc
             log.info( "%s -- failed with unknown exception %s\n%s", self.name_centered(),
-                      repr( exception ), ''.join( traceback.format_exception( typ, val, tbk )))
+                      repr( exception ), ''.join( traceback.format_exception( typ, exc, tbk )))
             raise
         finally:
             self.terminate( exception, machine=machine, path=path, data=data )
@@ -770,19 +770,19 @@ class state( dict ):
                     target	= potential
                     break
                 try:
-                    log.debug( "%s <selfdecide> on %s", self.name_centered(), choice )
+                    #log.debug( "%s <selfdecide> on %s", self.name_centered(), choice )
                     target	= potential( # this decision is made in our parent machine's context
                         source=source, machine=machine, path=path, data=data )
                 except Exception as exc:
                     log.warning( "%s <selfdecide> on %s failed: %r", self.name_centered(),
                                  potential, exc )
                     raise
-                log.debug( "%s <selfdecide> on %s == %s", self.name_centered(),
-                           potential, target )
+                #log.debug( "%s <selfdecide> on %s == %s", self.name_centered(),
+                #           potential, target )
                 if target:
                     break
 
-            log.debug( "%s <self trans> into %s", self.name_centered(), target )
+            #log.debug( "%s <self trans> into %s", self.name_centered(), target )
             yield machine,target			# 0+ non-transitions, followed by a 1 transition
             break					#   and done!
 
@@ -1006,8 +1006,8 @@ class state_input( state ):
             if path not in data:
                 data[path]	= array.array( self.typecode )
             data[path].append( inp )
-            log.info( "%s :  %-10.10r => %20s[%3d]=%r", ( machine or self ).name_centered(),
-                       inp, path, len(data[path])-1, inp )
+            #log.info( "%s :  %-10.10r => %20s[%3d]=%r", ( machine or self ).name_centered(),
+            #           inp, path, len(data[path])-1, inp )
 
 
 class state_drop( state_input ):
@@ -1186,9 +1186,9 @@ class dfa_base( object ):
         while self.loop() and not stasis:
             self.reset()
             self.cycle	       += 1 # On last cycle, sub-machine may be terminated at any terminal state
-            log.debug( "%s <sub  %s> %3d/%3d (from %s)", self.name_centered(), 
-                       "loop" if self.cycle < self.final else "last" , self.cycle, self.final, 
-                       repr( final_src ) if final_src is not None else "(default)" )
+            #log.debug( "%s <sub  %s> %3d/%3d (from %s)", self.name_centered(), 
+            #           "loop" if self.cycle < self.final else "last" , self.cycle, self.final, 
+            #           repr( final_src ) if final_src is not None else "(default)" )
             yield self,self.current
 
             seen		= set( [(self.current,source.peek(),source.sent)] )
@@ -1213,8 +1213,8 @@ class dfa_base( object ):
                                 crumb	= (target,source.peek(),source.sent)
                                 stasis	= crumb in seen
                                 if stasis:
-                                    log.debug( "%s <sub stasis>: done on %s", self.name_centered(),
-                                               reprlib.repr( crumb ))
+                                    #log.debug( "%s <sub stasis>: done on %s", self.name_centered(),
+                                    #           reprlib.repr( crumb ))
                                     done = True
                                     yield which,target
                                     break
@@ -1223,13 +1223,14 @@ class dfa_base( object ):
                             # A transition or None, and we haven't seen this exact combination
                             # of state and input before.
                             if which is self:
-                                log.debug( "%s <sub  trans> into %s", self.name_centered(), target )
+                                #log.debug( "%s <sub  trans> into %s", self.name_centered(), target )
                                 if target:
                                     self.current= target
                                     transit	= True
                             else:
-                                log.debug( "%s <deep trans> on %s", self.name_centered(),
-                                           which.name_centered() )
+                                #log.debug( "%s <deep trans> on %s", self.name_centered(),
+                                #           which.name_centered() )
+                                pass
                             yield which,target
                         # Our sub-machine is finished transitioning; if our own sub-machine didn't
                         # transition on the (unrecognized) input symbol, we'd better be terminal.
@@ -1245,12 +1246,12 @@ class dfa_base( object ):
                         # None transition, it *must* yield a non-transition (giving the caller an
                         # opportunity to gain new input), and re-atttempt.
                         if not transit:
-                            log.debug( "%s <sub unrec.>", self.name_centered() )
+                            #log.debug( "%s <sub unrec.>", self.name_centered() )
                             done		= True
                     finally:
                         # Ensure that we guarantee that the sub-machine is forced to terminate
                         # TODO: handle nested exceptions
-                        log.debug( "%s <sub  close>", self.name_centered() )
+                        #log.debug( "%s <sub  close>", self.name_centered() )
                         submach.close()
 
             # At the end of each sub-machine loop, it must be in a terminal state; fails if stasis
@@ -1266,7 +1267,7 @@ class dfa_base( object ):
             if not self.current.terminal:
                 raise NonTerminal( "%s sub-machine terminated in a non-terminal state" % ( self ))
 
-        log.debug( "%s <sub   term>", self.name_centered() )
+        #log.debug( "%s <sub   term>", self.name_centered() )
 
 
 class dfa( dfa_base, state ):

@@ -35,7 +35,7 @@ BACKGROUND
 
 """
 
-__all__				= ['main', 'address']
+__all__				= ['main', 'address', 'timeout', 'latency']
 
 import argparse
 import array
@@ -615,7 +615,11 @@ def enip_srv( conn, addr, enip_process=None, delay=None, **kwds ):
                 source.forget()
                 # If no/partial EtherNet/IP header received, parsing will fail with a NonTerminal
                 # Exception (dfa exits in non-terminal state).  Build data.request.enip:
+                begun		= misc.timer()
+                log.detail( "Transaction begins" )
+                states		= 0
                 for mch,sta in enip_mesg.run( path='request', source=source, data=data ):
+                    states    += 1
                     if sta is None:
                         # No more transitions available.  Wait for input.  EOF (b'') will lead to
                         # termination.  We will simulate non-blocking by looping on None (so we can
@@ -624,8 +628,15 @@ def enip_srv( conn, addr, enip_process=None, delay=None, **kwds ):
                         # otherwise, use the specified server.control.latency.
                         msg	= None
                         while msg is None and not stats.eof:
-                            msg	= network.recv( conn, timeout=( kwds['server']['control']['latency']
-                                                                if source.peek() is None else 0 ))
+                            wait=( kwds['server']['control']['latency']
+                                   if source.peek() is None else 0 )
+                            brx = misc.timer()
+                            msg	= network.recv( conn, timeout=wait )
+                            now = misc.timer()
+                            log.detail( "Transaction receive after %7.3fs (%5s bytes in %7.3f/%7.3fs)" % (
+                                now - begun, len( msg ) if msg is not None else "None",
+                                now - brx, wait ))
+
                             # After each block of input (or None), check if the server is being
                             # signalled done/disabled; we need to shut down so signal eof.  Assumes
                             # that (shared) server.control.{done,disable} dotdict be in kwds.  We do
@@ -652,9 +663,11 @@ def enip_srv( conn, addr, enip_process=None, delay=None, **kwds ):
                                 # We're at a None (can't proceed), and no input is available.  This
                                 # is where we implement "Blocking"; just loop.
 
+                log.detail( "Transaction parsed  after %7.3fs" % ( misc.timer() - begun ))
                 # Terminal state and EtherNet/IP header recognized, or clean EOF (no partial
                 # message); process and return response
-                log.info( "%s req. data: %s", enip_mesg.name_centered(), parser.enip_format( data ))
+                log.info( "%s req. data (%5d states): %s", enip_mesg.name_centered(), states,
+                             parser.enip_format( data ))
                 if 'request' in data:
                     stats['requests'] += 1
                 try:
@@ -671,12 +684,14 @@ def enip_srv( conn, addr, enip_process=None, delay=None, **kwds ):
                         log.detail( "%s send: %5d: %s %s", enip_mesg.name_centered(),
                                     len( rpy ), reprlib.repr( rpy ),
                                     ("delay: %r" % delay) if delay else "" )
+                        seconds	= 0
                         if delay:
                             # A delay (anything with a delay.value attribute) == #[.#] (converible
                             # to float) is ok; may be changed via web interface.
                             try:
                                 seconds = float( delay.value if hasattr( delay, 'value' ) else delay )
-                                time.sleep( seconds )
+                                if seconds > 0:
+                                    time.sleep( seconds )
                             except Exception as exc:
                                 log.detail( "Unable to delay; invalid seconds: %r", delay )
                         try:
@@ -689,6 +704,8 @@ def enip_srv( conn, addr, enip_process=None, delay=None, **kwds ):
                         log.detail( "%s session ended (client initiated): %s", enip_mesg.name_centered(),
                                     parser.enip_format( data ))
                         eof	= True
+                    log.detail( "Transaction complete after %7.3fs (w/ %7.3fs delay)" % (
+                        misc.timer() - begun, seconds ))
                 except:
                     log.error( "Failed request: %s", parser.enip_format( data ))
                     enip_process( addr, data=cpppo.dotdict() ) # Terminate.
@@ -724,6 +741,10 @@ def enip_srv( conn, addr, enip_process=None, delay=None, **kwds ):
 # 
 #     Pass the desired argv (excluding the program name in sys.arg[0]; typically pass
 # argv=sys.argv[1:]); requires at least one tag to be defined.
+# 
+#     If a cpppo.apidict() is passed for kwds['server']['control'], we'll use it
+# to transmit server control signals via its .done, .disable, .timeout and
+# .latency attributes.
 # 
 def main( argv=None, **kwds ):
 
@@ -791,8 +812,22 @@ def main( argv=None, **kwds ):
         rootlog.addHandler( handler )
 
 
-    # Global options data.  First, copy any keyword args supplied to main().  This could include an
-    # alternative enip_process, for example, instead of defaulting to logix.process.
+    # Pull out a 'server.control...' supplied in the keywords, and make certain it's a
+    # cpppo.apidict.  We'll use this to transmit control signals to the server thread.  Set the
+    # current values to sane initial defaults/conditions.
+    if 'server' in kwds:
+        assert 'control' in kwds['server'], "A 'server' keyword provided without a 'control' attribute"
+        srv_ctl			= cpppo.dotdict( kwds.pop( 'server' ))
+        assert isinstance( srv_ctl['control'], cpppo.apidict ), "The server.control... must be a cpppo.apidict"
+    else:
+        srv_ctl.control		= cpppo.apidict( timeout=timeout )
+
+    srv_ctl.control['done']	= False
+    srv_ctl.control['disable']	= False
+    srv_ctl.control.setdefault( 'latency', latency )
+
+    # Global options data.  Copy any remaining keyword args supplied to main().  This could
+    # include an alternative enip_process, for example, instead of defaulting to logix.process.
     options.update( kwds )
 
     # Specify a response delay.  The options.delay is another dotdict() layer, so it's attributes
@@ -887,12 +922,12 @@ def main( argv=None, **kwds ):
     # timeout; this will block the web API for several seconds to allow all threads to respond to
     # the signals delivered via the web API.
     logging.normal( "EtherNet/IP Simulator: %r" % ( http, ))
-    srv_ctl.control		= cpppo.apidict( timeout=timeout, done=False, disable=False, latency=latency )
     kwargs			= dict( options, latency=latency, tags=tags, server=srv_ctl )
     while not srv_ctl.control.done:
         if not srv_ctl.control.disable:
             network.server_main( address=bind, target=enip_srv, kwargs=kwargs )
-        time.sleep( latency )
+        else:
+            time.sleep( latency )            # Still disabled; wait a bit
 
 
 if __name__ == "__main__":

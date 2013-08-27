@@ -603,12 +603,14 @@ def process( addr, data, **kwds ):
 
 
     """
+    log.detail( "EtherNet/IP CIP Request  (Client %16s): begins", addr )
     ucmm			= setup()
 
     # If tags are specified, check that we've got them all set up right.  If the tag doesn't exist,
     # add it.  If it's error code doesn't match, change it.
     if 'tags' in kwds:
         for key,val in dict( kwds['tags'] ).items():
+            log.detail( "EtherNet/IP CIP Request  (Client %16s): setup tag: %r", addr, (key, val) )
             if not resolve_tag( key ):
                 # A new tag!  Allocate a new attribute ID in the Logix (Message Router).
                 cls, ins	= 0x02, 1 # The Logix Message Router
@@ -627,6 +629,7 @@ def process( addr, data, **kwds ):
                 attribute.error	= val.error
 
 
+    log.detail( "EtherNet/IP CIP Request  (Client %16s): parsing request", addr )
     source			= cpppo.rememberable()
     try:
         # Find the Connection Manager, and use it to parse the encapsulated EtherNet/IP request.  We
@@ -639,9 +642,10 @@ def process( addr, data, **kwds ):
             source.chain( data.request.enip.input )
             with ucmm.parser as machine:
                 for i,(m,s) in enumerate( machine.run( path='request.enip', source=source, data=data )):
-                    log.detail( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %s",
-                                machine.name_centered(), i, s, source.sent, source.peek(),
-                                repr( data ) if log.getEffectiveLevel() < logging.DETAIL else reprlib.repr( data ))
+                    #log.detail( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %s",
+                    #            machine.name_centered(), i, s, source.sent, source.peek(),
+                    #            repr( data ) if log.getEffectiveLevel() < logging.DETAIL else reprlib.repr( data ))
+                    pass
             
         log.detail( "EtherNet/IP CIP Request  (Client %16s): %s", addr, enip_format( data.request ))
 
