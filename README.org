@@ -1,7 +1,7 @@
 * Communication Protocol Python Parser and Originator
 
-  Cpppo (pronounced 
-  : 'c'+3*'p'+'o' 
+  Cpppo (pronounced
+  : 'c'+3*'p'+'o'
   in Python) is used to implement binary
   communications protocol parsers.  The protocol's communication elements are
   described in terms of state machines which change state in response to input
@@ -15,7 +15,7 @@
 
    To install 'cpppo' and its dependencies 'greenery', and 'web.py' using pip:
    : $ pip install cpppo
-   
+
    If you need system admin privileges to install packages, you may need to use
    'sudo' on the above pip commands:
    : $ sudo pip install ...
@@ -37,34 +37,62 @@
    a Controller), which allow a sequence of CIP service requests (commands) to
    be sent to arbitrary CIP objects resident on the target device.
 
-   To run a simulation of a small subset of a Logix(tm) Controller with the tag
-   'SCADA' for you to read/write, run:
-   : $ python -m cpppo.server.enip -v SCADA=INT[1000]
+*** EtherNet/IP Controller Simulator
 
-   These options are available when you execute the cpppo.server.enip module:
+    To run a simulation of a small subset of a Logix(tm) Controller with the tag
+    'SCADA' for you to read/write, run:
+    : $ python -m cpppo.server.enip -v SCADA=INT[1000]
 
-   Specify a different local interface and/or port to bind to (default is 0.0.0.0:44818):
-   : -a|--address [<interface>][:<port>]
+    These options are available when you execute the cpppo.server.enip module:
 
-   Change the verbosity (supply more to increase further):
-   : -v[vv...]|--verbose 
+    Specify a different local interface and/or port to bind to (default is 0.0.0.0:44818):
+    : -a|--address [<interface>][:<port>]
 
-   Specify a constant or variable delay to apply to every response, in fractional seconds:
-   : -d|--delay #.#[-#.#]
+    Change the verbosity (supply more to increase further):
+    : -v[vv...]|--verbose
 
-   Specify an HTTP web server interface and/or port, if a web API is desired
-   (just ':' will enable the web API on defaults 0.0.0.0:80, or whatever
-   interface was specified for --address):
-   : -w|--web [<interface>]:[<port>]
+    Specify a constant or variable delay to apply to every response, in fractional seconds:
+    : -d|--delay #.#[-#.#]
 
-   To send log output to a file (limited to 10MB, rotates through 5 copies):
-   : -l|--log <file>
+    Specify an HTTP web server interface and/or port, if a web API is desired
+    (just ':' will enable the web API on defaults 0.0.0.0:80, or whatever
+    interface was specified for --address):
+    : -w|--web [<interface>]:[<port>]
 
-   You may specify as many tags as you like on the command line; at least one
-   is required:
-   : <tag>=<type>[<length>]   # eg. SCADA=INT[1000]
+    To send log output to a file (limited to 10MB, rotates through 5 copies):
+    : -l|--log <file>
 
-   The available types are INT (16-bit), SINT (8-bit) and DINT (32-bit) integer.
+    You may specify as many tags as you like on the command line; at least one
+    is required:
+    : <tag>=<type>[<length>]   # eg. SCADA=INT[1000]
+
+    The available types are INT (16-bit), SINT (8-bit) and DINT (32-bit) integer.
+
+
+*** EtherNet/IP Controller Client
+
+    A simple EtherNet/IP Controller Client is provided.  Presently, it only
+    knows how to Register, and issue Read Tag Fragmented requests (and only for
+    offset 0; the first block of results):
+    : python cpppo.server.enip.client SCADA[1] SCADA[0-10] ...
+    
+    Specify a different local interface and/or port to connect to (default is 0.0.0.0:44818):
+    : -a|--address [<interface>][:<port>]
+
+    Change the verbosity (supply more to increase further):
+    : -v[vv...]|--verbose
+
+    Change the default response timeout
+    : -t|--timeout #
+
+    Specify a number of times to repeat the specified operations:
+    : -r|--repeat #
+
+    You may specify as many tags as you like on the command line; at least one
+    is required.  An optional register (range) can be specified (default is
+    register 0):
+    : <tag> <tag>[<reg>] <tag>[<reg>-<reg>] # eg. SCADA SCADA[1] SCADA[1-10]
+
 
 *** Web Interface
 
@@ -100,12 +128,12 @@
             },
             "server": {
                 "control": {
-                    "disable": false, 
-                    "done": false, 
-                    "latency": 5.0, 
+                    "disable": false,
+                    "done": false,
+                    "latency": 5.0,
                     "timeout": 5.0
                 }
-            },     
+            },
             "tags": {
                 "SCADA": {
                 "attribute": "SCADA          INT[1000] == [0, 0, 0, 0, 0, 0,...]",
@@ -122,7 +150,7 @@
 **** options/delay/value
      To access or modify some specific thing in the matching object(s), add a
      <command> and <value>:
-    
+
      #+BEGIN_EXAMPLE
      $ curl http://localhost:12345/api/options/delay/value/0.5
      {
@@ -142,16 +170,16 @@
          "until": 1371732496.23366
      }
      #+END_EXAMPLE
-    
+
      It will perform the action of assigning the <value> to all of the matching
      <command> entities.  In this case, since you specified a precise <group>
      "options", and <match> "delay", exactly one entity was affected: "value" was
      assigned "0.5".  If you are running a test client against the simulator, you
      will see the change in response time.
-    
+
      As a convenience, you can use /<value> or =<value> as the last term in the
      URL:
-    
+
      : $ curl http://localhost:12345/api/options/delay/value/0.5
      : $ curl http://localhost:12345/api/options/delay/value=0.5
 
@@ -196,7 +224,7 @@
      To force all successful accesses to a certain tag (eg. SCADA) to return a
      certain error code, you can set it using:
      : $ curl http://localhost:12345/api/tags/SCADA/error=8
-     
+
      Restore it to return success:
      : $ curl http://localhost:12345/api/tags/SCADA/error/0
 
@@ -244,36 +272,36 @@
      #+BEGIN_EXAMPLE
      $ curl http://localhost:12345/api/connections
      {
-         "alarm": [], 
-         "command": {}, 
+         "alarm": [],
+         "command": {},
          "data": {
              "connections": {
                  "127_0_0_1_52590": {
-                     "eof": false, 
-                     "interface": "127.0.0.1", 
-                     "port": 52590, 
-                     "received": 1610, 
+                     "eof": false,
+                     "interface": "127.0.0.1",
+                     "port": 52590,
+                     "received": 1610,
                      "requests": 17
-                 }, 
+                 },
                  "127_0_0_1_52591": {
-                     "eof": false, 
-                     "interface": "127.0.0.1", 
-                     "port": 52591, 
-                     "received": 290, 
+                     "eof": false,
+                     "interface": "127.0.0.1",
+                     "port": 52591,
+                     "received": 290,
                      "requests": 5
                  }
              }
-         }, 
-         "since": null, 
+         },
+         "since": null,
          "until": 1372889099.908609
      }
      $ # ... wait a while (a few tenths of a second should be OK)...
      $ curl http://localhost:12345/api/connections
      {
-         "alarm": [], 
-         "command": null, 
-         "data": {}, 
-         "since": null, 
+         "alarm": [],
+         "command": null,
+         "data": {},
+         "since": null,
          "until": 1372889133.079849
      }
      #+END_EXAMPLE
@@ -303,9 +331,9 @@
                                   +-------+
    #+END_EXAMPLE
 #   #+END_DITAA
-   
+
    This machine is easily created like this:
-   
+
    #+BEGIN_SRC python
    # Basic DFA that accepts ab+
    E			= cpppo.state( "E" )
@@ -323,10 +351,10 @@
    A higher-level DFA can be produced by wrapping this one in a cpppo.dfa, and
    giving it some of its own transitions.  For example, lets make a machine that
    accepts 'ab+' separated by ',[ ]*'.
-   
+
 #   #+BEGIN_DITAA abplus_csv.png -r -S
    #+BEGIN_EXAMPLE
-                          +------------------------------+    
+                          +------------------------------+
                           |                              |
                           v                              |
        +----------------------------------------+        | None
@@ -340,9 +368,9 @@
        +----------------------------------------+
    #+END_EXAMPLE
 #   #+END_DITAA
-   
+
    This is implemented:
-   
+
    #+BEGIN_SRC python
    # Composite state machine accepting ab+, ignoring ,[ ]* separators
    ABP			= cpppo.dfa( "ab+", initial=E, terminal=True )
@@ -353,14 +381,14 @@
 
    CSV			= cpppo.dfa( 'CSV', initial=ABP, context='csv' )
    #+END_SRC
-   
+
    When the lower level state machine doesn't recognize the input symbol for a
    transition, the higher level machine is given a chance to recognize them; in
    this case, a ',' followed by any number of spaces leads to a state_drop
    instance, which throws away the symbol.  Finally, it uses an "epsilon"
    (no-input) transition (indicated by a transition on None) to re-enter the
    main CSV machine to process subsequent symbols.
-   
+
 ** Machines from Regular Expressions
 
    We use [[https://github.com/ferno/greenery]] to convert regular expressions into
@@ -373,13 +401,13 @@
    #+BEGIN_EXAMPLE
                       +----------------------------+
                       |                            |
-                      v                            | 'a' 
+                      v                            | 'a'
        +-----+ 'a' +-----+ 'b' +-----+ ',' +-----+ |
        |  0' |---->|  2  |---->| (3) |---->|  4  |-+
        +-----+     +-----+     +-----+     +-----+
-                                 ^ |         ^ |    
+                                 ^ |         ^ |
                                  | | 'b'     | | ' '
-                                 +-+         +-+    
+                                 +-+         +-+
    #+END_EXAMPLE
 #   #+END_DITAA
 

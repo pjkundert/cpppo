@@ -29,7 +29,7 @@ from   cpppo.server import (enip, network)
 from   cpppo.server.enip import logix
 
 logging.basicConfig( **cpppo.log_cfg )
-#logging.getLogger().setLevel( logging.DEBUG )
+#logging.getLogger().setLevel( logging.NORMAL )
 log				= logging.getLogger( "enip.tst" )
 
 
@@ -1286,15 +1286,18 @@ def test_enip_CIP():
                     # An Unconnected Send that contained an encapsulated request (ie. not just a Get
                     # Attribute All)
                     with Lx.parser as machine:
-                        log.normal( "Parsing %3d bytes using %s.parser, from %s", len( item.unconnected_send.request.input ),
+                        log.normal( "Parsing %3d bytes using %s.parser, from %s", 
+                                    len( item.unconnected_send.request.input ),
                                     Lx, enip.enip_format( item ))
                         # Parse the unconnected_send.request.input octets, putting parsed items into the
                         # same request context
-                        for i,(m,s) in enumerate( machine.run( source=cpppo.peekable( item.unconnected_send.request.input ),
-                                                               data=item.unconnected_send.request )):
+                        for i,(m,s) in enumerate( machine.run(
+                                source=cpppo.peekable( item.unconnected_send.request.input ),
+                                data=item.unconnected_send.request )):
                             log.detail( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r",
                                         machine.name_centered(), i, s, source.sent, source.peek(), data )
-                        log.normal( "Parsed  %3d bytes using %s.parser, into %s", len( item.unconnected_send.request.input ),
+                        log.normal( "Parsed  %3d bytes using %s.parser, into %s", 
+                                    len( item.unconnected_send.request.input ),
                                     Lx, enip.enip_format( data ))
 
         try:
@@ -1483,13 +1486,14 @@ def enip_process_canned( addr, data, **kwds ):
     raise Exception( "Unrecognized request: %s" % ( enip.parser.enip_format( data )))
 
 # The default Client will wait for draindelay after 
-client_count, client_max	= 15, 10
+#client_count, client_max	= 15, 10
+client_count, client_max	= 1, 1
 charrange, chardelay		= (2,10), .1	# split/delay outgoing msgs
 draindelay			= 10.  		# long in case server very slow (eg. logging), but immediately upon EOF
 
 def enip_cli( number, tests=None ):
     """Sends a series of test messages, testing response for expected results."""
-    log.info( "EhterNet/IP Client %3d connecting... PID [%5d]", number, os.getpid() )
+    log.info( "EtherNet/IP Client %3d connecting... PID [%5d]", number, os.getpid() )
     conn			= socket.socket( socket.AF_INET, socket.SOCK_STREAM )
     conn.connect( enip.address )
     log.normal( "EtherNet/IP Client %3d connected to server at %s", number, enip.address )
@@ -1592,7 +1596,15 @@ enip_cli_kwds_basic		= {
 
 enip_svr_kwds_basic		= { 
     'enip_process': 	enip_process_canned,
-    'argv':		[ '-vv', 'SCADA=INT[1000]' ],
+    'argv':		[ 
+        #'-v',
+        'SCADA=INT[1000]',
+    ],
+    'server': 		{
+        'control':	cpppo.apidict( enip.timeout, {
+            'done':	False,
+        }),
+    },
 }
 
 def test_enip_bench_basic():
@@ -1649,7 +1661,15 @@ enip_cli_kwds_logix		= {
 
 enip_svr_kwds_logix 		= { 
     'enip_process': 	logix.process,
-    'argv':		[ '-v', 'SCADA=INT[1000]' ],
+    'argv':		[
+        #'-v', 
+        'SCADA=INT[1000]'
+    ],
+    'server': 		{
+        'control': 	cpppo.apidict( enip.timeout, {
+            'done':	False,
+        }),
+    },
 }
 
 
@@ -1669,5 +1689,14 @@ def test_enip_bench_logix():
 
 
 if __name__ == "__main__":
-    test_enip_bench()
-
+    '''
+    import yappi
+    yappi.start()
+    '''
+    test_enip_bench_logix()
+    '''
+    print( "\nFunction Total:" )
+    yappi.print_stats( sys.stdout, yappi.SORTTYPE_TTOTAL )
+    print( "\nWithin Function:" )
+    yappi.print_stats( sys.stdout, yappi.SORTTYPE_TSUB )
+    '''

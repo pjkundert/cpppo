@@ -1,5 +1,5 @@
 
-import logging
+#import logging
 import threading
 import sys
 
@@ -118,7 +118,7 @@ class dotdict( dict ):
                 if '[' in mine:
                     terms	= { '[':1, ']':-1 }
                     while sum( terms.get( c, 0 ) for c in mine ):
-                        logging.info( '_resolve unbalanced %r.%r"' % ( mine, rest ))
+                        #logging.info( '_resolve unbalanced %r.%r"' % ( mine, rest ))
                         if not rest:
                             raise KeyError( "unbalance brackets in %s" % key )
                         ext,rest= rest.split( '.', 1 )
@@ -320,6 +320,7 @@ class apidict( dotdict ):
     def __init__( self, timeout, *args, **kwds ):
         self.__dict__['_lck']	= threading.RLock()
         self.__dict__['_cnd']	= threading.Condition( self._lck )
+        assert isinstance( timeout, (float,int) ), "First argument to apidict must be a numeric timeout"
         self.__dict__['_tmo']	= timeout
         super( apidict, self ).__init__( *args, **kwds )
 

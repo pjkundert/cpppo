@@ -146,6 +146,29 @@ class server_thread( threading.Thread ):
                       os.getpid(), self.ident, self.addr )
 
 
+class server_thread_profiling( server_thread ):
+    def __init__( self, **kwds ):
+        super( server_thread_profiling, self ).__init__( **kwds )
+
+    def run( self ):
+        import cProfile, pstats, io
+        prof_file		= "server_thread.profile"
+        profiler		= cProfile.Profile()
+        profiler.enable()
+        try:
+            result		= super( server_thread_profiling, self ).run()
+        finally:
+            profiler.disable()
+            profiler.dump_stats( prof_file )
+            prof		= pstats.Stats( profiler, stream=sys.stdout )
+        
+            print( "\n\nTIME:")
+            prof.sort_stats(  'time' ).print_stats( 50 )
+        
+            print( "\n\nCUMULATIVE:")
+            prof.sort_stats(  'cumulative' ).print_stats( 50 )
+        return result
+
 
 def server_main( address, target=None, kwargs=None, thread_factory=server_thread ):
     """A generic server main, binding to address, and serving each incoming connection with a separate
@@ -195,7 +218,11 @@ def server_main( address, target=None, kwargs=None, thread_factory=server_thread
     # server thread(s).  This will (usually) invoke a clean shutdown procedure.  Finally, after all
     # threads have been joined, the .disable/done will be released (via getattr) at top of loop
     control			= kwargs.get( 'server', {} ).get( 'control', {} ) if kwargs else {}
-    if not isinstance( control, dotdict ):
+    if isinstance( control, dotdict ):
+        if 'done' in control or 'disable' in control:
+            log.normal( "%s server PID [%5d] responding to external done/disable signal", name, os.getpid() )
+    else:
+        # It's a plain dict; force it into a dotdict, so we can use index/attr access
         control			= dotdict( control )
     control['done']		= False
     control['disable']		= False
@@ -229,8 +256,8 @@ def server_main( address, target=None, kwargs=None, thread_factory=server_thread
                     del threads[addr]
 
     sock.close()
-    log.info( "%s server PID [%5d] shutting down (%s)", name, os.getpid(),
-              "disabled" if control['disable'] else "done" if control['done'] else "unknown reason" )
+    log.normal( "%s server PID [%5d] shutting down (%s)", name, os.getpid(),
+                "disabled" if control['disable'] else "done" if control['done'] else "unknown reason" )
     return 0
 
 
@@ -241,17 +268,15 @@ def bench( server_func, client_func, client_count,
     is supplied a unique number argument, and the supplied client_kwds as keywords, and should
     return 0 on success, !0 on failure.
 
-    TODO: Both threading.Thread and multiprocessing.Process work fine for running a bench server.
-    However, we need to augment server_main with some out-of-band means to force termination (since
-    we can't terminate a Thread).  This should be quite simple to add to server_main, as a container
-    (eg. dict) containing a done signal.  In the mean time, if you switch to threading.Thread as
-    Process below, you will observe tests failing, since the server from the previous test hasn't
-    exited, and begins receiving input from the subsequent test.
+    : Both threading.Thread and multiprocessing.Process work fine for running a bench server.
+    However, Thread needs to use the out-of-band means to force server_main termination (since we
+    can't terminate a Thread).  This is implemented as a container (eg. dict-based cpppo.apidict)
+    containing a done signal.
 
     """
 
-    from multiprocessing 	import Process
-    #from threading import Thread as Process
+    #from multiprocessing 	import Process
+    from threading 		import Thread as Process
 
     from multiprocessing.pool	import ThreadPool as Pool
     #from multiprocessing.dummy	import Pool
@@ -280,8 +305,15 @@ def bench( server_func, client_func, client_count,
                   successes, client_count, failures )
         return failures
     finally:
+        # Shut down server; use 'server.control.done = true' to stop server, if
+        # available in server_kwds.  If this doesn't work, we can try terminate
+        control			= server_kwds.get( 'server', {} ).get( 'control', {} ) if server_kwds else {}
+        if 'done' in control:
+            log.normal( "Server %r done signalled", misc.function_name( server_func ))
+            control['done']	= True	# only useful for threading.Thread; Process cannot see this
         if hasattr( server, 'terminate' ):
-            server.terminate() # only if using multiprocessing.Process; Thread doesn't have
+            log.normal( "Server %r done via .terminate()", misc.function_name( server_func ))
+            server.terminate() 		# only if using multiprocessing.Process(); Thread doesn't have
         server.join( timeout=server_join_timeout )
         if server.is_alive():
             log.warning( "Server %r remains running...", misc.function_name( server_func ))
