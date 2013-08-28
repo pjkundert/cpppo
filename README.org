@@ -74,7 +74,7 @@
     A simple EtherNet/IP Controller Client is provided.  Presently, it only
     knows how to Register, and issue Read Tag Fragmented requests (and only for
     offset 0; the first block of results):
-    : python cpppo.server.enip.client SCADA[1] SCADA[0-10] ...
+    : python -m cpppo.server.enip.client SCADA[1] SCADA[0-10] ...
     
     Specify a different local interface and/or port to connect to (default is 0.0.0.0:44818):
     : -a|--address [<interface>][:<port>]
