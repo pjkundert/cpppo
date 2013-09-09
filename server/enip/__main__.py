@@ -30,6 +30,6 @@ import cpppo
 if __name__ == "__main__":
     logging.basicConfig( **cpppo.log_cfg )
 
-from . import main
+from .main import main
 
-sys.exit( main.main( argv=sys.argv[1:] ))
+sys.exit( main( argv=sys.argv[1:] ))
