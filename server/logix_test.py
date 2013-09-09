@@ -29,7 +29,7 @@ from   cpppo.server import (network, enip)
 from   cpppo.server.enip import (logix, client)
 
 logging.basicConfig( **cpppo.log_cfg )
-#logging.getLogger().setLevel( logging.NORMAL )
+logging.getLogger().setLevel( logging.WARNING )
 log				= logging.getLogger( "lgx.prof" )
 
 
@@ -79,40 +79,12 @@ def logix_performance( repeat=1000 ):
     assert data.read_frag.data[-1] == 20
 
 
-def assert_tps( minimum=None, scale=None, repeat=1 ):
-    """Decorator that asserts a minimum TPS rate.  Optionally, scaled by the
-    specified number of repetitions per call (if scale is numeric, or supplied
-    as the named keyword).  If repeat is given, execute function the specified
-    number of repetitions (and adjust scale accordingly).
-
-    """
-    def decorator( function ):
-        def wrapper( *args, **kwds ):
-            beg		= misc.timer()
-            for _ in range( repeat ):
-                result		= function( *args, **kwds )
-            dur			= misc.timer() - beg
-            spt			= dur / repeat
-            if scale is not None:
-                spt	       /= ( scale
-                                    if isinstance( scale, (int,float) )
-                                    else kwds[scale] )
-            tps			= 1.0 / spt
-            log.warning( "Performance: %7.3f TSP (%d x %s)" % ( 
-                tps, repeat, misc.function_name( function )))
-            if minimum is not None:
-                assert tps >= minimum, "Performance below minimum %7.3f TPS: %7.3f (%d x %s)" % (
-                    minimum, tps, repeat, misc.function_name( function ))
-            return result
-        return wrapper
-    return decorator
-
 # This number of repetitions is the point where the performance of pypy 2.1
 # intersects with cpython 2.7/3.3 on my platform (OS-X 10.8 on a 2.3GHz i7:
 # ~380TPS on a single thread.
 repetitions=2500
 
-@assert_tps( 250, scale=repetitions )
+@misc.assert_tps( 250, scale=repetitions )
 def test_logix_performance():
     """Performance of parsing and executing an operation a number of times on an
     existing Logix object.
@@ -120,7 +92,7 @@ def test_logix_performance():
     """
     logix_performance( repeat=repetitions )
 
-@assert_tps( 250, repeat=repetitions )
+@misc.assert_tps( 250, repeat=repetitions )
 def test_logix_setup():
     """Performance of parsing and executing an operation once on a newly created
     Logix object, a number of times.
@@ -150,8 +122,9 @@ def test_logix_remote():
     kwargs			= cpppo.dotdict({
         'argv': [
             #'-v',
-            #'--log', '/tmp/logix.log',
-            '--address', '%s:%d' % svraddr,
+            #'--log',		'/tmp/logix.log',
+            #'--profile',	'/tmp/logix.prof',
+            '--address',	'%s:%d' % svraddr,
             'SCADA=INT[1000]'
         ],
         'server': {

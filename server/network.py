@@ -147,56 +147,64 @@ class server_thread( threading.Thread ):
 
 
 class server_thread_profiling( server_thread ):
-    def __init__( self, **kwds ):
+    """Activates profiling on the thread, and dumps profile stats (optionally) to the specified file,
+    and summarizes to sys.stdout.
+
+    """
+    def __init__( self, filename=None, limit=50, **kwds ):
+        self.filename		= filename
+        self.limit		= limit
         super( server_thread_profiling, self ).__init__( **kwds )
 
     def run( self ):
         import cProfile, pstats, io
-        prof_file		= "server_thread.profile"
         profiler		= cProfile.Profile()
         profiler.enable()
         try:
             result		= super( server_thread_profiling, self ).run()
         finally:
             profiler.disable()
-            profiler.dump_stats( prof_file )
+            if self.filename:
+                profiler.dump_stats( self.filename )
             prof		= pstats.Stats( profiler, stream=sys.stdout )
         
             print( "\n\nTIME:")
-            prof.sort_stats(  'time' ).print_stats( 50 )
+            prof.sort_stats(  'time' ).print_stats( self.limit )
         
             print( "\n\nCUMULATIVE:")
-            prof.sort_stats(  'cumulative' ).print_stats( 50 )
+            prof.sort_stats(  'cumulative' ).print_stats( self.limit )
         return result
 
 
-def server_main( address, target=None, kwargs=None, thread_factory=server_thread ):
-    """A generic server main, binding to address, and serving each incoming connection with a separate
-    thread_factory (server_thread by default, a threading.Thread) instance running the target
-    function (or its overridden run method, if desired).  Each server must be passed two positional
-    arguments in the 'args' keyword (the connect socket and the peer address), plus any keyword args
-    required by the target function in the 'kwargs' keyword.
+def server_main( address, target=None, kwargs=None, thread_factory=server_thread, **kwds ):
+    """A generic server main, binding to address, and serving each incoming connection with a
+    separate thread_factory (server_thread by default, a threading.Thread) instance running the
+    target function (or its overridden run method, if desired).  Each server must be passed two
+    positional arguments in the 'args' keyword (the connect socket and the peer address), plus any
+    keyword args required by the target function in the 'kwargs' keyword.  Any remaining keyword
+    parameters are passed to the thread_factory (eg. for server_thread_profiling, a 'file' keyword
+    might be appropriate )
 
     The kwargs (default: None) container is passed to each thread; it is *shared*, and each thread
-    must treat its contents with appropriate care.  It can be used as a conduit to transmit changing
-    configuration information to all running threads.  Pass keys with values that are mutable
-    container objects (eg. dict, list), so that the original object is retained when the kwargs is
-    broken out into arguments for the Thread's target function.
+    must treat its contents with appropriate care.  It can be used as a conduit to transmit
+    changing configuration information to all running threads.  Pass keys with values that are
+    mutable container objects (eg. dict, list), so that the original object is retained when the
+    kwargs is broken out into arguments for the Thread's target function.
 
-    If a 'server' keyword is passed, it is assumed to be a dict/dotdict/apidict contain the server's
-    status and control attributes.  When either the 'done' or 'disable' entry is set to True, the
-    server_main will attempt to terminate all existing server threads, close the listening socket
-    and return.  If a KeyboardInterrupt or other Exception occurs, then server.control.done will be
-    forced True.
+    If a 'server' keyword is passed, it is assumed to be a dict/dotdict/apidict contain the
+    server's status and control attributes.  When either the 'done' or 'disable' entry is set to
+    True, the server_main will attempt to terminate all existing server threads, close the
+    listening socket and return.  If a KeyboardInterrupt or other Exception occurs, then
+    server.control.done will be forced True.
 
-    Thus, the caller can optionally pass the 'server' kwarg dict; the 'disable' entry will force the
-    server_main to stop listening on the socket temporarily (for later resumption), and 'done' to
-    signal (or respond to) a forced termination.
+    Thus, the caller can optionally pass the 'server' kwarg dict; the 'disable' entry will force
+    the server_main to stop listening on the socket temporarily (for later resumption), and 'done'
+    to signal (or respond to) a forced termination.
     
     An optional 'latency' and 'timeout' kwarg entries are recognized, and sets the accept timeout
-    (default: .1s): the time between loops checking our control status, when no incoming connections
-    are available, and the join timeout (default: latency) allowed for each thread to respond to the
-    server being done/disabled.
+    (default: .1s): the time between loops checking our control status, when no incoming
+    connections are available, and the join timeout (default: latency) allowed for each thread to
+    respond to the server being done/disabled.
 
     """
     sock			= socket.socket( socket.AF_INET, socket.SOCK_STREAM )
@@ -237,7 +245,8 @@ def server_main( address, target=None, kwargs=None, thread_factory=server_thread
             acceptable		= accept( sock, timeout=control['latency'] )
             if acceptable:
                 conn, addr	= acceptable
-                threads[addr]	= thread_factory( target=target, args=(conn, addr), kwargs=kwargs )
+                threads[addr]	= thread_factory( target=target, args=(conn, addr), kwargs=kwargs,
+                                                  **kwds )
                 threads[addr].daemon = True
                 threads[addr].start()
         except KeyboardInterrupt as exc:

@@ -21,3 +21,4 @@ build/
 MANIFEST
 dist/
 *.egg-info/
+*.svg

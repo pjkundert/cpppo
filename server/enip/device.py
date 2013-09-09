@@ -891,19 +891,18 @@ class Connection_Manager( Object ):
         
 
         """
-        log.detail( "%s Request: %s", self, enip_format( data ))
-
         # We don't check for Unconnected Send 0x52, because replies (and some requests) don't
         # include the full wrapper, just the raw command.  This is quite confusing; especially since
         # some of the commands have the same code (eg. Read Tag Fragmented, 0x52).  Of course, their
         # replies don't (0x52|0x80 == 0xd2).  The CIP.produce recognizes the absence of the
         # .command, and simply copies the encapsulated request.input as the response payload.  We
         # don't encode the response here; it is done by the UCMM.
+        assert 'request' in data and 'input' in data.request, \
+            "Unconnected Send message with absent or empty request"
+        if log.getEffectiveLevel() <= logging.DETAIL:
+            log.detail( "%s Request: %s", self, enip_format( data ))
 
-        assert 'input' in data.request, \
-            "Unconnected Send message with empty request"
-
-        log.info( "%s Parsing: %s", self, enip_format( data.request ))
+        #log.info( "%s Parsing: %s", self, enip_format( data.request ))
         # Get the Message Router to parse and process the request into a response, producing a
         # data.request.input encoded response, which we will pass back as our own encoded response.
         MR			= lookup( class_id=0x02, instance_id=1 )
@@ -911,11 +910,12 @@ class Connection_Manager( Object ):
         try: 
             with MR.parser as machine:
                 for i,(m,s) in enumerate( machine.run( path='request', source=source, data=data )):
-                    log.detail( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %s",
-                                machine.name_centered(), i, s, source.sent, source.peek(),
-                                repr( data ) if log.getEffectiveLevel() < logging.DETAIL else reprlib.repr( data ))
+                    pass
+                    #log.detail( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %s",
+                    #            machine.name_centered(), i, s, source.sent, source.peek(),
+                    #            repr( data ) if log.getEffectiveLevel() < logging.DETAIL else reprlib.repr( data ))
 
-            log.info( "%s Executing: %s", self, enip_format( data.request ))
+            #log.info( "%s Executing: %s", self, enip_format( data.request ))
             MR.request( data.request )
         except:
             # Parsing failure.  We're done.  Suck out some remaining input to give us some context.
@@ -928,6 +928,7 @@ class Connection_Manager( Object ):
             log.error( "EtherNet/IP CIP error %s\n", where )
             raise
 
-        log.detail( "%s Response: %s", self, enip_format( data ))
+        if log.getEffectiveLevel() <= logging.DETAIL:
+            log.detail( "%s Response: %s", self, enip_format( data ))
         return True
 

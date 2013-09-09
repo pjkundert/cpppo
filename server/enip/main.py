@@ -30,8 +30,6 @@ enip		-- An server recognizing an Ethernet/IP protocol subset
 USAGE
     python -m cpppo.server.enip
 
-BACKGROUND
-
 
 """
 
@@ -50,7 +48,6 @@ import random
 import sys
 import socket
 import threading
-from   timeit import default_timer as timer
 import time
 import traceback
 try:
@@ -314,13 +311,13 @@ def api_request( group, match, command, value,
 
     # Collect up all the matching objects, execute any command, and then get
     # their attributes, adding any command { success: ..., message: ... }
-    now			= timer()
+    now			= misc.timer()
     content		= {
         "alarm":	[],
         "command":	None,
         "data":		{},
         "since":	since,		# time, 0, None (null)
-        "until":	timer(),	# time (default, unless we return alarms)
+        "until":	misc.timer(),	# time (default, unless we return alarms)
         }
 
     logging.debug( "Searching for %s/%s, since: %s (%s)" % (
@@ -778,6 +775,9 @@ def main( argv=None, **kwds ):
     ap.add_argument( '-d', '--delay',
                      help="Delay response to each request by a certain number of seconds (default: 0.0)",
                      default="0.0" )
+    ap.add_argument( '-p', '--profile',
+                     help="Output profiling data to a file (default: None)",
+                     default=None )
     ap.add_argument( 'tags', nargs="+",
                      help="Any tags, their type (default: INT), and number (default: 1), eg: tag=INT[1000]")
 
@@ -923,12 +923,18 @@ def main( argv=None, **kwds ):
     # the signals delivered via the web API.
     logging.normal( "EtherNet/IP Simulator: %r" % ( http, ))
     kwargs			= dict( options, latency=latency, tags=tags, server=srv_ctl )
+
+    tf				= network.server_thread
+    tf_kwds			= dict()
+    if args.profile:
+        tf			= network.server_thread_profiling
+        tf_kwds['filename']	= args.profile
+
     while not srv_ctl.control.done:
         if not srv_ctl.control.disable:
-            network.server_main( address=bind, target=enip_srv, kwargs=kwargs )
+            network.server_main( address=bind, target=enip_srv, kwargs=kwargs,
+                                 thread_factory=tf, **tf_kwds )
         else:
             time.sleep( latency )            # Still disabled; wait a bit
 
-
-if __name__ == "__main__":
-    sys.exit( main() )
+    return 0

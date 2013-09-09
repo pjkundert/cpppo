@@ -187,6 +187,17 @@ def test_hasattr():
     assert len( attrs ) == 2
     #print( dir( d ))
 
+
+repeat = 100
+@misc.assert_tps( repeat=repeat )
+def test_dotdict_speed():
+    count = repeat
+    while count:
+        count -= 1
+        test_dotdict()
+        test_indexes()
+
+
 def test_apidict():
     
     def release( when, dd, attr=None, item=None ):
