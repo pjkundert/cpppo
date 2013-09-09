@@ -149,8 +149,8 @@ def test_logix_remote():
     svraddr		        = ('localhost', 12345)
     kwargs			= cpppo.dotdict({
         'argv': [
-            '-v',
-            '--log', '/tmp/logix.log',
+            #'-v',
+            #'--log', '/tmp/logix.log',
             '--address', '%s:%d' % svraddr,
             'SCADA=INT[1000]'
         ],
