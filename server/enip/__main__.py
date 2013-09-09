@@ -22,14 +22,14 @@ __email__                       = "perry@hardconsulting.com"
 __copyright__                   = "Copyright (c) 2013 Hard Consulting Corporation"
 __license__                     = "Dual License: GPLv3 (or later) and Commercial (see LICENSE)"
 
-import argparse
 import logging
 import sys
 
 import cpppo
+
 if __name__ == "__main__":
     logging.basicConfig( **cpppo.log_cfg )
 
-from .main import main
+from . import main
 
-main( argv=sys.argv[1:] )
+sys.exit( main.main( argv=sys.argv[1:] ))

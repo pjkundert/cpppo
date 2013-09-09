@@ -322,3 +322,34 @@ def centeraxis( string, width, axis='.', fillchar=' ', reverse=False, clip=False
     elif clip:
         rght		= rght[:rwid]
     return left+rght
+
+
+def assert_tps( minimum=None, scale=None, repeat=1 ):
+    """Decorator that asserts a minimum TPS rate.  Optionally, scaled by the
+    specified number of repetitions per call (if scale is numeric, or supplied
+    as the named keyword).  If repeat is given, execute function the specified
+    number of repetitions (and adjust scale accordingly).
+
+    """
+    def decorator( function ):
+        def wrapper( *args, **kwds ):
+            beg			= timer()
+            cnt			= repeat
+            while cnt:
+                cnt 	       -= 1
+                result		= function( *args, **kwds )
+            dur			= timer() - beg
+            spt			= dur / repeat
+            if scale is not None:
+                spt	       /= ( scale
+                                    if isinstance( scale, (int,float) )
+                                    else kwds[scale] )
+            tps			= 1.0 / spt
+            logging.warning( "Performance: %7.3f TSP (%d x %s)" % ( 
+                tps, repeat, function_name( function )))
+            if minimum is not None:
+                assert tps >= minimum, "Performance below minimum %7.3f TPS: %7.3f (%d x %s)" % (
+                    minimum, tps, repeat, function_name( function ))
+            return result
+        return wrapper
+    return decorator

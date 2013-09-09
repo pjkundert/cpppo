@@ -67,6 +67,8 @@ class dotdict( dict ):
         >>>
 
     """
+    __slots__ = ()
+
     def __init__( self, *args, **kwds ):
         """Load from args, update from kwds"""
         dict.__init__( self )
@@ -96,10 +98,15 @@ class dotdict( dict ):
         """
         return sorted( [ a for a in dir( super( dotdict, self )) if a.startswith( '__' ) ] + list( dict.keys( self )))
 
+    _resolve_cache		= {}
     def _resolve( self, key ):
         """Return next segment in key as (mine, rest), solving for any '..'
         back-tracking.  If key begins/ends with ., or too many .. are used, the
         key will end up prefixed by ., 'mine' will end up '', raising KeyError."""
+        tpl			= dotdict._resolve_cache.get( key, None )
+        if tpl:
+            return tpl
+
         mine, rest		= key, None
         # Process '..' back-tracking
         #     'a.b..c'     ==> 'a.c'  ; split == ['a.b',   'c'  ]
@@ -127,8 +134,9 @@ class dotdict( dict ):
             mine		= rest
         if not mine:
             raise KeyError('cannot resolve "%s" in "%s" from key "%s"' % ( rest, mine, key ))
-   
-        return mine, rest
+
+        dotdict._resolve_cache[key] = tpl = (mine, rest)
+        return tpl
 
     def __setitem__( self, key, value ):
         """Assign a value to an item. """
@@ -317,11 +325,13 @@ class apidict( dotdict ):
     So, use index access to read the bulk of values, and finally a single getattr to access the last
     value, and indicate completion of access.
     """
+    __slots__ = ('_lck', '_cnd', '_tmo')
     def __init__( self, timeout, *args, **kwds ):
-        self.__dict__['_lck']	= threading.RLock()
-        self.__dict__['_cnd']	= threading.Condition( self._lck )
-        assert isinstance( timeout, (float,int) ), "First argument to apidict must be a numeric timeout"
-        self.__dict__['_tmo']	= timeout
+        assert isinstance( timeout, (float,int) ), \
+            "First argument to apidict must be a numeric timeout"
+        object.__setattr__( self, '_lck', threading.RLock() )
+        object.__setattr__( self, '_cnd', threading.Condition( self._lck ))
+        object.__setattr__( self, '_tmo', timeout )
         super( apidict, self ).__init__( *args, **kwds )
 
     def __setitem__( self, key, value ):
