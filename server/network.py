@@ -28,6 +28,7 @@ import socket
 import select
 import threading
 import traceback
+import functools
 
 from .. import misc
 from ..dotdict import *
@@ -39,7 +40,6 @@ def readable( timeout=0 ):
     positional arg) to report readable w/in timeout before executing.  Returns None if not readable.
     Supply the desired default timeout, if other than 0."""
     def decorator( function ):
-        import functools
         @functools.wraps( function )
         def wrapper( *args, **kwds ):
             if 'timeout' in kwds:
