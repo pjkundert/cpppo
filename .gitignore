@@ -22,3 +22,4 @@ MANIFEST
 dist/
 *.egg-info/
 *.svg
+.vagrant
