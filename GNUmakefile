@@ -38,19 +38,87 @@ PY2TEST=$(PY2) -m pytest $(PYTESTOPTS)
 PY3TEST=$(PY3) -m pytest $(PYTESTOPTS)
 
 .PHONY: all test clean upload
-all:
+all:			help
 
-# Only run tests in this directory.
+help:
+	@echo "GNUmakefile for cpppo.  Targets:"
+	@echo "  help		This help"
+	@echo "  test		Run unit tests under Python2/3"
+	@echo "  install	Install in /usr/local for Python2/3"
+	@echo "  clean		Remove build artifacts"
+	@echo "  upload		Upload new version to pypi (package maintainer only)"
+	@echo "  virtualization	Install all potential Vagrant virtual machines"
+	@echo
+	@echo "    virtualbox-*	Manage VirtualBox    virtual machine"
+	@echo "    vmware-*	Manage VMWare Fusion virtual machine (recommended; requires license)"
+	@echo "       ...-up	  Bring up the virtual machine, configuring if necessary"
+	@echo "       ...-halt	  Stop the virtual machine"
+	@echo "       ...-destroy Discard the configured virtual machine"
+	@echo
+	@echo "       ...-ssh	  Establish SSH communications with the virtual machine"
+
 test:
 	$(PY2TEST)
 	$(PY3TEST)
+
+install:
+	$(PY2) setup.py install
+	$(PY3) setup.py install
+
+# Support uploading a new version of cpppo to pypi.  Must:
+#   o advance __version__ number in cpppo/misc.py
+#   o log in to your pypi account (ie. for package maintainer only)
+upload:
+	python setup.py sdist upload
 
 clean:
 	rm -f MANIFEST *.png $(shell find . -name '*.pyc' )
 	rm -rf build dist auto __pycache__ *.egg-info
 
-upload:
-	python setup.py sdist upload
+# Virtualization management, eg:
+#     make vmware-up/halt/ssh/destroy
+# 
+# To use a different Vagrant box than precise64 (eg. raring), Vagrantfile must be altered
+.PHONY: virtualization vagrant vagrant_boxes				\
+	precise64_virtualbox precise64_vmware_fusion			\
+	raring_virtualbox
+
+vmware-%:		precise64_vmware_fusion
+	vagrant $* $(if $(filter up, $*), --provider=vmware_fusion,)
+
+virtualbox-%:		precise64_virtualbox
+	vagrant $* $(if $(filter up, $*), --provider=virtualbox,)
+
+virtualization:	vagrant_boxes
+
+vagrant:
+	@vagrant --help >/dev/null || ( echo "Install vagrant: http://vagrantup.com"; exit 1 )
+
+vagrant_boxes:		precise64_virtualbox				\
+			precise64_vmware_fusion				\
+			raring_virtualbox
+
+raring_virtualbox:	$(HOME)/.vagrant.d/boxes/raring/virtualbox
+
+precise64_virtualbox:	$(HOME)/.vagrant.d/boxes/precise64/virtualbox
+
+precise64_vmware_fusion:$(HOME)/.vagrant.d/boxes/precise64/vmware_fusion
+
+$(HOME)/.vagrant.d/boxes/raring/virtualbox:		vagrant
+	@if [ ! -d $@ ]; then 						\
+	    vagrant box add raring http://cloud-images.ubuntu.com/raring/current/raring-server-cloudimg-vagrant-amd64-disk1.box; \
+	fi
+
+$(HOME)/.vagrant.d/boxes/precise64/virtualbox:		vagrant
+	@if [ ! -d $@ ]; then 						\
+	    vagrant box add precise64 http://files.vagrantup.com/precise64.box;	\
+	fi
+
+$(HOME)/.vagrant.d/boxes/precise64/vmware_fusion: 	vagrant
+	@if [ ! -d $@ ]; then						\
+	    vagrant box add precise64 http://files.vagrantup.com/precise64_vmware_fusion.box; \
+	fi
+
 
 # Run only tests with a prefix containing the target string, eg test-blah
 test-%:

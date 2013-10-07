@@ -306,7 +306,6 @@
      }
      #+END_EXAMPLE
 
-
 * Deterministic Finite Automata
 
   A cpppo.dfa will consume symbols from its source iterable, and yield
