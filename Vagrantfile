@@ -7,7 +7,7 @@ Vagrant.configure("2") do |config|
     # Installs lxc-docker, and linux-image-extra-3.X.X-... for every installed kernel version
     # (which may be different than the running kernel after the upgrade! )
     # Raring requiries software-properties-common, Precise python-software-properties
-    # to supply apt-add-repository
+    # to supply apt-add-repository.  
     s.inline 				= '			\
         apt-get update						\
         && apt-get install -y					\
@@ -19,16 +19,17 @@ Vagrant.configure("2") do |config|
         && apt-get install -y `apt-show-versions -a | sed -ne	\
            \'s/^\(linux-image\)-\([[:digit:]\.]\+[^[:space:]]*\).*installed$/\1-extra-\2/p\'`\
 	   git python-pip lxc-docker 				\
-        && sudo pip install cpppo				\
-        && git clone http://github.com/pjkundert/cpppo src/cpppo\
+        && pip install cpppo					\
+        && sudo -u vagrant git clone http://github.com/pjkundert/cpppo src/cpppo \
+        && echo && echo "Login w/ vagrant ssh; See src/cpppo/"	\
 	'
   end
   config.vm.network "forwarded_port",	   guest: 80, host: 8080
   config.vm.synced_folder		   ".", "/vagrant"
   config.vm.provider "vmware_fusion" do |v|
-    v.gui 				= true
     v.vmx["memsize"]			= "2048"
     v.vmx["numvcpus"]			= "2"
+    v.gui 				= true
   end
   config.vm.provider "virtualbox" do |v|
     v.gui 				= true
