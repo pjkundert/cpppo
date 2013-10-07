@@ -435,3 +435,68 @@
       print( "Accepted: %r; remaining: %r\n" % ( data.get(path), ''.join( source )))
   print( "Final: %r" % ( data ))
   #+END_SRC
+
+* Virtualization
+
+  Software with an interface acting as a PLC is often deployed as an independent
+  piece of infrastructure with its own IP address, etc.  One simple approach to
+  do this is to use Vagrant to provision OS-level Virtualization resources such
+  as VirtualBox and VMWare, and/or Docker to provision lightweight Linux
+  kernel-level virtualizations.
+
+  Using a combination of these two facilities, you can provision potentially
+  hundreds of "independent" PLC simulations on a single host -- each with its
+  own IP address and configuration.
+
+** Vagrant
+
+   If you are not running on a host capable of directly hosting Docker images,
+   one can be provided for you.  Install Vagrant (http://vagrantup.com) on your
+   system, and then use the cpppo/GNUmakefile target to bring up a  VirtualBox
+   or VMWare Fusion (license required: http://www.vagrantup.com/vmware):
+   : $ make vmware-up # or virtualbox-up
+
+   Connect to the running virtual machine:
+   : $ make vmware-ssh
+   : ...
+   : vagrant@precise64:~$ 
+
+** Docker
+
+   We'll assume that you now have a prompt on a Docker-capable machine.  Start a
+   Docker container using the pre-built cpppo/cpppo image hosted at
+   https://index.docker.io/u/cpppo/.  This will run the image, binding port
+   44818 on localhost thru to port 44818 on the running Docker image, and will
+   run the cpppo.server.enip module with 1000 16-bit ints on Tag "SCADA":
+   : vagrant@precise64:~$ docker run -p 44818:44818 -d cpppo/cpppo python -m cpppo.server.enip SCADA=dint[1000]
+
+   Assuming you have cpppo installed on your local host, you can now test this.
+   We'll read SCADA[1] and SCADA[0-10], repeating 10 times:
+   : $ python -m cpppo.server.enip.client -r 10 SCADA[1] SCADA[0-10]
+
+*** Creating Docker images from a Dockerfile
+
+    Get started by going to .../cpppo/docker/cpppo/cpppo/Dockerfile on your
+    local machine.  If you started a Vagrant VM from this directory (eg. make
+    vmware-up), this is also mounted inside that machine /src/cpppo.  Once
+    there, have a look at docker/cpppo/cpppo/Dockerfile.  If you go into that
+    directory, you can re-create the Docker image:
+    : vagrant@precise64:~$ cd /src/cpppo/docker/cpppo/cpppo
+    : vagrant@precise64:~$ docker build -t cpppo/cpppo .
+
+    Or, lets use it as a base image for a new Dockerfile.  Lets just formalize
+    the command we ran previously so we don't have to remember to type it in.
+    Create a new Dockerfile in, say, cpppo/docker/cpppo/scada/:
+    #+BEGIN_EXAMPLE
+    FROM cpppo/cpppo
+    MAINTAINER Whoever You Are "whoever@example.com"
+    EXPORT 44818
+    # We'll always run this as our base command
+    ENTRYPOINT ["python -m cpppo.server.enip"]
+    # But we will allow this to be (optionally) overridden
+    CMD ["SCADA=dint[1000]"]
+    #+END_EXAMPLE
+
+    Then, we can build and save the container under a new name:
+    : docker build -t cpppo/scada
+    : docker run -p 44818
