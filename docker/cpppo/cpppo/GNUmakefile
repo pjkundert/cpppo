@@ -8,7 +8,7 @@ all:
 # Update this Docker image.  Force any lines ending in "# YYYY-MM-DD" to be
 # change, to prevent re-use of cached Docker images.
 update:
-	sed -e "s/# [0-9Y]{4}-[0-9M]{2}-[0-9D]{2}$$/# $$( date +%Y-%m-%d )/" -i~ Dockerfile
+	sed -e "s/# [0-9Y][0-9Y][0-9Y][0-9Y]-[0-9M][0-9M]-[0-9D][0-9D]$$/# $$( date +%Y-%m-%d )/" -i~ Dockerfile
 	docker build -t cpppo/cpppo .
 
 # Push the Docker image up to docker.io
