@@ -9,8 +9,8 @@ all:
 # change, to prevent re-use of cached Docker images.
 update:
 	sed -e "s/# [0-9Y][0-9Y][0-9Y][0-9Y]-[0-9M][0-9M]-[0-9D][0-9D]$$/# $$( date +%Y-%m-%d )/" -i~ Dockerfile
-	docker build -t cpppo/cpppo .
+	docker build -t cpppo/scada .
 
 # Push the Docker image up to docker.io
 push:		update
-	docker push cpppo/cpppo
+	docker push cpppo/scada
