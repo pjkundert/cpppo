@@ -16,7 +16,7 @@ FROM ubuntu:12.04
 MAINTAINER Perry Kundert "perry@hardconsulting.com"
 RUN sed -e "s|http://[^[:space:]]*|http://mirrors.kernel.org/ubuntu|" -e "s|main$|main universe|" -i /etc/apt/sources.list
 RUN cat /etc/apt/sources.list
-RUN apt-get update # YYYY-MM-DD
+RUN apt-get update # 2013-10-08
 RUN apt-get -yu dist-upgrade
 RUN apt-get -y install python python-pip
 RUN pip install cpppo

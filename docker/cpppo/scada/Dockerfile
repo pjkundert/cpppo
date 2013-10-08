@@ -12,7 +12,7 @@ FROM cpppo/cpppo
 MAINTAINER Perry Kundert "perry@hardconsulting.com"
 EXPORT 44818
 # We'll always run this as our base command
-ENTRYPOINT ["python -m cpppo.server.enip"]
+ENTRYPOINT ["python", "-m", "cpppo.server.enip"]
 # But we will allow this to be (optionally) overridden
 CMD ["SCADA=dint[1000]"]
 
