@@ -468,11 +468,37 @@
    https://index.docker.io/u/cpppo/.  This will run the image, binding port
    44818 on localhost thru to port 44818 on the running Docker image, and will
    run the cpppo.server.enip module with 1000 16-bit ints on Tag "SCADA":
-   : vagrant@precise64:~$ docker run -p 44818:44818 -d cpppo/cpppo python -m cpppo.server.enip SCADA=dint[1000]
+   : $ docker run -p 44818:44818 -d cpppo/cpppo python -m cpppo.server.enip SCADA=dint[1000]
+   : 6da5183740b4
+   : $
 
    Assuming you have cpppo installed on your local host, you can now test this.
-   We'll read SCADA[1] and SCADA[0-10], repeating 10 times:
-   : $ python -m cpppo.server.enip.client -r 10 SCADA[1] SCADA[0-10]
+   We'll read a single value and a range of values from the tag SCADA, repeating 10 times:
+   #+BEGIN_EXAMPLE
+   $ python -m cpppo.server.enip.client -r 10 SCADA[1] SCADA[0-10]
+   10-08 09:40:29.327  ...  SCADA[    1-1    ] == [0]
+   10-08 09:40:29.357  ...  SCADA[    0-10   ] == [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+   10-08 09:40:29.378  ...  SCADA[    1-1    ] == [0]
+   10-08 09:40:29.406  ...  SCADA[    0-10   ] == [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+   10-08 09:40:29.426  ...  SCADA[    1-1    ] == [0]
+   10-08 09:40:29.454  ...  SCADA[    0-10   ] == [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+   10-08 09:40:29.476  ...  SCADA[    1-1    ] == [0]
+   10-08 09:40:29.503  ...  SCADA[    0-10   ] == [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+   10-08 09:40:29.523  ...  SCADA[    1-1    ] == [0]
+   10-08 09:40:29.551  ...  SCADA[    0-10   ] == [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+   10-08 09:40:29.571  ...  SCADA[    1-1    ] == [0]
+   10-08 09:40:29.600  ...  SCADA[    0-10   ] == [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+   10-08 09:40:29.622  ...  SCADA[    1-1    ] == [0]
+   10-08 09:40:29.648  ...  SCADA[    0-10   ] == [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+   10-08 09:40:29.669  ...  SCADA[    1-1    ] == [0]
+   10-08 09:40:29.697  ...  SCADA[    0-10   ] == [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+   10-08 09:40:29.717  ...  SCADA[    1-1    ] == [0]
+   10-08 09:40:29.745  ...  SCADA[    0-10   ] == [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+   10-08 09:40:29.769  ...  SCADA[    1-1    ] == [0]
+   10-08 09:40:29.796  ...  SCADA[    0-10   ] == [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+   10-08 09:40:29.796  ...  Client ReadFrg. Average  20.266 TPS (  0.049s ea).
+   $ 
+   #+END_EXAMPLE
 
 *** Creating Docker images from a Dockerfile
 
@@ -481,8 +507,8 @@
     vmware-up), this is also mounted inside that machine /src/cpppo.  Once
     there, have a look at docker/cpppo/cpppo/Dockerfile.  If you go into that
     directory, you can re-create the Docker image:
-    : vagrant@precise64:~$ cd /src/cpppo/docker/cpppo/cpppo
-    : vagrant@precise64:~$ docker build -t cpppo/cpppo .
+    : $ cd /src/cpppo/docker/cpppo/cpppo
+    : $ docker build -t cpppo/cpppo .
 
     Or, lets use it as a base image for a new Dockerfile.  Lets just formalize
     the command we ran previously so we don't have to remember to type it in.
