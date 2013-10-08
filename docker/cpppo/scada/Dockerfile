@@ -17,8 +17,6 @@
 #
 FROM		cpppo/cpppo
 MAINTAINER	Perry Kundert "perry@hardconsulting.com"
-EXPORT		44818
-# We'll always run this as our base command
-ENTRYPOINT	["python", "-m", "cpppo.server.enip"]
-# But we will allow this to be (optionally) overridden
-CMD		["SCADA=dint[1000]"]
+EXPOSE		44818
+ENTRYPOINT	["python", "-m", "cpppo.server.enip"]	# We'll always run this
+CMD		["SCADA=dint[1000]"]			# Can be overridden
