@@ -10,7 +10,8 @@ Vagrant.configure("2") do |config|
     # Adding a docker group causes /var/run/docker.sock to be docker group writable.
     # The initiating cpppo source directory is mounted on /src/cpppo.  
     s.inline 				= '			\
-        apt-get update						\
+        sed -e "s|us.archive.ubuntu.com|mirrors.kernel.org|" -i /etc/apt/sources.list\
+        && apt-get update					\
         && apt-get install -y					\
             software-properties-common python-software-properties\
             apt-show-versions					\
@@ -24,11 +25,11 @@ Vagrant.configure("2") do |config|
         && addgroup vagrant docker				\
         && service docker restart				\
         && pip install cpppo					\
-        && echo && echo "Login w/ vagrant ssh; See /src/cpppo/"	\
+        && echo && echo "Login w/ vagrant ssh"			\
 	'
   end
   config.vm.network "forwarded_port",	   guest: 80, host: 8080
-  config.vm.synced_folder		   ".", "/src/cpppo"
+  config.vm.synced_folder		   "..", "/home/vagrant/src"
   config.vm.provider "vmware_fusion" do |v|
     v.vmx["memsize"]			= "2048"
     v.vmx["numvcpus"]			= "2"
