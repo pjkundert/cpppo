@@ -52,9 +52,10 @@ if __name__ == "__main__":
 log				= logging.getLogger( "enip.cli" )
 
 class client( object ):
-    """Transmit request(s), and yield replies as available.  The request will fail
-    (raise exception) if it cannot be sent within the specified timeout (None,
-    if no timeout desired).
+    """Transmit request(s), and yield replies as available.  The request will fail (raise
+    exception) if it cannot be sent within the specified timeout (None, if no timeout desired).
+    After a session is registered, transactions may be pipelined (requests sent before
+    responses to previous requests are received.)
 
     """
     def __init__( self, host, port=None, timeout=None ):
