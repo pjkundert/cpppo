@@ -2,7 +2,8 @@
 
 IMAGES		= cpppo/base	\
 		  cpppo/cpppo	\
-		  cpppo/scada
+		  cpppo/scada	\
+		  cpppo/mongrel2
 
 UPDATE		= 
 
