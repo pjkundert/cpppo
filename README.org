@@ -454,12 +454,17 @@
    one can be provided for you.  Install Vagrant (http://vagrantup.com) on your
    system, and then use the cpppo/GNUmakefile target to bring up a  VirtualBox
    or VMWare Fusion (license required: http://www.vagrantup.com/vmware):
-   : $ make vmware-up # or virtualbox-up
+   : $ make vmware-debian-up # or virtualbox-ubuntu-up
 
    Connect to the running virtual machine:
-   : $ make vmware-ssh
+   : $ make vmware-debian-ssh
    : ...
-   : vagrant@precise64:~$ 
+   : vagrant@jessie64:~$ 
+
+   Both Debian and Ubuntu Vagrantfiles are provided, which produce a VM image
+   capable of hosting Docker images.  Not every version is available on every
+   platform, depending on what version of VMware or Virtualbox you are running;
+   see the GNUmakefile for details.
 
 ** Docker
 
@@ -471,6 +476,12 @@
    : $ docker run -p 44818:44818 -d cpppo/cpppo python -m cpppo.server.enip SCADA=dint[1000]
    : 6da5183740b4
    : $
+   
+   A canned Docker image is provided which automatically runs an instance of
+   cpppo.server.enip hosting the "SCADA=dint[1000]" tag by default (you can
+   provide alternative tags on the command line, if you wish):
+   : $ docker run -p 44818:44818 -d cpppo/scada
+
 
    Assuming you have cpppo installed on your local host, you can now test this.
    We'll read a single value and a range of values from the tag SCADA, repeating 10 times:
@@ -514,15 +525,18 @@
     the command we ran previously so we don't have to remember to type it in.
     Create a new Dockerfile in, say, cpppo/docker/cpppo/scada/:
     #+BEGIN_EXAMPLE
-    FROM cpppo/cpppo
-    MAINTAINER Whoever You Are "whoever@example.com"
-    EXPORT 44818
+    FROM	cpppo/cpppo
+    MAINTAINER	Whoever You Are "whoever@example.com"
+    EXPOSE	44818
     # We'll always run this as our base command
-    ENTRYPOINT ["python -m cpppo.server.enip"]
+    ENTRYPOINT 	[ "python",  "-m", "cpppo.server.enip" ]
     # But we will allow this to be (optionally) overridden
-    CMD ["SCADA=dint[1000]"]
+    CMD		[ "SCADA=dint[1000]" ]
     #+END_EXAMPLE
 
     Then, we can build and save the container under a new name:
     : docker build -t cpppo/scada .
     : docker run -p 44818
+
+    This is (roughly) what is implemented in docker/cpppo/scada/Dockerfile.
+

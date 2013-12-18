@@ -9,7 +9,7 @@
 # YYYY-MM-DD' dated lines in the Dockerfile so that out-of-date cached images
 # won't be used:
 #
-#   $ docker build -t cpppo/base cpppo/base		# or: make update
+#   $ docker build -t cpppo/base cpppo/base		# or: 'make update' in ../..
 #
 FROM		ubuntu:12.04
 MAINTAINER	Perry Kundert "perry@hardconsulting.com"

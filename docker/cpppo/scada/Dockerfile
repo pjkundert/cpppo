@@ -13,7 +13,10 @@
 #     Update the image, and push it up to index.docker.io (unless you own the
 # cpppo account, change the name to your own docker.io account):
 #
-#   $ docker build -t cpppo/scada			# or: make update
+#   $ docker build -t cpppo/scada .			# or: make update in ../..
+#   $ docker push
+#
+#     Alternatively, use the index.docker.io automatic build process.
 #
 FROM		cpppo/cpppo
 MAINTAINER	Perry Kundert "perry@hardconsulting.com"

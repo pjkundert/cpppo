@@ -14,11 +14,10 @@
 #
 #   $ docker run -p 44818:44818 -d cpppo/cpppo python -m cpppo.server.enip SCADA=dint[1000]
 #
-#     Build a new image.  Using the GNUmakefile 'update' target updates any '#
-# YYYY-MM-DD' dated lines in the Dockerfile so that out-of-date cached images
-# won't be used:
+#     Build a new image (or, better yet, use the index.docker.io automatic build facilities):
 #
-#   $ docker build -t cpppo/cpppo			# or: make update
+#   $ docker build -t cpppo/cpppo .			# or: 'make update' in ../..
+#   $ docker push
 #
 FROM		cpppo/base
 MAINTAINER	Perry Kundert "perry@hardconsulting.com"
