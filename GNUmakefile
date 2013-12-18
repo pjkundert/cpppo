@@ -42,20 +42,26 @@ all:			help
 
 help:
 	@echo "GNUmakefile for cpppo.  Targets:"
-	@echo "  help		This help"
-	@echo "  test		Run unit tests under Python2/3"
-	@echo "  install	Install in /usr/local for Python2/3"
-	@echo "  clean		Remove build artifacts"
-	@echo "  upload		Upload new version to pypi (package maintainer only)"
-	@echo "  virtualization	Install all potential Vagrant virtual machines"
+	@echo "  help			This help"
+	@echo "  test			Run unit tests under Python2/3"
+	@echo "  install		Install in /usr/local for Python2/3"
+	@echo "  clean			Remove build artifacts"
+	@echo "  upload			Upload new version to pypi (package maintainer only)"
+	@echo "  virtualization		Install all potential Vagrant virtual machines"
 	@echo
-	@echo "    virtualbox-*	Manage VirtualBox    virtual machine"
-	@echo "    vmware-*	Manage VMWare Fusion virtual machine (recommended; requires license)"
-	@echo "       ...-up	  Bring up the virtual machine, configuring if necessary"
-	@echo "       ...-halt	  Stop the virtual machine"
-	@echo "       ...-destroy Discard the configured virtual machine"
+	@echo "    virtualbox-*		Manage VirtualBox    virtual machine"
+	@echo "    vmware-*		Manage VMWare Fusion virtual machine (recommended; requires license)"
+	@echo "      -debian-...	Specify Debian Jessie  64-bit VM (VMware 6 compatible)"
+	@echo "      -ubuntu-...	Specify Ubuntu Precise 64-bit VM (VMware 5 compatible)"
+	@echo "       ...-up		Bring up the virtual machine, configuring if necessary"
+	@echo "       ...-halt		Stop the virtual machine"
+	@echo "       ...-destroy	Discard the configured virtual machine"
 	@echo
-	@echo "       ...-ssh	  Establish SSH communications with the virtual machine"
+	@echo "       ...-ssh		Establish SSH communications with the virtual machine"
+	@echo 
+	@echo "EXAMPLES"
+	@echo "  vmware-debian-up	Brings up Jessie VM w/ Docker capability" 
+	@echo "  vmware-debian-ssh	Log in to the VM" 
 
 test:
 	$(PY2TEST)
@@ -83,11 +89,20 @@ clean:
 	precise64_virtualbox precise64_vmware_fusion			\
 	raring_virtualbox
 
-vmware-%:		precise64_vmware_fusion
-	vagrant $* $(if $(filter up, $*), --provider=vmware_fusion,)
+# The vagrant/ubuntu/Vagrantfile doesn't contain a config.vm.box_url; we must
+# supply.  The precise64 VMware image presently supports only VMware Fusion 5;
+# if you see an error regarding hgfs kernel modules, you may be running a
+# version of VMware Fusion incompatible with the VMware Tools in the image.
+vmware-ubuntu-%:	precise64_vmware_fusion
+	cd vagrant/ubuntu; vagrant $* $(if $(filter up, $*), --provider=vmware_fusion,)
 
-virtualbox-%:		precise64_virtualbox
-	vagrant $* $(if $(filter up, $*), --provider=virtualbox,)
+virtualbox-ubuntu-%:	precise64_virtualbox
+	cd vagrant/ubuntu; vagrant $* $(if $(filter up, $*), --provider=virtualbox,)
+
+# The vagrant/debian/Vagrantfile contains its own config.vm.box_url image
+# source.  The jessie64 VMware image is compatible with VMware Fusion 6.
+vmware-debian-%:
+	cd vagrant/debian; vagrant $* $(if $(filter up, $*), --provider=vmware_fusion,)
 
 virtualization:	vagrant_boxes
 

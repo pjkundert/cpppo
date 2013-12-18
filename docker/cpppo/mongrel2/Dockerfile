@@ -1,19 +1,27 @@
 # -*- mode: conf -*-
+# cpppo/mongrel2 Dockerfile.
+#
+# DESCRIPTION
+#     Support for EtherNet/IP (via cpppo) and Modbus/TCP (via pymodbus) PLC simulation, using
+# Mongrel2's ZeroMQ WebSockets protocol as the underlying transport.
+#
 FROM		cpppo/cpppo
 MAINTAINER	Perry Kundert "perry@hardconsulting.com"
-RUN		apt-get install -y git
-RUN		mkdir src
-RUN		cd src; git clone git://github.com/zeromq/zeromq3-x.git;	cd zeromq3-x;	git checkout master
-RUN		cd src; git clone git://github.com/cython/cython.git;		cd cython;	git checkout 0.18
-RUN		cd src; git clone git://github.com/zeromq/pyzmq.git;		cd pyzmq;	git checkout v13.1.0
-RUN		cd src; git clone git://github.com/zedshaw/mongrel2.git;	cd mongrel2;	git checkout develop
-RUN		apt-get install -y libtool autoconf automake python-dev uuid-dev sqlite3 libsqlite3-dev build-essential
+
+RUN		pip install pymodbus
+
+RUN		apt-get install -y git libtool autoconf automake python-dev uuid-dev sqlite3 libsqlite3-dev build-essential
+RUN		mkdir -p src
+RUN		git clone --branch master   git://github.com/zeromq/zeromq3-x.git  src/zeromq3-x
+RUN		git clone --branch 0.18     git://github.com/cython/cython.git     src/cython
+RUN		git clone --branch v13.1.0  git://github.com/zeromq/pyzmq.git      src/pyzmq
+RUN		git clone --branch develop  git://github.com/zedshaw/mongrel2.git  src/mongrel2
+
 RUN		cd src/zeromq3-x; ./autogen.sh; ./configure; make V=1; make install; ldconfig
 RUN		cd src/cython; python setup.py install
 RUN		cd src/pyzmq; python setup.py configure --zmq=/usr/local; python setup.py install
 RUN		cd src/mongrel2; make; make install
 RUN		cd src/mongrel2/examples/python; python setup.py install
 
-#EXPOSE		44818
-#ENTRYPOINT	[ "python", "-m", "cpppo.server.enip" ]
-#CMD		[ "SCADA=dint[1000]" ]
+# Typically supports applications providing remote access via HTTP, Modbus/TCP and EtherNet/IP, eg:
+#EXPOSE		80 502 44818
