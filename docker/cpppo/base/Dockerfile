@@ -15,4 +15,4 @@ FROM		ubuntu:12.04
 MAINTAINER	Perry Kundert "perry@hardconsulting.com"
 RUN		sed -e "s|http://[^[:space:]]*|http://mirrors.kernel.org/ubuntu|" -e "s|main$|main universe|" -i /etc/apt/sources.list
 RUN		apt-get update 				# 2013-12-18
-RUN		apt-get -yu dist-upgrade
+RUN		apt-get -yu dist-upgrade; apt-get clean

@@ -8,9 +8,9 @@
 FROM		cpppo/cpppo
 MAINTAINER	Perry Kundert "perry@hardconsulting.com"
 
+RUN		apt-get install -y git libtool autoconf automake python-dev uuid-dev sqlite3 libsqlite3-dev build-essential; apt-get clean
 RUN		pip install pymodbus
 
-RUN		apt-get install -y git libtool autoconf automake python-dev uuid-dev sqlite3 libsqlite3-dev build-essential
 RUN		mkdir -p src
 RUN		git clone --branch master   git://github.com/zeromq/zeromq3-x.git  src/zeromq3-x
 RUN		git clone --branch 0.18     git://github.com/cython/cython.git     src/cython

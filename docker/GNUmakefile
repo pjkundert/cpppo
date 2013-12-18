@@ -18,7 +18,7 @@ update:
 	@for image in $(IMAGES); do			\
 	    sed -e "s/# [0-9Y][0-9Y][0-9Y][0-9Y]-[0-9M][0-9M]-[0-9D][0-9D]$$/# $$( date +%Y-%m-%d )/" \
 		-i~ $$image/Dockerfile;			\
-	    docker build -t $$image $$image;		\
+	    docker build -t $$image $$image || exit 1;	\
 	done
 
 # Push the Docker images up to docker.io
