@@ -1,0 +1,71 @@
+# -*- mode: ruby -*-
+# Download and configure a VMware instance of Debian 7 Jessie
+# Configure it for Docker runtime and development of cpppo applications
+#
+# Instructions for creating a custom Vagrant Debian box:
+#  - http://www.skoblenick.com/vagrant/creating-a-custom-box-from-scratch/
+#  
+# Docker-based configurations)
+Vagrant.configure("2") do |config|
+  config.vm.box				= "jessie64"
+  config.vm.box_url			= "http://box.hardconsulting.com/jessie64.box"
+  config.vm.provision "shell" do |s|
+    # The kernel may be different than the running kernel after the upgrade!  Ubuntu Raring requires
+    # software-properties-common, Precise python-software-properties to supply apt-add-repository,
+    # but these have a docker dpkg; Debian Jessie requires manual installation of docker.
+    # Adding a docker group causes /var/run/docker.sock to be docker group writable.
+    # The initiating Vagrantfile's ../ directory is mounted on /home/vagrant/src/.  
+    s.inline 				= '			\
+        echo -e						       "\
+deb	http://mirrors.kernel.org/debian	jessie		main contrib non-free\n\
+deb-src	http://mirrors.kernel.org/debian	jessie		main contrib non-free\n\
+\n\
+deb	http://mirrors.kernel.org/debian	jessie-updates	main contrib non-free\n\
+deb-src	http://mirrors.kernel.org/debian	jessie-updates	main contrib non-free\n\
+\n\
+deb	http://security.debian.org/		jessie/updates	main contrib non-free\n\
+deb-src	http://security.debian.org/		jessie/updates	main contrib non-free\n"\
+            > /etc/apt/sources.list				\
+        && apt-get update					\
+        && apt-get -u -y dist-upgrade				\
+        && apt-get install -y					\
+            apt-show-versions python-pip python-dev		\
+            lxc wget bsdtar curl git aufs-tools			\
+            emacs24-nox emacs24-el screen			\
+            multitail aspell zip				\
+            libxml2-dev libxslt-dev zlib1g-dev libbz2-dev	\
+        && sudo addgroup vagrant staff				\
+        && echo "Installing docker..."				\
+        && sudo -u vagrant wget -q --output-document=/usr/local/bin/docker \
+                https://get.docker.io/builds/Linux/x86_64/docker-latest \
+        && sudo wget -q --output-document=/etc/init.d/docker	\
+                https://raw.github.com/dotcloud/docker/master/contrib/init/sysvinit/docker \
+        && sed -e "/^DOCKER=/ s|/usr/bin/|/usr/local/bin/|" -i /etc/init.d/docker \
+        && sudo chmod a+x /etc/init.d/docker			\
+        && sudo update-rc.d docker defaults			\
+        && chmod a+x /usr/local/bin/docker			\
+        && echo "none /sys/fs/cgroup cgroup defaults 0 0" | sudo tee -a /etc/fstab \
+        && sudo mount /sys/fs/cgroup				\
+        && addgroup docker					\
+        && addgroup vagrant docker				\
+        && echo "Enabling IPv4 forwarding..."			\
+        && sed -i -e "s/#\(net.ipv4.ip_forward\)=.*/\1=1/" /etc/sysctl.conf \
+        && sudo sysctl -w net.ipv4.ip_forward=1		        \
+        && service docker restart				\
+        && echo "Installing cpppo..."				\
+        && pip install cpppo pymodbus pytest netifaces lxml web.py wsgilog \
+        && echo && echo "Login w/ vagrant ssh"			\
+        '
+  end
+  config.vm.network "forwarded_port",	   guest: 80, host: 8080, auto_correct: true
+  # Mount the directory containing the cpppo image on ~/src/
+  config.vm.synced_folder		   "../../..", "/home/vagrant/src"
+  config.vm.provider "vmware_fusion" do |v|
+    v.vmx["memsize"]			= "2048"
+    v.vmx["numvcpus"]			= "1"
+    v.gui 				= true
+  end
+  config.vm.provider "virtualbox" do |v|
+    v.gui 				= true
+  end
+end

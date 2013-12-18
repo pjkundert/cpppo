@@ -524,5 +524,5 @@
     #+END_EXAMPLE
 
     Then, we can build and save the container under a new name:
-    : docker build -t cpppo/scada
+    : docker build -t cpppo/scada .
     : docker run -p 44818
