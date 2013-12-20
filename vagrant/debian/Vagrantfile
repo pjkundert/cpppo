@@ -35,15 +35,18 @@ deb-src	http://security.debian.org/		jessie/updates	main contrib non-free\n"\
             multitail aspell zip				\
             libxml2-dev libxslt-dev zlib1g-dev libbz2-dev	\
         && sudo addgroup vagrant staff				\
-        && echo "Installing docker..."				\
+        && echo "Installing docker and utilities..."		\
+        && sudo -u vagrant wget -q --output-document=/usr/local/bin/pipework \
+                https://raw.github.com/jpetazzo/pipework/master/pipework \
+        && chmod a+x /usr/local/bin/pipework			\
         && sudo -u vagrant wget -q --output-document=/usr/local/bin/docker \
                 https://get.docker.io/builds/Linux/x86_64/docker-latest \
+        && chmod a+x /usr/local/bin/docker			\
         && sudo wget -q --output-document=/etc/init.d/docker	\
                 https://raw.github.com/dotcloud/docker/master/contrib/init/sysvinit/docker \
         && sed -e "/^DOCKER=/ s|/usr/bin/|/usr/local/bin/|" -i /etc/init.d/docker \
         && sudo chmod a+x /etc/init.d/docker			\
         && sudo update-rc.d docker defaults			\
-        && chmod a+x /usr/local/bin/docker			\
         && echo "none /sys/fs/cgroup cgroup defaults 0 0" | sudo tee -a /etc/fstab \
         && sudo mount /sys/fs/cgroup				\
         && addgroup docker					\
