@@ -47,7 +47,6 @@ help:
 	@echo "  install		Install in /usr/local for Python2/3"
 	@echo "  clean			Remove build artifacts"
 	@echo "  upload			Upload new version to pypi (package maintainer only)"
-	@echo "  virtualization		Install all potential Vagrant virtual machines"
 	@echo
 	@echo "    virtualbox-*		Manage VirtualBox    virtual machine"
 	@echo "    vmware-*		Manage VMWare Fusion virtual machine (recommended; requires license)"
@@ -82,10 +81,10 @@ clean:
 	rm -rf build dist auto __pycache__ *.egg-info
 
 # Virtualization management, eg:
-#     make vmware-up/halt/ssh/destroy
+#     make {vmware,vagrant}-up/halt/ssh/destroy
 # 
 # To use a different Vagrant box than precise64 (eg. raring), Vagrantfile must be altered
-.PHONY: virtualization vagrant vagrant_boxes				\
+.PHONY: vagrant vagrant_boxes						\
 	precise64_virtualbox precise64_vmware_fusion			\
 	raring_virtualbox
 
@@ -93,31 +92,38 @@ clean:
 # supply.  The precise64 VMware image presently supports only VMware Fusion 5;
 # if you see an error regarding hgfs kernel modules, you may be running a
 # version of VMware Fusion incompatible with the VMware Tools in the image.
-vmware-ubuntu-%:	precise64_vmware_fusion
+vmware-ubuntu-%:	precise64-vmware_fusion
 	cd vagrant/ubuntu; vagrant $* $(if $(filter up, $*), --provider=vmware_fusion,)
 
-virtualbox-ubuntu-%:	precise64_virtualbox
+virtualbox-ubuntu-%:	precise64-virtualbox
 	cd vagrant/ubuntu; vagrant $* $(if $(filter up, $*), --provider=virtualbox,)
 
 # The vagrant/debian/Vagrantfile contains its own config.vm.box_url image
-# source.  The jessie64 VMware image is compatible with VMware Fusion 6.
-vmware-debian-%:
+# source.  The jessie64 VMware image is compatible with VMware Fusion 6, and the
+# VirtualBox image is compatible with VirtualBox 4.3.
+vmware-debian-%:	jessie64-vmware_fusion
 	cd vagrant/debian; vagrant $* $(if $(filter up, $*), --provider=vmware_fusion,)
 
-virtualization:	vagrant_boxes
+virtualbox-debian-%:	jessie64-virtualbox
+	cd vagrant/debian; vagrant $* $(if $(filter up, $*), --provider=virtualbox,)
 
 vagrant:
 	@vagrant --help >/dev/null || ( echo "Install vagrant: http://vagrantup.com"; exit 1 )
 
-vagrant_boxes:		precise64_virtualbox				\
-			precise64_vmware_fusion				\
-			raring_virtualbox
 
+# Check if jessie64-{virtualbox,vmware_fusion} exists in the vagrant box list.
+# If not, install it.
+jessie64-%:
+	@if ! vagrant box list | grep -q '^jessie64.*($*)'; then	\
+	    vagrant box add jessie64 http://box.hardconsulting.com/jessie64-$*.box --provider $*; \
+	fi
+
+# Another more direct way of detecting the availability of a specific Vagrant box
 raring_virtualbox:	$(HOME)/.vagrant.d/boxes/raring/virtualbox
 
-precise64_virtualbox:	$(HOME)/.vagrant.d/boxes/precise64/virtualbox
+precise64-virtualbox:	$(HOME)/.vagrant.d/boxes/precise64/virtualbox
 
-precise64_vmware_fusion:$(HOME)/.vagrant.d/boxes/precise64/vmware_fusion
+precise64-vmware_fusion:$(HOME)/.vagrant.d/boxes/precise64/vmware_fusion
 
 $(HOME)/.vagrant.d/boxes/raring/virtualbox:		vagrant
 	@if [ ! -d $@ ]; then 						\

@@ -1,14 +1,18 @@
 # -*- mode: ruby -*-
 # Download and configure a VMware instance of Debian 7 Jessie
-# Configure it for Docker runtime and development of cpppo applications
+# Configure it for Docker runtime and development of cpppo applications.
+# Assumes that a jessie64 box has been added to vagrant.
 #
-# Instructions for creating a custom Vagrant Debian box:
+# Instructions for creating a custom Vagrant Debian box for VMware or VirtualBox:
 #  - http://www.skoblenick.com/vagrant/creating-a-custom-box-from-scratch/
+#  
+# Installing and using veewee to build and package a Vagrant Debian Jessie box:
+#  - https://github.com/jedi4ever/veewee/blob/master/doc/installation.md
+#  - https://github.com/Mayeu/vagrant-jessie-box
 #  
 # Docker-based configurations)
 Vagrant.configure("2") do |config|
   config.vm.box				= "jessie64"
-  config.vm.box_url			= "http://box.hardconsulting.com/jessie64.box"
   config.vm.provision "shell" do |s|
     # The kernel may be different than the running kernel after the upgrade!  Ubuntu Raring requires
     # software-properties-common, Precise python-software-properties to supply apt-add-repository,
@@ -60,7 +64,8 @@ deb-src	http://security.debian.org/		jessie/updates	main contrib non-free\n"\
         && echo && echo "Login w/ vagrant ssh"			\
         '
   end
-  config.vm.network "forwarded_port",	   guest: 80, host: 8080, auto_correct: true
+  config.vm.network "forwarded_port", guest: 80, host: 8080, auto_correct: true
+  config.vm.network "public_network", :bridge => 'en5: Thunderbolt Ethernet', :auto_config => false
   # Mount the directory containing the cpppo image on ~/src/
   config.vm.synced_folder		   "../../..", "/home/vagrant/src"
   config.vm.provider "vmware_fusion" do |v|
