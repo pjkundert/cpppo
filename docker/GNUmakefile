@@ -1,9 +1,10 @@
 # GNUmakefile for maintaining the cpppo Docker images
 
-IMAGES		= cpppo/base	\
-		  cpppo/cpppo	\
-		  cpppo/scada	\
-		  cpppo/mongrel2
+IMAGES		= cpppo/base		\
+		  cpppo/cpppo		\
+		  cpppo/scada		\
+		  cpppo/mongrel2	\
+		  cpppo/mongrel2-mtcp
 
 UPDATE		= 
 
@@ -21,7 +22,7 @@ update:
 	    docker build -t $$image $$image || exit 1;	\
 	done
 
-# Push the Docker images up to docker.io
+# Push the Docker images up to docker.io (unnecessary if using images.docker.io automatic build)
 push:		update
 	@for image in $(IMAGES); do			\
 	    docker push $$image;			\
