@@ -11,7 +11,6 @@ MAINTAINER	Perry Kundert "perry@hardconsulting.com"
 RUN		apt-get install -y git libtool autoconf automake python-dev uuid-dev		\
 				sqlite3 libsqlite3-dev build-essential				\
 		    && apt-get clean
-RUN		pip install pymodbus
 
 RUN		git clone --branch master   git://github.com/zeromq/zeromq3-x.git  src/zeromq3-x\
 		    && cd src/zeromq3-x								\
