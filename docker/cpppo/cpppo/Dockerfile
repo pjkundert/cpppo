@@ -8,16 +8,11 @@
 #
 #     Come on in and look around:
 #
-#   $ docker run /bin/bash
+#   $ docker -i -t run /bin/bash
 #
 #     Manually run any cpppo-based service; a simple simulated Logix controller for example:
 #
 #   $ docker run -p 44818:44818 -d cpppo/cpppo python -m cpppo.server.enip SCADA=dint[1000]
-#
-#     Build a new image (or, better yet, use the index.docker.io automatic build facilities):
-#
-#   $ docker build -t cpppo/cpppo .			# or: 'make update' in ../..
-#   $ docker push
 #
 FROM		cpppo/base
 MAINTAINER	Perry Kundert "perry@hardconsulting.com"
