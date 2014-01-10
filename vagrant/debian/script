@@ -1,0 +1,50 @@
+#!/bin/bash
+
+
+if [[ -z "${SUDO_USER}" || "${SUDO_USER}" == "${USER}" || "$USER" != "root" ]]; then
+    echo "Must be run via 'sudo ${0}'"
+    exit 1
+fi
+
+        echo -e						       "\
+deb	http://mirrors.kernel.org/debian	jessie		main contrib non-free\n\
+deb-src	http://mirrors.kernel.org/debian	jessie		main contrib non-free\n\
+\n\
+deb	http://mirrors.kernel.org/debian	jessie-updates	main contrib non-free\n\
+deb-src	http://mirrors.kernel.org/debian	jessie-updates	main contrib non-free\n\
+\n\
+deb	http://security.debian.org/		jessie/updates	main contrib non-free\n\
+deb-src	http://security.debian.org/		jessie/updates	main contrib non-free\n"\
+            > /etc/apt/sources.list				\
+        && apt-get update					\
+        && apt-get -u -y dist-upgrade				\
+        && apt-get install -y					\
+            apt-show-versions python-pip python-dev		\
+            lxc wget bsdtar curl git aufs-tools			\
+            emacs24-nox emacs24-el screen			\
+            multitail aspell zip				\
+            libxml2-dev libxslt-dev zlib1g-dev libbz2-dev	\
+        && sudo addgroup $SUDO_USER staff			\
+        && echo "Installing docker and utilities..."		\
+        && sudo -u $SUDO_USER wget -q --output-document=/usr/local/bin/pipework \
+                https://raw.github.com/jpetazzo/pipework/master/pipework \
+        && chmod a+x /usr/local/bin/pipework			\
+        && sudo -u $SUDO_USER wget -q --output-document=/usr/local/bin/docker \
+                https://get.docker.io/builds/Linux/x86_64/docker-latest \
+        && chmod a+x /usr/local/bin/docker			\
+        && sudo wget -q --output-document=/etc/init.d/docker	\
+                https://raw.github.com/dotcloud/docker/master/contrib/init/sysvinit/docker \
+        && sed -e "/^DOCKER=/ s|/usr/bin/|/usr/local/bin/|" -i /etc/init.d/docker \
+        && sudo chmod a+x /etc/init.d/docker			\
+        && sudo update-rc.d docker defaults			\
+        && echo "none /sys/fs/cgroup cgroup defaults 0 0" | sudo tee -a /etc/fstab \
+        && sudo mount /sys/fs/cgroup				\
+        && addgroup docker					\
+        && addgroup $SUDO_USER docker				\
+        && echo "Enabling IPv4 forwarding..."			\
+        && sed -i -e "s/#\(net.ipv4.ip_forward\)=.*/\1=1/" /etc/sysctl.conf \
+        && sudo sysctl -w net.ipv4.ip_forward=1		        \
+        && sudo service docker restart				\
+        && echo "Installing cpppo..."				\
+        && pip install cpppo pymodbus pytest netifaces lxml web.py wsgilog \
+        && echo && echo "Login w/ vagrant ssh"
