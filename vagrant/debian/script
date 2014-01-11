@@ -20,7 +20,7 @@ deb-src	http://security.debian.org/		jessie/updates	main contrib non-free\n"\
         && apt-get -u -y dist-upgrade				\
         && apt-get install -y					\
             apt-show-versions python-pip python-dev		\
-            lxc wget bsdtar curl git aufs-tools			\
+            lxc wget bsdtar curl git aufs-tools bridge-utils	\
             emacs24-nox emacs24-el screen			\
             multitail aspell zip				\
             libxml2-dev libxslt-dev zlib1g-dev libbz2-dev	\

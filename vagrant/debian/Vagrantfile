@@ -34,7 +34,7 @@ deb-src	http://security.debian.org/		jessie/updates	main contrib non-free\n"\
         && apt-get -u -y dist-upgrade				\
         && apt-get install -y					\
             apt-show-versions python-pip python-dev		\
-            lxc wget bsdtar curl git aufs-tools			\
+            lxc wget bsdtar curl git aufs-tools bridge-utils	\
             emacs24-nox emacs24-el screen			\
             multitail aspell zip				\
             libxml2-dev libxslt-dev zlib1g-dev libbz2-dev	\
@@ -60,12 +60,14 @@ deb-src	http://security.debian.org/		jessie/updates	main contrib non-free\n"\
         && sudo sysctl -w net.ipv4.ip_forward=1		        \
         && service docker restart				\
         && echo "Installing cpppo..."				\
-        && pip install cpppo pymodbus pytest netifaces lxml web.py wsgilog \
+        && pip install cpppo pymodbus pytest xml web.py wsgilog \
+		netifaces py2-ipaddress				\
         && echo && echo "Login w/ vagrant ssh"			\
         '
   end
-  config.vm.network "forwarded_port", guest: 80, host: 8080, auto_correct: true
-  config.vm.network "public_network", :bridge => 'en5: Thunderbolt Ethernet' # , :auto_config => false
+  config.vm.network "forwarded_port", guest: 8080, host: 8080, auto_correct: true
+  config.vm.network "forwarded_port", guest: 8600, host: 8600, auto_correct: true
+  config.vm.network "public_network", :bridge => 'en5: Thunderbolt Ethernet', :auto_config => false
   # Mount the directory containing the cpppo image on ~/src/
   config.vm.synced_folder		   "../../..", "/home/vagrant/src"
   config.vm.provider "vmware_fusion" do |v|
