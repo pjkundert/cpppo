@@ -8,16 +8,23 @@ iface lo inet loopback
 # The primary network interface
 auto eth0
 iface eth0 inet dhcp
-pre-up sleep 2
+	# For virtualized hosts, delay a bit
+	pre-up sleep 2
 
 auto eth1
 iface eth1 inet manual
 
 auto br1
 iface br1 inet static
-      address 10.0.111.49
-      netmask 255.255.255.0
-      gateway 10.0.111.1
-      bridge_ports eth1
-      bridge_stp on
-      bridge_maxwait 0
+	bridge_ports eth1
+	bridge_stp on
+	bridge_maxwait 0
+	address 10.70.128.179
+	netmask 255.255.252.0
+	# Arrange a default route for all "reply" packets received on the bridge interface
+	# To support restarting this interface, we need to ignore errors (eg. the
+	# rule may not exist, or their may already be a default route via the bridge)
+	post-up ip rule	  del from	  10.70.128.179	  			|| true
+	post-up ip rule	  add from	  10.70.128.179	 table 3		|| true
+	post-up ip route  add		  10.70.128.0/22 table 3  dev br1	|| true
+	post-up ip route  add default via 10.70.128.1	 table 3		|| true
