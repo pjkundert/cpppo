@@ -1,0 +1,1 @@
+%docker          ALL = NOPASSWD: /usr/local/bin/pipework, /usr/bin/tee -a /etc/hosts, /usr/bin/tee -a /etc/services
