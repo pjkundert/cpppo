@@ -27,7 +27,7 @@ deb-src	http://security.debian.org/		jessie/updates	main contrib non-free\n"\
         && sudo addgroup $SUDO_USER staff			\
         && echo "Installing docker and utilities..."		\
         && sudo -u $SUDO_USER wget -q --output-document=/usr/local/bin/pipework \
-                https://raw.github.com/jpetazzo/pipework/master/pipework \
+                https://raw.github.com/pjkundert/pipework/master/pipework \
         && chmod a+x /usr/local/bin/pipework			\
         && sudo -u $SUDO_USER wget -q --output-document=/usr/local/bin/docker \
                 https://get.docker.io/builds/Linux/x86_64/docker-latest \

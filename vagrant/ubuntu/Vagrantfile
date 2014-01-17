@@ -18,7 +18,7 @@ Vagrant.configure("2") do |config|
         && apt-get -u -y dist-upgrade				\
         && echo "Installing docker and utilities..."		\
         && sudo -u vagrant wget -q --output-document=/usr/local/bin/pipework \
-                https://raw.github.com/jpetazzo/pipework/master/pipework \
+                https://raw.github.com/pjkundert/pipework/master/pipework \
         && chmod a+x /usr/local/bin/pipework			\
         && add-apt-repository ppa:dotcloud/lxc-docker		\
         && apt-get update					\
