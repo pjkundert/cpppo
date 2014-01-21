@@ -35,9 +35,12 @@ deb-src	http://security.debian.org/		jessie/updates	main contrib non-free\n"\
         && sudo wget -q --output-document=/etc/init.d/docker	\
                 https://raw.github.com/dotcloud/docker/master/contrib/init/sysvinit/docker \
         && sed -e "/^DOCKER=/ s|/usr/bin/|/usr/local/bin/|" -i /etc/init.d/docker \
+        && sudo wget -q --output-document=/etc/systemd/system/docker.service \
+                https://raw.github.com/dotcloud/docker/master/contrib/init/systemd/docker.service \
+        && sed -e "/^ExecStart/ s|/usr/bin/|/usr/local/bin/|" -i /etc/systemd/system/docker.service \
         && sudo chmod a+x /etc/init.d/docker			\
         && sudo update-rc.d docker defaults			\
-        && echo "none /sys/fs/cgroup cgroup defaults 0 0" | sudo tee -a /etc/fstab \
+        && echo -e "cgroup\t\t/sys/fs/cgroup\tcgroup\tdefaults\t    0\t    0" | sudo tee -a /etc/fstab \
         && sudo mount /sys/fs/cgroup				\
         && addgroup docker					\
         && addgroup $SUDO_USER docker				\
