@@ -12,11 +12,15 @@ setup(
     packages = [ 
         "cpppo",
         "cpppo/server",
-        "cpppo/server/enip" ],
+        "cpppo/server/enip",
+        "cpppo/remote",
+    ],
     package_dir = {
         "cpppo":		".", 
         "cpppo/server":		"./server",
-        "cpppo/server/enip":	"./server/enip" },
+        "cpppo/server/enip":	"./server/enip",
+        "cpppo/remote":		"./remote",
+    },
     include_package_data = True,
     author = "Perry Kundert",
     author_email = "perry@hardconsulting.com",
