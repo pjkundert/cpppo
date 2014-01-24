@@ -1,8 +1,8 @@
 from setuptools import setup
 import os
-from cpppo import __version__
 
 here = os.path.abspath( os.path.dirname( __file__ ))
+exec( open( 'version.py', 'r' ).read() )
 
 setup(
     name = "cpppo",
