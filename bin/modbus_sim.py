@@ -51,7 +51,11 @@ import sys
 import traceback
 import random
 import time
+import socket
 import struct
+import logging
+import repr
+import argparse
 
 #---------------------------------------------------------------------------# 
 # import the various server implementations
@@ -66,16 +70,14 @@ from pymodbus.constants import Defaults
 from pymodbus.register_read_message import ReadRegistersResponseBase
 from pymodbus.register_write_message import WriteSingleRegisterResponse, WriteMultipleRegistersResponse
 
-
 from pymodbus.transaction import *
 from pymodbus import constants
 
 #---------------------------------------------------------------------------# 
 # configure the service logging
 #---------------------------------------------------------------------------# 
-import logging, repr, argparse
 
-log 			= logging.getLogger( 'modbus-sim' )
+log 			= logging.getLogger( 'modbus_sim' )
 
 def registers_context( registers ):
     """
@@ -330,10 +332,13 @@ def StartTcpServerLogging( context=None, identity=None, framer=ModbusSocketFrame
     :param address: An optional (interface, port) to bind to.
     '''
     server = ModbusTcpServer(context, framer, identity, address)
+    # Print the address successfully bound; this is useful, if attempts are made
+    # to bind over a range of ports.
     print "Success; Started Modbus/TCP Simulator; PID = %d; address = %s:%s" % (
         os.getpid(), address[0] if address else "", address[1] if address else Defaults.Port )
     sys.stdout.flush()
     server.serve_forever()
+
 
 def main():
     parser			= argparse.ArgumentParser(

@@ -41,8 +41,8 @@ except ImportError:
 
 
 import	cpppo
-from	cpppo		import misc
-from	cpppo.remote	import plc
+from	cpppo		 import misc
+from	cpppo.remote.plc import (poller, PlcOffline)
 
 from pymodbus.constants import Defaults
 from pymodbus.client.sync import ModbusTcpClient
@@ -201,7 +201,7 @@ def merge( ranges, reach=1, limit=None ):
         yield r
 
 
-class poller_modbus( plc.poller, threading.Thread ):
+class poller_modbus( poller, threading.Thread ):
     """
     A PLC object that communicates with a physical PLC via Modbus/TCP protocol.  Schedules polls of
     various registers at various poll rates, prioritizing the polls by age.
@@ -216,7 +216,7 @@ class poller_modbus( plc.poller, threading.Thread ):
     """
     def __init__( self, description,
                   host='localhost', port=Defaults.Port, rate=5.0, reach=100, **kwargs ):
-        plc.poller.__init__( self, description, **kwargs )
+        poller.__init__( self, description, **kwargs )
         threading.Thread.__init__( self, target=self._poller )
         self.client		= ModbusTcpClientTimeout( host=host, port=port )
         self.lock		= threading.Lock()
@@ -310,7 +310,7 @@ class poller_modbus( plc.poller, threading.Thread ):
             if self._data and not polling and self.online:
                 log.critical( "Polling: PLC %s offline" % ( self.description ))
                 self.online	= False
-                
+
 
     def write( self, address, value, **kwargs ):
         with self.lock:
@@ -325,7 +325,7 @@ class poller_modbus( plc.poller, threading.Thread ):
         self.client.timeout 	= True
 
         if not self.client.connect():
-            raise plc.PlcOffline( "Modbus/TCP Write fails to PLC %s/%6d: Offline; Connect failure" % (
+            raise PlcOffline( "Modbus/TCP Write to PLC %s/%6d failed: Offline; Connect failure" % (
                     self.description, address ))
 
         # Use address to deduce Holding Register or Coil (the only writable
@@ -372,7 +372,7 @@ class poller_modbus( plc.poller, threading.Thread ):
         self.client.timeout 	= True
 
         if not self.client.connect():
-            raise plc.PlcOffline( "Modbus/TCP Read fails to PLC %s/%6d: Offline; Connect failure" % (
+            raise PlcOffline( "Modbus/TCP Read  of PLC %s/%6d failed: Offline; Connect failure" % (
                     self.description, address ))
         
         # Use address to deduce Holding/Input Register or Coil/Status.

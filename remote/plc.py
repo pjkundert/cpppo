@@ -74,9 +74,10 @@ class poller( object ):
         self.rate		= kwargs.get( "rate", None )
         self._data		= {}
 
-    def poll( self, address, rate ):
-        """ Remembers the minimum requested rate, and prepares to poll """
-        self.rate 		= min( self.rate or rate, rate )
+    def poll( self, address, rate=None ):
+        """ Remembers the minimum requested rate, and prepares to poll; ensure someone has specified a rate!"""
+        if rate is not None:
+            self.rate 		= min( self.rate or rate, rate )
         self._poll( address )
 
     def read( self, address ):
@@ -93,7 +94,7 @@ class poller( object ):
         ( log.debug if self.online else log.info )( "%s/%6d <%s %s" % (
                 self.description, address, "x=" if not self.online else "==", reprlib.repr( value )))
         if not self.online:
-            raise PlcOffline( "Write fails to PLC %s/%6dd: Offline" % ( self.description, address ))
+            raise PlcOffline( "Write to PLC %s/%6dd failed: Offline" % ( self.description, address ))
         self._write( address, value, **kwargs )
 
     # Protected methods

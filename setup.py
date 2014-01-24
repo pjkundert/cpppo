@@ -1,6 +1,6 @@
 from setuptools import setup
 import os
-from misc import __version__
+from cpppo import __version__
 
 here = os.path.abspath( os.path.dirname( __file__ ))
 
