@@ -14,7 +14,7 @@ from .remote import *
 
 
 logging.basicConfig( level=logging.DEBUG,
-                     format="%(asctime)s %(name)-20s %(levelname)-8s %(message)s" )
+        format='%(asctime)s.%(msecs).03d %(threadName)10.10s %(name)-15.15s %(funcName)-15.15s %(levelname)-8.8s %(message)s' )
 
 
 class nonblocking_command( object ):
@@ -55,6 +55,7 @@ class nonblocking_command( object ):
         fd 			= self.process.stdout.fileno()
         fl			= fcntl.fcntl( fd, fcntl.F_GETFL )
         fcntl.fcntl( fd, fcntl.F_SETFL, fl | os.O_NONBLOCK )
+        time.sleep(1.0)
 
     @property
     def stdout( self ):
@@ -78,7 +79,8 @@ class nonblocking_command( object ):
 @pytest.fixture(scope="module")
 def simulated_modbus_plc():
     return nonblocking_command( [
-        os.path.join( '.', 'bin', 'modbus-sim.py' ), 
+        os.path.join( '.', 'bin', 'modbus_sim.py' ), 
+        '-vvv', '--log', 'remote_test.modbus_sim.log',
         '--evil', 'delay:.25', 
         '--address', 'localhost:11502',
         '00001-01000=0',

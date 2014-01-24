@@ -14,12 +14,17 @@ setup(
         "cpppo/server",
         "cpppo/server/enip",
         "cpppo/remote",
+        "cpppo/bin",
     ],
     package_dir = {
         "cpppo":		".", 
         "cpppo/server":		"./server",
         "cpppo/server/enip":	"./server/enip",
         "cpppo/remote":		"./remote",
+        "cpppo/bin":		"./bin",
+    },
+    entry_points = {
+        'console_scripts': ['modbus_sim = cpppo.bin.modbus_sim:main'],
     },
     include_package_data = True,
     author = "Perry Kundert",
