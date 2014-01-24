@@ -10,11 +10,13 @@ import traceback
 import pytest
 
 from . import misc
-from .remote import *
+import remote.plc
+import remote.io
 
 
-logging.basicConfig( level=logging.DEBUG,
-        format='%(asctime)s.%(msecs).03d %(threadName)10.10s %(name)-15.15s %(funcName)-15.15s %(levelname)-8.8s %(message)s' )
+logging.basicConfig(
+    level=logging.WARNING,
+    format='%(asctime)s.%(msecs).03d %(threadName)10.10s %(name)-15.15s %(funcName)-15.15s %(levelname)-8.8s %(message)s' )
 
 
 class nonblocking_command( object ):
@@ -92,7 +94,7 @@ try:
     import pymodbus
     from pymodbus.constants import Defaults
     from pymodbus.exceptions import ModbusException
-    from .remote import plc_modbus
+    import remote.plc_modbus
     has_pymodbus		= True
 except ImportError:
     pass
@@ -106,6 +108,7 @@ def test_pymodbus_version():
     assert version >= expects, "Version of pymodbus is too old: %r; expected %r or newer" % (
         version, expects )
 
+
 def await( pred, what="predicate", delay=1.0, intervals=10 ):
     begun			= misc.timer()
     truth			= False
@@ -118,9 +121,10 @@ def await( pred, what="predicate", delay=1.0, intervals=10 ):
     logging.info( "After %7.3f/%7.3f %s %s" % (
             now - begun, delay, "detected" if truth else "missed  ", what ))
 
+
 def test_device():
-    p				= plc.poller_simulator( "PLC 1", rate=.5 )
-    m				= io.motor( "chest", "M1", "Pressure Motor 1",
+    p				= remote.plc.poller_simulator( "PLC 1", rate=.5 )
+    m				= remote.io.motor( "chest", "M1", "Pressure Motor 1",
                                          plc=p, auto=100001, running=100002, start=1, 
                                          fault=100003, reset=100004, estop=100005 )
     await( lambda: m.auto == 0, "m.auto polled")
@@ -134,27 +138,34 @@ def test_device():
     await( lambda: m.running == 1, "10002 <== 1" )
     assert m.running
 
+
 def test_plc_merge():
     """ plc utility functions for merging/shattering Modbus address ranges """
     if not has_pymodbus:
         return
-    assert list( plc_modbus.shatter( *(1,8), limit=3 )) == [(1,3), (4,3), (7,2) ]
-    assert list( plc_modbus.merge( [ (1,2), (2,3) ] )) == [ (1,4) ]
-    assert list( plc_modbus.merge( [ (1,2), (2,3), (6,6), (40001,5) ] )) == [ (1,4), (6,6), (40001,5) ]
-    assert list( plc_modbus.merge( [ (1,2), (2,3), (6,6), (40001,5) ], reach=5 )) \
+    assert list( remote.plc_modbus.shatter( *(1,8), limit=3 )) == [(1,3), (4,3), (7,2) ]
+    assert list( remote.plc_modbus.merge( [ (1,2), (2,3) ] )) == [ (1,4) ]
+    assert list( remote.plc_modbus.merge( [ (1,2), (2,3), (6,6), (40001,5) ] )) == [ (1,4), (6,6), (40001,5) ]
+    assert list( remote.plc_modbus.merge( [ (1,2), (2,3), (6,6), (40001,5) ], reach=5 )) \
         == [ (1,11), (40001,5) ]
-    assert list( plc_modbus.merge( [ (1,2), (2,3), (6,6), (40001,5) ], reach=5, limit=5 )) \
+    assert list( remote.plc_modbus.merge( [ (1,2), (2,3), (6,6), (40001,5) ], reach=5, limit=5 )) \
         == [ (1,5), (6,5), (11,1), (40001,5) ]
     # Test avoidance of merging different register types.
-    assert list( plc_modbus.merge( [ (9998,1), (9999,1), (10000,1) ], reach=5, limit=5 )) \
+    assert list( remote.plc_modbus.merge( [ (9998,1), (9999,1), (10000,1) ], reach=5, limit=5 )) \
         == [ (9998,2), (10000,1)]
+
 
 def test_plc_modbus( simulated_modbus_plc ):
     if not has_pymodbus:
         return
     Defaults.Timeout		= 1.0
-    plc				= plc_modbus.poller_modbus( "Motor PLC", port=11502 )
-    plc.write( 1, 1 )
+    try:
+        plc			= remote.plc_modbus.poller_modbus( "Motor PLC", port=11502 )
+        plc.write( 1, 1 )
+    finally:
+        logging.info( "Stopping plc polling" )
+        plc.done		= True
+        await( lambda: not plc.is_alive(), "Motor PLC poller done" )
 
 
 def test_plc_modbus_timeouts( simulated_modbus_plc ):
@@ -162,45 +173,56 @@ def test_plc_modbus_timeouts( simulated_modbus_plc ):
         return
     # Now, try one that will fail due to PLC I/O response timeout.  The PLC
     # should be configured to time out around 0.25s.
-    plc				= plc_modbus.poller_modbus( "Motor PLC", port=11502 )
+    plc				= remote.plc_modbus.poller_modbus( "Motor PLC", port=11502 )
     deadline			= 0.25 # Configured on simulated PLC start-up (GNUmakefile)
 
-    # Slowly increase the timeout 'til success, ranging from -20% to +20% of the
-    # deadline.  Demands success after timeout exceeds deadline by 110%, failure
-    # if timeout is lower than 90% of deadline.
-    for factor in range( 70, 130, 5 ):
-        Defaults.Timeout	= deadline * factor / 100
-        logging.info( "Writing with timeout %7.3f (%d%% of deadline %7.3f)" % (
-            Defaults.Timeout, factor, deadline ))
-        try:
-            plc.write( 1, 1 )
-            # If the timeout is still pretty short, should have failed!
-            assert Defaults.Timeout > deadline * 90 / 100, \
-                "Write should have timed out; only %7.3fs provided of %7.3fs deadline" % (
-                    Defaults.Timeout, deadline )
-        except ModbusException as e:
-            # The only acceptable failure is a timeout; but not if plenty of timeout provided!
-            assert str( e ).find( "failed: Timeout" )
-            logging.info( "Write transaction timed out (slow plc) as expected" )
-            assert Defaults.Timeout < deadline * 110 / 100, \
-                "Write should not have timed out; %7.3fs provided of %7.3fs deadline" % (
-                    Defaults.Timeout, deadline )
+    try:
+        # Slowly increase the timeout 'til success, ranging from -20% to +20% of the
+        # deadline.  Demands success after timeout exceeds deadline by 110%, failure
+        # if timeout is lower than 90% of deadline.
+        for factor in range( 70, 130, 5 ):
+            Defaults.Timeout	= deadline * factor / 100
+            logging.info( "Writing with timeout %7.3f (%d%% of deadline %7.3f)" % (
+                Defaults.Timeout, factor, deadline ))
+            try:
+                plc.write( 1, 1 )
+                # If the timeout is still pretty short, should have failed!
+                assert Defaults.Timeout > deadline * 90 / 100, \
+                    "Write should have timed out; only %7.3fs provided of %7.3fs deadline" % (
+                        Defaults.Timeout, deadline )
+            except ModbusException as e:
+                # The only acceptable failure is a timeout; but not if plenty of timeout provided!
+                assert str( e ).find( "failed: Timeout" )
+                logging.info( "Write transaction timed out (slow plc) as expected" )
+                assert Defaults.Timeout < deadline * 110 / 100, \
+                    "Write should not have timed out; %7.3fs provided of %7.3fs deadline" % (
+                        Defaults.Timeout, deadline )
+    finally:
+        logging.info( "Stopping plc polling" )
+        plc.done		= True
+        await( lambda: not plc.is_alive(), "Motor PLC poller done" )
+    plc				= None
 
     Defaults.Timeout		= 0.1
-    plc_bad			= plc_modbus.poller_modbus( "Motor PLC", port=11503 )
+    plc_bad			= remote.plc_modbus.poller_modbus( "Motor PLC", port=11503 )
     try:
-        plc.write( 1, 1 )
+        plc_bad.write( 1, 1 )
         assert False, "Write should have failed due to connection failure after %7.3f seconds" % (
             Defaults.Timeout )
-    except ModbusException as e:
-        assert str( e ).find( "failed: Timeout" )
+    except remote.plc.PlcOffline as exc:
+        assert str( exc ).find( "failed: Timeout" )
         logging.info( "Write transaction timed out (bad plc) as expected" )
+    finally:
+        logging.info( "Stopping plc polling" )
+        plc_bad.done		= True
+        await( lambda: not plc_bad.is_alive(), "Motor PLC poller done" )
+
 
 def test_plc_modbus_polls( simulated_modbus_plc ):
     if not has_pymodbus:
         return
     Defaults.Timeout		= 1.0
-    plc				= plc_modbus.poller_modbus( "Motor PLC", port=11502 )
+    plc				= remote.plc_modbus.poller_modbus( "Motor PLC", port=11502 )
     # Initial conditions (in case PLC is persistent between tests)
     plc.write( 1, 0 )
     plc.write( 40001, 0 )
@@ -227,3 +249,4 @@ def test_plc_modbus_polls( simulated_modbus_plc ):
     finally:
         logging.info( "Stopping plc polling" )
         plc.done		= True
+        await( lambda: not plc.is_alive(), "Motor PLC poller done" )
