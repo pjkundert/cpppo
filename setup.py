@@ -1,6 +1,6 @@
 from setuptools import setup
 import os
-from misc import __version__
+from cpppo import __version__
 
 here = os.path.abspath( os.path.dirname( __file__ ))
 
@@ -12,11 +12,20 @@ setup(
     packages = [ 
         "cpppo",
         "cpppo/server",
-        "cpppo/server/enip" ],
+        "cpppo/server/enip",
+        "cpppo/remote",
+        "cpppo/bin",
+    ],
     package_dir = {
         "cpppo":		".", 
         "cpppo/server":		"./server",
-        "cpppo/server/enip":	"./server/enip" },
+        "cpppo/server/enip":	"./server/enip",
+        "cpppo/remote":		"./remote",
+        "cpppo/bin":		"./bin",
+    },
+    entry_points = {
+        'console_scripts': ['modbus_sim = cpppo.bin.modbus_sim:main'],
+    },
     include_package_data = True,
     author = "Perry Kundert",
     author_email = "perry@hardconsulting.com",

@@ -23,16 +23,21 @@ __author__                      = "Perry Kundert"
 __email__                       = "perry@hardconsulting.com"
 __copyright__                   = "Copyright (c) 2013 Hard Consulting Corporation"
 __license__                     = "Dual License: GPLv3 (or later) and Commercial (see LICENSE)"
-__version__			= "1.8"
 
 """
 Miscellaneous functionality used by various other modules.
 """
 
+import fcntl
 import logging
 import math
+import os
+import signal
+import subprocess
 import sys
+import time
 import timeit
+
 try:
     import reprlib
 except ImportError:
@@ -352,3 +357,62 @@ def assert_tps( minimum=None, scale=None, repeat=1 ):
             return result
         return wrapper
     return decorator
+
+
+class nonblocking_command( object ):
+    """Set up a non-blocking command producing output.  Read the output using:
+
+        collect 		= ''
+        while True:
+            if command is None:
+		# Restarts command on failure, for example
+    		command 	= nonblocking_command( ... )
+
+            try:
+                data 		= command.stdout.read()
+                logging.debug( "Received %d bytes from command, len( data ))
+                collect        += data
+            except IOError as exc:
+                if exc.errno != errno.EAGAIN:
+                    logging.warning( "I/O Error reading data: %s" % traceback.format_exc() )
+                    command	= None
+		# Data not presently available; ignore
+            except:
+                logging.warning( "Exception reading data: %s", traceback.format_exc() )
+                command		= None
+
+            # do other stuff in loop...
+
+    The command is killed when it goes out of scope.
+    """
+    def __init__( self, command ):
+
+        shell			= type( command ) is not list
+        self.command		= ' '.join( command ) if not shell else command
+        logging.info( "Starting command: %s", self.command )
+        self.process		= subprocess.Popen(
+            command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+            preexec_fn=os.setsid, shell=shell )
+
+        fd 			= self.process.stdout.fileno()
+        fl			= fcntl.fcntl( fd, fcntl.F_GETFL )
+        fcntl.fcntl( fd, fcntl.F_SETFL, fl | os.O_NONBLOCK )
+
+    @property
+    def stdout( self ):
+        return self.process.stdout
+
+    def kill( self ):
+        logging.info( 'Sending SIGTERM to PID [%d]: %s', self.process.pid, self.command )
+        try:
+            os.killpg( self.process.pid, signal.SIGTERM )
+        except OSError as exc:
+            logging.info( 'Failed to send SIGTERM to PID [%d]: %s', self.process.pid, exc )
+        else:
+            logging.info( "Waiting for command (PID [%d]) to terminate", self.process.pid )
+            self.process.wait()
+
+        logging.info("Command (PID [%d]) finished with status [%d]: %s", self.process.pid, self.process.returncode, self.command )
+
+    __del__			= kill
+

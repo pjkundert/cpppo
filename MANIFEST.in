@@ -1,3 +1,4 @@
 include LICENSE
 include README.org
 include requirements.txt
+include bin/modbus-sim.py

@@ -22,12 +22,4 @@ __email__                       = "perry@hardconsulting.com"
 __copyright__                   = "Copyright (c) 2013 Hard Consulting Corporation"
 __license__                     = "Dual License: GPLv3 (or later) and Commercial (see LICENSE)"
 
-__version__			= "1.9"
-
-__all__                         = ["automata", "dotdict", "misc"]
-
-# These modules form the public interface of cpppo; always load them into the
-# main cpppo namespace
-from .automata import *
-from .dotdict  import *
-from .misc     import *
+__all__				= ['plc', 'io']

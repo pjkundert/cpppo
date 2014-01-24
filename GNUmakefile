@@ -63,8 +63,8 @@ help:
 	@echo "  vmware-debian-ssh	Log in to the VM" 
 
 test:
-	$(PY2TEST)
-	$(PY3TEST)
+	$(PY2TEST) || true
+	$(PY3TEST) || true
 
 install:
 	$(PY2) setup.py install
