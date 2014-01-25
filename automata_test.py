@@ -22,9 +22,9 @@ sys.path.insert( 0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import cpppo
 
 logging.basicConfig( **cpppo.log_cfg )
-#logging.getLogger().setLevel( logging.INFO )
 log				= logging.getLogger()
 log_not				= 0
+#log.setLevel( logging.INFO )
 
 def test_logging():
     # Test lazy log message evaluation, ensuring it is at least an order of

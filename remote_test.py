@@ -17,6 +17,7 @@
 
 from __future__ import absolute_import
 from __future__ import print_function
+from __future__ import division
 
 __author__                      = "Perry Kundert"
 __email__                       = "perry@hardconsulting.com"
@@ -38,8 +39,11 @@ from   cpppo		import misc
 from   cpppo.remote.plc	import (poller, poller_simulator, PlcOffline)
 from   cpppo.remote.io	import (motor)
 
+#cpppo.log_cfg['level'] = logging.DETAIL
 logging.basicConfig( **cpppo.log_cfg )
-logging.getLogger().setLevel( logging.ERROR )
+log				= logging.getLogger(__name__)
+#log.setLevel( logging.NORMAL )
+
 has_pymodbus			= False
 try:
     import pymodbus
@@ -48,11 +52,11 @@ try:
     from remote.plc_modbus import (poller_modbus, merge, shatter)
     has_pymodbus		= True
 except ImportError:
-    logging.warning( "Missing pymodbus; skipping Modbus/TCP related tests" )
+    logging.warning( "Failed to import pymodbus module; skipping Modbus/TCP related tests" )
 
 
 @pytest.fixture(scope="module")
-def simulated_modbus_plc():
+def simulated_modbus_plc( wait=2.0, latency=.05 ):
     """Start a simulator over a range of ports; parse the port successfully bound."""
     command			= misc.nonblocking_command( [
         os.path.join( '.', 'bin', 'modbus_sim.py' ), 
@@ -60,26 +64,34 @@ def simulated_modbus_plc():
         '--evil', 'delay:.25', 
         '--address', 'localhost:11502',
         '--range', '10',
-        '00001-01000=0',
+            '1-1000=0',
         '40001-41000=0', ] )
 
     begun			= misc.timer()
     iface			= ''
     port			= None
     data			= ''
-    while port is None and misc.timer() - begun < 1.0:
+    while port is None and misc.timer() - begun < wait:
+        # On Python2, socket will raise IOError/EAGAIN; on Python3 may return None 'til command started.
         try:
-            data       	       += command.stdout.read()
+            raw			= command.stdout.read()
+            logging.debug( "Socket received: %r", raw)
+            if raw:
+                data  	       += raw.decode( 'utf-8' )
         except IOError as exc:
+            logging.debug( "Socket blocking...")
             assert exc.errno == errno.EAGAIN, "Expected only Non-blocking IOError"
-            time.sleep( .1 )
+        except Exception as exc:
+            logging.warning("Socket read return Exception: %s", exc)
+        if not data:
+            time.sleep( latency )
         while data.find( '\n' ) >= 0:
             line,data		= data.split('\n', 1)
             m			= re.search( "address = ([^:]*):(\d*)", line )
             if m:
                 iface,port	= m.group(1),int(m.group(2))
-                logging.warning( "Modbus/TCP Simulator started after %7.3fs on %s:%s",
-                                 misc.timer() - begun, iface, port )
+                log.normal( "Modbus/TCP Simulator started after %7.3fs on %s:%s",
+                            misc.timer() - begun, iface, port )
                 break
     return command,(iface,port)
 
@@ -104,7 +116,7 @@ def await( pred, what="predicate", delay=1.0, intervals=10 ):
         time.sleep( delay/intervals )
     now				= misc.timer()
     elapsed			= now - begun
-    logging.info( "After %7.3f/%7.3f %s %s" % (
+    log.info( "After %7.3f/%7.3f %s %s" % (
         elapsed, delay, "detected" if truth else "missed  ", what ))
     return truth,elapsed
 
@@ -150,7 +162,7 @@ def test_plc_modbus_basic( simulated_modbus_plc ):
         plc			= poller_modbus( "Motor PLC", port=port )
         plc.write( 1, 1 )
     finally:
-        logging.info( "Stopping plc polling" )
+        log.info( "Stopping plc polling" )
         plc.done		= True
         await( lambda: not plc.is_alive(), "Motor PLC poller done" )
 
@@ -173,22 +185,22 @@ def test_plc_modbus_timeouts( simulated_modbus_plc ):
             try:
                 plc.write( 1, 1 )
                 # If the timeout is still pretty short, should have failed!
-                logging.info( "Writing with timeout %7.3f (%d%% of deadline %7.3f) succeeded" % (
+                log.info( "Writing with timeout %7.3f (%d%% of deadline %7.3f) succeeded" % (
                     Defaults.Timeout, factor, deadline ))
                 assert Defaults.Timeout > deadline * 90 / 100, \
                     "Write should have timed out; only %7.3fs provided of %7.3fs deadline" % (
                         Defaults.Timeout, deadline )
             except ModbusException as exc:
                 # The only acceptable failure is a timeout; but not if plenty of timeout provided!
-                logging.info( "Writing with timeout %7.3f (%d%% of deadline %7.3f) failed" % (
+                log.info( "Writing with timeout %7.3f (%d%% of deadline %7.3f) failed" % (
                     Defaults.Timeout, factor, deadline ))
                 assert str( exc ).find( "failed: Timeout" )
-                logging.info( "Write transaction timed out (slow plc) as expected" )
+                log.info( "Write transaction timed out (slow plc) as expected" )
                 assert Defaults.Timeout < deadline * 110 / 100, \
                     "Write should not have timed out; %7.3fs provided of %7.3fs deadline" % (
                         Defaults.Timeout, deadline )
     finally:
-        logging.info( "Stopping plc polling" )
+        log.info( "Stopping plc polling" )
         plc.done		= True
         await( lambda: not plc.is_alive(), "Motor PLC poller done" )
 
@@ -204,10 +216,10 @@ def test_plc_modbus_nonexistent( simulated_modbus_plc ):
         assert False, "Write should have failed due to connection failure after %7.3f seconds" % (
             Defaults.Timeout )
     except PlcOffline as exc:
-        logging.info( "Write transaction timed out (bad plc) as expected: %s", exc )
+        log.info( "Write transaction timed out (bad plc) as expected: %s", exc )
         assert str( exc ).find( "failed: Offline" )
     finally:
-        logging.info( "Stopping plc polling" )
+        log.info( "Stopping plc polling" )
         plc_bad.done		= True
         await( lambda: not plc_bad.is_alive(), "Motor PLC poller done" )
 
@@ -220,7 +232,7 @@ def test_plc_modbus_polls( simulated_modbus_plc ):
     command,(iface,port)	= simulated_modbus_plc
     plc				= poller_modbus( "Motor PLC", reach=10, rate=1.0, port=port )
     # Initial conditions (in case PLC is persistent between tests)
-    plc.write( 1, 0 )
+    plc.write(     1, 0 )
     plc.write( 40001, 0 )
 
     try:
@@ -231,16 +243,16 @@ def test_plc_modbus_polls( simulated_modbus_plc ):
         assert elapsed < 1.0
         assert plc.read( 40001 ) == 0
     
-        assert plc.read( 1 ) == None
+        assert plc.read(     1 ) == None
         assert plc.read( 40002 ) == None
         success, elapsed	= await( lambda: plc.read( 40002 ) is not None, "40002 polled" )
         assert success
         assert elapsed < 1.0
-        assert plc.read( 1 ) == 0
-        success,elapsed		= await( lambda: plc.read( 1 ) is not None, "00001 polled" )
+        assert plc.read( 40002 ) == 0
+        success,elapsed		= await( lambda: plc.read(     1 ) is not None, "00001 polled" )
         assert success
         assert elapsed < 1.0
-        assert plc.read( 40001 ) == 0
+        assert plc.read(     1 ) == 0
 
         # Now add a bunch of new stuff to poll, and ensure polling occurs.  As
         # we add registers the number of distinct poll ranges will increase, and
@@ -263,37 +275,40 @@ def test_plc_modbus_polls( simulated_modbus_plc ):
         
         regs			= {}
         extent			= 100
-        probes			= extent * 5 / plc.reach
+        probes			= extent * 5 // plc.reach
+        elapsed			= None
         rolling			= None
-        rolling_factor		= 1.0/5	# Rolling average over last ~5 samples
+        rolling_factor		= 1.0/5	# Rolling average over last ~8 samples
         while len( regs ) <= probes:
-            if random.randint( 0, 1 ):
-                r		= random.randint( 00001, 00001 + extent )
-                v		= plc.read( r )
-                if v is not None:
-                    if r not in regs:
-                        logging.warning( "New reg %5d was polled due to reach=%d", r, plc.reach )
-                    regs[r]	= v
-                regs[r]		= regs[r] ^ 1 if r in regs else random.randint( 0, 1 )
-            else:
-                r		= random.randint( 40001, 40001 + extent )
-                v		= plc.read( r )
-                if v is not None:
-                    if r not in regs:
-                        logging.warning( "New reg %5d was polled due to reach=%d", r, plc.reach )
-                    regs[r]	= v
-                regs[r]		= regs[r] ^ 1 if r in regs else 1
+            # Always select a previously unpolled register; however, it might
+            # have already been in a merge range; if so, get its current value
+            # so we mutate it (forcing it to be re-polled)
+            base		= 40001 if random.randint( 0, 1 ) else 1
+            r			= None
+            while r is None or r in regs:
+                r		= random.randint( base, base + extent )
+            v			= plc.read( r )
+            if v is not None:
+                log.detail( "New reg %5d was polled due to reach=%d", r, plc.reach )
+                regs[r]		= v
+            regs[r]		= ( regs[r] ^ 1 if r in regs
+                                    else random.randint( 0, 65535 ) if base > 40000
+                                    else random.randint( 0, 1 ) )
 
             plc.write( r, regs[r] )
             plc.poll( r )
-            success,elapsed	= await( lambda: plc.read( r ) == regs[r], "polled %5d == %5d" % ( r, regs[r] ),
+            if len( regs ) > probes/2:
+                # skip to the good parts...
+
+                success,elapsed	= await( lambda: plc.read( r ) == regs[r], "polled %5d == %5d" % ( r, regs[r] ),
                                          delay=5.0, intervals=5*10 )
-            assert success
+                assert success
 
-            rolling		= elapsed if rolling is None else rolling * ( 1.0 - rolling_factor ) + elapsed * rolling_factor
+                rolling		= misc.exponential_moving_average( rolling, elapsed, rolling_factor )
 
-            logging.warning( "%3d/%3d regs: Polled %5d == %5d w/in %7.3fs: avg. %7.3fs",
-                             len( regs ), probes, r, regs[r], elapsed, rolling )
+            log.normal( "%3d/%3d regs: polled %3d ranges w/in %7.3fs. Polled %5d == %5d w/in %7.3fs: avg. %7.3fs (load %3.2f, %3.2f, %3.2f)",
+                             len( regs ), probes, len( plc.polling ), plc.duration,
+                             r, regs[r], elapsed or 0.0, rolling or 0.0, *[misc.nan if load is None else load for load in plc.load] )
 
         assert rolling < plc.rate, \
             "Rolling average poll cycle %7.3fs should have fallen below target poll rate %7.3fs" % ( rolling, plc.rate )
@@ -301,6 +316,6 @@ def test_plc_modbus_polls( simulated_modbus_plc ):
         for r,v in regs.items():
             assert plc.read( r ) == v
     finally:
-        logging.info( "Stopping plc polling" )
+        log.info( "Stopping plc polling" )
         plc.done		= True
         await( lambda: not plc.is_alive(), "Motor PLC poller done" )

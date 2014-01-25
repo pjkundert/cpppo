@@ -16,6 +16,7 @@
 
 from __future__ import absolute_import
 from __future__ import print_function
+from __future__ import division
 
 __author__                      = "Perry Kundert"
 __email__                       = "perry@hardconsulting.com"
@@ -34,15 +35,9 @@ import threading
 import time
 import traceback
 
-try:
-    import reprlib
-except ImportError:
-    import repr as reprlib
-
-
-import	cpppo
-from	cpppo		 import misc
-from	cpppo.remote.plc import (poller, PlcOffline)
+import cpppo
+from   cpppo import misc
+from   cpppo.remote.plc import (poller, PlcOffline)
 
 from pymodbus.constants import Defaults
 from pymodbus.client.sync import ModbusTcpClient
@@ -180,10 +175,10 @@ def merge( ranges, reach=1, limit=None ):
     base, length	= next( input )
     for address, count in input:
         if length:
-            if ( address / 10000 == base / 10000
+            if ( address // 10000 == base // 10000
                  and address < base + length + ( reach or 1 )):
-                #log.debug( "Merging:  %10r + %10r == %r" % (
-                #        (base,length), (address,count), (base,address+count-base)))
+                log.debug( "Merging:  %10r + %10r == %r" % (
+                        (base,length), (address,count), (base,address+count-base)))
                 length	= address + count - base
                 continue
             log.debug( "Unmerged: %10r + %10r w/reach %r" % (
@@ -223,6 +218,11 @@ class poller_modbus( poller, threading.Thread ):
         self.daemon		= True
         self.done		= False
         self.reach		= reach		# Merge registers this close into ranges
+        self.polling		= set()		# Ranges known to be successfully polling
+        self.failing		= set() 	# Ranges known to be failing
+        self.duration		= 0.0		# Duration of last poll completed
+        self.counter		= 0		# Total polls performed
+        self.load		= None,None,None# total poll durations over last ~1, 5 and 15 min
         self.start()
 
     def _poller( self, *args, **kwargs ):
@@ -233,11 +233,10 @@ class poller_modbus( poller, threading.Thread ):
         We'll log whenever we begin/cease polling any given range of registers.
         """
         log.info( "Poller starts: %r, %r " % ( args, kwargs ))
-        polling			= set()	# Ranges known to be successfully polling
-        failing			= set() # Ranges known to be failing
         target			= misc.timer()
-        while not self.done and logging:  # Module may be gone in shutting down
-            if self.rate is None:
+        while not self.done and logging:	# Module may be gone in shutting down
+            # Poller is dormant 'til a rate and data specified
+            if self.rate is None or not self._data:
                 time.sleep( .1 )
                 continue
 
@@ -247,10 +246,11 @@ class poller_modbus( poller, threading.Thread ):
                 time.sleep( target - now )
                 now		= misc.timer()
 
-            # Ready for another poll.  Check if we've slipped (missed cycle(s))
+            # Ready for another poll.  Check if we've slipped (missed cycle(s)), and then compute
+            # the next poll cycle target; this attempts to retain cadence.
             slipped		= int( ( now - target ) / self.rate )
             if slipped:
-                log.warning( "Polling slipped; missed %d cycles" % ( slipped ))
+                log.normal( "Polling slipped; missed %d cycles" % ( slipped ))
             target	       += self.rate * ( slipped + 1 )
 
             # Perform polls, re-acquiring lock between each poll to allow others
@@ -266,11 +266,13 @@ class poller_modbus( poller, threading.Thread ):
             # self._data between reads.  However, since merge's register ranges
             # are sorted, all self._data keys are consumed before the list is
             # iterated.
+            rngs		= set( merge( ( (a,1) for a in self._data ), reach=self.reach ))
             succ		= set()
             fail		= set()
-            for address, count in merge( [ (a,1) for a in self._data ],
-                                         reach=self.reach ):
+            busy		= 0.0
+            for address, count in rngs:
                 with self.lock:
+                    begin	= misc.timer()
                     try:
                         # Read values; on success (no exception, something other
                         # than None returned), immediately take online;
@@ -279,9 +281,9 @@ class poller_modbus( poller, threading.Thread ):
                         if not self.online:
                             self.online = True
                             log.critical( "Polling: PLC %s online; success polling %s: %s" % (
-                                    self.description, address, reprlib.repr( value )))
-                        if (address,count) not in polling:
-                            log.warning( "Polling %6d-%-6d (%5d)" % ( address, address+count-1, count ))
+                                    self.description, address, misc.reprlib.repr( value )))
+                        if (address,count) not in self.polling:
+                            log.detail( "Polling %6d-%-6d (%5d)" % ( address, address+count-1, count ))
                         succ.add( (address, count) )
                         self._store( address, value ) # Handle scalar or list/tuple value(s)
                     except ModbusException as exc:
@@ -296,20 +298,41 @@ class poller_modbus( poller, threading.Thread ):
                         fail.add( (address, count) )
                         log.warning( "Failing %6d-%-6d (%5d): %s" % (
                                 address, address+count-1, count, traceback.format_exc() ))
+                    busy       += misc.timer() - begin
+
+                # Prioritize other lockers (ie. write).  Contrary to popular opinion, sleep(0) does
+                # *not* effectively yield the current Thread's quanta, at least on Python 2.7.6!
+                time.sleep(0.001)
 
             # We've already warned about polls that have failed; also log all
             # polls that have ceased (failed, or been replaced by larger polls)
-            ceasing		= polling - succ - fail
+            ceasing		= self.polling - succ - fail
             for address, count in ceasing:
                 log.info( "Ceasing %6d-%-6d (%5d)" % ( address, address+count-1, count ))
 
-            polling		= succ
-            failing		= fail
-            # Finally, if we've got stuff to poll and we aren't polling anything
-            # successfully, and we're not yet offline, warn and take offline.
-            if self._data and not polling and self.online:
+            self.polling	= succ
+            self.failing	= fail
+            self.duration	= busy
+
+            # The "load" is computed by comparing the "duration" of the last poll vs. the target
+            # poll rate (in seconds).  A load of 1.0 indicates the polls consumed exactly 100% of
+            # the target rate.  Compute loads over approximately the last 1, 5 and 15 minutes worth
+            # of polls.  The load is the proportion of the current poll rate that is consumed by
+            # poll activity.  Even if the load < 1.0, polls may "slip" due to other (eg. write)
+            # activity using PLC I/O capacity.
+            load		= ( busy / self.rate ) if self.rate > 0 else 1.0
+            ppm			= ( 60.0 / self.rate ) if self.rate > 0 else 1.0
+            self.load		= tuple(
+                misc.exponential_moving_average( cur, load, 1.0 / ( minutes * ppm ))
+                for minutes,cur in zip((1, 5, 15), self.load ))
+
+            # Finally, if we've got stuff to poll and we aren't polling anything successfully, and
+            # we're not yet offline, warn and take offline, and then eport the completion of another
+            # poll cycle.
+            if self._data and not succ and self.online:
                 log.critical( "Polling: PLC %s offline" % ( self.description ))
                 self.online	= False
+            self.counter       += 1
 
 
     def write( self, address, value, **kwargs ):
@@ -339,12 +362,12 @@ class poller_modbus( poller, threading.Thread ):
                                     if multi else WriteSingleRegisterRequest )
             address    	       -= 400001
         elif 40001 <= address <= 99999:
-            # 40001-99999: Holding Registers
+            #  40001-99999: Holding Registers
             writer		= ( WriteMultipleRegistersRequest if multi 
                                     else WriteSingleRegisterRequest )
             address    	       -= 40001
         elif 1 <= address <= 9999:
-            # 0001-9999: Coils
+            #      1-9999: Coils
             writer		= ( WriteMultipleCoilsRequest 
                                     if multi else WriteSingleCoilRequest )
             address	       -= 1

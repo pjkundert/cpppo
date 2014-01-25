@@ -135,7 +135,7 @@ def registers_context( registers ):
     
          hr = ModbusSparseDataBlock({ 0: 999 }),
     
-    00001-10000		Coils
+        1-10000		Coils
     10001-30000		Input  Coils
     30001-40000		Input   Registers
     40001-		Holding Registers
@@ -199,7 +199,7 @@ def registers_context( registers ):
                 dct, off 	= (     ( hrd, 40001 ) if reg >= 40001
                                    else ( ird, 30001 ) if reg >= 30001
                                    else ( did, 10001 ) if reg >= 10001
-                                   else ( cod, 00001 ))
+                                   else ( cod,     1 ))
                 dct[reg - off] 	= val[reg - beg]
         except Exception, e:
             log.error( "Unrecognized registers '%s': %s" % ( txt, str( e )))

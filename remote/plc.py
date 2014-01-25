@@ -91,7 +91,7 @@ class poller( object ):
 
     def write( self, address, value, **kwargs ):
         """ Writes the value; if the PLC is online, logs at a relatively aggressive level."""
-        ( log.debug if self.online else log.info )( "%s/%6d <%s %s" % (
+        ( log.detail if self.online else log.normal )( "%s/%6d <%s %s" % (
                 self.description, address, "x=" if not self.online else "==", reprlib.repr( value )))
         if not self.online:
             raise PlcOffline( "Write to PLC %s/%6dd failed: Offline" % ( self.description, address ))
@@ -112,7 +112,7 @@ class poller( object ):
         or _data table.  Any value stored while offline is lost (this will only
         occur under simulated PLCs, of course)!  Logs at only high logging
         levels, due to large amounts of output (eg. due to polling). """
-        log.debug( "%s/%6d %s> %s" % ( 
+        log.detail( "%s/%6d %s> %s" % ( 
                 self.description, address, "-x" if not self.online else "--", reprlib.repr( value )))
         if self.online:
             if isinstance( value, (list,tuple) ):

@@ -29,6 +29,7 @@ Miscellaneous functionality used by various other modules.
 """
 
 import fcntl
+import functools
 import logging
 import math
 import os
@@ -184,12 +185,25 @@ def scale( val, dom, rng, clamped=False ):
 # 
 # The magnitude shifts to the next higher value about 1/4 of the way
 # past each multiple of base.
-
+# 
 def magnitude( val, base = 10 ):
     if val <= 0:
         return nan
     return pow( base, round( math.log( val, base )) - 1 )
 
+# 
+# exponential_moving_average -- rolling average without any data history
+#
+#
+# Computes an exponential moving average:
+#
+#     ( 1 - weight ) * current + weight * sample
+#
+# where the incoming sample has the given weight, and current samples have exponentially less
+# influence on the current value.  Ignores a current value of None.
+# 
+def exponential_moving_average( current, sample, weight ):
+    return sample if current is None else current + weight * ( sample - current )
 
 # 
 # reprargs(args,kwds)	-- log args/kwds in sensible fashion
@@ -202,20 +216,22 @@ def reprargs( *args, **kwds ):
                           for k,v in kwds.items() ])
 
 
-def logresult( prefix=None, log=logging ):
-    import functools
+def logresult( prefix=None, log=logging, log_level=logging.DEBUG, exc_level=logging.WARNING, exc_swallow=False ):
     def decorator( function ):
         @functools.wraps( function )
         def wrapper( *args, **kwds ):
             try:
                 result		= function( *args, **kwds )
-                log.debug( "%s-->%r" % (
+                if log.isEnabledFor( log_level ):
+                    log.log( log_level, "%s-->%r" % (
                         prefix or function.__name__+'('+reprargs( *args, **kwds )+')', result ))
                 return result
-            except Exception as e:
-                log.debug( "%s-->%r" % (
-                        prefix or function.__name__+'('+reprargs( *args, **kwds )+')', e ))
-                raise
+            except Exception as exc:
+                if log.isEnabledFor( exc_level ):
+                    log.log( exc_level, "%s-->%r" % (
+                        prefix or function.__name__+'('+reprargs( *args, **kwds )+')', exc ))
+                if not exc_swallow:
+                    raise
         return wrapper
     return decorator
 
@@ -337,6 +353,7 @@ def assert_tps( minimum=None, scale=None, repeat=1 ):
 
     """
     def decorator( function ):
+        @functools.wraps( function )
         def wrapper( *args, **kwds ):
             beg			= timer()
             cnt			= repeat

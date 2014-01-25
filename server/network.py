@@ -22,13 +22,13 @@ __email__                       = "perry@hardconsulting.com"
 __copyright__                   = "Copyright (c) 2013 Hard Consulting Corporation"
 __license__                     = "Dual License: GPLv3 (or later) and Commercial (see LICENSE)"
 
+import functools
 import logging
 import os
-import socket
 import select
+import socket
 import threading
 import traceback
-import functools
 
 from .. import misc
 from ..dotdict import *
@@ -56,7 +56,7 @@ def readable( timeout=0 ):
             return None
         return wrapper
     return decorator
-        
+
 
 @readable()
 def recv( conn, maxlen=1024 ):

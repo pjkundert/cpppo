@@ -188,7 +188,7 @@ def test_hasattr():
     #print( dir( d ))
 
 
-repeat = 100
+repeat = 50
 @misc.assert_tps( repeat=repeat )
 def test_dotdict_speed():
     count = repeat
