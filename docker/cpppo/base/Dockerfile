@@ -16,5 +16,5 @@ MAINTAINER	Perry Kundert "perry@hardconsulting.com"
 # Redirect http://.../debian to mirrors.kernel.org, but leave http://security.debian.org/
 RUN		sed -e "s|http://[^[:space:]]*/debian|http://mirrors.kernel.org/debian|" -e "s|main$|main contrib non-free|" -i /etc/apt/sources.list
 ENV		DEBIAN_FRONTEND noninteractive
-RUN		apt-get update 				# 2014-01-06
+RUN		apt-get update 				# 2014-01-24
 RUN		apt-get -yu dist-upgrade; apt-get clean
