@@ -68,10 +68,10 @@ class poller( object ):
       ._receive		-- Get a data value
 
     """
-    def __init__( self, description=None, **kwargs ):
+    def __init__( self, description=None, rate=None ):
         self.description	= id( self ) if description is None else description
         self.online		= True
-        self.rate		= kwargs.get( "rate", None )
+        self.rate		= rate
         self._data		= {}
 
     def poll( self, address, rate=None ):
@@ -136,7 +136,7 @@ class poller_simulator( poller ):
     value written is stored in _cache with the time it was written.  Later, the
     values are received and stored at a simulated poll rate.
     """
-    def __init__( self, description=None, **kwargs ):
+    def __init__( self, description, **kwargs ):
         super( poller_simulator, self ).__init__( description=description, **kwargs )
         self._cache		= {}		# times/values stored to simulated PLC
         self._polled		= misc.timer()	#   scheduled to be polled

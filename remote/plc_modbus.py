@@ -210,8 +210,8 @@ class poller_modbus( poller, threading.Thread ):
     Only a single PLC I/O transaction is allowed to execute on ModbusTcpClient*, with self.lock.
     """
     def __init__( self, description,
-                  host='localhost', port=Defaults.Port, rate=5.0, reach=100, **kwargs ):
-        poller.__init__( self, description, **kwargs )
+                  host='localhost', port=Defaults.Port, reach=100, **kwargs ):
+        poller.__init__( self, description=description, **kwargs )
         threading.Thread.__init__( self, target=self._poller )
         self.client		= ModbusTcpClientTimeout( host=host, port=port )
         self.lock		= threading.Lock()
@@ -235,8 +235,8 @@ class poller_modbus( poller, threading.Thread ):
         log.info( "Poller starts: %r, %r " % ( args, kwargs ))
         target			= misc.timer()
         while not self.done and logging:	# Module may be gone in shutting down
-            # Poller is dormant 'til a rate and data specified
-            if self.rate is None or not self._data:
+            # Poller is dormant 'til a non-None/zero rate and data specified
+            if not self.rate or not self._data:
                 time.sleep( .1 )
                 continue
 
