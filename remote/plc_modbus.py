@@ -290,7 +290,7 @@ class poller_modbus( poller, threading.Thread ):
                         # Modbus error; Couldn't read the given range.  Only log
                         # the first time failure to poll this range is detected
                         fail.add( (address, count) )
-                        if (address, count) not in failing:
+                        if (address, count) not in self.failing:
                             log.warning( "Failing %6d-%-6d (%5d): %s" % (
                                     address, address+count-1, count, str( exc )))
                     except Exception as exc:
