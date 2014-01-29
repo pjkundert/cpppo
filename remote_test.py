@@ -29,7 +29,9 @@ import logging
 import os
 import random
 import re
+import socket
 import time
+import threading
 import traceback
 
 import pytest
@@ -42,14 +44,13 @@ from   cpppo.remote.io	import (motor)
 #cpppo.log_cfg['level'] = logging.DETAIL
 logging.basicConfig( **cpppo.log_cfg )
 log				= logging.getLogger(__name__)
-#log.setLevel( logging.NORMAL )
 
 has_pymodbus			= False
 try:
     import pymodbus
     from pymodbus.constants import Defaults
     from pymodbus.exceptions import ModbusException
-    from remote.plc_modbus import (poller_modbus, merge, shatter)
+    from remote.plc_modbus import (poller_modbus, merge, shatter, ModbusTcpServerActions)
     has_pymodbus		= True
 except ImportError:
     logging.warning( "Failed to import pymodbus module; skipping Modbus/TCP related tests" )
@@ -103,6 +104,52 @@ def test_pymodbus_version():
     expects			= (1,2,0)
     assert version >= expects, "Version of pymodbus is too old: %r; expected %r or newer" % (
         version, expects )
+
+
+def test_pymodbus_service_actions():
+    if not has_pymodbus:
+        return
+    address			= ("localhost", 11502)
+
+    class modbus_actions( ModbusTcpServerActions ):
+
+        counter			= 0
+
+        def service_actions( self ):
+            log.detail( "client/timeout" )
+            self.counter       += 1
+
+    server			= None
+    while address[1] < 11600:
+        try:
+            server 		= modbus_actions( context=None, address=address )
+            break
+        except socket.error as exc:
+            assert exc.errno == errno.EADDRINUSE, \
+                "Unexpected socket error; only address in use allowed: %s" % exc
+            address		= (address[0],address[1]+1)
+        except Exception as exc:
+            log.warning( "Failed to start ModbusTcpServerActions on %r: %s; %s",
+                        address, exc, traceback.format_exc() )
+            break
+
+    assert server is not None, "Couldn't start ModbusTcpServerActions"
+    log.normal( "Success starting ModbusTcpServerActions on %r", address )
+
+    def modbus_killer():
+        log.detail( "killer started" )
+        time.sleep( 2 )
+        log.detail( "killer server.shutdown" )
+        server.shutdown()
+        log.detail( "killer done" )
+    try:
+        killer			= threading.Thread( target=modbus_killer )
+        killer.start()
+
+        server.serve_forever( poll_interval=0.5 )
+        assert 3 <= server.counter <= 5, "ModbusTcpServerActions.service_actions not triggered ~4 times"
+    finally:
+        killer.join()
 
 
 def await( pred, what="predicate", delay=1.0, intervals=10 ):

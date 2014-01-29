@@ -26,11 +26,12 @@ __license__                     = "Dual License: GPLv3 (or later) and Commercial
 """
 remote.plc_modbus -- Modbus/TCP PLC polling, reading and writing infrastructure
 """
-__all__				= ['ModbusTcpClientTimeout', 'poller_modbus']
+__all__				= ['ModbusTcpClientTimeout', 'ModbusTcpServerActions', 'poller_modbus']
 
 import logging
 import select
 import socket
+import sys
 import threading
 import time
 import traceback
@@ -38,6 +39,13 @@ import traceback
 import cpppo
 from   cpppo import misc
 from   cpppo.remote.plc import (poller, PlcOffline)
+
+# We need to monkeypatch ModbusTcpServer's SocketServer.serve_forever to be
+# Python3 socketserver compatible.  When pymodbus is ported to Python3, this
+# will not be necessary in the Python3 implementation.
+assert sys.version_info.major < 3, "pymodbus is not yet Python3 compatible"
+from pymodbus.server.sync import ModbusTcpServer
+from SocketServer import _eintr_retry
 
 from pymodbus.constants import Defaults
 from pymodbus.client.sync import ModbusTcpClient
@@ -48,11 +56,48 @@ from pymodbus.register_read_message import *
 from pymodbus.register_write_message import *
 from pymodbus.pdu import (ExceptionResponse, ModbusResponse)
 
+
 if __name__ == "__main__":
     logging.basicConfig( **cpppo.log_cfg )
 
 log				= logging.getLogger( "remote.plc_modbus" )
 
+class ModbusTcpServerActions( ModbusTcpServer ):
+    """Augments the stock pymodbus ModbusTcpServer with the Python3 'socketserver'
+    class periodic invocation of the .service_actions() method from within the
+    main serve_forever loop.  This allows us to perform periodic service:
+
+        class our_modbus_server( ModbusTcpServerActions ):
+            def service_actions( self ):
+                logging.info( "Doing something every ~<seconds>" )
+
+
+        # Start our modbus server, which spawns threads for each new client
+        # accepted, and invokes service_actions every ~<seconds> in between.
+        modbus = ModbusTcpServerActions()
+        modbus.serve_forever( poll_interval=<seconds> )
+
+
+    The serve_forever implementation comes straight from Python3 socketserver,
+    which is basically an enhancement of Python2 SocketServer.
+
+    """
+    def serve_forever( self, poll_interval=.5 ):
+        self._BaseServer__is_shut_down.clear()
+        try:
+            while not self._BaseServer__shutdown_request:
+                r, w, e = _eintr_retry( select.select, [self], [], [], poll_interval )
+                if self in r:
+                    self._handle_request_noblock()
+
+                self.service_actions()  # <<< Python3 socketserver added this
+        finally:
+            self._BaseServer__shutdown_request = False
+            self._BaseServer__is_shut_down.set()
+
+    def service_actions( self ):
+        """Override this to receive service every ~poll_interval s."""
+        pass
 
 class ModbusTcpClientTimeout( ModbusTcpClient ):
     """
@@ -67,8 +112,8 @@ class ModbusTcpClientTimeout( ModbusTcpClient ):
     Otherwise, the specified non-zero timeout is applied to the transaction; if set to 0 or simply
     True, Defaults.Timeout is used.
     """
-    def __init__(self, **kwargs):
-        super( ModbusTcpClientTimeout, self ).__init__( **kwargs )
+    def __init__( self, *args, **kwargs):
+        super( ModbusTcpClientTimeout, self ).__init__( *args, **kwargs )
         self._started	= None
         self._timeout	= None
 
