@@ -52,8 +52,8 @@ try:
     from pymodbus.exceptions import ModbusException
     from remote.plc_modbus import (poller_modbus, merge, shatter, ModbusTcpServerActions)
     has_pymodbus		= True
-except ImportError:
-    logging.warning( "Failed to import pymodbus module; skipping Modbus/TCP related tests" )
+except Exception as exc:
+    logging.warning( "Failed to import pymodbus module; skipping Modbus/TCP related tests: %s", exc )
 
 
 @pytest.fixture(scope="module")
