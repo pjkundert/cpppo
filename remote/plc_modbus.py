@@ -100,17 +100,16 @@ class ModbusTcpServerActions( ModbusTcpServer ):
         pass
 
 class ModbusTcpClientTimeout( ModbusTcpClient ):
-    """
-    Enforces a strict timeout on a complete transaction, including connection and I/O.  The
-    beginning of a transaction is indicated by assigning a timeout to the transaction property (if
-    None, uses Defaults.Timeout).  At any point, the remaining time available is computed by
-    accessing the transaction property.
+    """Enforces a strict timeout on a complete transaction, including connection and I/O.  The
+    beginning of a transaction is indicated by assigning a timeout to the transaction property.  At
+    any point, the remaining time available is computed by accessing the transaction property.
 
-    If transaction is never set or set to None, Defaults.Timeout is always applied to every I/O
+    If .timeout is set to True/0, uses Defaults.Timeout around the entire transaction.  If
+    transaction is never set or set to None, Defaults.Timeout is always applied to every I/O
     operation, independently (the original behaviour).
     
-    Otherwise, the specified non-zero timeout is applied to the transaction; if set to 0 or simply
-    True, Defaults.Timeout is used.
+    Otherwise, the specified non-zero timeout is applied to the entire transaction.
+
     """
     def __init__( self, *args, **kwargs):
         super( ModbusTcpClientTimeout, self ).__init__( *args, **kwargs )

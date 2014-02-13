@@ -24,7 +24,10 @@ setup(
         "cpppo/bin":		"./bin",
     },
     entry_points = {
-        'console_scripts': ['modbus_sim = cpppo.bin.modbus_sim:main'],
+        'console_scripts': [
+            'modbus_sim		= cpppo.bin.modbus_sim:main',
+            'modbus_poll	= cpppo.bin.modbus_poll:main',
+        ],
     },
     include_package_data = True,
     author = "Perry Kundert",
@@ -44,7 +47,11 @@ Rockwell's Logix Controllers.  The cpppo.server.enip package can be used to
 create Python programs which can parse requests in this protocol (eg. as a
 server, to implement something like a simulated Controller) or originate
 requests in this protocol (eg. as a client, sending commands to a
-Controller).""",
+Controller).
+
+In addition, the ability to read, write and poll remote PLCs of
+various types including Modbus/TCP is provided.
+""",
     license = "Dual License; GPLv3 and Proprietary",
     keywords = "cpppo protocol parser DFA",
     url = "https://github.com/pjkundert/cpppo",
