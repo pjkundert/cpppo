@@ -19,11 +19,6 @@ try:
 except ImportError:
     import repr as reprlib
 
-if __name__ == "__main__" and __package__ is None:
-    # Allow relative imports when executing within package directory, for
-    # running tests directly
-    sys.path.insert( 0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
-
 import cpppo
 from   cpppo        import misc
 import cpppo.server
@@ -31,8 +26,6 @@ from   cpppo.server import network
 from   cpppo.server import tnet
 from   cpppo.server import tnetstrings # reference implementation
 
-logging.basicConfig( **cpppo.log_cfg )
-#logging.getLogger().setLevel( logging.DEBUG )
 log				= logging.getLogger( "tnet.cli")
 
 
@@ -188,7 +181,3 @@ def test_tnet_bench():
         log.info( "Succeeded" )
 
     return failed
-
-
-if __name__ == "__main__":
-    sys.exit( test_tnet_bench() )

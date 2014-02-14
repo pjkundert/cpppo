@@ -6,7 +6,6 @@ import multiprocessing
 import os
 import random
 import socket
-import sys
 import threading
 import time
 import traceback
@@ -16,16 +15,9 @@ try:
 except ImportError:
     import repr as reprlib
 
-if __name__ == "__main__" and __package__ is None:
-    # Allow relative imports when executing within package directory, for
-    # running tests directly
-    sys.path.insert( 0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
-
 import cpppo
 from   cpppo.server import *
 
-logging.basicConfig( **cpppo.log_cfg )
-#logging.getLogger().setLevel( logging.DEBUG )
 log				= logging.getLogger( "echo.cli")
 
 

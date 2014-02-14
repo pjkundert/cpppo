@@ -252,9 +252,12 @@ class client( object ):
 
 
 def main( argv=None ):
-    if argv is None:
-        argv			= []
+    """Read the specified tag(s).  Pass the desired argv (excluding the program
+    name in sys.arg[0]; typically pass argv=None, which is equivalent to
+    argv=sys.argv[1:], the default for argparse.  Requires at least one tag to
+    be defined.
 
+    """
     ap				= argparse.ArgumentParser(
         description = "An EtherNet/IP Client",
         epilog = "" )
@@ -266,6 +269,8 @@ def main( argv=None ):
                      default=( "%s:%d" % enip.address ),
                      help="EtherNet/IP interface[:port] to connect to (default: %s:%d)" % (
                          enip.address[0], enip.address[1] ))
+    ap.add_argument( '-l', '--log',
+                     help="Log file, if desired" )
     ap.add_argument( '-t', '--timeout',
                      default=5.0,
                      help="EtherNet/IP timeout (default: 5s)" )
@@ -290,11 +295,13 @@ def main( argv=None ):
         3: logging.INFO,
         4: logging.DEBUG,
         }
-    level			= ( levelmap[args.verbose] 
+    cpppo.log_cfg['level']	= ( levelmap[args.verbose] 
                                     if args.verbose in levelmap
                                     else logging.DEBUG )
-    rootlog			= logging.getLogger("")
-    rootlog.setLevel( level )
+    if args.log:
+        cpppo.log_cfg['filename'] = args.log
+
+    logging.basicConfig( **cpppo.log_cfg )
 
     timeout			= float( args.timeout )
     repeat			= int( args.repeat )
@@ -320,7 +327,7 @@ def main( argv=None ):
         break
     elapsed			= misc.timer() - begun
     log.normal( "Client Register Rcvd %7.3f/%7.3fs: %s" % ( elapsed, timeout, enip.enip_format( data )))
-    assert data is not None or 'CIP.register' not in data, "Failed to receive Register response"
+    assert data is not None and 'enip.CIP.register' in data, "Failed to receive Register response"
     assert data.enip.status == 0, "Register response indicates failure: %s" % data.enip.status
 
     cli.session			= data.enip.session_handle
@@ -381,4 +388,4 @@ def main( argv=None ):
     log.warning( "Client ReadFrg. Average %7.3f TPS (%7.3fs ea)." % ( repeat / duration, duration / repeat ))
 
 if __name__ == "__main__":
-    sys.exit( main( argv=sys.argv[1:] ))
+    sys.exit( main() )

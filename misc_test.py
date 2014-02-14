@@ -4,6 +4,7 @@ from __future__ import print_function
 import logging
 import os
 import sys
+import types
 
 from .misc import *
 
@@ -48,3 +49,17 @@ def test_natural():
     s = sorted( l, key=natural )
     rs = [ repr(i) for i in s ]
     assert rs == ls1 or rs == ls2
+
+def test_function_creation():
+    """Creating functions with code containing a defined co_filename is required in
+    order to extend the logging module.  Unfortunately, this module seeks up the
+    stack frame until it finds a function whose co_filename is not the logging
+    module...  """
+
+    def func( boo ):
+        pass
+
+    assert func.__code__.co_filename == __file__
+    filename			= "something/else.py"
+    change_function( func, co_filename=filename )
+    assert func.__code__.co_filename == filename

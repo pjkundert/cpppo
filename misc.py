@@ -38,6 +38,7 @@ import subprocess
 import sys
 import time
 import timeit
+import types
 
 try:
     import reprlib
@@ -85,11 +86,65 @@ else:
         return abs( f ) == inf
     math.isinf = isinf
 
+def change_function( function, **kwds ):
+    """Change a function with one or more changed co_... attributes, eg.:
+
+            change_function( func, co_filename="new/file/path.py" )
+
+    will change the func's co_filename to the specified string.
+
+    The types.CodeType constructor differs between Python 2 and 3; see
+    type help(types.CodeType) at the interpreter prompt for information:
+
+    Python2:
+        code(argcount,                nlocals, stacksize, flags, codestring,
+         |        constants, names, varnames, filename, name, firstlineno,
+         |        lnotab[, freevars[, cellvars]])
+
+    Python3:
+        code(argcount, kwonlyargcount, nlocals, stacksize, flags, codestring,
+         |        constants, names, varnames, filename, name, firstlineno,
+         |        lnotab[, freevars[, cellvars]])
+
+
+    """
+    # Enumerate  all the __code__ attributes in the same order; types.CodeTypes
+    # doesn't accept keyword args, only position.
+    attrs			= [ "co_argcount" ]
+    if sys.version_info.major >= 3:
+        attrs		       += [ "co_kwonlyargcount" ]
+    attrs		       += [ "co_nlocals",
+                                    "co_stacksize",
+                                    "co_flags",
+                                    "co_code",
+                                    "co_consts",
+                                    "co_names",
+                                    "co_varnames",
+                                    "co_filename",
+                                    "co_name",
+                                    "co_firstlineno",
+                                    "co_lnotab",
+                                    "co_freevars",
+                                    "co_cellvars" ]
+
+    assert all( k in attrs for k in kwds ), \
+        "Invalid function keyword(s) supplied: %s" % ( ", ".join( kwds.keys() ))
+
+    # Alter the desired function attributes, and update the function's __code__
+    modi_args			= [ kwds.get( a, getattr( function.__code__, a )) for a in attrs ]
+    modi_code			= types.CodeType( *modi_args )
+    modi_func			= types.FunctionType( modi_code, function.__globals__ )
+    function.__code__		= modi_func.__code__
+
 # 
 # logging.normal	-- regular program output 
 # logging.detail	-- detail in addition to normal output
 # 
 #     Augment logging with some new levels, between INFO and WARNING, used for normal/detail output.
+# 
+#     Unfortunationly, logging uses a fragile method to find the logging function's name in the call
+# stack; it looks for the first function whose co_filename is *not* the logger source file.  So, we
+# need to change our functions to appear as if they originated from logging._srcfile.
 # 
 #      .WARNING 	       == 30
 logging.NORMAL			= logging.INFO+5
@@ -107,6 +162,9 @@ def __detail( self, msg, *args, **kwargs ):
     if self.isEnabledFor( logging.DETAIL ):
         self._log( logging.DETAIL, msg, args, **kwargs )
 
+change_function( __normal, co_filename=logging._srcfile )
+change_function( __detail, co_filename=logging._srcfile )
+
 logging.Logger.normal		= __normal
 logging.Logger.detail		= __detail
 
@@ -120,6 +178,8 @@ def __detail_root( msg, *args, **kwargs ):
         basicConfig()
     logging.root.detail( msg, *args, **kwargs )
 
+change_function( __normal_root, co_filename=logging._srcfile )
+change_function( __detail_root, co_filename=logging._srcfile )
 logging.normal			= __normal_root
 logging.detail			= __detail_root
 

@@ -22,11 +22,13 @@ __email__                       = "perry@hardconsulting.com"
 __copyright__                   = "Copyright (c) 2013 Hard Consulting Corporation"
 __license__                     = "Dual License: GPLv3 (or later) and Commercial (see LICENSE)"
 
+import errno
 import functools
 import logging
 import os
 import select
 import socket
+import sys
 import threading
 import traceback
 
@@ -36,24 +38,31 @@ from ..dotdict import *
 log				= logging.getLogger( "network" )
 
 def readable( timeout=0 ):
-    """Decorates any function( sock, ..., timeout=, [...]), and waits for its sock (must be the first
-    positional arg) to report readable w/in timeout before executing.  Returns None if not readable.
-    Supply the desired default timeout, if other than 0."""
+    """Decorates any function( sock, ..., [timeout=...], [...]), and waits for its sock (must be the
+    first positional arg) to report readable w/in timeout before executing.  Returns None if not
+    readable.  Supply the desired default timeout to the decorator if other than 0, or supply it
+    as an optional keyword argument to the decorated function.
+
+    """
     def decorator( function ):
         @functools.wraps( function )
         def wrapper( *args, **kwds ):
-            if 'timeout' in kwds:
-                timeout			= kwds['timeout']
-                del kwds['timeout']
-            try:
-                r, w, e		= select.select( [args[0].fileno()], [], [], timeout )
-            except select.error as exc:
-                log.debug( "select: %r", exc )
-                if exc.arg[0] != errno.EINTR:
-                    raise
-            if r:
-                return function( *args, **kwds )
-            return None
+            tmo			= kwds.pop( 'timeout', timeout )
+            beg			= misc.timer()
+            rem			= tmo
+            while True:
+                try:
+                    r,_,_	= select.select( [args[0].fileno()], [], [], rem )
+                except select.error as exc:
+                    if ( exc.args[0] if sys.version_info.major < 3 else exc.errno ) == errno.EINTR:
+                        now	= misc.timer()
+                        if now >= beg + tmo:
+                            break	# EINTR, timeout exceeded
+                        rem	= beg + tmo - now
+                        continue	# EINTR, timeout remains
+                    raise		# Not select.erorr, or not EINTR
+                break			# readable, or timeout expired
+            return function( *args, **kwds ) if r else None
         return wrapper
     return decorator
 
@@ -167,16 +176,17 @@ class server_thread_profiling( server_thread ):
             if self.filename:
                 profiler.dump_stats( self.filename )
             prof		= pstats.Stats( profiler, stream=sys.stdout )
-        
+
             print( "\n\nTIME:")
             prof.sort_stats(  'time' ).print_stats( self.limit )
-        
+
             print( "\n\nCUMULATIVE:")
             prof.sort_stats(  'cumulative' ).print_stats( self.limit )
         return result
 
 
-def server_main( address, target=None, kwargs=None, thread_factory=server_thread, **kwds ):
+def server_main( address, target=None, kwargs=None, idle_service=None,
+                 thread_factory=server_thread, **kwds ):
     """A generic server main, binding to address, and serving each incoming connection with a
     separate thread_factory (server_thread by default, a threading.Thread) instance running the
     target function (or its overridden run method, if desired).  Each server must be passed two
@@ -200,11 +210,14 @@ def server_main( address, target=None, kwargs=None, thread_factory=server_thread
     Thus, the caller can optionally pass the 'server' kwarg dict; the 'disable' entry will force
     the server_main to stop listening on the socket temporarily (for later resumption), and 'done'
     to signal (or respond to) a forced termination.
-    
+
     An optional 'latency' and 'timeout' kwarg entries are recognized, and sets the accept timeout
     (default: .1s): the time between loops checking our control status, when no incoming
     connections are available, and the join timeout (default: latency) allowed for each thread to
     respond to the server being done/disabled.
+
+    If supplied, the 'idle_service' function will be invoked whenever 'latency' passes without an
+    incoming socket being accepted.
 
     """
     sock			= socket.socket( socket.AF_INET, socket.SOCK_STREAM )
@@ -249,6 +262,8 @@ def server_main( address, target=None, kwargs=None, thread_factory=server_thread
                                                   **kwds )
                 threads[addr].daemon = True
                 threads[addr].start()
+            elif idle_service is not None:
+                idle_service()
         except KeyboardInterrupt as exc:
             log.warning( "%s server termination: %r", name, exc )
             control['done']	= True

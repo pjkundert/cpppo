@@ -42,9 +42,9 @@ import errno
 import fnmatch
 import json
 import logging
-from   logging import handlers
 import os
 import random
+import signal
 import sys
 import socket
 import threading
@@ -63,10 +63,6 @@ from   cpppo.server import network
 from . import parser
 from . import logix
 from . import device
-
-if __name__ == "__main__":
-    logging.basicConfig( **cpppo.log_cfg )
-
 
 # Globals
 latency				=  0.1 	# network I/O polling (should allow several round-trips)
@@ -96,14 +92,11 @@ tags				= cpppo.dotdict()
 srv_ctl				= cpppo.dotdict()
 
 
-# Optional modules
+# Optional modules.  This module is optional, and only used if the -w|--web option is specified
 try:
     import web
 except:
-    log.warning( "Failed to import web API module; --web option not available" )
-
-
-
+    pass
 
 # 
 # The Web API, implemented using web.py
@@ -733,27 +726,54 @@ def enip_srv( conn, addr, enip_process=None, delay=None, **kwds ):
             conn.close()
 
 
+# To support re-opening a log file from within a signal handler, we need an atomic method to safely
+# close a FileHandler's self.stream (an open file), while it is certain to not be in use.  Under
+# Python2/3, FileHandler.close acquires locks preventing a race condition with FileHandler.emit.
+
+# There is an opportunity for race conditions while traversing logging.root.handlers here, iff the
+# root Logger's handlers are being added or deleted by this (or another) Thread, which we don't do.
+
+# More importantly, however, since logging uses threading.RLock, this procedure must be run in a
+# separate thread, or by the main thread but NOT inside the signal handler!  Since the main thread
+# could hold the lock when it arrives here as a result of the signal, then the locks will be
+# ineffective -- which is perhaps a good thing, otherwise we would deadlock, instead of just
+# crash...  So, set a flag when the signal occurs, and arrange to check the flag from time to time
+# when the incoming socket is idle.
+
+logrotate_signalled		= False
+
+def logrotate_request( signum, frame ):
+    global logrotate_signalled
+    logrotate_signalled		= True	
+
+def logrotate_perform():
+    global logrotate_signalled
+    if logrotate_signalled:
+        logrotate_signalled	= False
+        logging.warning( "Rotating log files due to signal" )
+        for hdlr in logging.root.handlers:
+            if isinstance( hdlr, logging.FileHandler ):
+                hdlr.close()
+
 # 
 # main		-- Run the EtherNet/IP Controller Simulation
 # 
-#     Pass the desired argv (excluding the program name in sys.arg[0]; typically pass
-# argv=sys.argv[1:]); requires at least one tag to be defined.
-# 
-#     If a cpppo.apidict() is passed for kwds['server']['control'], we'll use it
-# to transmit server control signals via its .done, .disable, .timeout and
-# .latency attributes.
-# 
 def main( argv=None, **kwds ):
+    """Pass the desired argv (excluding the program name in sys.arg[0]; typically
+    pass argv=None, which is equivalent to argv=sys.argv[1:], the default for
+    argparse.  Requires at least one tag to be defined.
 
+    If a cpppo.apidict() is passed for kwds['server']['control'], we'll use it
+    to transmit server control signals via its .done, .disable, .timeout and
+    .latency attributes.
+
+    """
     global address
     global options
     global tags
     global srv_ctl
     global latency
     global timeout
-
-    if argv is None:
-        argv			= []
 
     ap				= argparse.ArgumentParser(
         description = "Provide an EtherNet/IP Server",
@@ -783,7 +803,6 @@ def main( argv=None, **kwds ):
 
     args			= ap.parse_args( argv )
 
-
     # Deduce interface:port address to bind, and correct types (default is address, above)
     bind			= args.address.split(':')
     assert 1 <= len( bind ) <= 2, "Invalid --address [<interface>]:[<port>}: %s" % args.address
@@ -798,18 +817,19 @@ def main( argv=None, **kwds ):
         3: logging.INFO,
         4: logging.DEBUG,
         }
-    level			= ( levelmap[args.verbose] 
+    cpppo.log_cfg['level']	= ( levelmap[args.verbose] 
                                     if args.verbose in levelmap
                                     else logging.DEBUG )
-    rootlog			= logging.getLogger("")
-    rootlog.setLevel( level )
+
+    idle_service		= None
     if args.log:
-        formatter		= rootlog.handlers[0].formatter
-        while len( rootlog.handlers ):
-            rootlog.removeHandler( rootlog.handlers[0] )
-        handler			= logging.handlers.RotatingFileHandler( args.log, maxBytes=10*1024*1024, backupCount=5 )
-        handler.setFormatter( formatter )
-        rootlog.addHandler( handler )
+        # Output logging to a file, and handle UNIX-y log file rotation via 'logrotate', which sends
+        # signals to indicate that a service's log file has been moved/renamed and it should re-open
+        cpppo.log_cfg['filename']= args.log
+        signal.signal( signal.SIGHUP, logrotate_request )
+        idle_service		= logrotate_perform
+
+    logging.basicConfig( **cpppo.log_cfg )
 
 
     # Pull out a 'server.control...' supplied in the keywords, and make certain it's a
@@ -910,6 +930,7 @@ def main( argv=None, **kwds ):
 
 
     if args.web:
+        assert 'web' in sys.modules, "Failed to import web API module; --web option not available.  Run 'pip install web.py'"
         logging.normal( "EtherNet/IP Simulator Web API Server: %r" % ( http, ))
         webserver		= threading.Thread( target=web_api, kwargs={'http': http} )
         webserver.daemon	= True
@@ -933,7 +954,7 @@ def main( argv=None, **kwds ):
     while not srv_ctl.control.done:
         if not srv_ctl.control.disable:
             network.server_main( address=bind, target=enip_srv, kwargs=kwargs,
-                                 thread_factory=tf, **tf_kwds )
+                                 idle_service=idle_service, thread_factory=tf, **tf_kwds )
         else:
             time.sleep( latency )            # Still disabled; wait a bit
 

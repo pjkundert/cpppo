@@ -1,39 +1,49 @@
 from setuptools import setup
-import os
+import os, sys
 
 here = os.path.abspath( os.path.dirname( __file__ ))
 exec( open( 'version.py', 'r' ).read() )
 
+# Presently the pymodbus-based Modbus/TCP scripts are only compatible with
+# Python2, as is web.py.  So, make web.py and pymodbus requirements optional
+console_scripts			= [
+    'enip_server	= cpppo.server.enip.main:main',
+    'enip_client	= cpppo.server.enip.client:main',
+]
+install_requires		= open( os.path.join( here, "requirements.txt" )).readlines()
+if sys.version_info.major < 3:
+    console_scripts	       += [
+        'modbus_sim	= cpppo.bin.modbus_sim:main',
+        'modbus_poll	= cpppo.bin.modbus_poll:main',
+    ]
+
 setup(
-    name = "cpppo",
-    version = __version__,
-    tests_require = [ "pytest" ],
-    install_requires = open( os.path.join( here, "requirements.txt" )).readlines(),
-    packages = [ 
+    name			= "cpppo",
+    version			= __version__,
+    tests_require		= [ "pytest" ],
+    install_requires		= install_requires,
+    packages			= [ 
         "cpppo",
         "cpppo/server",
         "cpppo/server/enip",
         "cpppo/remote",
         "cpppo/bin",
     ],
-    package_dir = {
+    package_dir			= {
         "cpppo":		".", 
         "cpppo/server":		"./server",
         "cpppo/server/enip":	"./server/enip",
         "cpppo/remote":		"./remote",
         "cpppo/bin":		"./bin",
     },
-    entry_points = {
-        'console_scripts': [
-            'modbus_sim		= cpppo.bin.modbus_sim:main',
-            'modbus_poll	= cpppo.bin.modbus_poll:main',
-        ],
+    entry_points		= {
+        'console_scripts': 	console_scripts,
     },
-    include_package_data = True,
-    author = "Perry Kundert",
-    author_email = "perry@hardconsulting.com",
-    description = "Cpppo is a Communication Protocol Python Parser and Originator",
-    long_description = """\
+    include_package_data	= True,
+    author			= "Perry Kundert",
+    author_email		= "perry@hardconsulting.com",
+    description			= "Cpppo is a Communication Protocol Python Parser and Originator",
+    long_description		= """\
 Cpppo is used to create event-driven state machines which consume a stream
 of input and generate a series of state changes, or an indication that no
 progress is possible due to (for example) exhaustion of input symbols.
@@ -52,10 +62,10 @@ Controller).
 In addition, the ability to read, write and poll remote PLCs of
 various types including Modbus/TCP is provided.
 """,
-    license = "Dual License; GPLv3 and Proprietary",
-    keywords = "cpppo protocol parser DFA",
-    url = "https://github.com/pjkundert/cpppo",
-    classifiers = [
+    license			= "Dual License; GPLv3 and Proprietary",
+    keywords			= "cpppo protocol parser DFA",
+    url				= "https://github.com/pjkundert/cpppo",
+    classifiers			= [
         "License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)",
         "License :: Other/Proprietary License",
         "Programming Language :: Python :: 2.7",

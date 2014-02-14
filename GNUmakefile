@@ -33,7 +33,7 @@ PY3=python3
 #     LANG=en_CA.UTF-8
 #     LC_ALL=en_CA.UTF-8
 # 
-PYTESTOPTS=--capture=no
+PYTESTOPTS=-v # --capture=no
 PY2TEST=$(PY2) -m pytest $(PYTESTOPTS)
 PY3TEST=$(PY3) -m pytest $(PYTESTOPTS)
 

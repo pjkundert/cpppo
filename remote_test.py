@@ -41,8 +41,6 @@ from   cpppo		import misc
 from   cpppo.remote.plc	import (poller, poller_simulator, PlcOffline)
 from   cpppo.remote.io	import (motor)
 
-#cpppo.log_cfg['level'] = logging.DETAIL
-logging.basicConfig( **cpppo.log_cfg )
 log				= logging.getLogger(__name__)
 
 has_pymodbus			= False
@@ -52,8 +50,8 @@ try:
     from pymodbus.exceptions import ModbusException
     from remote.plc_modbus import (poller_modbus, merge, shatter, ModbusTcpServerActions)
     has_pymodbus		= True
-except Exception as exc:
-    logging.warning( "Failed to import pymodbus module; skipping Modbus/TCP related tests: %s", exc )
+except Exception:
+    logging.warning( "Failed to import pymodbus module; skipping Modbus/TCP related tests; run 'pip install pymodbus'" )
 
 
 @pytest.fixture(scope="module")

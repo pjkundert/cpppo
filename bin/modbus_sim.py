@@ -1,4 +1,7 @@
 #!/usr/bin/env python
+
+from __future__ import print_function
+
 '''
 modbus-sim.py -- A Modbus PLC Simulator, with various simulated failure modes
 
@@ -201,8 +204,8 @@ def registers_context( registers ):
                                    else ( did, 10001 ) if reg >= 10001
                                    else ( cod,     1 ))
                 dct[reg - off] 	= val[reg - beg]
-        except Exception, e:
-            log.error( "Unrecognized registers '%s': %s" % ( txt, str( e )))
+        except Exception as exc:
+            log.error( "Unrecognized registers '%s': %s" % ( txt, str( exc )))
             raise
         log.info( "Holding Registers: %s" % ( repr.repr( hrd )))
         log.info( "Input   Registers: %s" % ( repr.repr( ird )))
@@ -316,7 +319,7 @@ class ModbusSocketFramerCorruptResponse(ModbusSocketFramer):
                 func_code ) + data
             
             log.info("Returning corrupted package")
-        except Exception, e:
+        except Exception as exc:
             log.info("Could not build corrupt packet: %s" % ( traceback.format_exc() ))
         return packet
 
@@ -334,8 +337,8 @@ def StartTcpServerLogging( context=None, identity=None, framer=ModbusSocketFrame
     server = ModbusTcpServer(context, framer, identity, address)
     # Print the address successfully bound; this is useful, if attempts are made
     # to bind over a range of ports.
-    print "Success; Started Modbus/TCP Simulator; PID = %d; address = %s:%s" % (
-        os.getpid(), address[0] if address else "", address[1] if address else Defaults.Port )
+    print( "Success; Started Modbus/TCP Simulator; PID = %d; address = %s:%s" % (
+        os.getpid(), address[0] if address else "", address[1] if address else Defaults.Port ))
     sys.stdout.flush()
     server.serve_forever()
 
@@ -448,7 +451,7 @@ def main():
             StartTcpServerLogging( registers_context( args.registers ), framer=framer, address=address )
         except KeyboardInterrupt:
             return 1
-        except Exception, e:
+        except Exception as exc:
             log.info( "Couldn't start PLC simulator on %s:%s: %s" % (
                     address[0], address[1], traceback.format_exc()))
     

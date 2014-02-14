@@ -16,12 +16,8 @@ import pytest
 import sys
 import timeit
 
-# Allow relative imports when executing within package directory, for running tests
-sys.path.insert( 0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
 import cpppo
 
-logging.basicConfig( **cpppo.log_cfg )
 log				= logging.getLogger()
 log_not				= 0
 #log.setLevel( logging.INFO )

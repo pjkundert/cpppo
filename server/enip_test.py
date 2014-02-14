@@ -18,18 +18,16 @@ try:
 except ImportError:
     import repr as reprlib
 
-if __name__ == "__main__" and __package__ is None:
+if __name__ == "__main__":
     # Allow relative imports when executing within package directory, for
     # running tests directly
-    sys.path.insert( 0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 import cpppo
 from   cpppo import misc
-from   cpppo.server import (enip, network)
+from   cpppo.server import (network, enip)
 from   cpppo.server.enip import logix
 
-logging.basicConfig( **cpppo.log_cfg )
-#logging.getLogger().setLevel( logging.NORMAL )
 log				= logging.getLogger( "enip.tst" )
 
 

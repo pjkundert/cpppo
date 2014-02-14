@@ -1,7 +1,6 @@
 from __future__ import absolute_import
 from __future__ import print_function
 
-import array
 import json
 import logging
 import multiprocessing
@@ -18,18 +17,16 @@ try:
 except ImportError:
     import repr as reprlib
 
-if __name__ == "__main__" and __package__ is None:
+if __name__ == "__main__":
     # Allow relative imports when executing within package directory, for
     # running tests directly
-    sys.path.insert( 0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 import cpppo
 from   cpppo import misc
 from   cpppo.server import (network, enip)
 from   cpppo.server.enip import (logix, client)
 
-logging.basicConfig( **cpppo.log_cfg )
-logging.getLogger().setLevel( logging.WARNING )
 log				= logging.getLogger( "lgx.prof" )
 
 
@@ -115,9 +112,6 @@ def test_logix_remote():
     thread).
 
     """
-    import array
-    import enip
-
     svraddr		        = ('localhost', 12345)
     kwargs			= cpppo.dotdict({
         'argv': [
@@ -183,7 +177,7 @@ def test_logix_remote():
         break
     elapsed			= misc.timer() - begun
     log.normal( "Client Register Rcvd %7.3f/%7.3fs: %r" % ( elapsed, timeout, data ))
-    assert data is not None or 'CIP.register' not in data, "Failed to receive Register response"
+    assert data is not None and 'enip.CIP.register' in data, "Failed to receive Register response"
     assert data.enip.status == 0, "Register response indicates failure: %s" % data.enip.status
 
     cli.session			= data.enip.session_handle

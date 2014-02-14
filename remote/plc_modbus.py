@@ -158,9 +158,9 @@ class ModbusTcpClientTimeout( ModbusTcpClient ):
         try:
             self.socket		= socket.create_connection( (self.host, self.port),
                                     timeout=timeout, source_address=getattr( self, 'source_address', None ))
-        except socket.error, msg:
-            log.debug('Connection to (%s, %s) failed: %s' % \
-                (self.host, self.port, msg))
+        except socket.error as exc:
+            log.debug('Connection to (%s, %s) failed: %s' % (
+                self.host, self.port, exc ))
             self.close()
         finally:
             log.debug( "Connect completed in %.3fs" % ( misc.timer() - begun ))
