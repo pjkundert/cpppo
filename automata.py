@@ -16,6 +16,7 @@
 
 from __future__ import absolute_import
 from __future__ import print_function
+from __future__ import division
 
 __author__                      = "Perry Kundert"
 __email__                       = "perry@hardconsulting.com"
@@ -273,7 +274,7 @@ class decide( object ):
 
     def execute( self, truth, machine=None, source=None, path=None, data=None ):
         target			= self.state if truth else None
-        log.info( "%s %-14.14s -> %10s w/ data: %r", machine.name_centered(), self, target, data )
+        log.info( "%s %-13.13s -> %10s w/ data: %r", machine.name_centered(), self, target, data )
         return target
 
 
@@ -308,7 +309,7 @@ class state( dict ):
 
     If no transition can be determined based on the next input symbol, more complex transitions can
     be configured, which may access the entire machine state, as well as the input symbol 'source',
-    the 'data' artifact '
+    and the 'data' artifact.
 
     If a limit on the number of possible input symbols is known (or will be known at run-time), it
     can be provided as limit.  Protocols will often include a length field specifying the size of
@@ -325,6 +326,7 @@ class state( dict ):
             super( state, self ).__init__( other )
             self.recognizers	= list( other.recognizers )
             self._name		= other.name + "'"
+            self._name_centered	= None
             self._terminal	= other._terminal  if terminal  is None else terminal
             self.alphabet	= other.alphabet   if alphabet  is None else alphabet
             self._context	= other._context   if context   is None else context
@@ -337,6 +339,7 @@ class state( dict ):
             super( state, self ).__init__()
             self.recognizers	= []
             self._name		= name
+            self._name_centered	= None
             self._terminal	= terminal
             self.alphabet	= alphabet	# None, type, container or predicate
             self._context	= context	# Context added to path with '.'
@@ -379,11 +382,16 @@ class state( dict ):
         """String representation."""
         return self._name
 
-    def name_centered( self, width=40 ):
-        """Lazy string representation, centered around last '.', in given width.  Executes formatting
-        only when result is accessed via its __str__ method."""
-        return misc.lazystr( lambda: misc.centeraxis( self, width, clip=True,
-                                                      left_right=lambda w: (w*4//4, w - w*3//4) ))
+    def name_centered( self ):
+        """Return the 'str' representation of the state centered in a field of whitespace around an axis
+        character if any.  Derived classes may enhance the implementation of self.name to include
+        other data.
+
+        """
+        if self._name_centered is None:
+            self._name_centered	= misc.centeraxis(
+                self, width=40, clip=True, left_right=lambda w: (w*4//4, w - w*3//4) )
+        return self._name_centered
 
     def __str__( self ):
         return ( '(' + ( '(' if self.terminal else ' ' ) 
@@ -753,7 +761,7 @@ class state( dict ):
                 # there is *any* possibility that a transition might be possible if input *were*
                 # available, we need to yield a non-transition.
                 if limited:
-                    log.info( "%s -- stopped due to reaching symbol limit %d", self.name_centered(), ending )
+                    log.debug( "%s -- stopped due to reaching symbol limit %d", self.name_centered(), ending )
                 elif inp is None and not limited and (
                         self.recognizers or not all( k is None for k in self.keys() )):
                     log.info( "%s <non  trans>", self.name_centered() )
@@ -1014,7 +1022,7 @@ class state_drop( state_input ):
     """Validate and drop a symbol."""
     def process( self, source, machine=None, path=None, data=None ):
         inp			= next( source )
-        log.info( "%s :  %-10.10r: dropped", ( machine or self ).name_centered(), inp )
+        log.debug( "%s :  %-10.10r: dropped", ( machine or self ).name_centered(), inp )
 
 
 class state_struct( state ):
@@ -1097,10 +1105,11 @@ class dfa_base( object ):
         self.repeat		= repeat
         self.cycle		= 0
         self.final		= 1
-        for sta in sorted( self.initial.nodes(), key=lambda s: misc.natural( s.name )):
-            for inp,dst in sta.edges():
-                log.info( "%s <- %-10.10r --> %s", sta.name_centered(), inp, dst )
         self.lock		= threading.Lock()
+        if log.getEffectiveLevel() <= logging.DEBUG:
+            for sta in sorted( self.initial.nodes(), key=lambda s: misc.natural( s.name )):
+                for inp,dst in sta.edges():
+                    log.debug( "%s <- %-10.10r --> %s", sta.name_centered(), inp, dst )
 
     def __enter__( self ):
         """Must only be in use by a single state machine.  Block 'til we can acquire the lock."""
@@ -1134,7 +1143,7 @@ class dfa_base( object ):
     def reset( self ):
         """Done at the start of each loop."""
         if self.current is not self.initial:
-            log.info( "%s -- reset", self.name_centered() )
+            log.debug( "%s -- reset", self.name_centered() )
             self.current	= self.initial
 
     def loop( self ):
@@ -1173,7 +1182,7 @@ class dfa_base( object ):
                 # final is missing, no elements will be collected.
                 final_src	= self.context( path, final_src )
                 self.final	= data.get( final_src, 0 )
-                log.info( "%s -- repeat=%r == %r", self.name_centered(), final_src, self.final )
+                log.debug( "%s -- repeat=%r == %r", self.name_centered(), final_src, self.final )
             assert isinstance( self.final, int ), \
                 "Supplied repeat=%r (== %r) must be (or reference) an int, not a %r" % (
                     self.repeat, final_src, final )

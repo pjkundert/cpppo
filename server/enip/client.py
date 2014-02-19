@@ -16,6 +16,7 @@
 
 from __future__ import absolute_import
 from __future__ import print_function
+from __future__ import division
 
 __author__                      = "Perry Kundert"
 __email__                       = "perry@hardconsulting.com"
@@ -82,28 +83,30 @@ class client( object ):
         """Return the next available response, or None if no complete response is available.  Raises
         StopIteration (cease iterating) on EOF.  Any other Exception indicates a client failure,
         and should result in the client instance being discarded.
+        
+        If no input is presently available, harvest any input immediately available; terminate on EOF.
 
         """
-        # Harvest any input immediately available; terminate on EOF
-        rcvd			= network.recv( self.conn, timeout=0 )
-        log.detail(
-            "EtherNet/IP-->%16s:%-5d rcvd %5d: %s",
-            self.addr[0], self.addr[1], len( rcvd ) if rcvd is not None else 0, repr( rcvd ))
-        if rcvd is not None:
-            # Some input (or EOF).
-            if not len( rcvd ):
-                raise StopIteration
-            self.source.chain( rcvd )
+        if self.source.peek() is None:
+            rcvd		= network.recv( self.conn, timeout=0 )
+            log.detail(
+                "EtherNet/IP-->%16s:%-5d rcvd %5d: %s",
+                self.addr[0], self.addr[1], len( rcvd ) if rcvd is not None else 0, repr( rcvd ))
+            if rcvd is not None:
+                # Some input (or EOF); source is empty; if no input available, terminate
+                if not len( rcvd ):
+                    raise StopIteration
+                self.source.chain( rcvd )
+            else:
+                # Don't create parsing engine 'til we have some I/O to process.  This avoids the
+                # degenerate situation where empty I/O (EOF) always matches the empty command (used
+                # to indicate the end of an EtherNet/IP session).
+                if self.engine is None:
+                    return None
 
-        # Don't create parsing engine 'til we have some I/O to process.  This
-        # avoids the degenerate situation where empty I/O (EOF) always matches the
-        # empty command (used to indicate the end of an EtherNet/IP session).
-        if self.engine is None and self.source.peek() is None:
-            return None
-
-        # Initiate or continue parsing input using the machine's engine; discard
-        # the engine at termination or on error (Exception).  Any exception
-        # (including cpppo.NonTerminal) will be propogated.
+        # Initiate or continue parsing input using the machine's engine; discard the engine at
+        # termination or on error (Exception).  Any exception (including cpppo.NonTerminal) will be
+        # propagated.
         result			= None
         with self.frame as machine:
             try:
@@ -327,8 +330,10 @@ def main( argv=None ):
         break
     elapsed			= misc.timer() - begun
     log.normal( "Client Register Rcvd %7.3f/%7.3fs: %s" % ( elapsed, timeout, enip.enip_format( data )))
-    assert data is not None and 'enip.CIP.register' in data, "Failed to receive Register response"
-    assert data.enip.status == 0, "Register response indicates failure: %s" % data.enip.status
+    assert data is not None, "Failed to receive response"
+    assert 'enip.status' in data, "Failed to receive EtherNet/IP response"
+    assert data.enip.status == 0, "EtherNet/IP response indicates failure: %s" % data.enip.status
+    assert 'enip.CIP.register' in data, "Failed to receive Register response"
 
     cli.session			= data.enip.session_handle
     
@@ -355,7 +360,8 @@ def main( argv=None ):
             })
             
     # Perform all specified tag operations, the specified number of repeat times.  Doesn't handle
-    # writes, or fragmented reads yet.
+    # writes, or fragmented reads yet.  If any operation fails, return a non-zero status
+    status			= 0
     start			= misc.timer()
     for i in range( repeat ):
         for op in operations: # {'path': [...], 'elements': #}
@@ -379,13 +385,14 @@ def main( argv=None ):
             try:
                 res		= data.enip.CIP.send_data.CPF.item[1].unconnected_send.request.read_frag.data
             except Exception as exc:
+                status		= 1
                 res		= str( exc )
 
             log.warning( "%10s[%5d-%-5d] == %r" % ( tag, elm, elm + cnt - 1, res ))
 
-
     duration			= misc.timer() - start
     log.warning( "Client ReadFrg. Average %7.3f TPS (%7.3fs ea)." % ( repeat / duration, duration / repeat ))
+    return status
 
 if __name__ == "__main__":
     sys.exit( main() )

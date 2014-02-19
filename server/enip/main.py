@@ -17,6 +17,7 @@
 
 from __future__ import absolute_import
 from __future__ import print_function
+from __future__ import division
 
 __author__                      = "Perry Kundert"
 __email__                       = "perry@hardconsulting.com"
@@ -942,7 +943,7 @@ def main( argv=None, **kwds ):
     # .disable) are also passed as the server= keyword.  We are using an cpppo.apidict with a long
     # timeout; this will block the web API for several seconds to allow all threads to respond to
     # the signals delivered via the web API.
-    logging.normal( "EtherNet/IP Simulator: %r" % ( http, ))
+    logging.normal( "EtherNet/IP Simulator: %r" % ( bind, ))
     kwargs			= dict( options, latency=latency, tags=tags, server=srv_ctl )
 
     tf				= network.server_thread
@@ -951,11 +952,18 @@ def main( argv=None, **kwds ):
         tf			= network.server_thread_profiling
         tf_kwds['filename']	= args.profile
 
+    disabled			= False	# Recognize toggling between en/disabled
     while not srv_ctl.control.done:
         if not srv_ctl.control.disable:
+            if disabled:
+                logging.detail( "EtherNet/IP Server enabled" )
+                disabled= False
             network.server_main( address=bind, target=enip_srv, kwargs=kwargs,
                                  idle_service=idle_service, thread_factory=tf, **tf_kwds )
         else:
+            if not disabled:
+                logging.detail( "EtherNet/IP Server disabled" )
+                disabled= True
             time.sleep( latency )            # Still disabled; wait a bit
 
     return 0

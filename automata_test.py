@@ -8,6 +8,7 @@
 from __future__ import absolute_import
 from __future__ import print_function
 from __future__ import unicode_literals
+from __future__ import division
 
 import collections
 import logging
@@ -53,7 +54,7 @@ def test_logging():
                     			    str( a ), repr( a ), 1, 2, 3, 4, 5 ))))
     t4ms = 1000 * min( t.repeat( rep, num )) / num
     log.normal( "minimal: %.3f ms/loop avg; %s better", t4ms, t3ms / t4ms )
-    assert t3ms / t4ms > 1.0
+    #assert t3ms / t4ms > 1.0 # timing too unreliable to assert
 
     # Only with no argument processing overhead at all is the overhead of the
     # lazy evaluation structure less performant than raw logging:
@@ -67,7 +68,7 @@ def test_logging():
                     			    a, a, 1, 2, 3, 4, 5 ))))
     t6ms = 1000 * min( t.repeat( rep, num )) / num
     log.normal( "simplest: %.3f ms/loop avg; %s better", t6ms, t5ms / t6ms )
-    assert t5ms / t6ms > .5
+    #assert t5ms / t6ms > .5 # timing too unreliable to assert
 
 
 def test_iterators():
