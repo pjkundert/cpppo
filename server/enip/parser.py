@@ -201,14 +201,19 @@ class INT( TYPE ):
     struct_format		= '<h'
 
 class UDINT( TYPE ):
-    """An EtherNet/IP UINT; 16-bit unsigned integer"""
+    """An EtherNet/IP UDINT; 32-bit unsigned integer"""
     tag_type			= None
     struct_format		= '<I'
 
 class DINT( TYPE ):
-    """An EtherNet/IP INT; 16-bit signed integer"""
+    """An EtherNet/IP DINT; 32-bit signed integer"""
     tag_type			= 0x00c4
     struct_format		= '<i'
+
+class REAL( TYPE ):
+    """An EtherNet/IP INT; 32-bit float"""
+    tag_type			= 0x00ca
+    struct_format		= '<f'
 
 
 class STRUCT( cpppo.dfa, cpppo.state ):
@@ -1001,13 +1006,13 @@ class typed_data( cpppo.dfa ):
 
     The known data types are:
 
-    data type			type value	  size
+    data type	supported	type value	  size
 
     BOOL 			= 0x00c1	# 1 byte (0x0_c1, _=[0-7] indicates relevant bit)
-    SINT			= 0x00c2	# 1 byte
-    INT				= 0x00c3	# 2 bytes
-    DINT			= 0x00c4	# 4 bytes
-    REAL			= 0x00ca	# 4 bytes
+    SINT	yes		= 0x00c2	# 1 byte
+    INT		yes		= 0x00c3	# 2 bytes
+    DINT	yes		= 0x00c4	# 4 bytes
+    REAL	yes		= 0x00ca	# 4 bytes
     DWORD			= 0x00d3	# 4 byte (32-bit boolean array)
     LINT			= 0x00c5	# 8 byte
 
@@ -1039,19 +1044,28 @@ class typed_data( cpppo.dfa ):
                                            destination='.data',	initializer=lambda **kwds: [],
                                                 state=i32d )
 
+        fltd			= octets_noop(	'endfloat',
+                                                terminal=True )
+        fltd[True]	= fltp	= DINT()
+        fltp[None]		= move_if( 	'movfloat',	source='.REAL', 
+                                           destination='.data',	initializer=lambda **kwds: [],
+                                                state=fltd )
+
         slct[None]		= cpppo.decide(	'SINT',	state=i_8p,
             predicate=lambda path=None, data=None, **kwds: data[path+datatype] == SINT.tag_type )
         slct[None]		= cpppo.decide(	'INT',	state=i16p,
             predicate=lambda path=None, data=None, **kwds: data[path+datatype] == INT.tag_type )
         slct[None]		= cpppo.decide(	'DINT',	state=i32p,
             predicate=lambda path=None, data=None, **kwds: data[path+datatype] == DINT.tag_type )
+        slct[None]		= cpppo.decide(	'REAL',	state=fltp,
+            predicate=lambda path=None, data=None, **kwds: data[path+datatype] == REAL.tag_type )
         
         super( typed_data, self ).__init__( name=name, initial=slct, **kwds )
 
     @staticmethod
     def produce( data ):
         """Expects to find .type and .data.list, and produces the data encoded to bytes."""
-        assert 'type' in data and data.type in ( SINT.tag_type, INT.tag_type, DINT.tag_type ), \
+        assert 'type' in data and data.type in ( SINT.tag_type, INT.tag_type, DINT.tag_type, REAL.tag_type ), \
             "Unknown (or no) .type found: %r" % data
         if data.type ==   SINT.tag_type:
             return b''.join(  SINT.produce( v ) for v in data.data )
@@ -1059,6 +1073,8 @@ class typed_data( cpppo.dfa ):
             return b''.join(   INT.produce( v ) for v in data.data )
         elif data.type == DINT.tag_type:
             return b''.join(  DINT.produce( v ) for v in data.data )
+        elif data.type == REAL.tag_type:
+            return b''.join(  REAL.produce( v ) for v in data.data )
 
 
 class status( cpppo.dfa ):
