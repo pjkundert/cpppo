@@ -197,6 +197,8 @@ def test_plc_merge():
     assert list( merge( [ (9998,1), (9999,1), (10000,1) ], reach=5, limit=5 )) \
         == [ (9998,2), (10000,1)]
 
+    assert list( merge( [(1,130), (140,4), (232,170), (40001,100)], reach=5 )) \
+        == [(1,130), (140,4), (232,170), (40001,100)]
 
 def test_plc_modbus_basic( simulated_modbus_plc ):
     if not has_pymodbus:

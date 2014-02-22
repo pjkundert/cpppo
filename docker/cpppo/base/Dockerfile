@@ -13,8 +13,9 @@
 #
 FROM		stackbrew/debian:jessie
 MAINTAINER	Perry Kundert "perry@hardconsulting.com"
-# Redirect http://.../debian to mirrors.kernel.org, but leave http://security.debian.org/
-RUN		sed -e "s|http://[^[:space:]]*/debian|http://mirrors.kernel.org/debian|" -e "s|main$|main contrib non-free|" -i /etc/apt/sources.list
+# Redirect http://.../debian to CA mirror, but leave http://security.debian.org/
+RUN		sed -e "s|http://[^[:space:]]*/debian|ftp://ftp.ca.debian.org/debian|" \
+                    -e "s|main$|main contrib non-free|" -i /etc/apt/sources.list
 ENV		DEBIAN_FRONTEND noninteractive
-RUN		apt-get update 				# 2014-02-19
+RUN		apt-get update 				# 2014-02-22
 RUN		apt-get -yu dist-upgrade; apt-get clean

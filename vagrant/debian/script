@@ -8,14 +8,11 @@ fi
 
 	DEBIAN_FRONTEND=noninteractive				\
         && echo -e					       "\
-deb	http://mirrors.kernel.org/debian	jessie		main contrib non-free\n\
-deb-src	http://mirrors.kernel.org/debian	jessie		main contrib non-free\n\
+deb	ftp://ftp.ca.debian.org/debian		jessie		main contrib non-free\n\
 \n\
-deb	http://mirrors.kernel.org/debian	jessie-updates	main contrib non-free\n\
-deb-src	http://mirrors.kernel.org/debian	jessie-updates	main contrib non-free\n\
+deb	ftp://ftp.ca.debian.org/debian		jessie-updates	main contrib non-free\n\
 \n\
-deb	http://security.debian.org/		jessie/updates	main contrib non-free\n\
-deb-src	http://security.debian.org/		jessie/updates	main contrib non-free\n"\
+deb	http://security.debian.org/		jessie/updates	main contrib non-free\n"\
             > /etc/apt/sources.list				\
         && apt-get update					\
         && apt-get -u -y dist-upgrade				\
