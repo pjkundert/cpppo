@@ -218,15 +218,31 @@ class Attribute( object ):
     of values of the desired array size.
 
     If an error code is supplied, requests on the Attribute should fail with that code.
+
+    To interface to other types of data (eg. remote data), supply an object to default that
+    supplies the following interface:
+    
+        o.__len__()			-- DOESN'T EXIST if scalar; returns number of elements if vector (a str is considered scalar)
+        o.__repr__()			-- Some representation of the object; a few of its elements, an address
+        o.__getitem__(b[:e[:s]])	-- Raise TypeError if scalar; return an item/slice if a vector
+        o.__setitem(k,v)		-- Raise TypeError if scalar, store the value(s) v at index/slice k if vector
+        o.__int__(), __float__()	-- Scalars should directly implement conversion methods; vectors should return
+            				   objects (on [int]) or iterables of objects (on [slice]) convertible to
+    					   int/float.  These will be accessed by functions such as struct.pack()
+    
     """
     def __init__( self, name, type_cls, default=0, error=0x00 ):
         self.name		= name
         self.default	       	= default
+        self.scalar		= isinstance( default, cpppo.type_str_base ) or not hasattr( default, '__len__' )
         self.parser		= type_cls()
         self.error		= error		# If an error code is desired on access
 
+    @property
+    def value( self ):
+        return self.default
+
     def __str__( self ):
-        value			= self.value
         return "%-12s %5s[%4d] == %s" % (
             self.name, self.parser.__class__.__name__, len( self ), reprlib.repr( self.value ))
     __repr__ 			= __str__
@@ -234,34 +250,34 @@ class Attribute( object ):
     def __len__( self ):
         """Scalars are limited to 1 indexable element, while arrays (implemented as lists) are limited to
         their length. """
-        return 1 if not isinstance( self.value, list ) else len( self.value )
-
-    @property
-    def value( self ):
-        return self.default
+        return 1 if self.scalar else len( self.value )
 
     # Indexing.  This allows us to get/set individual values in the Attribute's underlying data repository.
     def __getitem__( self, key ):
-        if not isinstance( key, int ) or key >= len( self ):
+        if isinstance( key, slice ):
+            pass
+        elif not isinstance( key, int ) or key >= len( self ):
             raise KeyError( "Attempt to get item at key %r beyond attribute length %d" % ( key, len( self )))
-        if isinstance( self.default, list ):
-            return self.default[key]
+        if not self.scalar:
+            return self.value[key]
         else:
-            return self.default
+            return self.value
 
     def __setitem__( self, key, value ):
         """Allow setting a scalar or indexable array item."""
-        if not isinstance( key, int ) or key >= len( self ):
+        if isinstance( key, slice ):
+            pass
+        elif not isinstance( key, int ) or key >= len( self ):
             raise KeyError( "Attempt to set item at key %r beyond attribute length %d" % ( key, len( self )))
-        if isinstance( self.default, list ):
-            self.default[key] 	= value
+        if not self.scalar:
+            self.value[key] 	= value
         else:
-            self.default	= value
+            self.value		= value
 
     def produce( self, start=0, stop=None ):
         """Output the binary rendering of the current value, using enip type_cls instance configured, to
         produce the value in binary form ('produce' is normally a classmethod on the type_cls)."""
-        if isinstance( self.value, list ):
+        if not self.scalar:
             # Vector
             if stop is None:
                 stop		= len( self.value )
