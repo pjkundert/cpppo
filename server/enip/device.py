@@ -219,8 +219,8 @@ class Attribute( object ):
 
     If an error code is supplied, requests on the Attribute should fail with that code.
 
-    To interface to other types of data (eg. remote data), supply an object to default that
-    supplies the following interface:
+    To interface to other types of data (eg. remote data), supply an object to default that supplies
+    the following interface:
     
         o.__len__()			-- DOESN'T EXIST if scalar; returns number of elements if vector (a str is considered scalar)
         o.__repr__()			-- Some representation of the object; a few of its elements, an address
@@ -230,6 +230,9 @@ class Attribute( object ):
             				   objects (on [int]) or iterables of objects (on [slice]) convertible to
     					   int/float.  These will be accessed by functions such as struct.pack()
     
+    Note that it is impossible to capture assignment to a scalar value; all remote data must be
+    vectors, even if they only have a single element.
+
     """
     def __init__( self, name, type_cls, default=0, error=0x00 ):
         self.name		= name
@@ -252,39 +255,56 @@ class Attribute( object ):
         their length. """
         return 1 if self.scalar else len( self.value )
 
-    # Indexing.  This allows us to get/set individual values in the Attribute's underlying data repository.
-    def __getitem__( self, key ):
+    # Indexing.  This allows us to get/set individual values in the Attribute's underlying data
+    # repository.  Simple, linear slices are supported.
+    def _validate_key( self, key ):
+        """Support simple, linear beg:end slices within Attribute len with no truncation; even on scalars,
+        allows [0:1].  Returns type of index, which must be slice or int.
+
+        """
         if isinstance( key, slice ):
-            pass
-        elif not isinstance( key, int ) or key >= len( self ):
-            raise KeyError( "Attempt to get item at key %r beyond attribute length %d" % ( key, len( self )))
-        if not self.scalar:
-            return self.value[key]
-        else:
-            return self.value
+            idx			= key.indices( len( self ))
+            if idx[2] == 1 and idx[0] < idx[1] and idx[1] <= len( self ) and idx[1] == key.stop:
+                return slice
+            raise KeyError( "%r indices %r too complex, empty, or beyond Attribute length %d" % (
+                key, idx, len( self )))
+        if not isinstance( key, int ) or key >= len( self ):
+            raise KeyError( "Attempt to access item at key %r beyond Attribute length %d" % ( key, len( self )))
+        return int
+
+    def __getitem__( self, key ):
+        if self._validate_key( key ) is slice:
+            # Returning slice of elements; always returns an iterable
+            return [ self.value ] if self.scalar else self.value[key]
+        # Returning single indexed element; always returns a scalar
+        return self.value if self.scalar else self.value[key]
 
     def __setitem__( self, key, value ):
-        """Allow setting a scalar or indexable array item."""
-        if isinstance( key, slice ):
-            pass
-        elif not isinstance( key, int ) or key >= len( self ):
-            raise KeyError( "Attempt to set item at key %r beyond attribute length %d" % ( key, len( self )))
-        if not self.scalar:
-            self.value[key] 	= value
-        else:
+        """Allow setting a scalar or indexable array item.  We will not confirm length of supplied value for 
+        slices, to allow iterators/generators to be supplied."""
+        if self._validate_key( key ) is slice:
+            # Setting a slice of elements; always supplied an iterable; must confirm size
+            if self.scalar:
+                self.value	= next( iter( value ))
+            else:
+                self.value[key]	= value
+            return
+        # Setting a single indexed element; always supplied a scalar
+        if self.scalar:
             self.value		= value
+        else:
+            self.value[key] 	= value
 
     def produce( self, start=0, stop=None ):
-        """Output the binary rendering of the current value, using enip type_cls instance configured, to
-        produce the value in binary form ('produce' is normally a classmethod on the type_cls)."""
-        if not self.scalar:
-            # Vector
-            if stop is None:
-                stop		= len( self.value )
-            return b''.join( self.parser.produce( v ) for v in self.value[start:stop] )
-        # Scalar
-        return self.parser.produce( self.value )
-        
+        """Output the binary rendering of the current value, using enip type_cls instance configured,
+        to produce the value in binary form ('produce' is normally a classmethod on the type_cls).
+        Both scalar and vector Attributes respond to appropriate slice indexes.
+
+        """
+        if stop is None:
+            stop		= len( self )
+        return b''.join( self.parser.produce( v ) for v in self[start:stop] )
+
 
 class MaxInstance( Attribute ):
     def __init__( self, name, type_cls, class_id=None, **kwds ):
