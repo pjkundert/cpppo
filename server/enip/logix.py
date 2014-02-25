@@ -291,17 +291,10 @@ class Logix( Message_Router ):
                 "Attribute %s initial element invalid: %r" % ( attribute, (beg, end) )
             assert 0 <  end <= cnt, \
                 "Attribute %s ending element invalid: %r" % ( attribute,  (beg, end) )
-            value			= attribute.value
 
             if data.service in (self.RD_TAG_RPY, self.RD_FRG_RPY):
                 # Read Tag [Fragmented]
-                if isinstance( value, list ):
-                    data[context].data	= value[beg:end]
-                else:
-                    assert beg == 0 and end == 1, \
-                        "Attribute %s indexed beyond first element of a scalar value: %r" % (
-                            attribute, (beg, end) )
-                    data[context].data	= [ value ]
+                data[context].data	= attribute[beg:end]
                 log.normal( "%s Reading %3d elements %3d-%3d from %s: %s",
                             self, end - beg, beg, end-1, attribute, data[context].data )
                 # Final .status is 0x00 if all requested elements were shipped; 0x06 if not
@@ -311,9 +304,7 @@ class Logix( Message_Router ):
                 # Write Tag [Fragmented].  We know the type is right.
                 log.normal( "%s Writing %3d elements %3d-%3d into %s: %r",
                             self, end - beg, beg, end-1, attribute, data[context].data )
-                for i,v in zip( range( beg, end ), data[context].data ):
-                    attribute[i]	= v
-
+                attribute[beg:end]	= data[context].data
                 data.status		= 0x00
                 data.pop( 'status_ext' )
 

@@ -1046,7 +1046,7 @@ class typed_data( cpppo.dfa ):
 
         fltd			= octets_noop(	'endfloat',
                                                 terminal=True )
-        fltd[True]	= fltp	= DINT()
+        fltd[True]	= fltp	= REAL()
         fltp[None]		= move_if( 	'movfloat',	source='.REAL', 
                                            destination='.data',	initializer=lambda **kwds: [],
                                                 state=fltd )
