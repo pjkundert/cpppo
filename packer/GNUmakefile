@@ -34,14 +34,13 @@ debian-%:	debian-%-amd64 /usr/local/bin/packer
 	    echo "Building $< box image";				\
 	    cd $<;							\
 	    if packer build -only vmware-iso $<.json; then		\
-		mv $<_vmare.box ..;					\
 		echo "Building $<_vmware.box complete";			\
 	    else							\
 		echo "Building $< box image failed";			\
 		exit 1;							\
 	    fi;								\
 	fi
-	@ls -l $$(PWD)/$<_vmware.box
+	@ls -l $$(PWD)/$</$<_vmware.box
 
 /usr/local/bin/packer:
 	@echo "Installing packer.io at $@"
