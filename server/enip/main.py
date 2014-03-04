@@ -666,6 +666,7 @@ def enip_srv( conn, addr, enip_process=None, delay=None, **kwds ):
                     # clean termination of the session if closed from this end (not required if
                     # enip_process returned False, indicating the connection was terminated by
                     # request.)
+                    delayseconds= 0	# response delay (if any)
                     if enip_process( addr, data=data, **kwds ):
                         # Produce an EtherNet/IP response carrying the encapsulated response data.
                         assert 'response' in data, "Expected EtherNet/IP response; none found"
@@ -675,14 +676,13 @@ def enip_srv( conn, addr, enip_process=None, delay=None, **kwds ):
                         log.detail( "%s send: %5d: %s %s", enip_mesg.name_centered(),
                                     len( rpy ), reprlib.repr( rpy ),
                                     ("delay: %r" % delay) if delay else "" )
-                        seconds	= 0
                         if delay:
                             # A delay (anything with a delay.value attribute) == #[.#] (converible
                             # to float) is ok; may be changed via web interface.
                             try:
-                                seconds = float( delay.value if hasattr( delay, 'value' ) else delay )
-                                if seconds > 0:
-                                    time.sleep( seconds )
+                                delayseconds = float( delay.value if hasattr( delay, 'value' ) else delay )
+                                if delayseconds > 0:
+                                    time.sleep( delayseconds )
                             except Exception as exc:
                                 log.detail( "Unable to delay; invalid seconds: %r", delay )
                         try:
@@ -696,7 +696,7 @@ def enip_srv( conn, addr, enip_process=None, delay=None, **kwds ):
                                     parser.enip_format( data ))
                         eof	= True
                     log.detail( "Transaction complete after %7.3fs (w/ %7.3fs delay)" % (
-                        misc.timer() - begun, seconds ))
+                        misc.timer() - begun, delayseconds ))
                 except:
                     log.error( "Failed request: %s", parser.enip_format( data ))
                     enip_process( addr, data=cpppo.dotdict() ) # Terminate.
