@@ -39,7 +39,11 @@ try:
 except ImportError:
     import repr as reprlib
 
-import greenery
+try:
+    import greenery.v1 as greenery
+except ImportError:
+    import greenery
+
 from . import misc
 from .dotdict import *
 
