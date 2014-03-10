@@ -39,10 +39,8 @@ try:
 except ImportError:
     import repr as reprlib
 
-try:
-    import greenery.v1 as greenery
-except ImportError:
-    import greenery
+import greenery.lego
+import greenery.fsm
 
 from . import misc
 from .dotdict import *
@@ -882,26 +880,26 @@ class state( dict ):
         Returns the resultant regular expression string and lego representation, the fsm, and the
         initial state of the resultant state machine:
 
-            ('regex', <greenery.lego>, <greenery.fsm>, <state>)
+            ('regex', <greenery.lego.lego>, <greenery.fsm.fsm>, <state>)
 
         """
         # Accept any of regex/lego/fsm, and build the missing ones.
-        regexstr, lego		= None, None
+        regexstr, regex		= None, None
         if isinstance( machine, type_str_base ):
             log.debug( "Converting Regex to greenery.lego: %r", machine )
             regexstr		= machine
-            machine		= greenery.parse( regexstr )
-        if isinstance( machine, greenery.lego ):
+            machine		= greenery.lego.parse( regexstr )
+        if isinstance( machine, greenery.lego.lego ):
             log.debug( "Converting greenery.lego to   fsm: %r", machine )
-            lego		= machine
-            machine		= lego.fsm()
-        if not isinstance( machine, greenery.fsm ):
+            regex		= machine
+            machine		= regex.fsm()
+        if not isinstance( machine, greenery.fsm.fsm ):
             raise TypeError("Provide a regular expression, or a greenery.lego/fsm, not: %s %r" % (
                     type( machine ), machine ))
-        if lego is None:
-            lego		= machine.lego()
+        if regex is None:
+            regex		= machine.lego()
         if regexstr is None:
-            regexstr		= str( lego )
+            regexstr		= str( regex )
 
         # Create a state machine identical to the greenery.fsm 'machine'.  There are no "no-input"
         # (NULL) transitions in a greenery.fsm; the None (./anychar) transition is equivalent to the
@@ -984,7 +982,7 @@ class state( dict ):
 
         # We create a non-input state copying the initial state's transitions, so we don't consume
         # the first symbol of input before it is accepted by the regex.
-        return (regexstr, lego, machine, state( states[machine.initial] ))
+        return (regexstr, regex, machine, state( states[machine.initial] ))
 
 
 class state_input( state ):
