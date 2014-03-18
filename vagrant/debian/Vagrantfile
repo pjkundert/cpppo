@@ -47,8 +47,10 @@ deb	http://security.debian.org/		jessie/updates	main contrib non-free\n"\
                 https://get.docker.io/builds/Linux/x86_64/docker-latest \
         && chmod a+x /usr/local/bin/docker			\
         && sudo wget -q --output-document=/etc/init.d/docker	\
-                https://raw.github.com/dotcloud/docker/master/contrib/init/sysvinit/docker \
-        && sed -e "/^DOCKER=/ s|/usr/bin/|/usr/local/bin/|" -i /etc/init.d/docker \
+                https://raw.github.com/dotcloud/docker/master/contrib/init/sysvinit-debian/docker \
+        && sudo wget -q --output-document=/etc/default/docker	\
+                https://raw.github.com/dotcloud/docker/master/contrib/init/sysvinit-debian/docker.default \
+        && sed -e "s/^#DOCKER=/DOCKER=/" -e "/DOCKER=/ s|/usr/bin/|/usr/local/bin/|" -i /etc/default/docker \
         && sudo wget -q --output-document=/etc/systemd/system/docker.service \
                 https://raw.github.com/dotcloud/docker/master/contrib/init/systemd/docker.service \
         && sed -e "/^ExecStart/ s|/usr/bin/|/usr/local/bin/|" -i /etc/systemd/system/docker.service \
