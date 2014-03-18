@@ -57,7 +57,7 @@ upload-%:	%
 	rsync -zva --progress $<-vmware.box perry@box.hardconsulting.com:box/$<-vmware_desktop.box
 
 add-%:		%
-	cd ../vagrant/debian; vagrant box add $< $(PWD)/$<-vmware.box --provider vmware_desktop --force
+	cd ../vagrant/debian; vagrant box add $< $(PWD)/$<-vmware_desktop.box --provider vmware_desktop --force
 
 /usr/local/bin/packer:
 	@echo "Installing packer.io at $@"
