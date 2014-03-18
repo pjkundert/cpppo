@@ -65,11 +65,20 @@ deb	http://security.debian.org/		jessie/updates	main contrib non-free\n"\
         && echo && echo "Login w/ vagrant ssh"			\
         '
   end
-  config.vm.network "forwarded_port", guest: 8080, host: 8080, auto_correct: true
-  config.vm.network "forwarded_port", guest: 8600, host: 8600, auto_correct: true
+  #config.vm.network "forwarded_port", guest: 8080, host: 8080, auto_correct: true
+  #config.vm.network "forwarded_port", guest: 8600, host: 8600, auto_correct: true
   config.vm.network "public_network", :bridge => 'en5: Thunderbolt Ethernet', :auto_config => false
-  # Mount the directory containing the cpppo image on ~/src/
-  config.vm.synced_folder		   "../../..", "/home/vagrant/src"
+  # Mount the directory containing the cpppo image on ~/src/ WARNING: VMWare Tools doesn't yet work
+  # on Debian Jessie (kernel 3.12+).  The vmhgfs module doesn't build (uname kernel version number
+  # X.Y.Z vs. X.Y, uid_t --> kuid_t transitaion).  So, we presently download a patched vmhgfs.tar
+  # before vmware tools builds.  Even if we use 'type: "nfs"', Vagrant still demands vmhgfs be
+  # loaded, even if we aren't going to use it (it mounts the source Vagrantfile dir on /vagrant)
+  config.vm.synced_folder		   "../../..", "/home/vagrant/src", type: "nfs"
+  config.vm.provider "vmware_desktop" do |v|
+    v.gui 				= true
+    v.vmx["memsize"]			= "2048"
+    v.vmx["numvcpus"]			= "2"
+  end
   config.vm.provider "vmware_fusion" do |v|
     v.gui 				= true
     v.vmx["memsize"]			= "2048"
