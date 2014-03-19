@@ -54,7 +54,7 @@ jessie64:	debian-8-amd64/debian-8-amd64_vmware.box
 	ln -f $< $@-vmware_desktop.box
 
 upload-%:	%
-	rsync -zva --progress $<-vmware.box perry@box.hardconsulting.com:box/$<-vmware_desktop.box
+	rsync -zva --progress --inplace $<-vmware.box perry@box.hardconsulting.com:box/$<-vmware_desktop.box
 
 add-%:		%
 	cd ../vagrant/debian; vagrant box add $< $(PWD)/$<-vmware_desktop.box --provider vmware_desktop --force
