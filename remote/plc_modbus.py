@@ -254,12 +254,13 @@ class poller_modbus( poller, threading.Thread ):
     Only a single PLC I/O transaction is allowed to execute on ModbusTcpClient*, with self.lock.
     """
     def __init__( self, description,
-                  host='localhost', port=Defaults.Port, reach=100, **kwargs ):
+                  host='localhost', port=Defaults.Port, reach=100, daemon_threads=None, **kwargs ):
         poller.__init__( self, description=description, **kwargs )
-        threading.Thread.__init__( self, target=self._poller )
+        threading.Thread.__init__( self, target=self._main )
         self.client		= ModbusTcpClientTimeout( host=host, port=port )
         self.lock		= threading.Lock()
-        self.daemon		= True
+        if daemon_threads:
+            self.daemon		= True
         self.done		= False
         self.reach		= reach		# Merge registers this close into ranges
         self.polling		= set()		# Ranges known to be successfully polling
@@ -269,14 +270,33 @@ class poller_modbus( poller, threading.Thread ):
         self.load		= None,None,None# total poll durations over last ~1, 5 and 15 min
         self.start()
 
-    def _poller( self, *args, **kwargs ):
-        """ Asynchronously (ie. in another thread) poll all the specified
-        registers, on the designated poll cycle.  Until we have something to do
-        (self.rate isn't None), just wait.
+    def stop( self ):
+        self.done		= True
+
+    def join( self, timeout=None ):
+        log.info( "Poller cleanup" )
+        try:
+            self.stop()
+            super( poller_modbus, self ).join( timeout=timeout )
+        finally:
+            log.info( "Poller cleanup complete" )
+
+    def _main( self ):
+        """Execute the polling, ensuring the client connection is closed on completion."""
+        log.detail( "Poller starting" )
+        try:
+            self._poller()
+        finally:
+            self.client.close() # safe if already closed
+            log.detail( "Poller stopped" )
+
+    def _poller( self ):
+        """Asynchronously (ie. in another thread) poll all the specified registers, on the designated
+        poll cycle.  Until we have something to do (self.rate isn't None), just wait.
 
         We'll log whenever we begin/cease polling any given range of registers.
+
         """
-        log.info( "Poller starts: %r, %r " % ( args, kwargs ))
         target			= misc.timer()
         while not self.done and logging:	# Module may be gone in shutting down
             # Poller is dormant 'til a non-None/zero rate and data specified
