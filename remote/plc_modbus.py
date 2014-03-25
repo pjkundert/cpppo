@@ -38,6 +38,7 @@ import traceback
 
 import cpppo
 from   cpppo import misc
+from   cpppo.server import network
 from   cpppo.remote.plc import (poller, PlcOffline)
 
 # We need to monkeypatch ModbusTcpServer's SocketServer.serve_forever to be
@@ -55,7 +56,7 @@ from pymodbus.bit_write_message import *
 from pymodbus.register_read_message import *
 from pymodbus.register_write_message import *
 from pymodbus.pdu import (ExceptionResponse, ModbusResponse)
-
+from pymodbus.server.sync import ModbusConnectedRequestHandler
 
 if __name__ == "__main__":
     logging.basicConfig( **cpppo.log_cfg )
@@ -186,6 +187,86 @@ class ModbusTcpClientTimeout( ModbusTcpClient ):
         raise ConnectionException("Receive from (%s, %s) failed: Timeout" % (
                 self.host, self.port ))
 
+
+class ModbusTcpRequestHandler( ModbusConnectedRequestHandler ):
+    '''Implements the modbus server protocol for a TCP/IP client, with the SocketServer.BaseRequest
+    interface, and with specified latency between checking for self.running, and the specified drain
+    delay.  The default latency (.1s) should not consume too much CPU while providing fairly prompt
+    Thread termination, and drain (.1s) is probably appropriate for a LAN situation on a lightly
+    loaded server.
+
+    Since the constructor is limited to exactly the 3 parameters (because it is created in code that
+    we cannot alter), you must derive a new class with different values:
+
+        class my_handler( ModbusTcpRequestHandler ):
+            drain = 1.0
+
+    '''
+    latency			= .1
+    drain			= .1
+    def __init__( self, request, client, server ):
+        ModbusConnectedRequestHandler.__init__( self, request, client, server )
+        if self.latency is not None:
+            assert self.latency > 0, "Cannot specify a zero latency polling timeout"
+
+    def stop( self ):
+        self.running		= False
+
+    def join( self, timeout=None ):
+        """Ensure a Thread is stopped, drained and closed in a timely fashion.  The timeouts to respond to
+        stop() and for the Thread to drain and close the socket are specified with the Constructor's
+        latency= and drain= keywords; if these are reliably implemented, it is not necessary to
+        provide a timeout here.
+
+        """
+        self.stop()
+        ModbusConnectedRequestHandler.join( self, timeout=timeout )
+
+    def handle( self ):
+        '''Callback when we receive any data, until self.running becomes not True.  Blocks indefinitely
+        awaiting data.  If shutdown is required, then the global socket.settimeout(<seconds>) may be
+        used, to allow timely checking of self.running.  However, since this also affects socket
+        connects, if there are outgoing socket connections used in the same program, then these will
+        be prevented, if the specfied timeout is too short.  Hence, this is unreliable.
+
+        Specify a latency of None for no recv timeout, and a drain of 0 for no waiting for reply
+        EOF, for same behavior as stock ModbusConnectedRequestHandler.
+
+        NOTE: This loop is restructured to employ finally: for logging, but is functionally
+        equivalent to the original.
+
+        '''
+        log.info("Modbus/TCP client socket handling started for %s", self.client_address )
+        try:
+            while self.running:
+                data		= network.recv( self.request, timeout=self.latency )
+                if data is None:
+                    continue			# No data w'in timeout; just check self.running
+                if not data:
+                    self.running= False	# EOF (empty data); done
+                if log.isEnabledFor(logging.DEBUG):
+                    log.debug(" ".join([hex(ord(x)) for x in data]))
+                self.framer.processIncomingPacket( data, self.execute )
+        except socket.error as exc:
+            log.error("Modbus/TCP client socket error occurred %s", exc )
+            self.running	= False
+        except:
+            log.error("Modbus/TCP client socket exception occurred %s", traceback.format_exc() )
+            self.running	= False
+        finally:
+            log.info("Modbus/TCP client socket handling stopped for %s", self.client_address )
+
+    def shutdown_request( self ):
+        '''The default SocketServer.shutdown_request does send a shutdown(socket.SHUT_WR), but does NOT
+        wait for the socket to drain before closing it, potentially leaving the kernel socket dirty
+        (filled with unclaimed data; at least the client's EOF).  Drain the socket, then close it.
+        Ignores ENOTCONN (and other) socket.error if socket is already closed.
+
+        '''
+        log.detail( "Modbus/TCP client socket shutdown/drain %s", self.client_address )
+        network.drain( self.request, timeout=self.drain, close=False )
+        self.close_request()
+
             
 def shatter( address, count, limit=None ):
     """ Yields (address, count) ranges of length 'limit' sufficient to cover the
@@ -254,12 +335,13 @@ class poller_modbus( poller, threading.Thread ):
     Only a single PLC I/O transaction is allowed to execute on ModbusTcpClient*, with self.lock.
     """
     def __init__( self, description,
-                  host='localhost', port=Defaults.Port, reach=100, **kwargs ):
+                  host='localhost', port=Defaults.Port, reach=100, daemon_threads=None, **kwargs ):
         poller.__init__( self, description=description, **kwargs )
-        threading.Thread.__init__( self, target=self._poller )
+        threading.Thread.__init__( self, target=self._main )
         self.client		= ModbusTcpClientTimeout( host=host, port=port )
         self.lock		= threading.Lock()
-        self.daemon		= True
+        if daemon_threads:
+            self.daemon		= True
         self.done		= False
         self.reach		= reach		# Merge registers this close into ranges
         self.polling		= set()		# Ranges known to be successfully polling
@@ -269,14 +351,33 @@ class poller_modbus( poller, threading.Thread ):
         self.load		= None,None,None# total poll durations over last ~1, 5 and 15 min
         self.start()
 
-    def _poller( self, *args, **kwargs ):
-        """ Asynchronously (ie. in another thread) poll all the specified
-        registers, on the designated poll cycle.  Until we have something to do
-        (self.rate isn't None), just wait.
+    def stop( self ):
+        self.done		= True
+
+    def join( self, timeout=None ):
+        log.info( "Poller cleanup" )
+        try:
+            self.stop()
+            super( poller_modbus, self ).join( timeout=timeout )
+        finally:
+            log.info( "Poller cleanup complete" )
+
+    def _main( self ):
+        """Execute the polling, ensuring the client connection is closed on completion."""
+        log.detail( "Poller starting" )
+        try:
+            self._poller()
+        finally:
+            self.client.close() # safe if already closed
+            log.detail( "Poller stopped" )
+
+    def _poller( self ):
+        """Asynchronously (ie. in another thread) poll all the specified registers, on the designated
+        poll cycle.  Until we have something to do (self.rate isn't None), just wait.
 
         We'll log whenever we begin/cease polling any given range of registers.
+
         """
-        log.info( "Poller starts: %r, %r " % ( args, kwargs ))
         target			= misc.timer()
         while not self.done and logging:	# Module may be gone in shutting down
             # Poller is dormant 'til a non-None/zero rate and data specified

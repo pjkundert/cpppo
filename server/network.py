@@ -61,7 +61,7 @@ def readable( timeout=0 ):
                             break	# EINTR, timeout exceeded
                         rem	= beg + tmo - now
                         continue	# EINTR, timeout remains
-                    raise		# Not select.erorr, or not EINTR
+                    raise		# Not select.error, or not EINTR
                 break			# readable, or timeout expired
             return function( *args, **kwds ) if r else None
         return wrapper
@@ -85,10 +85,12 @@ def accept( conn ):
     return conn.accept()
 
 
-def drain( conn, timeout=.1 ):
-    """Send EOF, drain and close connection cleanly, returning any data received.  Will immediately
-    detect an incoming EOF on connection and close, otherwise waits timeout for incoming EOF; if
-    exception, assumes that the connection is dead (same as EOF)."""
+def drain( conn, timeout=.1, close=True ):
+    """Send EOF, drain and (optionally) close connection cleanly, returning any data received.  Will
+    immediately detect an incoming EOF on connection and close, otherwise waits timeout for incoming
+    EOF; if exception, assumes that the connection is dead (same as EOF).
+
+    """
     try:
         conn.shutdown( socket.SHUT_WR )
     except socket.error as exc: # No connection; same as EOF
@@ -97,11 +99,12 @@ def drain( conn, timeout=.1 ):
     else:
         msg			= recv( conn, timeout=timeout )
 
-    try:
-        conn.close()
-    except socket.error as exc: # Already closed
-        log.debug( "close %s: %r", conn, exc )
-        pass
+    if close:
+        try:
+            conn.close()
+        except socket.error as exc: # Already closed
+            log.debug( "close %s: %r", conn, exc )
+            pass
 
     return msg
 
