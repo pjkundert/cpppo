@@ -14,22 +14,22 @@ RUN		apt-get install -y git libtool autoconf automake	\
 		    && apt-get clean
 
 RUN		git clone --branch master				\
-			  https://github.com/zeromq/zeromq3-x.git	\
-			  src/zeromq3-x					\
-		  && cd src/zeromq3-x					\
+			  https://github.com/zeromq/zeromq4-x.git	\
+			  src/zeromq4-x					\
+		  && cd src/zeromq4-x					\
 		  && ./autogen.sh					\
 		  && ./configure					\
 		  && make V=1						\
 		  && make install					\
 		  && ldconfig						\
-		  && cd / && rm -rf src/zeromq3-x
+		  && cd / && rm -rf src/zeromq4-x
 RUN		git clone --branch 0.18					\
 			https://github.com/cython/cython.git		\
 			src/cython					\
 		  && cd src/cython					\
 		  && python setup.py install				\
 		  && cd / && rm -rf src/cython
-RUN		git clone --branch v13.1.0				\
+RUN		git clone --branch v14.1.1				\
 			  https://github.com/zeromq/pyzmq.git		\
 			  src/pyzmq					\
 		  && cd src/pyzmq					\
