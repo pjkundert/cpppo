@@ -1,8 +1,6 @@
-* Communication Protocol Python Parser and Originator
+* Comm. Protocol Python Parser and Originator
 
-  Cpppo (pronounced
-  : 'c'+3*'p'+'o'
-  in Python) is used to implement binary
+  Cpppo (pronounced 'c'+3*'p'+'o' in Python) is used to implement binary
   communications protocol parsers.  The protocol's communication elements are
   described in terms of state machines which change state in response to input
   events, collecting the data and producing output data artifacts.
@@ -474,28 +472,27 @@
     virtualbox-debian-up'), the appropriate box is downloaded using 'vagrant box
     add ...'.  If you don't trust these boxes (the safest position), you can
     rebuild them yourself.
-    
-    Using the veewee tool, build a VirtualBox (or VMware) image.  This downloads
+
+**** Packer.io    
+
+    Using the packer tool, build a VirtualBox (or VMware) image.  This downloads
     the bootable Debian installer ISO image and VirtualBox Guest Additions, runs
-    it (you may need to watch the VirtualBox GUI, and help it complete the final
+    it (you may need to watch the VirtualBox or VMware GUI, and help it complete the final
     Grub installation on /dev/sda), and then packages up the VM as a Vagrant
     box.  We'll rename it jessie64, and augment the zerodisk.sh script to flush
     its changes to the device:
-    : $ sudo gem install veewee
-    : $ cd src
-    : $ git clone https://github.com/Mayeu/vagrant-jessie-box.git
-    : $ cd vagrant-jessie-box
-    : $ mv definitions/Debian-testing-amd64-netbook definitions/jessie64
-    : $ sed -i -e '/^rm/i \sync' definitions/jessie64/zerodisk.sh
-    : $ veewee vbox build  --force jessie64
-    : $ veewee vbox export --force jessie64
-    : $ vagrant box remove jessie64 virtualbox || true
-    : $ vagrant box add jessie64 jessie64.box --provider virtualbox
+    : $ cd src/cpppo/packer
+    : $ make vmware-jessie64 # or virtualbox-jessie64
+    : ...
+
+    Once it builds successfully, add the new box to the ../docker/debian Vagrant
+    installation, to make it accessible:
+    : $ make add-vmware-jessie64 # or add-virtualbox-jessie64
 
     Now, you can fire up the new VirtualBox image using Vagrant, and the targets
     provided in the cpppo/GNUmakefile:
     : $ cd src/cpppo
-    : $ make virtualbox-debian-up
+    : $ make vmware-debian-up
 
 ** Docker
 

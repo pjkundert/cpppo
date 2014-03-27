@@ -17,5 +17,15 @@ MAINTAINER	Perry Kundert "perry@hardconsulting.com"
 RUN		sed -e "s|http://[^[:space:]]*/debian|ftp://ftp.ca.debian.org/debian|" \
                     -e "s|main$|main contrib non-free|" -i /etc/apt/sources.list
 ENV		DEBIAN_FRONTEND noninteractive
-RUN		apt-get update 				# 2014-02-22
-RUN		apt-get -yu dist-upgrade; apt-get clean
+RUN		echo 'Dir::Cache { srcpkgcache ""; pkgcache ""; }'	\
+                    > /etc/apt/apt.conf.d/02nocache			\
+                  && (							\
+                      for dir in doc man groff info lintian linda; do	\
+                          echo "path-exclude /usr/share/$dir/*";	\
+                      done;						\
+                      echo "path-exclude /usr/share/locale/*";		\
+                      echo "path-include /usr/share/locale/en*";	\
+                  ) > /etc/dpkg/dpkg.cfg.d/01nodoc
+RUN		apt-get update						\
+                    && apt-get -yu dist-upgrade				\
+                    && apt-get clean			# YYYY-MM-DD

@@ -320,6 +320,7 @@ def main( argv=None ):
     request			= cli.register( timeout=timeout )
     elapsed			= misc.timer() - begun
     log.normal( "Client Register Sent %7.3f/%7.3fs: %s" % ( elapsed, timeout, enip.enip_format( request )))
+    data			= None # In case nothing is returned by cli iterable
     for data in cli:
         elapsed			= misc.timer() - begun
         log.detail( "Client Register Resp %7.3f/%7.3fs: %s" % ( elapsed, timeout, enip.enip_format( data )))
@@ -330,7 +331,7 @@ def main( argv=None ):
         break
     elapsed			= misc.timer() - begun
     log.normal( "Client Register Rcvd %7.3f/%7.3fs: %s" % ( elapsed, timeout, enip.enip_format( data )))
-    assert data is not None, "Failed to receive response"
+    assert data is not None, "Failed to receive any response"
     assert 'enip.status' in data, "Failed to receive EtherNet/IP response"
     assert data.enip.status == 0, "EtherNet/IP response indicates failure: %s" % data.enip.status
     assert 'enip.CIP.register' in data, "Failed to receive Register response"
@@ -369,6 +370,7 @@ def main( argv=None ):
             request		= cli.read( offset=0, timeout=timeout, **op )
             elapsed		= misc.timer() - begun
             log.normal( "Client ReadFrg. Sent %7.3f/%7.3fs: %s" % ( elapsed, timeout, enip.enip_format( request )))
+            data		= None
             for data in cli:
                 elapsed		= misc.timer() - begun
                 log.normal( "Client ReadFrg. Resp %7.3f/%7.3fs: %s" % ( elapsed, timeout, enip.enip_format( data )))
