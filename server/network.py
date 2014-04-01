@@ -51,6 +51,7 @@ def readable( timeout=0 ):
             tmo			= kwds.pop( 'timeout', timeout )
             beg			= misc.timer()
             rem			= tmo
+            r			= None # In case select raises exception first time thru
             while True:
                 try:
                     r,_,_	= select.select( [args[0].fileno()], [], [], rem )
