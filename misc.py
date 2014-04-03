@@ -37,7 +37,6 @@ import signal
 import subprocess
 import sys
 import time
-import timeit
 import types
 
 try:
@@ -49,7 +48,8 @@ except ImportError:
 # misc.timer
 # 
 # Select platform appropriate timer function
-timer				= timeit.default_timer
+# 
+from timeit import default_timer as timer
 
 # 
 # misc.nan	-- IEEE NaN (Not a Number)

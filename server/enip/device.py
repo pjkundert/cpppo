@@ -464,9 +464,8 @@ class Object( object ):
 
     @classmethod
     def register_service_parser( cls, number, name, short, machine ):
-        """Registers a parser with the Object. """
+        """Registers a parser with the Object.  May be invoked during import; no logging."""
 
-        log.detail( "%s Registers Service 0x%02x --> %s ", cls.__name__, number, name )
         assert number not in cls.service and name not in cls.service, \
             "Duplicate service #%d: %r registered for Object %s" % ( number, name, cls.__name__ )
 
