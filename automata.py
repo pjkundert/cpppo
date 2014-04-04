@@ -862,7 +862,7 @@ class state( dict ):
     def from_regex( cls, machine, encoder=None, **kwds ):
         """Create a graph of instances of 'cls' (a state class), as specified by the given textual
         regex or greenery.fsm/lego machine.  All supplied keyword args are pass to the 'cls'
-        constructor (eg. context).  The initial state is however always simple no-input 'state'
+        constructor (eg. context).  The initial state is however always a simple no-input 'state'
         instance, as we do not want to process the first symbol until it has been accepted by the
         regex.
 
@@ -882,15 +882,17 @@ class state( dict ):
 
             ('regex', <greenery.lego.lego>, <greenery.fsm.fsm>, <state>)
 
+        WARNING: This class method is used in constructors, which may be invoked on module loads;
+        do not use logging, as it may not have been set up yet.
         """
         # Accept any of regex/lego/fsm, and build the missing ones.
         regexstr, regex		= None, None
         if isinstance( machine, type_str_base ):
-            log.debug( "Converting Regex to greenery.lego: %r", machine )
+            #log.debug( "Converting Regex to greenery.lego: %r", machine )
             regexstr		= machine
             machine		= greenery.lego.parse( regexstr )
         if isinstance( machine, greenery.lego.lego ):
-            log.debug( "Converting greenery.lego to   fsm: %r", machine )
+            #log.debug( "Converting greenery.lego to   fsm: %r", machine )
             regex		= machine
             machine		= regex.fsm()
         if not isinstance( machine, greenery.fsm.fsm ):
@@ -904,7 +906,7 @@ class state( dict ):
         # Create a state machine identical to the greenery.fsm 'machine'.  There are no "no-input"
         # (NULL) transitions in a greenery.fsm; the None (./anychar) transition is equivalent to the
         # default "True" transition.
-        log.debug( "greenery.fsm:\n%s", machine )
+        #log.debug( "greenery.fsm:\n%s", machine )
         states			= {}
         for pre,tab in machine.map.items():
             terminal		= pre in machine.finals
@@ -913,8 +915,8 @@ class state( dict ):
             dead		= loopback and not terminal and not initial
 
             node		= cls( str( pre ), terminal=terminal, **kwds )
-            log.info( "%s --> %r %-10s, %-10s, %-10s", node.name_centered(), tab.values(), 
-                "initial" if initial else "", "terminal" if terminal else "", "dead" if dead else "" )
+            #log.debug( "%s --> %r %-10s, %-10s, %-10s %s", node.name_centered(), tab.values(), 
+            #          "initial" if initial else "", "terminal" if terminal else "", "dead" if dead else "" )
             if not dead:
                 states[pre]	= node    # must check for dead states in mapping below...
 
@@ -929,7 +931,7 @@ class state( dict ):
             for sym in sorted( tab, key=lambda k: [] if k is None else [k] ):
                 nxt		= tab[sym]
                 if nxt not in states:
-                    log.debug( "dead trans %s <- %-10.10r --> %s", pre, sym, nxt )
+                    #log.debug( "dead trans %s <- %-10.10r --> %s", pre, sym, nxt )
                     continue
                 
                 if sym is None:
@@ -941,7 +943,8 @@ class state( dict ):
                     # increasing integers)
                     xformed	= list( enumerate( encoder( sym )))
                     assert len( xformed ) > 0
-                    log.debug( "%s <- %-10.10r: Encoded to %r", states[pre].name_centered(), sym, xformed )
+                    #if len(logging.root.handlers):
+                    #    log.debug( "%s <- %-10.10r: Encoded to %r", states[pre].name_centered(), sym, xformed )
                     if len( xformed ) > 1:
                         assert ( 1 <= len( machine.map[pre] ) <= 2 ), \
                             "Can only expand 1 (symbol) or 2 (symbol/anychar) transitions: %r" % (
@@ -962,13 +965,13 @@ class state( dict ):
                             	= cls( name=str( pre ) + '_' + str( num ), terminal=False, **kwds )
                         states[lst][enc] \
                             	= states[add]
-                        log.debug( "%s <- %-10.10r --> %s (extra state)", states[lst].name_centered(),
-                                   enc, states[add] )
+                        #log.debug( "%s <- %-10.10r --> %s (extra state)", states[lst].name_centered(),
+                        #           enc, states[add] )
                         if True in states[pre]:
                             states[add][True] \
                                 = states[pre][True]
-                            log.debug( "%s <- %-10.10r --> %s (dup wild)", states[add].name_centered(),
-                                       True, states[pre][True] )
+                            #log.debug( "%s <- %-10.10r --> %s (dup wild)", states[add].name_centered(),
+                            #           True, states[pre][True] )
                         lst	= add
 
                     # If we added extra states, fall thru and link the last added one (as 'pre') up
@@ -977,7 +980,7 @@ class state( dict ):
                     if len( xformed ):
                         pre	= lst
                     sym		= enc
-                log.debug( "%s <- %-10.10r --> %s", states[pre].name_centered(), sym, states[nxt] )
+                #log.debug( "%s <- %-10.10r --> %s", states[pre].name_centered(), sym, states[nxt] )
                 states[pre][sym]=states[nxt]
 
         # We create a non-input state copying the initial state's transitions, so we don't consume
