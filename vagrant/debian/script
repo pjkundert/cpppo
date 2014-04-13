@@ -20,7 +20,7 @@ deb	http://security.debian.org/		jessie/updates	main contrib non-free\n"\
             apt-show-versions python-pip python-dev		\
             lxc wget bsdtar curl git aufs-tools bridge-utils	\
             emacs24-nox emacs24-el screen			\
-            multitail aspell zip				\
+            multitail aspell zip docker.io			\
         && apt-get install -y					\
             `apt-show-versions -a				\
                 | sed -ne \'s/^linux-image-\(\w\+\):\w*[[:space:]].*installed$/linux-headers-\1/p\'` \

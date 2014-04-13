@@ -8,7 +8,7 @@
 FROM		cpppo/cpppo
 MAINTAINER	Perry Kundert "perry@hardconsulting.com"
 
-RUN		apt-get install -y git libtool autoconf automake	\
+RUN		apt-get -y install git libtool autoconf automake	\
 			  python-dev uuid-dev				\
 			  sqlite3 libsqlite3-dev build-essential	\
 		    && apt-get clean
