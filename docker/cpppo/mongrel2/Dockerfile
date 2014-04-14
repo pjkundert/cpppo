@@ -40,6 +40,7 @@ RUN		git clone --branch fix/polarssl				\
 			  https://github.com/pjkundert/mongrel2.git	\
 			  src/mongrel2					\
 		  && cd src/mongrel2					\
+		  && sed -i -e 's/url = git:/url = http:/' .gitmodules	\
 		  && make all install					\
 		  && cd examples/python					\
 		  && python setup.py install				\
