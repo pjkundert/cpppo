@@ -27,6 +27,7 @@ setup(
         "cpppo/server",
         "cpppo/server/enip",
         "cpppo/remote",
+        "cpppo/history",
         "cpppo/bin",
     ],
     package_dir			= {
@@ -34,6 +35,7 @@ setup(
         "cpppo/server":		"./server",
         "cpppo/server/enip":	"./server/enip",
         "cpppo/remote":		"./remote",
+        "cpppo/history":	"./history",
         "cpppo/bin":		"./bin",
     },
     entry_points		= {
