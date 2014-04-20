@@ -12,6 +12,8 @@ try:
 except ImportError:
     import repr as reprlib
 
+import cpppo
+from . import misc
 has_pytz			= False
 try:
     import pytz
@@ -19,11 +21,13 @@ try:
 except ImportError:
     logging.warning( "Failed to import pytz module; skipping history related tests; run 'pip install pytz'" )
 
-
-import cpppo
-from . import misc
+got_localzone			= False
 if has_pytz:
-    from .history import *
+    try:
+        from .history import *
+        got_localzone		= True
+    except pytz.UnknownTimeZoneError as exc:
+        logging.warning( "Failed to determine local timezone; platform requires tzlocal; run 'pip install tzlocal'" )
 
 
 logging.basicConfig( **cpppo.log_cfg )
@@ -50,7 +54,8 @@ def utc_trns( loctime ):
 
 def test_history_timestamp():
     """Ensure timestamp deals in UTC only"""
-    if not has_pytz:
+    if not has_pytz or not got_localzone:
+        logging.warning( "Skipping cpppo.history.timestamp tests" )
         return
 
     timestamp.support_abbreviations( 'CA' )
