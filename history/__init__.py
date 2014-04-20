@@ -80,7 +80,7 @@ except ImportError:
     
 class timestamp( object ):
     """Initialize from a timestamp or a UTC formatted date-time string, and produce float timestamp
-    value or string.  Uses datetime.str{p,f}time because it handles %f (microseconds).
+    value or string.
 
     All numeric timestamps are converted to string, and all comparisons between timestamps should be
     in string form, to ensure that all timestamps are truncated to the same precision.  The format
@@ -97,7 +97,6 @@ class timestamp( object ):
                                     if sys.version_info.major < 3
                                     else str ).maketrans( ":-.", "   " )
     _fmt			= '%Y-%m-%d %H:%M:%S' # 2014-04-01 10:11:12
-    _fmt_loc			= _fmt + ' %Z'        # 2014-04-01 10:11:12 MDT
 
     # A map of all the common timezone abbreviations to their canonical timezones along with the
     # proper is_dst setting.
@@ -149,7 +148,6 @@ class timestamp( object ):
             if outabb not in cls._tzabbrev:
                 cls._tzabbrev[outabb]= out.tzinfo,outdst
 
-
     @classmethod
     def datetime_from_string( cls, s, tzinfo=UTC ):
         """Parse a time, in the specified timezone.  Or, if the time contains a timezone (the last
@@ -187,10 +185,7 @@ class timestamp( object ):
             # dates in daylight savings time.  Because we do not pass the is_dst keyword, this will
             # fail for those ambiguous times at the start/end of Daylight savings time -- unless we
             # specify a Daylight Savings Time specific timezone, eg. MST/MDT.
-            dt			= datetime.datetime( *map( int, terms ))
-            dtloc		= tzinfo.localize( dt, is_dst=is_dst )
-
-            return dtloc
+            return tzinfo.localize( datetime.datetime( *map( int, terms )), is_dst=is_dst )
         except Exception as exc:
             raise ValueError( "Invalid time format %r; expect YYYY-MM-DD HH:MM:SS[.###] [TZ]: %s", s, exc )
 
@@ -228,15 +223,17 @@ class timestamp( object ):
         else:
             raise ValueError( "Invalid timestamp of %s: %r", type( value ), value )
 
-    def __str__( self ):
-        """Lazily produce (and cache) the UTC string formatted version.  Since we are "rounding" to 3
-        places after the decimal, and since floating point values are not very precise for values
-        that are not sums of fractions whose denominators are powers of 2, we want to make sure that
-        obvious problems don't occur.
-        
-        The python floating point formatting operators seem to get it right most times, but the
-        datetime.datetime.strftime doesn't use them.  You get different result between Python 2/3:even when 
+    def format( self, tzinfo=UTC, ms=True ):
+        """Format the time in the specified zone, optionally with milliseconds.  If the specified
+        timezone is not UTC, include the timezone designation.
 
+        Since we are "rounding" to 3 places after the decimal, and since floating point values are
+        not very precise for values that are not sums of fractions whose denominators are powers of
+        2, we want to make sure that obvious problems don't occur.
+
+        The python floating point formatting operators seem to get it right most times, but the
+        datetime.datetime.strftime doesn't use them to format milliseconds.  You get different
+        result between Python 2/3:
 
             [datasim@debian-8-amd64 ~]$ python
             Python 2.7.6 (default, Mar 22 2014, 15:40:47)
@@ -274,9 +271,20 @@ class timestamp( object ):
         properly round the fractional part to the desired number of decimal places.
 
         """
+        dt			= self.datetime_from_number( self.value )
+        result			= dt.strftime( self._fmt )
+        if ms:
+            result	       += ( "%.3f" % self.value ) [-4:]
+        if tzinfo is not self.UTC:
+            result	       += dt.strftime( ' %Z' )
+        return result
+
+    def __str__( self ):
+        """Lazily produce (and cache) the UTC string formatted version.
+
+        """
         if self._str is None:
-            ms			= "%.3f" % self.value
-            self._str		= self.datetime_from_number( self.value ).strftime( self._fmt ) + ms[-4:]
+            self._str		= self.format( ms=True )
         return self._str
 
     def __repr__( self ):
@@ -322,8 +330,7 @@ class timestamp( object ):
         ambiguous times during the DST to non-DST transition hour in the fall.
 
         """
-        dt			= self.datetime_from_number( self.value, self.LOC )
-        return dt.strftime( self._fmt_loc )
+        return self.format( tzinfo=self.LOC, ms=False )
     @local.setter
     def local( self, loctime ):
         self.value		= self.number_from_datetime( self.datetime_from_string( loctime, self.LOC ))
