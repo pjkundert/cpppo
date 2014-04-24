@@ -72,7 +72,7 @@ if hasattr( math, 'isnan' ):
 else:
     def isnan( f ):
         return f != f
-    math.isnan = isnan
+    math.isnan			= isnan
 
 if hasattr( math, 'inf' ):
     inf				= math.inf
@@ -84,7 +84,7 @@ if hasattr( math, 'isinf' ):
 else:
     def isinf( f ):
         return abs( f ) == inf
-    math.isinf = isinf
+    math.isinf			= isinf
 
 def change_function( function, **kwds ):
     """Change a function with one or more changed co_... attributes, eg.:

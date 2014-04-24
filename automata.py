@@ -46,11 +46,6 @@ from . import misc
 from .dotdict import *
 
 
-class NonTerminal( Exception ):
-    """A state machine has been forced to terminate in a non-terminal state"""
-    pass
-
-
 log				= logging.getLogger( __package__ )
 log_cfg				= {
     "level":	logging.WARNING,
@@ -278,6 +273,11 @@ class decide( object ):
         target			= self.state if truth else None
         log.info( "%s %-13.13s -> %10s w/ data: %r", machine.name_centered(), self, target, data )
         return target
+
+
+class NonTerminal( Exception ):
+    """A state machine has been forced to terminate in a non-terminal state"""
+    pass
 
 
 class state( dict ):
