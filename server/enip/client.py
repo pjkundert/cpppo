@@ -47,9 +47,6 @@ from   cpppo.server import network
 from   cpppo.server import enip
 from   cpppo.server.enip import logix
 
-if __name__ == "__main__":
-    logging.basicConfig( **cpppo.log_cfg )
-
 log				= logging.getLogger( "enip.cli" )
 
 class client( object ):
@@ -361,7 +358,7 @@ def main( argv=None ):
             })
             
     # Perform all specified tag operations, the specified number of repeat times.  Doesn't handle
-    # writes, or fragmented reads yet.  If any operation fails, return a non-zero status
+    # writes, or fragmented reads yet.  If any operation fails, return a non-zero exit status
     status			= 0
     start			= misc.timer()
     for i in range( repeat ):
@@ -384,11 +381,27 @@ def main( argv=None ):
             tag			= op['path'][0]['symbolic']
             elm			= op['path'][1]['element']
             cnt			= op['elements']
+            res			= None
+
             try:
-                res		= data.enip.CIP.send_data.CPF.item[1].unconnected_send.request.read_frag.data
+                # The response should contain either an status code (possibly with an extended
+                # status), or the read_frag request's data.  Remember; a successful response may
+                # carry read_frag.data, but report a status == 6 indicating that more data remains
+                # to return via a subsequent fragmented read request.
+                request		= data.enip.CIP.send_data.CPF.item[1].unconnected_send.request
+                if 'read_frag' in request:
+                    res		= request.read_frag.data
+                if request.status:
+                    if not status:
+                        status	= request.status
+                    log.warning( "Request returned non-zero status: %d %s", request.status, 
+                                 repr( request.status_ext.data ) if 'status_ext' in request and request.status_ext.size else "" )
+            except AttributeError as exc:
+                status		= 1
+                res		= "Response missing data: %s" % exc
             except Exception as exc:
                 status		= 1
-                res		= str( exc )
+                res		= "Exception: %s" % exc
 
             log.warning( "%10s[%5d-%-5d] == %r" % ( tag, elm, elm + cnt - 1, res ))
 

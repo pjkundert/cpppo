@@ -44,10 +44,6 @@ except ImportError:
 import	cpppo
 from	cpppo		import misc
 
-
-if __name__ == "__main__":
-    logging.basicConfig( **cpppo.log_cfg )
-
 log				= logging.getLogger( "remote.io" )
 
 # 

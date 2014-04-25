@@ -26,11 +26,6 @@ __license__                     = "Dual License: GPLv3 (or later) and Commercial
 import logging
 import sys
 
-import cpppo
-
-if __name__ == "__main__":
-    logging.basicConfig( **cpppo.log_cfg )
-
 from .main import main
 
 sys.exit( main() )
