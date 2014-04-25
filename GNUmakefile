@@ -33,9 +33,18 @@ PY3=python3
 #     LANG=en_CA.UTF-8
 #     LC_ALL=en_CA.UTF-8
 # 
+
+# To see all pytest output, uncomment --capture=no
 PYTESTOPTS=-v # --capture=no
-PY2TEST=$(PY2) -m pytest $(PYTESTOPTS)
-PY3TEST=$(PY3) -m pytest $(PYTESTOPTS)
+
+# Preferred timezone for tests.  If you change this, then you will probably have
+# to augment history_test.py to include checking for timestamp.local output in
+# your local timezone; See history_test.py test_history_timestamp() for supported
+# zones
+TZ=Canada/Mountain
+
+PY2TEST=TZ=$(TZ) $(PY2) -m pytest $(PYTESTOPTS)
+PY3TEST=TZ=$(TZ) $(PY3) -m pytest $(PYTESTOPTS)
 
 .PHONY: all test clean upload
 all:			help

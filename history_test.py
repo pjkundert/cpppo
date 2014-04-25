@@ -35,37 +35,25 @@ if has_pytz:
     except pytz.UnknownTimeZoneError as exc:
         logging.warning( "Failed to determine local timezone; platform requires tzlocal; run 'pip install tzlocal'" )
 
-#log_cfg['level']		= logging.INFO
+#log_cfg['level']		= logging.NORMAL
 logging.basicConfig( **log_cfg )
 
-    
-trtab				= ( string 
-                                    if sys.version_info.major < 3
-                                    else str ).maketrans( ":-.", "   " )
 
-def utc_strp( loctime ):
-    if '.' in loctime:
-        unaware			= datetime.datetime.strptime( loctime, timestamp._fmt + ".%f" )
-    else:
-        unaware			= datetime.datetime.strptime( loctime, timestamp._fmt )
-    return pytz.utc.localize( unaware )
-
-def utc_trns( loctime ):
-    terms			= loctime.translate( trtab ).split()
-    if len( terms ) == 7:
-        # convert .123 into 123000 microseconds
-        terms[6]               += '0' * ( 6 - len( terms[6] ))
-    return datetime.datetime( *map( int, terms ), tzinfo=pytz.utc )
-
-
-def test_history_timestamp():
-    """Ensure timestamp deals in UTC only"""
+def test_history_timestamp_abbreviations():
+    """Test timezone abbreviation support. """
     if not has_pytz or not got_localzone:
-        logging.warning( "Skipping cpppo.history.timestamp tests" )
+        logging.warning( "Skipping cpppo.history.timestamp abbreviation tests" )
         return
+        
 
-    abbrev			= timestamp.support_abbreviations( 'CA' )
+    abbrev			= timestamp.support_abbreviations( 'CA', reset=True )
     assert sorted( abbrev ) == ['ADT', 'AST', 'CDT', 'CST', 'EDT', 'EST', 'MDT', 'MST', 'NDT', 'NST', 'PDT', 'PST']
+
+    # Perform all the remaining timezone abbreviation tests relative to a known range of times, to
+    # avoid differences in the future due to timezone changes.
+    ts				= timestamp( "2014-04-24 08:00:00 MDT" )
+    kwds			= {}
+
     try:
         abbrev			= timestamp.support_abbreviations( 'America' )
         assert False, "Many zones should have been ambiguously abbreviated"
@@ -75,23 +63,99 @@ def test_history_timestamp():
         exclude=['America/Mazatlan', 'America/Merida', 'America/Mexico_City', 'America/Monterrey',
                  'America/Bahia_Banderas', 'America/Cancun', 'America/Chihuahua', 'America/Havana',
                  'America/Santa_Isabel'] )
-    print( sorted( abbrev ))
-    assert sorted( abbrev ) == ['AKDT', 'AKST', 'AMST', 'AMT', 'BRST', 'BRT', 'CLST', 'CLT', 'EGST', 'EGT',
-                                'HADT', 'HAST', 'PMDT', 'PMST', 'PYST', 'PYT', 'UYST', 'UYT', 'WGST', 'WGT']
-
+    #print( sorted( abbrev ))
+    assert sorted( abbrev ) == ['ACT', 'AKDT', 'AKST', 'AMST', 'AMT', 'ART', 'BOT', 'BRST', 'BRT', 'CLST', 'CLT',
+                                'COT', 'ECT', 'EGST', 'EGT', 'FNT', 'GFT', 'GMT', 'GYT', 'HADT', 'HAST', 'MeST',
+                                'PET', 'PMDT', 'PMST', 'PYST', 'PYT', 'SRT', 'UYST', 'UYT', 'VET', 'WGST', 'WGT']
     abbrev			= timestamp.support_abbreviations( 'Europe/Berlin' )
     assert sorted( abbrev ) == ['CEST', 'CET']
     assert 'CEST' in timestamp._tzabbrev
     assert 'EEST' not in timestamp._tzabbrev
     abbrev			= timestamp.support_abbreviations( 'Europe', exclude=[ 'Europe/Simferopol', 'Europe/Istanbul'] )
-    assert sorted( abbrev ) == ['BST', 'EEST', 'EET', 'GMT', 'IST', 'WEST', 'WET']
+    #print( sorted( abbrev ))
+    assert sorted( abbrev ) == ['BST', 'EEST', 'EET', 'FET', 'IST', 'MSK', 'SAMT', 'VOLT', 'WEST', 'WET']
     assert 'EEST' in timestamp._tzabbrev
     try:
         timestamp.support_abbreviations( 'Asia' )
         assert False, "Asia/Jerusalem IST should have mismatched Europe/Dublin IST"
     except AmbiguousTimeZoneError as exc:
         assert "Asia/Jerusalem" in str( exc )
-    timestamp.support_abbreviations( 'Australia' )
+
+    # While Asia is internally very inconsistent (eg. EEST), countries should be internally consisent
+    abbrev			= timestamp.support_abbreviations( 'JO', reset=True ) # Jordan
+    #print( sorted( abbrev ))
+    assert sorted( abbrev ) == [ 'EEST', 'EET']
+    z,dst,off			= timestamp._tzabbrev['EEST']
+    assert str(z) == 'Asia/Amman'	and dst == True  and format_offset( off.total_seconds(), ms=None ) == "> 3:00:00"
+    abbrev			= timestamp.support_abbreviations( 'IE', reset=True ) # Israel
+    #print( sorted( abbrev ))
+    assert sorted( abbrev ) == [ 'GMT', 'IST' ]
+    # Jordan, Israel and Lebanon only work if we pick a region to exclude, for one EEST definition
+    abbrev			= timestamp.support_abbreviations( ['JO', 'IE', 'LB'],
+                                                                   exclude=[ 'Asia/Amman' ], reset=True )
+    #print( sorted( abbrev ))
+    assert sorted( abbrev ) == [ 'EEST', 'EET', 'GMT', 'IST' ]
+    z,dst,off			= timestamp._tzabbrev['EEST']
+    assert str(z) == 'Asia/Beirut'	and dst == True  and format_offset( off.total_seconds(), ms=None ) == "> 3:00:00"
+
+    # Australia zones incompatible with a bunch of other timezone abbreviations, eg. CST; reset
+    abbrev			= timestamp.support_abbreviations( 'Australia', reset=True )
+    #print( sorted( abbrev ))
+    assert sorted( abbrev ) == ['CST', 'CWST', 'EST', 'LHST', 'WST']
+    z,dst,off			= timestamp._tzabbrev['LHST']
+    assert str(z) == 'Australia/Lord_Howe'	and dst == None  and format_offset( off.total_seconds(), ms=None ) == ">10:30:00"
+
+    # Ensure that non-ambiguous (DST-specific) zone abbreviations override ambiguous
+    abbrev			= timestamp.support_abbreviations( [ 'Australia/Adelaide' ], reset=True )
+    z,dst,off			= timestamp._tzabbrev['CST']
+    assert str(z) == 'Australia/Adelaide'	and dst == None  and format_offset( off.total_seconds(), ms=None ) == "> 9:30:00"
+    abbrev			= timestamp.support_abbreviations( [ 'Australia/Adelaide', 'Australia/Darwin' ], reset=True )
+    z,dst,off			= timestamp._tzabbrev['CST']
+    assert str(z) == 'Australia/Darwin'		and dst == False and format_offset( off.total_seconds(), ms=None ) == "> 9:30:00"
+
+    # Check that zones with complete, permanent offset changes (not just DST) are handled.  We know
+    # that within a year of 2014-04-28, the America/Eirunepe (west Amazonas) zone had such a change.
+    abbrev			= timestamp.support_abbreviations( [ 'America/Eirunepe' ], at=datetime.datetime( 2014, 4, 28 ))
+    assert sorted( abbrev ) == [ 'ACT', 'AMT' ]
+    z,dst,off			= timestamp._tzabbrev['ACT']
+    assert str(z) == 'America/Eirunepe'		and dst == False and format_offset( off.total_seconds(), ms=None ) == "< 5:00:00"
+    z,dst,off			= timestamp._tzabbrev['AMT']
+    assert str(z) == 'America/Eirunepe'		and dst == False and format_offset( off.total_seconds(), ms=None ) == "< 4:00:00"
+
+
+def test_history_timestamp():
+    """Test timestamp, ensuring comparison deals in UTC only.  Supports testing in local timezones:
+    
+        Canada/Edmonton		-- A generic, ambiguous DST/non-DST timezone
+        MST			-- A DST-specific non-DST timezone
+        UTC			-- UTC
+
+    """
+    if not has_pytz or not got_localzone:
+        logging.warning( "Skipping cpppo.history.timestamp tests" )
+        return
+
+    trtab			= ( string 
+                                    if sys.version_info.major < 3
+                                    else str ).maketrans( ":-.", "   " )
+
+    def utc_strp( loctime ):
+        if '.' in loctime:
+            unaware		= datetime.datetime.strptime( loctime, timestamp._fmt + ".%f" )
+        else:
+            unaware		= datetime.datetime.strptime( loctime, timestamp._fmt )
+        return pytz.utc.localize( unaware )
+
+    def utc_trns( loctime ):
+        terms			= loctime.translate( trtab ).split()
+        if len( terms ) == 7:
+            # convert .123 into 123000 microseconds
+            terms[6]               += '0' * ( 6 - len( terms[6] ))
+        return datetime.datetime( *map( int, terms ), tzinfo=pytz.utc )
+
+
+    # Get MST/MDT and CET/CEST abbreviations
+    timestamp.support_abbreviations( ['CA','Europe/Berlin'], reset=True )
 
     # $ TZ=UTC date --date=@1388559600
     # Wed Jan  1 07:00:00 UTC 2014
@@ -125,6 +189,7 @@ def test_history_timestamp():
     assert ts.utc	== '2014-04-03 13:19:59.000' == str( ts )
 
     assert ts.local	in ( '2014-04-03 07:19:59 MDT',
+                             '2014-04-03 06:19:59 MST',
                              '2014-04-03 13:19:59 UTC' )
 
     # From a string UTC time
@@ -143,6 +208,7 @@ def test_history_timestamp():
     # OK, now try a UTC time where the local timezone is in MDT
     ts.utc			= '2014-04-01 07:00:00.000'
     assert ts.local	in ( '2014-04-01 01:00:00 MDT',
+                             '2014-04-01 00:00:00 MST',
                              '2014-04-01 07:00:00 UTC' )
 
     # Make sure that local times are unambiguous over daylight savings time
@@ -153,13 +219,16 @@ def test_history_timestamp():
                              '2014-03-09 08:59:00 UTC' )
     ts			       += 61
     assert ts.local	in ( '2014-03-09 03:00:01 MDT',
+                             '2014-03-09 02:00:01 MST',
                              '2014-03-09 09:00:01 UTC' )
 
     ts				= timestamp( 1414915140 )
     assert ts.local	in ( '2014-11-02 01:59:00 MDT',
+                             '2014-11-02 00:59:00 MST',
                              '2014-11-02 07:59:00 UTC' )
     ts			       += 61
     assert ts.local	in ( '2014-11-02 01:00:01 MST',
+                             '2014-03-09 02:00:01 MST',
                              '2014-11-02 08:00:01 UTC' )
 
     # Now try converting a few strings that have a specific timezone.  We can use either .utc =
@@ -175,29 +244,34 @@ def test_history_timestamp():
     assert 1394355600.999999 < ts.value < 1394355601.000001
     assert ts.utc 	==   '2014-03-09 09:00:01.000' # MDT == UCT-6:00
     assert ts.local	in ( '2014-03-09 03:00:01 MDT',
+                             '2014-03-09 02:00:01 MST',
                              '2014-03-09 09:00:01 UTC' )
     # However, we CAN use a specifically non-DST timezone to specify times non-existent in DST
     ts.local			= '2014-03-09 02:00:01 MST' # No such time in MDT!!
     assert 1394355600.999999 < ts.value < 1394355601.000001
     assert ts.utc	==   '2014-03-09 09:00:01.000'
     assert ts.local	in ( '2014-03-09 03:00:01 MDT',
+                             '2014-03-09 02:00:01 MST',
                              '2014-03-09 09:00:01 UTC' )
 
     ts.local			= '2014-11-02 01:00:01 MST' # 1 second after the end of DST
     assert 1414915200.999999 < ts.value < 1414915201.000001
     assert ts.utc	==   '2014-11-02 08:00:01.000'
     assert ts.local	in ( '2014-11-02 01:00:01 MST',
+                             '2014-11-02 00:59:59 MST',
                              '2014-11-02 08:00:01 UTC' )
 
     ts			       -= 2 # Go back 2 seconds, into DST
     assert ts.utc	==   '2014-11-02 07:59:59.000'
     assert ts.local	in ( '2014-11-02 01:59:59 MDT',
+                             '2014-11-02 00:59:59 MST',
                              '2014-11-02 07:59:59 UTC' )
 
     ts.local			= '2014-11-02 01:59:58 MDT' # 2 seconds before end of DST
     assert 1414915197.999999 < ts.value < 1414915198.000001
     assert ts.utc	==   '2014-11-02 07:59:58.000'
     assert ts.local	in ( '2014-11-02 01:59:58 MDT',
+                             '2014-11-02 00:59:58 MST',
                              '2014-11-02 07:59:58 UTC' )
 
     # Using a canonical timezone such as 'America/Edmonton', an "ambiguous" time (eg. during the
@@ -211,6 +285,7 @@ def test_history_timestamp():
     assert 1414911598.999999 < ts.value < 1414911599.000001
     assert ts.utc	==   '2014-11-02 06:59:59.000'
     assert ts.local	in ( '2014-11-02 00:59:59 MDT',
+                             '2014-11-01 23:59:59 MST',
                              '2014-11-02 06:59:59 UTC' )
 
     after			= timestamp( '2014-11-02 01:02:03.123 MST' ) # (Nov 2 2014 -- 1:02 *after* DST ended)
@@ -218,6 +293,7 @@ def test_history_timestamp():
     assert before < after
     assert before.utc	==   '2014-11-02 07:02:03.456'
     assert before.local	in ( '2014-11-02 01:02:03 MDT',
+                             '2014-11-02 00:02:03 MST',
                              '2014-11-02 07:02:03 UTC' )
     assert after.utc	==   '2014-11-02 08:02:03.123'
     assert after.local	in ( '2014-11-02 01:02:03 MST',
@@ -228,13 +304,19 @@ def test_history_timestamp():
     assert before < after
     assert before.utc	==   '2014-10-26 00:01:00.456'
     assert before.local	in ( '2014-10-25 18:01:00 MDT',
+                             '2014-10-25 17:01:00 MST',
                              '2014-10-26 00:01:00 UTC' )
     assert after.utc	==   '2014-10-26 01:01:00.123'
     assert after.local	in ( '2014-10-25 19:01:00 MDT',
+                             '2014-10-25 18:01:00 MST',
                              '2014-10-26 01:01:00 UTC' )
 
 
 def test_history_opener():
+    if not has_pytz or not got_localzone:
+        logging.warning( "Skipping cpppo.history file opener tests" )
+        return
+
     # Try opening all the compressed files in the 2 acceptable ways: context or iterator
     path		=  'tests/history'
     for f in os.listdir( path ):
@@ -250,6 +332,10 @@ def test_history_opener():
 
 
 def test_history_sequential():
+    if not has_pytz or not got_localzone:
+        logging.warning( "Skipping cpppo.history file sequential tests" )
+        return
+
     for _ in range( 3 ):
         path		= "/tmp/test_sequential_%d" % random.randint( 100000, 999999 )
         if os.path.exists( path ):
@@ -338,6 +424,10 @@ def test_history_unparsable():
     except if the initial frame of register data on the first file is missing.
 
     """
+    if not has_pytz or not got_localzone:
+        logging.warning( "Skipping cpppo.history file unparsable tests" )
+        return
+
     for _ in range( 3 ):
         path		= "/tmp/test_unparsable_%d" % random.randint( 100000, 999999 )
         if os.path.exists( path ):
