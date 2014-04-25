@@ -86,9 +86,6 @@ from   cpppo.server import network
 
 address				= ('0.0.0.0', 8008)
 
-if __name__ == "__main__":
-    logging.basicConfig( **cpppo.log_cfg )
-
 log				= logging.getLogger( "tnet.srv" )
 
 bytes_conf 			= {
@@ -197,6 +194,7 @@ def tnet_server( conn, addr ):
 
 
 def main():
+    logging.basicConfig( **cpppo.log_cfg )
     return network.server_main( address=address, target=tnet_server )
 
 

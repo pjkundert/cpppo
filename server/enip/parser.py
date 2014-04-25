@@ -1093,11 +1093,11 @@ class status( cpppo.dfa ):
         stat[True]	= size	= USINT( 	'_ext.size',	extension='_ext.size' )
 
         # Prepare a state-machine to parse each UINT into .UINT, and move it onto the .data list
-        exts			= UINT(		'_ext.UINT' )
-        exts[None]		= move_if( 	'_ext.data',	source='.UINT', 
-                                           destination='.data',	initializer=lambda **kwds: [],
-                                                state=octets_noop(  '_ext.done',
-                                                                    terminal=True ))
+        exts			= UINT(		'ext_status',	extension='.ext_status' )
+        exts[None]		= move_if( 	'data',		source='.ext_status',
+                                           destination='.data',	initializer=lambda **kwds: [] )
+        exts[None]		= cpppo.state( 	'done', terminal=True )
+
         # Parse each status_ext.data in a sub-dfa, repeating status_ext.size times
         each			= cpppo.dfa(    'each',		extension='_ext',
                                                 initial=exts,	repeat='_ext.size',
@@ -1105,7 +1105,7 @@ class status( cpppo.dfa ):
         # Only enter the state_ext.data dfa if status_ext.size is non-zero
         size[None]		= cpppo.decide(	'_ext.size', 
                             predicate=lambda path=None, data=None, **kwds: data[path+'_ext.size'],
-                                                state=exts )
+                                                state=each )
         # Otherwise, we're done!
         size[None]		= octets_noop( 'done', 
                                                terminal=True )
