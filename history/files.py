@@ -23,7 +23,7 @@ __email__                       = "perry@hardconsulting.com"
 __copyright__                   = "Copyright (c) 2013 Hard Consulting Corporation"
 __license__                     = "Dual License: GPLv3 (or later) and Commercial (see LICENSE)"
 
-__all__				= ["opener", "logger",
+__all__				= ["opener", "logger", "parse_record",
                                    "HistoryExhausted", "reader",
                                    "DataError", "IframeError", "loader"]
 

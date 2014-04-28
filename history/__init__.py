@@ -25,7 +25,7 @@ __license__                     = "Dual License: GPLv3 (or later) and Commercial
 
 __all__				= ["timestamp", "get_localzone", "zone_names",
                                    "parse_offset", "format_offset", "AmbiguousTimeZoneError",
-                                   "opener", "logger", 
+                                   "opener", "logger", "parse_record",
                                    "HistoryExhausted", "reader", 
                                    "DataError", "IframeError", "loader"]
 
