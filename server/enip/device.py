@@ -219,8 +219,8 @@ class Attribute( object ):
 
     If an error code is supplied, requests on the Attribute should fail with that code.
 
-    To interface to other types of data (eg. remote data), supply an object to default that supplies
-    the following interface:
+    To interface to other types of data (eg. remote data), supply as 'default' an object that
+    supplies the following interface:
     
         o.__len__()			-- DOESN'T EXIST if scalar; returns number of elements if vector (a str is considered scalar)
         o.__repr__()			-- Some representation of the object; a few of its elements, an address
@@ -231,7 +231,9 @@ class Attribute( object ):
     					   int/float.  These will be accessed by functions such as struct.pack()
     
     Note that it is impossible to capture assignment to a scalar value; all remote data must be
-    vectors, even if they only have a single element.
+    vectors, even if they only have a single element.  However, for Attributes whose underlying
+    'default' value is a simple scalar type, we'll support simple value assignment (it will replace
+    the underlying 'default' value with a new instance of the same type).
 
     """
     def __init__( self, name, type_cls, default=0, error=0x00 ):
@@ -244,6 +246,10 @@ class Attribute( object ):
     @property
     def value( self ):
         return self.default
+    @value.setter
+    def value( self, v ):
+        assert self.scalar, "Scalar assignment to %s not supported" % type( self.default )
+        self.default		= type(self.default)( v )
 
     def __str__( self ):
         return "%-12s %5s[%4d] == %s" % (

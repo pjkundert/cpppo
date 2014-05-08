@@ -898,19 +898,19 @@ def main( argv=None, **kwds ):
             tag_size, rest	= rest.split( ']', 1 )
         assert not rest, "Invalid tag specified; expected tag=<type>[<size>]: %r" % t
         tag_type		= str( tag_type ).upper()
-        typenames		= {"INT": parser.INT, "DINT": parser.DINT, "SINT": parser.SINT }
+        typenames		= {"INT": parser.INT, "DINT": parser.DINT, "SINT": parser.SINT, "REAL": parser.REAL }
         assert tag_type in typenames, "Invalid tag type; must be one of %r" % list( typenames.keys() )
         try:
             tag_size		= int( tag_size )
         except:
             raise AssertionError( "Invalid tag size: %r" % tag_size )
 
-        # Ready to create the tag and its Attribute (and error code to return, if any)
+        # Ready to create the tag and its Attribute (and error code to return, if any).  If tag_size
+        # is 1, it will be a scalar Attribute.
         log.normal( "Creating tag: %s=%s[%d]", tag_name, tag_type, tag_size )
         tags[tag_name]		= cpppo.dotdict()
         tags[tag_name].attribute= device.Attribute( tag_name, typenames[tag_type],
-                                                    default=( 0 if tag_size == 1 
-                                                              else [0 for i in range( tag_size )]))
+                default=( 0 if tag_size == 1 else [0] * tag_size ))
         tags[tag_name].error	= 0x00
 
     # Use the Logix simulator by default (unless some other one was supplied as a keyword options to

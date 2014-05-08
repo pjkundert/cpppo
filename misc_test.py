@@ -6,6 +6,7 @@ import logging
 import os
 import sys
 import types
+import threading
 
 from .misc import *
 
@@ -64,3 +65,54 @@ def test_function_creation():
     filename			= "something/else.py"
     change_function( func, co_filename=filename )
     assert func.__code__.co_filename == filename
+
+
+def test_mutexmethod():
+
+    class C( object ):
+        _cls_lock		= threading.Lock()
+        def __init__( self ):
+            self._ins_lock	= threading.Lock()
+
+        @classmethod
+        @mutexmethod( '_cls_lock', blocking=False )
+        def clsmethod_lock_cls( cls, f=None ):
+            if f:
+                return f()
+
+        @mutexmethod( '_cls_lock', blocking=False )
+        def insmethod_lock_cls( self, f=None ):
+            if f:
+                return f()
+
+        @mutexmethod( '_ins_lock', blocking=False )
+        def insmethod_lock_ins( self, f=None ):
+            if f:
+                return f()
+
+    c				= C()
+
+    # Same lock; should raise Exception (since blocking=False used above)
+    assert c.insmethod_lock_cls() is None
+    try:
+        c.insmethod_lock_cls( c.insmethod_lock_cls )
+        assert False, "Should have raised recursive lock exception"
+    except Exception as exc:
+        assert "Lock is held" in str( exc )
+
+    assert c.clsmethod_lock_cls() is None
+    try:
+        c.clsmethod_lock_cls( c.clsmethod_lock_cls )
+        assert False, "Should have raised recursive lock exception"
+    except Exception as exc:
+        assert "Lock is held" in str( exc )
+
+    try:
+        c.clsmethod_lock_cls( c.insmethod_lock_cls )
+        assert False, "Should have raised recursive lock exception"
+    except Exception as exc:
+        assert "Lock is held" in str( exc )
+
+    # Two different locks; should not interfere
+    c.clsmethod_lock_cls( c.insmethod_lock_ins )
+

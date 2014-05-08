@@ -154,6 +154,16 @@ def test_history_timestamp():
         return datetime.datetime( *map( int, terms ), tzinfo=pytz.utc )
 
 
+    # Basic millisecond hygiene.  Comparisons are by standard UTC format to 3 sub-second decimal
+    # places of precision.  Unfortunately, the Python 2/3 strftime microsecond formatters are
+    # different, so we don't use them.  If no precision, we do NOT round; we truncate, to avoid the
+    # surprising effect of formatting a UNIX value manually using strftime produces a different
+    # second than formatting it using render() with no sub-second precision.
+    assert timestamp( 1399326141.999836 ) >= timestamp( 1399326141.374836 )
+    assert timestamp( 1399326141.999836 ).render( ms=False ) == '2014-05-05 21:42:21'
+    assert timestamp( 1399326141.999836 ).render( ms=5 ) == '2014-05-05 21:42:21.99984'
+    assert timestamp( 1399326141.999836 ).render() == '2014-05-05 21:42:22.000'
+
     # Get MST/MDT and CET/CEST abbreviations
     timestamp.support_abbreviations( ['CA','Europe/Berlin'], reset=True )
 

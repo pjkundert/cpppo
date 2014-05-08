@@ -199,6 +199,26 @@ class client( object ):
         return data
 
     def read( self, path, elements=1, offset=0, route_path=None, send_path=None, timeout=None ):
+        read_frag		= {
+            'elements':		elements,
+            'offset':		offset,
+        }
+        return self.unconnected_send( path=path, route_path=route_path, send_path=send_path,
+                                      timeout=timeout, read_frag=read_frag )
+
+    def write( self, path, data, elements=1, offset=0, tag_type=enip.INT.tag_type,
+               route_path=None, send_path=None, timeout=None ):
+        write_frag		= {
+            'elements':		elements,
+            'offset':		offset,
+            'data':		data,
+            'type':		tag_type,
+        }
+        return self.unconnected_send( path=path, route_path=route_path, send_path=send_path,
+                                      timeout=timeout, write_frag=write_frag )
+
+    def unconnected_send( self, path, route_path=None, send_path=None, timeout=None,
+                          read_frag=None, write_frag=None ):
         if route_path is None:
             # Default to the CPU in chassis (link 0), port 1
             route_path		= [{'link': 0, 'port': 1}]
@@ -235,12 +255,13 @@ class client( object ):
         us.route_path		= { 'segment': [ cpppo.dotdict( d ) for d in route_path ]}
         us.request		= {}
         us.request.path		= { 'segment': [ cpppo.dotdict( d ) for d in path ]}
-        us.request.read_frag 	= {}
-
-        rf			= us.request.read_frag
-        rf.elements		= elements
-        rf.offset		= offset
-        rf.path			= path
+    
+        if read_frag:
+            us.request.read_frag= read_frag
+        elif write_frag:
+            us.request.write_frag= write_frag
+        else:
+            raise ValueError( "Expected a Read/Write Tag [Fragmented] request" )
 
         us.request.input	= bytearray( logix.Logix.produce( us.request ))
         sd.input		= bytearray( enip.CPF.produce( sd.CPF ))
@@ -335,12 +356,17 @@ def main( argv=None ):
 
     cli.session			= data.enip.session_handle
     
-    # Parse each EtherNet/IP Tag Read or Write (unsupported)
-    #     TAG[0] 	(default)
-    #     TAG[1-5]
+    # Parse each EtherNet/IP Tag Read or Write; only write operations will have 'data'
+    #     TAG[0] 		read 1 value index 0 (default)
+    #     TAG[1-5]		read 5 values from indices 1 to 5
+    #     TAG[4-7]=1,2,3,4	write 4 values from indices 4 to 7
+
     operations			= []
     for tag in args.tags:
         # Compute tag, elm, end and cnt (default elm is 0, cnt is 1)
+        val			= ''
+        if '=' in tag:
+            tag,val		= tag.split( '=', 1 )
         if '[' in tag:
             tag,elm		= tag.split( '[', 1 )
             elm,_		= elm.split( ']' )
@@ -351,59 +377,102 @@ def main( argv=None ):
         else:
             elm,end		= 0,0
         cnt			= end + 1 - elm
-        operations.append(
-            {
-                'path': 	[{'symbolic': tag}, {'element': elm}],
-                'elements': 	cnt,
-            })
+        opr			= {
+            'path':	[{'symbolic': tag}, {'element': elm}],
+            'elements': cnt,
+        }
+        if val:
+            if '.' in val:
+                opr['tag_type']	= enip.REAL.tag_type
+                cast		= lambda x: float( x )
+            else:
+                opr['tag_type']	= enip.INT.tag_type
+                cast		= lambda x: int( x )
+            # Allow an optional (TYPE)value,value,...
+            if ')' in val:
+                def int_validate( x, lo, hi ):
+                    res		= int( x )
+                    assert lo <= res <= hi, "Invalid %d; not in range (%d,%d)" % ( res, lo, hi)
+                    return res
+                typ,val		= val.split( ')' )
+                _,typ		= typ.split( '(' )
+                opr['tag_type'],cast = {
+                    'REAL': 	(enip.REAL.tag_type,	lambda x: float( x )),
+                    'DINT':	(enip.DINT.tag_type,	lambda x: int_validate( x, -2**31, 2**31-1 )),
+                    'INT':	(enip.INT.tag_type,	lambda x: int_validate( x, -2**15, 2**15-1 )),
+                    'SINT':	(enip.SINT.tag_type,	lambda x: int_validate( x, -2**7,  2**7-1 )),
+                }[typ.upper()]
+            opr['data']		= list( map( cast, val.split( ',' )))
+
+            assert len( opr['data'] ) == cnt, \
+                "Number of data values (%d) doesn't match element count (%d): %s=%s" % (
+                    len( opr['data'] ), cnt, tag, val )
+        operations.append( opr )
+
             
     # Perform all specified tag operations, the specified number of repeat times.  Doesn't handle
-    # writes, or fragmented reads yet.  If any operation fails, return a non-zero exit status
+    # fragmented reads yet.  If any operation fails, return a non-zero exit status.
     status			= 0
     start			= misc.timer()
     for i in range( repeat ):
         for op in operations: # {'path': [...], 'elements': #}
             begun		= misc.timer()
-            request		= cli.read( offset=0, timeout=timeout, **op )
+            if 'data' in op:
+                descr		= "Write Frag"
+                request		= cli.write( offset=0, timeout=timeout, **op )
+            else:
+                descr		= "Read  Frag"
+                request		= cli.read( offset=0, timeout=timeout, **op )
             elapsed		= misc.timer() - begun
-            log.normal( "Client ReadFrg. Sent %7.3f/%7.3fs: %s" % ( elapsed, timeout, enip.enip_format( request )))
-            data		= None
-            for data in cli:
+            log.normal( "Client %s Sent %7.3f/%7.3fs: %s" % ( descr, elapsed, timeout, enip.enip_format( request )))
+            response			= None
+            for response in cli:
                 elapsed		= misc.timer() - begun
-                log.normal( "Client ReadFrg. Resp %7.3f/%7.3fs: %s" % ( elapsed, timeout, enip.enip_format( data )))
-                if data is None:
+                log.normal( "Client %s Resp %7.3f/%7.3fs: %s" % ( descr, elapsed, timeout, enip.enip_format( response )))
+                if response is None:
                     if elapsed <= timeout:
                         cli.readable( timeout=timeout - elapsed )
                         continue
                 break
             elapsed		= misc.timer() - begun
-            log.normal( "Client ReadFrg. Rcvd %7.3f/%7.3fs: %s" % ( elapsed, timeout, enip.enip_format( data )))
+            log.normal( "Client %s Rcvd %7.3f/%7.3fs: %s" % ( descr, elapsed, timeout, enip.enip_format( response )))
             tag			= op['path'][0]['symbolic']
             elm			= op['path'][1]['element']
             cnt			= op['elements']
-            res			= None
+            val			= []   # data values read/written
+            res			= None # result of request
+            act			= "??" # denotation of request action
 
             try:
                 # The response should contain either an status code (possibly with an extended
                 # status), or the read_frag request's data.  Remember; a successful response may
                 # carry read_frag.data, but report a status == 6 indicating that more data remains
                 # to return via a subsequent fragmented read request.
-                request		= data.enip.CIP.send_data.CPF.item[1].unconnected_send.request
+                request		= response.enip.CIP.send_data.CPF.item[1].unconnected_send.request
                 if 'read_frag' in request:
-                    res		= request.read_frag.data
+                    act		= "=="
+                    val		= request.read_frag.data
+                elif 'write_frag' in request:
+                    act		= "<="
+                    val		= op['data']
+                if not request.status:
+                    res		= "OK"
+                else:
+                    res		= "Status %d %s" % ( request.status,
+                        repr( request.status_ext.data ) if 'status_ext' in request and request.status_ext.size else "" )
                 if request.status:
                     if not status:
                         status	= request.status
-                    log.warning( "Request returned non-zero status: %d %s", request.status, 
-                                 repr( request.status_ext.data ) if 'status_ext' in request and request.status_ext.size else "" )
+                    log.warning( "Client %s returned non-zero status: %s", descr, res )
+
             except AttributeError as exc:
                 status		= 1
-                res		= "Response missing data: %s" % exc
+                res		= "Client %s Response missing data: %s" % ( descr, exc )
             except Exception as exc:
                 status		= 1
-                res		= "Exception: %s" % exc
+                res		= "Client %s Exception: %s" % exc
 
-            log.warning( "%10s[%5d-%-5d] == %r" % ( tag, elm, elm + cnt - 1, res ))
+            log.warning( "%10s[%5d-%-5d] %s %r: %r" % ( tag, elm, elm + cnt - 1, act, val, res ))
 
     duration			= misc.timer() - start
     log.warning( "Client ReadFrg. Average %7.3f TPS (%7.3fs ea)." % ( repeat / duration, duration / repeat ))

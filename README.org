@@ -40,6 +40,7 @@
     To run a simulation of a small subset of a Logix(tm) Controller with the tag
     'SCADA' for you to read/write, run:
     : $ python -m cpppo.server.enip -v SCADA=INT[1000]
+    : # (alternatively, invoke enip_server <options> ... )
 
     These options are available when you execute the cpppo.server.enip module:
 
@@ -64,7 +65,8 @@
     is required:
     : <tag>=<type>[<length>]   # eg. SCADA=INT[1000]
 
-    The available types are INT (16-bit), SINT (8-bit) and DINT (32-bit) integer.
+    The available types are INT (16-bit), SINT (8-bit) DINT (32-bit) integer,
+    and REAL (32-bit float).
 
 
 *** EtherNet/IP Controller Client
@@ -73,6 +75,7 @@
     knows how to Register, and issue Read Tag Fragmented requests (and only for
     offset 0; the first block of results):
     : python -m cpppo.server.enip.client SCADA[1] SCADA[0-10] ...
+    : # (alternatively, invoke enip_client <options> ... )
     
     Specify a different local interface and/or port to connect to (default is 0.0.0.0:44818):
     : -a|--address [<interface>][:<port>]
@@ -91,6 +94,18 @@
     register 0):
     : <tag> <tag>[<reg>] <tag>[<reg>-<reg>] # eg. SCADA SCADA[1] SCADA[1-10]
 
+    Writing is supported; the number of values must exactly match the data
+    specified register range:
+    : <tag>=<value>                            # scalar, eg. SCADA=1
+    : <tag>[<reg>-<reg>]=<value>,<value>,...   # vector range
+    : <tag>[<reg>]=<value>                     # single element of a vector
+    : <tag>[<reg>-<reg>]=(DINT)<value>,<value> # cast to SINT, INT, DINT or REAL
+
+    If any <value> contains a '.' (eg. '9.9,10'), all values are deemed to be REAL;
+    otherwise, they are integers and default to a type INT.  To force a specific
+    type (and limit the values to the appropriate value range), you may specify
+    a "cast" to a specific type, eg. 'TAG[4-6]=(INT)1,2,3'.  The types SINT,
+    INT, DINT and REAL are supported.
 
 *** Web Interface
 

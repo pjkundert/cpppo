@@ -44,6 +44,33 @@ try:
 except ImportError:
     import repr as reprlib
 
+
+# 
+# misc.mutexmethod -- apply a synchronization mutex around a method invocation
+# 
+def mutexmethod( mutex='lock', blocking=True ):
+    """A method synchronization decorator.  Defaults to acquire the mutex attribute (default:
+    '<self>.lock') on the class/instance of the bound 'method' during its invocation.  If not
+    'blocking', will raise an AssertionError if the mutex cannot be acquired instead of blocking.
+
+    Find the specified lock attribute (may be supplied by the instance or the class, as appropriate)
+    and acquire it around the method invocation.  Supports bound instance or class methods only.  We
+    use the direct acquire/release interface, because we support optional non-blocking exclusion.
+
+    """
+    def decorator( method ):
+        def wrapper( *args, **kwds ):
+            # Get the class method's class, or the instance method's self argument, then find mutex
+            lock		= getattr( getattr( method, '__self__', args[0] ), mutex )
+            assert lock.acquire( blocking ), "Lock is held"
+            try:
+                return method( *args, **kwds )
+            finally:
+                lock.release()
+        return wrapper
+    return decorator
+
+
 # 
 # misc.timer
 # 

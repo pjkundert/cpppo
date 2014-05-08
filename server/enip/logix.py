@@ -252,12 +252,21 @@ class Logix( Message_Router ):
                 context		= 'read_frag' if data.service == self.RD_FRG_RPY else 'read_tag'
                 data[context].type= attribute.parser.tag_type
             elif data.service in (self.WR_TAG_RPY, self.WR_FRG_RPY):
-                # Write Tag [Fragmented] Reply.
+                # Write Tag [Fragmented] Reply.  We'll allow data payloads of more restricted signed
+                # types into Attributes of a more spacious signed type (eg. writing SINT values into
+                # INT, or REAL Attribute).  Otherwise, the data types must match exactly.
                 context		= 'write_frag'	 if data.service == self.WR_FRG_RPY else 'write_tag'
                 data.status	= 0xFF
                 data.status_ext= {'size': 1, 'data':[0x2107]}
-                assert attribute.parser.tag_type == data[context].type, \
-                    "Tag type %d in request doesn't match Attribute type %d" % ( 
+                allowed_tag_types = {
+                    REAL.tag_type:	(SINT.tag_type, INT.tag_type, DINT.tag_type, REAL.tag_type),
+                    DINT.tag_type:	(SINT.tag_type, INT.tag_type, DINT.tag_type),
+                    INT.tag_type:	(SINT.tag_type, INT.tag_type),
+                    SINT.tag_type:	(SINT.tag_type,),
+                }
+                assert data[context].type in allowed_tag_types.get(
+                    attribute.parser.tag_type, (attribute.parser.tag_type,) ), \
+                    "Tag type %d in request doesn't fit within Attribute type %d" % ( 
                         data[context].type, attribute.parser.tag_type )
             else:
                 raise AssertionError( "Unhandled Service Reply" )

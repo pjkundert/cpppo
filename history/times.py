@@ -34,8 +34,9 @@ import logging
 import os
 import string
 import sys
+import threading
 
-from ..misc		import timer
+from ..misc		import (timer, mutexmethod)
 from ..automata		import type_str_base
 
 log				= logging.getLogger( __file__ )
@@ -137,6 +138,7 @@ class timestamp( object ):
     UTC				= pytz.utc
     LOC				= get_localzone() # from environment TZ, /etc/timezone, etc.
 
+    _precision			= 3
     _timeseps			= ( string
                                     if sys.version_info.major < 3
                                     else str ).maketrans( ":-.", "   " )
@@ -145,7 +147,10 @@ class timestamp( object ):
     # A map of all the common timezone abbreviations to their canonical timezones along with the
     # proper is_dst setting.
     _tzabbrev			= {}
+    _tzabbrev_lock		= threading.Lock()
+
     @classmethod
+    @mutexmethod( '_tzabbrev_lock' )
     def support_abbreviations( cls, region, exclude=None, at=None, reach=None, reset=False ):
         """Add all the DST and non-DST abbreviations for the specified region.  If a country code
         (eg. 'CA') is specified, we'll get all its timezones from pytz.country_timezones.
@@ -331,6 +336,23 @@ class timestamp( object ):
         return added
 
     @classmethod
+    @mutexmethod( '_tzabbrev_lock' )
+    def timezone_info( cls, tzinfo ):
+        """Return the (tzinfo,is_dst) of the supplied tz. (default is_dst: None).  Accepts either a
+        tzinfo, or a string and looks up the corresponding timezone abbreviation (is_dst:
+        True/False), or raw timezone (is_dst: None).
+
+        """
+        is_dst			= None
+        if isinstance( tzinfo, type_str_base ):
+            if tzinfo in cls._tzabbrev:
+                tzinfo,is_dst,_	= cls._tzabbrev[tzinfo]
+            else:
+                tzinfo		= pytz.timezone( tzinfo )
+        assert isinstance( tzinfo, datetime.tzinfo ), "Expected tzinfo, not %s" % type( tzinfo )
+        return tzinfo,is_dst
+
+    @classmethod
     def datetime_from_string( cls, s, tzinfo=UTC ):
         """Parse a time, in the specified timezone.  Or, if the time contains a timezone (the last
         element is not a number), use that as the timezone instead.  If the timezone is a generic
@@ -347,20 +369,16 @@ class timestamp( object ):
         parse ambiguous or nonexistent times will raise an exception (eg. during spring-ahead time
         gap, or during fall-back time overlap).
 
+        Supports specifying either a pytz tzinfo or a string specifying a timezone; either a
+        supported DST-specific timezone abbreviation (eg. 'MST', 'MDT'), or a generic non
+        DST-specific timezone (eg. 'America/Edmonton').
+
         """
         try:
             terms		= s.translate( cls._timeseps ).split()
-            is_dst		= None
-            if not terms[-1].isdigit():
-                # Hmm; Last term isn't digits; must be a timezone.  If we identify one of the
-                # DST-specific abbreviation variants of the standard timezones, set is_dst and use
-                # the standard timezone.
-                terms,tz	= terms[:-1],terms[-1]
-                if tz in cls._tzabbrev:
-                    tzinfo,is_dst,_off= cls._tzabbrev[tz]
-                else:
-                    tzinfo	= pytz.timezone( tz )
-                #print( "Timezone %s --> %s, DST %s" % ( tz, tzinfo, is_dst ))
+            if not terms[-1].isdigit(): # Hmm; Last term isn't digits; must be a timezone.
+                terms,tzinfo	= terms[:-1],terms[-1]
+            tzinfo,is_dst	= cls.timezone_info( tzinfo )
 
             assert 6 <= len( terms ) <= 7, "%d terms unexpected" % len( terms )
             if len( terms ) == 7:
@@ -377,7 +395,8 @@ class timestamp( object ):
 
     @classmethod
     def datetime_from_number( cls, n, tzinfo=UTC ):
-        """Convert a numeric timestamp, into a datetime in the specified timezone."""
+        """Convert a numeric timestamp into a datetime in the specified timezone."""
+        tzinfo,_		= cls.timezone_info( tzinfo ) # Ignore is_dst; irrelevant
         try:
             return datetime.datetime.fromtimestamp( n, tz=tzinfo )
         except Exception as exc:
@@ -413,9 +432,10 @@ class timestamp( object ):
         """Render the time in the specified zone, optionally with milliseconds.  If the specified
         timezone is not UTC, include the timezone designation in the output.
 
-        Since we are "rounding" to 3 places after the decimal, and since floating point values are
-        not very precise for values that are not sums of fractions whose denominators are powers of
-        2, we want to make sure that obvious problems don't occur.
+        Since we are "rounding" to (default) 3 places after the decimal, and since floating point
+        values are not very precise for values that are not sums of fractions whose denominators are
+        powers of 2, we want to make sure that obvious problems don't occur.  You may specify from 0
+        to 6 decimals of sub-second precision.
 
         The python floating point formatting operators seem to get it right most times by rounding,
         but the datetime.datetime.strftime doesn't use them to format milliseconds.  You get
@@ -453,14 +473,37 @@ class timestamp( object ):
             >>>
 
         It appears that Python 2 datetime.strftime rounds to 6 decimal points, but that python 3
-        just truncates.  So, we'll compensate by simply using the Python floating point formatter to
-        properly round the fractional part to the desired number of decimal places.
+        just truncates.  So, we could compensate by simply using the Python floating point formatter
+        to properly round the fractional part to the desired number of decimal places.
+        Unfortunately, this doesn't take into account the rounding up to the next second that would
+        occur with (for example) a timestamp like 1399326141.999836:
+
+            > assert timestamp( 1399326141.999836 ) >= timestamp( 1399326141.374836 )
+            E assert <2014-05-05 21:42:21.000 =~= 1399326141.999836> >= <2014-05-05 21:42:21.375 =~= 1399326141.374836>
+
+        So, we round to 3 places first, used the rounded timestamp to generate the datetime for
+        formatting, and then use floating point formatting to generate the rounded microseconds:
+        this produces identical results on Python 2/3:
+
+            >>> from cpppo.history import timestamp
+            >>> for v in [1414915323.122, 1414915323.123, 1414915323.124, 1414915323.125, 1414915323.126, 1414915323.127, 1399326141.999836 ]:
+            ...  print( "%.9f == %.9f == %.3f == %s" % ( v, round( v, 3 ), round( v, 3 ), timestamp( v ) ))
+            1414915323.121999979 == 1414915323.121999979 == 1414915323.122 == 2014-11-02 08:02:03.122
+            1414915323.122999907 == 1414915323.122999907 == 1414915323.123 == 2014-11-02 08:02:03.123
+            1414915323.124000072 == 1414915323.124000072 == 1414915323.124 == 2014-11-02 08:02:03.124
+            1414915323.125000000 == 1414915323.125000000 == 1414915323.125 == 2014-11-02 08:02:03.125
+            1414915323.125999928 == 1414915323.125999928 == 1414915323.126 == 2014-11-02 08:02:03.126
+            1414915323.127000093 == 1414915323.127000093 == 1414915323.127 == 2014-11-02 08:02:03.127
+            1399326141.999835968 == 1399326142.000000000 == 1399326142.000 == 2014-05-05 21:42:22.000
 
         """
-        dt			= self.datetime_from_number( self.value, tzinfo=tzinfo )
+        subsecond		= self._precision if ms is True else int( ms ) if ms else 0
+        assert 0 <= subsecond <= 6, "Invalid sub-second precision; must be 0-6 digits"
+        value			= round( self.value, subsecond ) if subsecond else self.value
+        dt			= self.datetime_from_number( value, tzinfo=tzinfo )
         result			= dt.strftime( self._fmt )
-        if ms:
-            result	       += ( "%.3f" % self.value )[-4:]
+        if subsecond:
+            result	       += ( '%.*f' % ( subsecond, value ))[-subsecond-1:]
         if tzinfo is not self.UTC:
             result	       += dt.strftime( ' %Z' )
         return result
