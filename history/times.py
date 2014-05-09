@@ -378,7 +378,9 @@ class timestamp( object ):
             terms		= str( s ).translate( cls._timeseps ).split()
             if not terms[-1].isdigit(): # Hmm; Last term isn't digits; must be a timezone.
                 terms,tzinfo	= terms[:-1],terms[-1]
-            tzinfo,is_dst	= cls.timezone_info( tzinfo )
+            is_dst		= None
+            if not isinstance( tzinfo, datetime.tzinfo ):
+                tzinfo,is_dst	= cls.timezone_info( tzinfo )
 
             assert 6 <= len( terms ) <= 7, "%d terms unexpected" % len( terms )
             if len( terms ) == 7:
@@ -396,7 +398,8 @@ class timestamp( object ):
     @classmethod
     def datetime_from_number( cls, n, tzinfo=UTC ):
         """Convert a numeric timestamp into a datetime in the specified timezone."""
-        tzinfo,_		= cls.timezone_info( tzinfo ) # Ignore is_dst; irrelevant
+        if not isinstance( tzinfo, datetime.tzinfo ):
+            tzinfo,_		= cls.timezone_info( tzinfo ) # Ignore is_dst; irrelevant
         try:
             return datetime.datetime.fromtimestamp( n, tz=tzinfo )
         except Exception as exc:
