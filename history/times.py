@@ -375,7 +375,7 @@ class timestamp( object ):
 
         """
         try:
-            terms		= s.translate( cls._timeseps ).split()
+            terms		= str( s ).translate( cls._timeseps ).split()
             if not terms[-1].isdigit(): # Hmm; Last term isn't digits; must be a timezone.
                 terms,tzinfo	= terms[:-1],terms[-1]
             tzinfo,is_dst	= cls.timezone_info( tzinfo )

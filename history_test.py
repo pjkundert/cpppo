@@ -17,8 +17,8 @@ except ImportError:
     import repr as reprlib
 
 from .misc	import timer
-from .automata	import log_cfg
-from .history	import *
+
+#logging.getLogger().setLevel( logging.INFO )
 
 has_pytz			= False
 try:
@@ -34,9 +34,6 @@ if has_pytz:
         got_localzone		= True
     except pytz.UnknownTimeZoneError as exc:
         logging.warning( "Failed to determine local timezone; platform requires tzlocal; run 'pip install tzlocal'" )
-
-#log_cfg['level']		= logging.NORMAL
-logging.basicConfig( **log_cfg )
 
 
 def test_history_timestamp_abbreviations():

@@ -245,16 +245,19 @@ class logger( object ):
             self.error		= True
 
 
-def parse_record( fd, n=-1 ):
+def parse_record( fd, n=-1, encoding=None ):
     """Parse the next non-comment record from a history file.  The date-time and serial number must be
     intact, but the remainder of the line are returned as-is.  Raise StopIteration if no record
     found, or some other Exception if the timestamp or serial number cannot be parsed.
+
+    The default 'ascii' encoding assumes no non-ASCII (eg. UTF-8) characters in the file, or an
+    exception will be raised.
 
     """
     l				= None
     for l in fd:
         n		       += 1
-        l			= l.lstrip()
+        l			= l.decode( encoding=encoding or 'ascii' ).lstrip()
         if not l or l.startswith( '#' ):
             l			= None
             continue # blank or comment
@@ -339,7 +342,7 @@ class reader( object ):
         """
         return ( ts.value - self.historical.value ) / self.factor + self.basis.value
 
-    def open( self, target=None, after=True, lookahead=None, strict=False ):
+    def open( self, target=None, after=True, lookahead=None, strict=False, encoding=None ):
         """Open an iterator which will yield its historical records vs. self.historical, at the
         prescribed self.{basis,rate}, relative to the initial timestamp 'target' (eg. the last
         timestamp from the previous file).  If no appropriate historical file can be found, raises a
@@ -430,7 +433,7 @@ class reader( object ):
                     # current register values must be.
                     fd		= opener( self.path + f )
                     l,n		= None,-1
-                    n,(ts,sn,js)= parse_record( fd )
+                    n,(ts,sn,js)= parse_record( fd, encoding=encoding )
                 except Exception as exc:
                     log.warning( "%s Ignoring history file %s: %s", self, self.name+f, exc )
                     if fd:
@@ -491,7 +494,7 @@ class reader( object ):
                 # processing mode; it is not likely safe for them to try again, because they'll
                 # probably process the same file and get the same error.  Report the file and
                 # timestamp so it can be fixed, if necessary...  If empty file, raise StopIteration
-                n,(ts,sn,js)	= parse_record( fd, n=n )
+                n,(ts,sn,js)	= parse_record( fd, n=n, encoding=encoding )
 
                 # a valid (ts,js) has been parsed; loop to advancing historical time, and return it
                 # when appropriate.
@@ -602,7 +605,7 @@ class loader( reader ):
     SUPPRESS			= 0
     FAIL			= 1
     RAISE			= 2
-    def load( self, limit=None, on_bad_iframe=FAIL, on_bad_data=SUPPRESS ):
+    def load( self, limit=None, on_bad_iframe=FAIL, on_bad_data=SUPPRESS, encoding=None ):
         """Load values up to the current historical timestamp (optionally defined by 'now') into
         self.values, and fill self.future with pending input.  As records are loaded from history
         files, generate a list of (up to 'limit') events which are returned).  Events are of the
@@ -654,8 +657,8 @@ class loader( reader ):
                 if self.state in (self.INITIAL, self.SWITCHING ):
                     # We need to open the initial (or next) history file.
                     after	= ( self.state != self.INITIAL )
-                    self._i	= self.open(
-                        target=self._ts, after=after, lookahead=self.lookahead, strict=self._strict )
+                    self._i	= self.open( target=self._ts, after=after, lookahead=self.lookahead,
+                                             strict=self._strict, encoding=encoding )
                     self._strict= True # remains until we see increasing timestamps
 
                 # We have an open generator; process records.  We also still know if it was our INITIAL
