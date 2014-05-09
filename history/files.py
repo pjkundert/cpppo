@@ -46,10 +46,10 @@ except ImportError:
     import reprlib as reprlib
 
 from .times		import timestamp
-from ..misc		import (timer, natural)
+from ..misc		import timer, natural
 from ..automata		import type_str_base
 
-log				= logging.getLogger( __file__ )
+log				= logging.getLogger( __package__ )
 
 def opener( path, mode='rb', bufsize=4*1024 ):
     """Open a file in the specified mode ('r', 'w'), using the appropriate compressor if necessary.  All

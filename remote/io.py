@@ -35,16 +35,9 @@ import logging
 import random
 import sys
 
-try:
-    import reprlib
-except ImportError:
-    import repr as reprlib
-        
-
 import	cpppo
-from	cpppo		import misc
 
-log				= logging.getLogger( "remote.io" )
+log				= logging.getLogger( __package__ )
 
 # 
 # io.address
@@ -76,7 +69,7 @@ class input( address ):
     def changed( self, last, chng ):
         """ Called when the value is detected to have changed """
         log.info( "%s ==> %-10s (was: %s)" % (
-                self._descr, reprlib.repr( chng ), reprlib.repr( last )))
+                self._descr, cpppo.reprlib.repr( chng ), cpppo.reprlib.repr( last )))
 
     def _value_get( self ):
         """ Obtain current value, logging if changed.  When a plc is offline, it
@@ -99,11 +92,11 @@ class output( input ):
 
     def rejected( self, last, chng ):
         log.warning( "%s <x= %-10s (now: %s)" % (
-                self._descr, reprlib.repr( chng ), reprlib.repr( last )))
+                self._descr, cpppo.reprlib.repr( chng ), cpppo.reprlib.repr( last )))
         
     def modified( self, last, chng ):
         log.info( "%s <== %-10s (now: %s)" % (
-                self._descr, reprlib.repr( chng ), reprlib.repr( last )))
+                self._descr, cpppo.reprlib.repr( chng ), cpppo.reprlib.repr( last )))
 
     def _value_set( self, chng ):
         try: 
@@ -150,9 +143,9 @@ class capture( object ):
             if level is not None and level >= 0: # may be +'ve/0/None, or -'ve (ignored)
                 message	= ( self._formatter( what, last, chng )
                             if self._formatter
-                            else "%s (was %s)" % ( reprlib.repr( chng ), reprlib.repr( last )))
+                            else "%s (was %s)" % ( cpppo.reprlib.repr( chng ), cpppo.reprlib.repr( last )))
                 self._events.insert( 0, { 
-                        "time":		misc.timer(),
+                        "time":		cpppo.timer(),
                         "level":	level,
                         "group":	self._group,
                         "description":	self._descr,
@@ -168,7 +161,7 @@ class capture( object ):
         purge the internal _events list, or provide a 'since' time."""
         unique		= set()
         retain		= []
-        now	        = misc.timer()
+        now	        = cpppo.timer()
         for e in self._events:
             if self._retain:
                 if e["description"] not in unique:

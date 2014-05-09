@@ -36,10 +36,10 @@ import string
 import sys
 import threading
 
-from ..misc		import (timer, mutexmethod)
+from ..misc		import timer, mutexmethod
 from ..automata		import type_str_base
 
-log				= logging.getLogger( __file__ )
+log				= logging.getLogger( __package__ )
 
 # Installed packages (eg. pip/setup.py install)
 import pytz
@@ -353,7 +353,7 @@ class timestamp( object ):
         return tzinfo,is_dst
 
     @classmethod
-    def datetime_from_string( cls, s, tzinfo=UTC ):
+    def datetime_from_string( cls, s, tzinfo=None ):
         """Parse a time, in the specified timezone.  Or, if the time contains a timezone (the last
         element is not a number), use that as the timezone instead.  If the timezone is a generic
         timezone, then the default Daylight Savings Time is applied:
@@ -379,7 +379,9 @@ class timestamp( object ):
             if not terms[-1].isdigit(): # Hmm; Last term isn't digits; must be a timezone.
                 terms,tzinfo	= terms[:-1],terms[-1]
             is_dst		= None
-            if not isinstance( tzinfo, datetime.tzinfo ):
+            if tzinfo is None:
+                tzinfo		= cls.UTC
+            elif not isinstance( tzinfo, datetime.tzinfo ):
                 tzinfo,is_dst	= cls.timezone_info( tzinfo )
 
             assert 6 <= len( terms ) <= 7, "%d terms unexpected" % len( terms )
@@ -396,9 +398,11 @@ class timestamp( object ):
             raise ValueError( "Invalid time format %r; expect YYYY-MM-DD HH:MM:SS[.###] [TZ]: %s", s, exc )
 
     @classmethod
-    def datetime_from_number( cls, n, tzinfo=UTC ):
+    def datetime_from_number( cls, n, tzinfo=None ):
         """Convert a numeric timestamp into a datetime in the specified timezone."""
-        if not isinstance( tzinfo, datetime.tzinfo ):
+        if tzinfo is None:
+            tzinfo		= cls.UTC
+        elif not isinstance( tzinfo, datetime.tzinfo ):
             tzinfo,_		= cls.timezone_info( tzinfo ) # Ignore is_dst; irrelevant
         try:
             return datetime.datetime.fromtimestamp( n, tz=tzinfo )
@@ -421,17 +425,19 @@ class timestamp( object ):
         self._str		= None
         if value is None:
             self.value		= timer()
-        elif type( value ) in (float, int):
+        elif isinstance( value, (float, int)):
             self.value		= float( value )
         elif isinstance( value, type_str_base ):
             self.utc		= value
         elif isinstance( value, timestamp ):
             self.value		= value.value
             self._str		= value._str
+        elif isinstance( value, datetime.datetime ):
+            self.value		= timestamp.number_from_datetime( value )
         else:
             raise ValueError( "Invalid timestamp of %s: %r", type( value ), value )
 
-    def render( self, tzinfo=UTC, ms=True ):
+    def render( self, tzinfo=None, ms=True ):
         """Render the time in the specified zone, optionally with milliseconds.  If the specified
         timezone is not UTC, include the timezone designation in the output.
 
@@ -500,6 +506,8 @@ class timestamp( object ):
             1399326141.999835968 == 1399326142.000000000 == 1399326142.000 == 2014-05-05 21:42:22.000
 
         """
+        if tzinfo is None:
+            tzinfo		= self.UTC
         subsecond		= self._precision if ms is True else int( ms ) if ms else 0
         assert 0 <= subsecond <= 6, "Invalid sub-second precision; must be 0-6 digits"
         value			= round( self.value, subsecond ) if subsecond else self.value

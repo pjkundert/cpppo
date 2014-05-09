@@ -37,9 +37,8 @@ import time
 import traceback
 
 import cpppo
-from   cpppo import misc
 from   cpppo.server import network
-from   cpppo.remote.plc import (poller, PlcOffline)
+from   cpppo.remote.plc import poller, PlcOffline
 
 # We need to monkeypatch ModbusTcpServer's SocketServer.serve_forever to be
 # Python3 socketserver compatible.  When pymodbus is ported to Python3, this
@@ -61,7 +60,7 @@ from pymodbus.server.sync import ModbusConnectedRequestHandler
 if __name__ == "__main__":
     logging.basicConfig( **cpppo.log_cfg )
 
-log				= logging.getLogger( "remote.plc_modbus" )
+log				= logging.getLogger( __package__ )
 
 class ModbusTcpServerActions( ModbusTcpServer ):
     """Augments the stock pymodbus ModbusTcpServer with the Python3 'socketserver'
@@ -123,7 +122,7 @@ class ModbusTcpClientTimeout( ModbusTcpClient ):
         if self._timeout in (None, True):
             log.debug( "Transaction timeout default: %.3fs" % ( Defaults.Timeout ))
             return Defaults.Timeout
-        now		= misc.timer()
+        now		= cpppo.timer()
         eta		= self._started + self._timeout
         if eta > now:
             log.debug( "Transaction timeout remaining: %.3fs" % ( eta - now ))
@@ -142,7 +141,7 @@ class ModbusTcpClientTimeout( ModbusTcpClient ):
             self._started = None
             self._timeout = None
         else:
-            self._started = misc.timer()
+            self._started = cpppo.timer()
             self._timeout = ( Defaults.Timeout 
                               if ( timeout is True or timeout == 0 )
                               else timeout )
@@ -154,7 +153,7 @@ class ModbusTcpClientTimeout( ModbusTcpClient ):
         """
         if self.socket: return True
         log.debug( "Connecting to (%s, %s)" % ( self.host, self.port ))
-        begun			= misc.timer()
+        begun			= cpppo.timer()
         timeout			= self.timeout # This computes the remaining timeout available
         try:
             self.socket		= socket.create_connection( (self.host, self.port),
@@ -164,7 +163,7 @@ class ModbusTcpClientTimeout( ModbusTcpClient ):
                 self.host, self.port, exc ))
             self.close()
         finally:
-            log.debug( "Connect completed in %.3fs" % ( misc.timer() - begun ))
+            log.debug( "Connect completed in %.3fs" % ( cpppo.timer() - begun ))
 
         return self.socket != None
 
@@ -173,17 +172,17 @@ class ModbusTcpClientTimeout( ModbusTcpClient ):
         returns the available input"""
         if not self.socket:
             raise ConnectionException( self.__str_() )
-        begun			= misc.timer()
+        begun			= cpppo.timer()
         timeout			= self.timeout # This computes the remaining timeout available
 
         r, w, e			= select.select( [self.socket], [], [], timeout )
         if r:
             result		= super( ModbusTcpClientTimeout, self )._recv( size )
-            log.debug( "Receive success in %7.3f/%7.3fs" % ( misc.timer() - begun, timeout ) )
+            log.debug( "Receive success in %7.3f/%7.3fs" % ( cpppo.timer() - begun, timeout ) )
             return result
 
         self.close()
-        log.debug( "Receive failure in %7.3f/%7.3fs" % ( misc.timer() - begun, timeout ) )
+        log.debug( "Receive failure in %7.3f/%7.3fs" % ( cpppo.timer() - begun, timeout ) )
         raise ConnectionException("Receive from (%s, %s) failed: Timeout" % (
                 self.host, self.port ))
 
@@ -378,7 +377,7 @@ class poller_modbus( poller, threading.Thread ):
         We'll log whenever we begin/cease polling any given range of registers.
 
         """
-        target			= misc.timer()
+        target			= cpppo.timer()
         while not self.done and logging:	# Module may be gone in shutting down
             # Poller is dormant 'til a non-None/zero rate and data specified
             if not self.rate or not self._data:
@@ -386,10 +385,10 @@ class poller_modbus( poller, threading.Thread ):
                 continue
 
             # Delay 'til poll target
-            now			= misc.timer()
+            now			= cpppo.timer()
             if now < target:
                 time.sleep( target - now )
-                now		= misc.timer()
+                now		= cpppo.timer()
 
             # Ready for another poll.  Check if we've slipped (missed cycle(s)), and then compute
             # the next poll cycle target; this attempts to retain cadence.
@@ -417,7 +416,7 @@ class poller_modbus( poller, threading.Thread ):
             busy		= 0.0
             for address, count in rngs:
                 with self.lock:
-                    begin	= misc.timer()
+                    begin	= cpppo.timer()
                     try:
                         # Read values; on success (no exception, something other
                         # than None returned), immediately take online;
@@ -426,7 +425,7 @@ class poller_modbus( poller, threading.Thread ):
                         if not self.online:
                             self.online = True
                             log.critical( "Polling: PLC %s online; success polling %s: %s" % (
-                                    self.description, address, misc.reprlib.repr( value )))
+                                    self.description, address, cpppo.reprlib.repr( value )))
                         if (address,count) not in self.polling:
                             log.detail( "Polling %6d-%-6d (%5d)" % ( address, address+count-1, count ))
                         succ.add( (address, count) )
@@ -443,7 +442,7 @@ class poller_modbus( poller, threading.Thread ):
                         fail.add( (address, count) )
                         log.warning( "Failing %6d-%-6d (%5d): %s" % (
                                 address, address+count-1, count, traceback.format_exc() ))
-                    busy       += misc.timer() - begin
+                    busy       += cpppo.timer() - begin
 
                 # Prioritize other lockers (ie. write).  Contrary to popular opinion, sleep(0) does
                 # *not* effectively yield the current Thread's quanta, at least on Python 2.7.6!
@@ -468,7 +467,7 @@ class poller_modbus( poller, threading.Thread ):
             load		= ( busy / self.rate ) if self.rate > 0 else 1.0
             ppm			= ( 60.0 / self.rate ) if self.rate > 0 else 1.0
             self.load		= tuple(
-                misc.exponential_moving_average( cur, load, 1.0 / ( minutes * ppm ))
+                cpppo.exponential_moving_average( cur, load, 1.0 / ( minutes * ppm ))
                 for minutes,cur in zip((1, 5, 15), self.load ))
 
             # Finally, if we've got stuff to poll and we aren't polling anything successfully, and

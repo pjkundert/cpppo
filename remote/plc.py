@@ -38,12 +38,11 @@ except ImportError:
 
 
 import cpppo
-from   cpppo import misc
 
 if __name__ == "__main__":
     logging.basicConfig( **cpppo.log_cfg )
 
-log				= logging.getLogger( "remote.plc" )
+log				= logging.getLogger( __package__ )
 
 
 class PlcOffline( Exception ):
@@ -140,7 +139,7 @@ class poller_simulator( poller ):
     def __init__( self, description, **kwargs ):
         super( poller_simulator, self ).__init__( description=description, **kwargs )
         self._cache		= {}		# times/values stored to simulated PLC
-        self._polled		= misc.timer()	#   scheduled to be polled
+        self._polled		= cpppo.timer()	#   scheduled to be polled
 
     def _poll( self, address ):
         """ Simulates an initial value of 0 for every new address """
@@ -150,12 +149,12 @@ class poller_simulator( poller ):
 
     def _write( self, address, value ):
         """ Remember a data value, with a timer to simulate delayed polling """
-        self._cache.setdefault( address, collections.deque() ).append( (misc.timer(), value) )
+        self._cache.setdefault( address, collections.deque() ).append( (cpppo.timer(), value) )
 
     def _receive( self ):
         """ Receive any previously cached data, with a latency of roughly 1/2
         the specified polling rate"""
-        now			= misc.timer()
+        now			= cpppo.timer()
         if self._polled + self.rate > now:
             return
         log.debug( "%s polled" % ( self.description ))
