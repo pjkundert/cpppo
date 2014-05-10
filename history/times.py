@@ -439,11 +439,11 @@ class timestamp( object ):
 
         To sum up:
 
-            >>> timestamp.support_abbreviations( None, reset=True)
+            >>> timestamp.support_abbreviations( None, reset=True )
             []
             >>> timestamp( '2014-05-10 05:52:47.000 MST' ).render( 'MST' )
             '2014-05-10 05:52:47.000 MST'
-            >>> timestamp.support_abbreviations( 'CA')
+            >>> timestamp.support_abbreviations( 'CA' )
             ['ADT', 'EST', 'AST', 'PDT', 'MST', 'CDT', 'PST', 'EDT', 'CST', 'NST', 'NDT', 'MDT']
             >>> timestamp( '2014-05-10 05:52:47.000 MST' ).render( 'MST' )
             '2014-05-10 05:52:47.000 MDT'
@@ -495,7 +495,7 @@ class timestamp( object ):
             raise ValueError( "Invalid timestamp of %s: %r", type( value ), value )
 
     def render( self, tzinfo=None, ms=True ):
-        """Render the time in the specified zone, optionally with milliseconds.  If the specified
+        """Render the time in the specified zone, optionally with milliseconds.  If the resultant
         timezone is not UTC, include the timezone designation in the output.
 
         Since we are "rounding" to (default) 3 places after the decimal, and since floating point
@@ -547,9 +547,9 @@ class timestamp( object ):
             > assert timestamp( 1399326141.999836 ) >= timestamp( 1399326141.374836 )
             E assert <2014-05-05 21:42:21.000 =~= 1399326141.999836> >= <2014-05-05 21:42:21.375 =~= 1399326141.374836>
 
-        So, we round to 3 places first, used the rounded timestamp to generate the datetime for
-        formatting, and then use floating point formatting to generate the rounded microseconds:
-        this produces identical results on Python 2/3:
+        So, we round to specified places of sub-second precision first, used the rounded timestamp
+        to generate the datetime for formatting, and then use floating point formatting to generate
+        the rounded microseconds: this produces identical results on Python 2/3:
 
             >>> from cpppo.history import timestamp
             >>> for v in [1414915323.122, 1414915323.123, 1414915323.124, 1414915323.125, 1414915323.126, 1414915323.127, 1399326141.999836 ]:
@@ -563,8 +563,6 @@ class timestamp( object ):
             1399326141.999835968 == 1399326142.000000000 == 1399326142.000 == 2014-05-05 21:42:22.000
 
         """
-        if tzinfo is None:
-            tzinfo		= self.UTC
         subsecond		= self._precision if ms is True else int( ms ) if ms else 0
         assert 0 <= subsecond <= 6, "Invalid sub-second precision; must be 0-6 digits"
         value			= round( self.value, subsecond ) if subsecond else self.value
@@ -572,7 +570,7 @@ class timestamp( object ):
         result			= dt.strftime( self._fmt )
         if subsecond:
             result	       += ( '%.*f' % ( subsecond, value ))[-subsecond-1:]
-        if tzinfo is not self.UTC:
+        if dt.tzinfo is not self.UTC:
             result	       += dt.strftime( ' %Z' )
         return result
 
