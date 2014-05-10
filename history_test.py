@@ -150,7 +150,6 @@ def test_history_timestamp():
             terms[6]               += '0' * ( 6 - len( terms[6] ))
         return datetime.datetime( *map( int, terms ), tzinfo=pytz.utc )
 
-
     # Basic millisecond hygiene.  Comparisons are by standard UTC format to 3 sub-second decimal
     # places of precision.  Unfortunately, the Python 2/3 strftime microsecond formatters are
     # different, so we don't use them.  If no precision, we do NOT round; we truncate, to avoid the
@@ -161,8 +160,21 @@ def test_history_timestamp():
     assert timestamp( 1399326141.999836 ).render( ms=5 ) == '2014-05-05 21:42:21.99984'
     assert timestamp( 1399326141.999836 ).render() == '2014-05-05 21:42:22.000'
 
-    # Get MST/MDT and CET/CEST abbreviations
+    # Maintain DST specificity when rendering in DST-specific timezones?  Nope, only when using
+    # specially constructed non-DST versions of timezones, when they are made available by pytz.
+    timestamp.support_abbreviations( None, reset=True )
+
+    assert timestamp.timezone_info('MST') == (pytz.timezone( 'MST' ),None)
+    assert timestamp( 1399326141.999836 ).render(
+        tzinfo='MST', ms=False )		== '2014-05-05 14:42:21 MST'
+
+    # Get MST/MDT etc., and CET/CEST abbreviations
     timestamp.support_abbreviations( ['CA','Europe/Berlin'], reset=True )
+
+    assert timestamp.timezone_info('MST') == (pytz.timezone( 'America/Edmonton' ),False)
+    assert timestamp( 1399326141.999836 ).render(
+        tzinfo='MST', ms=False )		== '2014-05-05 15:42:21 MDT'
+
 
     # $ TZ=UTC date --date=@1388559600
     # Wed Jan  1 07:00:00 UTC 2014

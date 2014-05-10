@@ -399,7 +399,64 @@ class timestamp( object ):
 
     @classmethod
     def datetime_from_number( cls, n, tzinfo=None ):
-        """Convert a numeric timestamp into a datetime in the specified timezone."""
+        """Convert a numeric UNIX timestamp into a datetime in the specified timezone.  UNIX epoch times are
+        unambiguous; the target timezone's is_dst hint is not required.
+
+        TODO: When a datetime is assigned a time in a certain timezone that has DST (such as
+        America/Edmonton, MST7MDT), that specific time is either "in" our "out" of DST.  When it is
+        rendered, it will be rendered as MST or MDT.
+
+        Ideally, it would be nice to force the produced datetime to have a fixed non-DST rendering
+        such as MST, regardless of whether the time is "in" or "out" of DST.  There are certain 
+        such timezone supplied by pytz:
+
+            >>> [ z for z in pytz.all_timezones if len( z ) in (3,4) ]
+            ['CET', 'Cuba', 'EET', 'EST', 'Eire', 'GMT', 'GMT0', 'HST', 'Iran', 'MET',\
+            'MST', 'PRC', 'ROC', 'ROK', 'UCT', 'UTC', 'W-SU', 'WET', 'Zulu']
+
+        These are *different* than the 'MST' abbreviation that would be made available by invoking
+        timestamp.support_abbreviations( 'CA' ); simply the 'America/Edmonton' zone with an
+        'is_dst=False' flag!  The pytz 'MST' zone is a full pytz.tzinfo without any DST changes.
+
+            >>> ts=timestamp( 1399726367 )
+            >>> ts
+            <2014-05-10 12:52:47.000 =~= 1399726367.000000>
+            >>> ts.render( 'America/Edmonton' )
+            '2014-05-10 06:52:47.000 MDT'
+            >>> ts.render( 'MST' )
+            '2014-05-10 05:52:47.000 MST'
+
+        Now, get the "abbreviations", including 'MST'.  Note that the time is now rendered using
+        'America/Edmonton', and thus identifies the time as being in DST:
+
+            >>> timestamp.support_abbreviations( 'CA')
+            ['ADT', 'EST', 'AST', 'PDT', 'MST', 'CDT', 'PST', 'EDT', 'CST', 'NST', 'NDT', 'MDT']
+            >>> ts.render( 'MST' )
+            '2014-05-10 06:52:47.000 MDT'
+
+            >>> timestamp( '2014-05-10 05:52:47.000 MST' )
+            <2014-05-10 12:52:47.000 =~= 1399726367.000000>
+
+        To sum up:
+
+            >>> timestamp.support_abbreviations( None, reset=True)
+            []
+            >>> timestamp( '2014-05-10 05:52:47.000 MST' ).render( 'MST' )
+            '2014-05-10 05:52:47.000 MST'
+            >>> timestamp.support_abbreviations( 'CA')
+            ['ADT', 'EST', 'AST', 'PDT', 'MST', 'CDT', 'PST', 'EDT', 'CST', 'NST', 'NDT', 'MDT']
+            >>> timestamp( '2014-05-10 05:52:47.000 MST' ).render( 'MST' )
+            '2014-05-10 05:52:47.000 MDT'
+
+        Unfortunately, the idea is simply not supported by Python datetime for the general case.
+        The best we could do would be to "denormalize" the datetime, by adding an offset to bring
+        the time "out" of DST (or by using a known non-DST time), and then adding an offset to that
+        datetime to exactly yield the target datetime, and then avoid running pytz.tzinfo.normalize
+        to "fix" the datetime's time and tzinfo.is_dst flag.  This would be a bit hacky, but might
+        be possible (see the treatise at the bottom of the Python source
+        .../Modules/datetimemodule.c for some possible pitfalls)
+
+        """
         if tzinfo is None:
             tzinfo		= cls.UTC
         elif not isinstance( tzinfo, datetime.tzinfo ):
