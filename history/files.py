@@ -244,7 +244,6 @@ class logger( object ):
                 log.error( "History writing failure at %s: %s", ts, exc )
             self.error		= True
 
-
 def parse_record( fd, n=-1, encoding=None ):
     """Parse the next non-comment record from a history file.  The date-time and serial number must be
     intact, but the remainder of the line are returned as-is.  Raise StopIteration if no record
@@ -498,8 +497,9 @@ class reader( object ):
 
                 # a valid (ts,js) has been parsed; loop to advancing historical time, and return it
                 # when appropriate.
-                log.debug( "%s Playback reading: %s, line %4d (%s), serial %8s: %s", self,
-                                f, n, ts, sn, js[:-1] if js.endswith( '\n' ) else js )
+
+                #log.debug( "%s Playback reading: %s, line %4d (%s), serial %8s: %s", self,
+                #           f, n, ts, sn, js[:-1] if js.endswith( '\n' ) else js )
 
             # Exhausted playback of this history file
             log.debug( "%s Playback complete: %s, line %d", self, f, n )

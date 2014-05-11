@@ -22,11 +22,13 @@ if __name__ == "__main__":
     # Allow relative imports when executing within package directory, for
     # running tests directly
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+    from cpppo.automata import log_cfg
+    logging.basicConfig( **log_cfg )
+    #logging.getLogger().setLevel( logging.NORMAL )
 
 import cpppo
-from   cpppo import misc
-from   cpppo.server import (network, enip)
-from   cpppo.server.enip import (logix, client)
+from   cpppo.server import network, enip
+from   cpppo.server.enip import logix, client
 
 log				= logging.getLogger( "lgx.prof" )
 
@@ -82,7 +84,7 @@ def logix_performance( repeat=1000 ):
 # ~380TPS on a single thread.
 repetitions=2500
 
-@misc.assert_tps( 250, scale=repetitions )
+@cpppo.assert_tps( 250, scale=repetitions )
 def test_logix_performance():
     """Performance of parsing and executing an operation a number of times on an
     existing Logix object.
@@ -90,7 +92,7 @@ def test_logix_performance():
     """
     logix_performance( repeat=repetitions )
 
-@misc.assert_tps( 250, repeat=repetitions )
+@cpppo.assert_tps( 250, repeat=repetitions )
 def test_logix_setup():
     """Performance of parsing and executing an operation once on a newly created
     Logix object, a number of times.
@@ -107,7 +109,7 @@ rss_004_request 		= bytes(bytearray([
     0x00, 0x00                                      #/* .. */
 ]))
 
-def test_logix_remote():
+def test_logix_remote( count=100 ):
     """Performance of executing an operation a number of times on a socket connected
     Logix simulator, within the same Python interpreter (ie. all on a single CPU
     thread).
@@ -129,13 +131,23 @@ def test_logix_remote():
         },
     })
 
-    mainthread			= threading.Thread( target=enip.main, kwargs=kwargs )
-    mainthread.daemon		= True
-    mainthread.start()
+    # This is sort of "inside-out".  This thread will run logix_remote, which will signal the
+    # enip.main (via the kwargs.server...) to shut down.  However, to do line-based performance
+    # measurement, we need to be running enip.main in the "Main" thread...
+    logixthread			= threading.Thread( target=logix_remote, kwargs={
+        'count': count,
+        'svraddr': svraddr,
+        'kwargs': kwargs
+    } )
+    logixthread.daemon		= True
+    logixthread.start()
 
-    time.sleep( 1.0 )
+    enip.main( **kwargs )
 
+    logixthread.join()
 
+def logix_remote( count, svraddr, kwargs ):
+    time.sleep(.25)
     data			= cpppo.dotdict()
     data.enip			= {}
     data.enip.options		= 0
@@ -158,55 +170,55 @@ def test_logix_remote():
 
     timeout			= 5
 
-    begun			= misc.timer()
+    begun			= cpppo.timer()
     cli				= client.client( host=svraddr[0], port=svraddr[1] )
     assert cli.writable( timeout=timeout )
-    elapsed			= misc.timer() - begun
+    elapsed			= cpppo.timer() - begun
     log.normal( "Client Connected in  %7.3f/%7.3fs" % ( elapsed, timeout ))
 
-    begun			= misc.timer()
+    begun			= cpppo.timer()
     request			= cli.register( timeout=timeout )
-    elapsed			= misc.timer() - begun
+    elapsed			= cpppo.timer() - begun
     log.normal( "Client Register Sent %7.3f/%7.3fs: %r" % ( elapsed, timeout, request ))
     for data in cli:
-        elapsed			= misc.timer() - begun
+        elapsed			= cpppo.timer() - begun
         log.detail( "Client Register Resp %7.3f/%7.3fs: %r" % ( elapsed, timeout, data ))
         if data is None:
             if elapsed <= timeout:
                 cli.readable( timeout=timeout - elapsed )
                 continue
         break
-    elapsed			= misc.timer() - begun
+    elapsed			= cpppo.timer() - begun
     log.normal( "Client Register Rcvd %7.3f/%7.3fs: %r" % ( elapsed, timeout, data ))
     assert data is not None and 'enip.CIP.register' in data, "Failed to receive Register response"
     assert data.enip.status == 0, "Register response indicates failure: %s" % data.enip.status
 
     cli.session			= data.enip.session_handle
 
-    count			= 100
-    start			= misc.timer()
+
+    start			= cpppo.timer()
     for _ in range( count ):
-        begun			= misc.timer()
+        begun			= cpppo.timer()
         request			= cli.read( path=[{'symbolic': 'SCADA'}, {'element': 12}],
                                                 elements=1, offset=0, timeout=timeout )
-        elapsed			= misc.timer() - begun
+        elapsed			= cpppo.timer() - begun
         log.normal( "Client ReadFrg. Sent %7.3f/%7.3fs: %r" % ( elapsed, timeout, request ))
         for data in cli:
-            elapsed		= misc.timer() - begun
+            elapsed		= cpppo.timer() - begun
             log.detail( "Client ReadFrg. Resp %7.3f/%7.3fs: %r" % ( elapsed, timeout, data ))
             if data is None:
                 if elapsed <= timeout:
                     cli.readable( timeout=timeout - elapsed )
                     continue
             break
-        elapsed			= misc.timer() - begun
+        elapsed			= cpppo.timer() - begun
         log.normal( "Client ReadFrg. Rcvd %7.3f/%7.3fs: %r" % ( elapsed, timeout, data ))
 
-    duration			= misc.timer() - start
+    duration			= cpppo.timer() - start
     log.warning( "Client ReadFrg. Average %7.3f TPS (%7.3fs ea)." % ( count / duration, duration / count ))
 
     kwargs['server'].control.done= True
-    mainthread.join()
+
 
 
 if __name__ == "__main__":
@@ -243,5 +255,10 @@ if __name__ == "__main__":
     print('\n\nSORTED BY SUB TIME')
     yappi.print_stats( sys.stdout, sort_type=yappi.SORTTYPE_TSUB, limit=100 )
     '''
-    #logix_performance()
-    test_logix_remote()
+    count			= repetitions
+    start			= cpppo.timer()
+    logix_performance( repeat=count )
+    duration			= cpppo.timer() - start
+    log.warning( "Local  ReadFrg. Average %7.3f TPS (%7.3fs ea)." % ( count / duration, duration / count ))
+
+    test_logix_remote( count=100 )

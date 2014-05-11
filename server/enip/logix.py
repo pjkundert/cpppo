@@ -179,10 +179,12 @@ class Logix( Message_Router ):
             ids			= (self.class_id, self.instance_id, None)
             pass
         if ids[0] != self.class_id or ids[1] != self.instance_id:
-            log.detail( "%s Routing to %s: %s", self, target, enip_format( data ))
+            if log.isEnabledFor( logging.DETAIL ):
+                log.detail( "%s Routing to %s: %s", self, target, enip_format( data ))
             return target.request( data )
-        
-        log.detail( "%s Request: %s", self, enip_format( data ))
+
+        if log.isEnabledFor( logging.DETAIL ):
+            log.detail( "%s Request: %s", self, enip_format( data ))
         # This request is for this Object.
         
         # Pick out our services added at this level.  If not recognized, let superclass try; it'll
@@ -338,14 +340,15 @@ class Logix( Message_Router ):
             pass
 
         # Always produce a response payload; if a failure occured, will contain an error status
-        log.detail( "%s Service 0x%02x %s %s", self,
-                    data.service if 'service' in data else 0,
-                    ( self.service[data.service]
-                      if 'service' in data and data.service in self.service
-                      else "(Unknown)"), enip_format( data ))
+        if log.isEnabledFor( logging.DETAIL ):
+            log.detail( "%s Service 0x%02x %s %s", self,
+                        data.service if 'service' in data else 0,
+                        ( self.service[data.service]
+                          if 'service' in data and data.service in self.service
+                          else "(Unknown)"), enip_format( data ))
         data.input		= bytearray( self.produce( data ))
-
-        log.detail( "%s Response: %s", self, enip_format( data ))
+        if log.isEnabledFor( logging.DETAIL ):
+            log.detail( "%s Response: %s", self, enip_format( data ))
         return True
 
     @classmethod
@@ -547,7 +550,6 @@ def setup():
 setup.lock			= threading.Lock()
 setup.ucmm			= None
 
-
 def process( addr, data, **kwds ):
     """Processes an incoming parsed EtherNet/IP encapsulated request in data.request.enip.input, and
     produces a response with a prepared encapsulated reply, in data.response.enip.input, ready for
@@ -647,8 +649,8 @@ def process( addr, data, **kwds ):
                     #            machine.name_centered(), i, s, source.sent, source.peek(),
                     #            repr( data ) if log.getEffectiveLevel() < logging.DETAIL else reprlib.repr( data ))
                     pass
-            
-        log.detail( "EtherNet/IP CIP Request  (Client %16s): %s", addr, enip_format( data.request ))
+        if log.isEnabledFor( logging.DETAIL ):
+            log.detail( "EtherNet/IP CIP Request  (Client %16s): %s", addr, enip_format( data.request ))
 
         # Create a data.response with a structural copy of the request.enip.header.  This means that
         # the dictionary structure is new (we won't alter the request.enip... when we add entries in
@@ -663,7 +665,8 @@ def process( addr, data, **kwds ):
         # error indications if the encapsulated request failed.
         
         proceed			= ucmm.request( data.response )
-        log.detail( "EtherNet/IP CIP Response (Client %16s): %s", addr, enip_format( data.response ))
+        if log.isEnabledFor( logging.DETAIL ):
+            log.detail( "EtherNet/IP CIP Response (Client %16s): %s", addr, enip_format( data.response ))
 
         return proceed
     except:

@@ -16,9 +16,14 @@ try:
 except ImportError:
     import repr as reprlib
 
-from .misc	import timer
+if __name__ == "__main__":
+        # If you run tests in-place (instead of using py.test), ensure local version is tested!
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    from cpppo.automata import log_cfg
+    logging.basicConfig( **log_cfg )
+    #logging.getLogger().setLevel( logging.NORMAL )
 
-#logging.getLogger().setLevel( logging.INFO )
+from cpppo.misc import timer, near
 
 has_pytz			= False
 try:
@@ -30,7 +35,7 @@ except ImportError:
 got_localzone			= False
 if has_pytz:
     try:
-        from .history import *
+        from cpppo.history import *
         got_localzone		= True
     except pytz.UnknownTimeZoneError as exc:
         logging.warning( "Failed to determine local timezone; platform requires tzlocal; run 'pip install tzlocal'" )
@@ -41,7 +46,6 @@ def test_history_timestamp_abbreviations():
     if not has_pytz or not got_localzone:
         logging.warning( "Skipping cpppo.history.timestamp abbreviation tests" )
         return
-        
 
     abbrev			= timestamp.support_abbreviations( 'CA', reset=True )
     assert sorted( abbrev ) == ['ADT', 'AST', 'CDT', 'CST', 'EDT', 'EST', 'MDT', 'MST', 'NDT', 'NST', 'PDT', 'PST']
@@ -77,6 +81,11 @@ def test_history_timestamp_abbreviations():
         assert False, "Asia/Jerusalem IST should have mismatched Europe/Dublin IST"
     except AmbiguousTimeZoneError as exc:
         assert "Asia/Jerusalem" in str( exc )
+
+    assert near( parse_offset( '< 1:00:00.001' ),	-3600.001 )
+    assert near( parse_offset( '<:1.001' ), 		   -1.001 )
+    assert near( parse_offset( '>1:0.001' ),		   60.001 )
+    assert near( parse_offset( '>1' ), 			    1 )
 
     # While Asia is internally very inconsistent (eg. EEST), countries should be internally consisent
     abbrev			= timestamp.support_abbreviations( 'JO', reset=True ) # Jordan
@@ -159,6 +168,50 @@ def test_history_timestamp():
     assert timestamp( 1399326141.999836 ).render( ms=False ) == '2014-05-05 21:42:21'
     assert timestamp( 1399326141.999836 ).render( ms=5 ) == '2014-05-05 21:42:21.99984'
     assert timestamp( 1399326141.999836 ).render() == '2014-05-05 21:42:22.000'
+
+    # Adjust timestamp default precision and comparison epsilon.
+    save			= timestamp._precision,timestamp._epsilon
+    try:
+        ts			= timestamp( 1399326141.999836 )
+        for p in range( 1, 6 ):
+            timestamp._precision= p
+            timestamp._epsilon	= 10**-p
+
+            assert ts.render( ms=True ) == {
+                1: '2014-05-05 21:42:22.0',
+                2: '2014-05-05 21:42:22.00',
+                3: '2014-05-05 21:42:22.000',
+                4: '2014-05-05 21:42:21.9998',
+                5: '2014-05-05 21:42:21.99984',
+                6: '2014-05-05 21:42:21.999836',
+            }[timestamp._precision]
+
+            s,l			= (timestamp._epsilon*f for f in (0.9,1.1))
+            assert     ts == ts + s
+            assert     ts == ts - s
+            assert not(ts == ts + l)
+            assert not(ts == ts - l)
+            assert     ts != ts + l
+            assert     ts != ts - l
+            assert not(ts <  ts + s)
+            assert not(ts <  ts - s)
+            assert     ts <  ts + l
+            assert not(ts <  ts - l)
+            assert     ts <= ts + s
+            assert     ts <= ts - s
+            assert     ts <= ts + l
+            assert not(ts <= ts - l)
+            assert not(ts >  ts + s)
+            assert not(ts >  ts - s)
+            assert not(ts >  ts + l)
+            assert     ts >  ts - l
+            assert     ts >= ts + s
+            assert     ts >= ts - s
+            assert not(ts >= ts + l)
+            assert     ts >= ts - l
+    finally:
+        timestamp._precision,timestamp._epsilon = save
+
 
     # Maintain DST specificity when rendering in DST-specific timezones?  Nope, only when using
     # specially constructed non-DST versions of timezones, when they are made available by pytz.
@@ -547,4 +600,174 @@ def test_history_unparsable():
                 os.unlink( f )
             except:
                 pass
-        
+
+# 
+# Enable 'tracemalloc' tracing of test_histor_performance by uncommenting the following block
+# 
+'''
+try:
+    import tracemalloc
+except ImportError:
+    pass
+else:
+    def display_top(snapshot, group_by='lineno', limit=10):
+        snapshot = snapshot.filter_traces((
+            tracemalloc.Filter(False, "<frozen importlib._bootstrap>"),
+            tracemalloc.Filter(False, "<unknown>"),
+        ))
+        top_stats = snapshot.statistics(group_by)
+    
+        print("Top %s lines" % limit)
+        for index, stat in enumerate(top_stats[:limit], 1):
+            frame = stat.traceback[0]
+            # replace "/path/to/module/file.py" with "module/file.py"
+            filename = os.sep.join(frame.filename.split(os.sep)[-2:])
+            print("#%s: %s:%s: %.1f KiB"
+                  % (index, filename, frame.lineno,
+                    stat.size / 1024))
+    
+        other = top_stats[limit:]
+        if other:
+            size = sum(stat.size for stat in other)
+            print("%s other: %.1f KiB" % (len(other), size / 1024))
+        total = sum(stat.size for stat in top_stats)
+        print("Total allocated size: %.1f KiB" % (total / 1024))
+    
+    def display_biggest_traceback():
+        snapshot = tracemalloc.take_snapshot()
+        top_stats = snapshot.statistics('traceback')
+    
+        # pick the biggest memory block
+        stat = top_stats[0]
+        print("%s memory blocks: %.1f KiB" % (stat.count, stat.size / 1024))
+        for line in stat.traceback.format():
+            print(line)
+'''
+def test_history_performance():
+    try:
+        tracemalloc.start()
+    except:
+        pass
+
+    for _ in range( 3 ):
+        path		= "/tmp/test_performance_%d" % random.randint( 100000, 999999 )
+        if os.path.exists( path ):
+            continue
+    assert not os.path.exists( path ), "Couldn't find an unused name: %s" % path 
+
+    files		= []
+    try:
+        day		= 24*60*60
+        dur		= 3*day		# a few days worth data
+        regstps		= 0.0,5.0	# 0-5secs between updates
+        numfiles	= dur//day+1	# ~1 file/day, but at least 2
+        values		= {}		# Initial register values
+        regscount	= 1000		# Number of different registers
+        regschanged	= 1,10		# From 1-25 registers per row
+        regsbase	= 40001
+
+        start		= timer()
+
+        now = beg	= start - dur
+        linecnt		= 0
+        for e in reversed( range( numfiles )):
+            f		= path + (( '.%d' % e ) if e else '') # 0'th file has no extension
+            files.append( f )
+            with logger( f ) as l:
+                if values:
+                    l.write( values, now=now ); linecnt += 1
+                while now < beg + len(files) * dur/numfiles:
+                    lst	= now
+                    now += random.uniform( *regstps )
+                    assert now >= lst
+                    assert timestamp( now ) >= timestamp( lst ), "now: %s, timestamp(now): %s" % ( now, timestamp( now ))
+                    updates = {
+                        random.randint( regsbase, regsbase + regscount - 1 ): random.randint( 0, 1<<16 - 1 )
+                        for _ in range( random.randint( *regschanged ))
+                    }
+                    values.update( updates )
+                    l.write( updates, now=now ); linecnt += 1
+                lst 	= now
+                now    += random.uniform( *regstps )
+                assert now >= lst
+                assert timestamp( now ) >= timestamp( lst )
+            if e:
+                # Compress .1 onward using a random format; randomly delete origin uncompressed file
+                # so sometimes both files exist
+                if random.choice( (True, False, False, False) ):
+                    continue # Don't make a compressed version of some files
+                fz	 = f + '.%s' % random.choice( ('gz', 'bz2', 'xz') )
+                files.append( fz )
+                with opener( fz, mode='wb' ) as fd:
+                    fd.write( open( f, 'rb' ).read() )
+                if random.choice( (True, False, False) ):
+                    continue # Don't remove some of the uncompressed files
+                os.unlink( f )
+                files.pop( files.index( f ))
+            end 	= now
+
+        logging.warning( "Generated data in %.3fs; lines: %d", timer() - start, linecnt )
+
+        # Start somewhere within 1/100-1/10th the dur of the beg, forcing the load the look back to
+        # find the first file.  Try to do it all in the next 'playback' second (just to push it to
+        # the max), in 'chunks' pieces.
+        historical	= timestamp( random.uniform( beg + dur/100, beg + dur/10 ))
+        basis		= timer()
+        playback	= 2.5 * dur/day # Can sustain ~2-3 seconds / day of history on a single CPU
+        chunks		= 1000
+        factor		= dur / playback
+        lookahead	= 60.0
+        ld		= loader(
+            path, historical=historical, basis=basis, factor=factor, lookahead=lookahead )
+        eventcnt	= 0
+        slept		= 0
+        while ld:
+            once	= False
+            while ld.state == ld.STREAMING or not once:
+                once		= True
+                cur,events	= ld.load( limit=1000 )
+                eventcnt       += len( events )
+                logging.detail( "%s loaded up to %s; %d future, %d values: %d events",
+                                ld, cur, len( ld.future ), len( ld.values ), len( events ))
+
+            logging.warning( "%s loaded up to %s; %d future, %d values: %d events total",
+                                ld, cur, len( ld.future ), len( ld.values ), eventcnt )
+            try:
+                snapshot	= tracemalloc.take_snapshot()
+                display_top( snapshot, limit=10 )
+            except:
+                pass
+
+            time.sleep( playback/chunks )
+            slept	       += playback/chunks
+
+        elapsed		= timer() - basis
+        eventtps	= eventcnt // ( elapsed - slept )
+        logging.error( "Playback in %.3fs (slept %.3fs); events: %d ==> %d historical records/sec",
+                       elapsed, slept, eventcnt, eventtps )
+        if not logging.getLogger().isEnabledFor( logging.NORMAL ):
+            assert eventtps >= 10000, \
+                "Historical event processing performance low: %d records/sec" % eventtps
+        try:
+            display_biggest_traceback()
+        except:
+            pass
+
+    except Exception as exc:
+        logging.normal( "Test failed: %s", exc )
+        '''
+        for f in files:
+            logging.normal( "%s:\n    %s", f, "    ".join( l for l in open( f )))
+        '''
+        raise
+
+    finally:
+        for f in files:
+            logging.detail( "unlinking %s", f )
+            try:
+                os.unlink( f )
+            except:
+                pass
+
+if __name__ == "__main__":
+    test_history_performance()

@@ -76,7 +76,12 @@ def mutexmethod( mutex='lock', blocking=True ):
 # 
 # Select platform appropriate timer function
 # 
-from timeit import default_timer as timer
+if sys.platform == 'win32':
+    # On Windows, the best timer is time.clock
+    timer 			= time.clock
+else:
+    # On most other platforms the best timer is time.time
+    timer			= time.time
 
 # 
 # misc.nan	-- IEEE NaN (Not a Number)

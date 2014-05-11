@@ -712,7 +712,6 @@ class state( dict ):
             assert source.sent <= ending, \
                 "%s exceeded limit on incoming symbols by %d" % (
                     self.name_centered(), source.sent - ending )
-                
 
     def transition( self, source, machine=None, path=None, data=None, ending=None ):
         """We have processed input in a state; now, see if we can find a transition we should yield.
@@ -817,8 +816,9 @@ class state( dict ):
 
             Exception, *:	Unknown failure of state machinery.
         """
-        log.debug( "%s -- terminated %s, w/ data: %r", self.name_centered(),
-                   "normally" if exception is None else repr( exception ), data )
+        if log.isEnabledFor( logging.DEBUG ):
+            log.debug( "%s -- terminated %s, w/ data: %r", self.name_centered(),
+                       "normally" if exception is None else repr( exception ), data )
 
     # Traversal of state machine graph
     def nodes( self, seen=None ):
@@ -1015,10 +1015,12 @@ class state_input( state ):
         with a .append() method; if it doesn't exist, an array.array of typecode will be created."""
         inp			= next( source )
         path			= self.context( path=path )
-        if data is not None and path:
-            if path not in data:
-                data[path]	= array.array( self.typecode )
-            data[path].append( inp )
+        if path and data is not None:
+            try:
+                thing		= data[path]
+            except KeyError:
+                thing = data[path] = array.array( self.typecode )
+            thing.append( inp )
             #log.info( "%s :  %-10.10r => %20s[%3d]=%r", ( machine or self ).name_centered(),
             #           inp, path, len(data[path])-1, inp )
 

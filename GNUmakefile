@@ -35,7 +35,7 @@ PY3=python3
 # 
 
 # To see all pytest output, uncomment --capture=no
-PYTESTOPTS=-v --capture=no
+PYTESTOPTS=-v #--capture=no
 
 # Preferred timezone for tests.  If you change this, then you will probably have
 # to augment history_test.py to include checking for timestamp.local output in

@@ -104,9 +104,11 @@ def parse_offset( term ):
         assert 1 <= len( hms ) <= 3, "only h:mm:ss.s allowed"
         while hms[0] == '':
             hms		= hms[1:] # <:02.5 is OK
-        offset		= reduce( lambda ts, v: ts * 60 + float( v ), [ 0 ] + hms )
+        offset		= 0
+        for v in hms:
+            offset	= offset * 60 + float( v )
         if term[sign] == '<':
-            offset = -offset
+            offset	= -offset
     except Exception as exc:
         raise ValueError( "Invalid offset %r; must be </>[[h:]m:]s[.s]: %s" % ( term, exc ))
     return offset
@@ -136,21 +138,22 @@ class timestamp( object ):
     Always has a .value which is the unix timestamp as a float.  The string version is lazily produced.
     """
     UTC				= pytz.utc
-    LOC				= get_localzone() # from environment TZ, /etc/timezone, etc.
+    LOC				= get_localzone()	# from environment TZ, /etc/timezone, etc.
 
-    _precision			= 3
+    _precision			= 3			# How many default sub-second digits
+    _epsilon			= 10**-_precision	# How small a difference to consider ==
     _timeseps			= ( string
                                     if sys.version_info.major < 3
                                     else str ).maketrans( ":-.", "   " )
-    _fmt			= '%Y-%m-%d %H:%M:%S' # 2014-04-01 10:11:12
+    _fmt			= '%Y-%m-%d %H:%M:%S'	# 2014-04-01 10:11:12
 
     # A map of all the common timezone abbreviations to their canonical timezones along with the
     # proper is_dst setting.
     _tzabbrev			= {}
-    _tzabbrev_lock		= threading.Lock()
+    _cls_lock			= threading.Lock()
 
     @classmethod
-    @mutexmethod( '_tzabbrev_lock' )
+    @mutexmethod( '_cls_lock' )
     def support_abbreviations( cls, region, exclude=None, at=None, reach=None, reset=False ):
         """Add all the DST and non-DST abbreviations for the specified region.  If a country code
         (eg. 'CA') is specified, we'll get all its timezones from pytz.country_timezones.
@@ -336,7 +339,7 @@ class timestamp( object ):
         return added
 
     @classmethod
-    @mutexmethod( '_tzabbrev_lock' )
+    @mutexmethod( '_cls_lock' )
     def timezone_info( cls, tzinfo ):
         """Return the (tzinfo,is_dst) of the supplied tz. (default is_dst: None).  Accepts either a
         tzinfo, or a string and looks up the corresponding timezone abbreviation (is_dst:
@@ -485,7 +488,8 @@ class timestamp( object ):
         elif isinstance( value, (float, int)):
             self.value		= float( value )
         elif isinstance( value, type_str_base ):
-            self.utc		= value
+            dt			= self.datetime_from_string( value )
+            self.value		= self.number_from_datetime( dt )
         elif isinstance( value, timestamp ):
             self.value		= value.value
             self._str		= value._str
@@ -599,7 +603,7 @@ class timestamp( object ):
         to any timezone, and produces the correct UNIX timestamp.
 
         """
-        self.value		= self.number_from_datetime( self.datetime_from_string( utctime, self.UTC ))
+        self.value		= self.number_from_datetime( self.datetime_from_string( utctime ))
         self._str		= None
 
     @property
@@ -630,24 +634,23 @@ class timestamp( object ):
         self.value		= self.number_from_datetime( self.datetime_from_string( loctime, self.LOC ))
         self._str		= None
 
-    # Comparisons.  Always lexicographically, in UTC
+    # Comparisons.  Always equivalent to lexicographically, in UTC to 3 decimal places.  However,
+    # we'll compare numerically, to avoid having to render/compare strings; if the <self>.value is
+    # within _epsilon (default: 0.001) of <rhs>.value, it is considered equal.
     def __lt__( self, rhs ):
         assert isinstance( rhs, timestamp )
-        return str( self ) < str( rhs )
-    def __le__( self, rhs ):
-        return str( self ) <= str( rhs )
+        return self.value + self.__class__._epsilon < rhs.value
     def __gt__( self, rhs ):
         assert isinstance( rhs, timestamp )
-        return str( self ) > str( rhs )
+        return self.value - self.__class__._epsilon > rhs.value
+    def __le__( self, rhs ):
+        return not self.__gt__( rhs )
     def __ge__( self, rhs ):
-        assert isinstance( rhs, timestamp )
-        return str( self ) >= str( rhs )
+        return not self.__lt__( rhs )
     def __eq__( self, rhs ):
-        assert isinstance( rhs, timestamp )
-        return str( self ) == str( rhs )
+        return not self.__ne__( rhs )
     def __ne__( self, rhs ):
-        assert isinstance( rhs, timestamp )
-        return str( self ) != str( rhs )
+        return self.__lt__( rhs ) or self.__gt__( rhs )
 
     # Add/subtract numeric seconds.  +/- 0 is a noop/copy.
     def __add__( self, rhs ):

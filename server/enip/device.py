@@ -562,8 +562,8 @@ class Object( object ):
         TODO: Validate the request.
         """
         result			= b''
-
-        log.detail( "%s Request: %s", self, enip_format( data ))
+        if log.isEnabledFor( logging.DETAIL ):
+            log.detail( "%s Request: %s", self, enip_format( data ))
         try:
             # Validate the request.  As we process, ensure that .status is set to reflect the
             # failure mode, should an exception be raised.  Return True iff the communications
@@ -714,14 +714,14 @@ class UCMM( Object ):
     lock			= threading.Lock()
     sessions			= {}		# All known session handles, by addr
 
-
     def request( self, data ):
         """Handles a parsed enip.* request, and converts it into an appropriate response.  For
         connection related requests (Register, Unregister), handle locally.  Return True iff request
         processed and connection should proceed to process further messages.
 
         """
-        log.detail( "%r Request: %s", self, enip_format( data ))
+        if log.isEnabledFor( logging.DETAIL ):
+            log.detail( "%r Request: %s", self, enip_format( data ))
 
         proceed			= True
 
@@ -851,14 +851,16 @@ class UCMM( Object ):
                 # the request to the target Object, and then is discarded and the EtherNet/IP
                 # envelope is simply returned directly to the originator carrying the response
                 # payload.
-                log.detail( "%s Repackaged: %s", self, enip_format( data ))
+                if log.isEnabledFor( logging.DETAIL ):
+                    log.detail( "%s Repackaged: %s", self, enip_format( data ))
                 
                 data.enip.CIP.send_data.CPF.item[1].unconnected_send  = cpppo.dotdict()
                 data.enip.CIP.send_data.CPF.item[1].unconnected_send.request = unc_send.request
 
                 # And finally, re-encapsulate the CIP SendRRData, with its (now unwrapped)
                 # Unconnected Send request response payload.
-                log.detail( "%s Regenerating: %s", self, enip_format( data ))
+                if log.isEnabledFor( logging.DETAIL ):
+                    log.detail( "%s Regenerating: %s", self, enip_format( data ))
                 data.enip.input		= bytearray( self.parser.produce( data.enip ))
                 
         except Exception as exc:
@@ -877,7 +879,8 @@ class UCMM( Object ):
 
         # The enip.input EtherNet/IP encapsulation is assumed to have been filled in.  Otherwise, no
         # encapsulated response is expected.
-        log.detail( "%s Response: %s", self, enip_format( data ))
+        if log.isEnabledFor( logging.DETAIL ):
+            log.detail( "%s Response: %s", self, enip_format( data ))
         return proceed
             
 
@@ -922,7 +925,6 @@ class Connection_Manager( Object ):
     FW_OPN_REQ			= 0x54		# Forward Open (unimplemented)
     FW_CLS_REQ			= 0x4E		# Forward Close (unimplemented)
 
-
     def request( self, data ):
         """
         Handles an unparsed request.input, parses it and processes the request with the Message Router.
@@ -937,7 +939,7 @@ class Connection_Manager( Object ):
         # don't encode the response here; it is done by the UCMM.
         assert 'request' in data and 'input' in data.request, \
             "Unconnected Send message with absent or empty request"
-        if log.getEffectiveLevel() <= logging.DETAIL:
+        if log.isEnabledFor( logging.DETAIL ):
             log.detail( "%s Request: %s", self, enip_format( data ))
 
         #log.info( "%s Parsing: %s", self, enip_format( data.request ))
@@ -966,7 +968,7 @@ class Connection_Manager( Object ):
             log.error( "EtherNet/IP CIP error %s\n", where )
             raise
 
-        if log.getEffectiveLevel() <= logging.DETAIL:
+        if log.isEnabledFor( logging.DETAIL ):
             log.detail( "%s Response: %s", self, enip_format( data ))
         return True
 
