@@ -173,11 +173,12 @@ def test_history_timestamp():
     save			= timestamp._precision,timestamp._epsilon
     try:
         ts			= timestamp( 1399326141.999836 )
-        for p in range( 1, 6 ):
+        for p in range( 0, 7 ):
             timestamp._precision= p
-            timestamp._epsilon	= 10**-p
+            timestamp._epsilon	= 10**-p if p else 0
 
             assert ts.render( ms=True ) == {
+                0: '2014-05-05 21:42:21', # Truncates at 0 digits of sub-second precision
                 1: '2014-05-05 21:42:22.0',
                 2: '2014-05-05 21:42:22.00',
                 3: '2014-05-05 21:42:22.000',
@@ -185,8 +186,10 @@ def test_history_timestamp():
                 5: '2014-05-05 21:42:21.99984',
                 6: '2014-05-05 21:42:21.999836',
             }[timestamp._precision]
-
-            s,l			= (timestamp._epsilon*f for f in (0.9,1.1))
+            # For p == 0, try exact precision.  1e-6 is the smallest delta that can be reliably
+            # added to a typical UNIX timestamp (eg.  1399326141.999836) in a double and still
+            # expect it to affect the value (can store 15-17 decimal digits of precision).
+            s,l			= (timestamp._epsilon*f for f in (0.9,1.1)) if p else (0,10**-6)
             assert     ts == ts + s
             assert     ts == ts - s
             assert not(ts == ts + l)
