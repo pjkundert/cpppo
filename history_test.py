@@ -21,9 +21,12 @@ if __name__ == "__main__":
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     from cpppo.automata import log_cfg
     logging.basicConfig( **log_cfg )
-    #logging.getLogger().setLevel( logging.NORMAL )
+    logging.getLogger().setLevel( logging.NORMAL )
 
-from cpppo.misc import timer, near
+from cpppo import timer, near, log_cfg
+logging.basicConfig( **log_cfg )
+#logging.getLogger().setLevel( logging.DETAIL )
+
 
 has_pytz			= False
 try:
@@ -468,7 +471,7 @@ def test_history_sequential():
                     "Historical record out of sequence; %s isn't >= %s" % ( ts, ts_l )
                 ts_l	= ts
                 if js is None:
-                    logging.detail( "@%s: not yet available", ts )
+                    logging.info( "@%s: not yet available", ts )
                     assert ts > cur, "Next record should have been returned; not in future"
                     time.sleep( .1 )
                 else:
@@ -647,6 +650,9 @@ else:
             print(line)
 '''
 def test_history_performance():
+    if not has_pytz or not got_localzone:
+        logging.warning( "Skipping cpppo.history.timestamp abbreviation tests" )
+        return
     try:
         tracemalloc.start()
     except:
@@ -661,7 +667,7 @@ def test_history_performance():
     files		= []
     try:
         day		= 24*60*60
-        dur		= 3*day		# a few days worth data
+        dur		= 3*day		# a few days worth of data
         regstps		= 0.0,5.0	# 0-5secs between updates
         numfiles	= dur//day+1	# ~1 file/day, but at least 2
         values		= {}		# Initial register values
@@ -716,7 +722,7 @@ def test_history_performance():
         # the max), in 'chunks' pieces.
         historical	= timestamp( random.uniform( beg + dur/100, beg + dur/10 ))
         basis		= timer()
-        playback	= 2.5 * dur/day # Can sustain ~2-3 seconds / day of history on a single CPU
+        playback	= 2.0 * dur/day # Can sustain ~2 seconds / day of history on a single CPU
         chunks		= 1000
         factor		= dur / playback
         lookahead	= 60.0
@@ -724,16 +730,29 @@ def test_history_performance():
             path, historical=historical, basis=basis, factor=factor, lookahead=lookahead )
         eventcnt	= 0
         slept		= 0
+        cur		= None
         while ld:
             once	= False
-            while ld.state == ld.STREAMING or not once:
+            while ld.state < ld.AWAITING or not once:
                 once		= True
-                cur,events	= ld.load( limit=1000 )
+                upcoming	= None
+                limit		= random.randint( 0, 250 )
+                if random.choice( (True,False) ):
+                    upcoming	= ld.advance()
+                    if random.choice( (True,False) ) and cur:
+                        # ~25% of the time, provide an 'upcoming' timestamp that is between the
+                        # current advancing historical time and the last load time.
+                        upcoming-= random.uniform( 0, upcoming.value - cur.value )
+                cur,events	= ld.load( upcoming=upcoming, limit=limit )
                 eventcnt       += len( events )
-                logging.detail( "%s loaded up to %s; %d future, %d values: %d events",
-                                ld, cur, len( ld.future ), len( ld.values ), len( events ))
+                advance		= ld.advance()
+                offset		= advance.value - cur.value
+                logging.detail( "%s loaded up to %s (%s w/ upcoming %14s); %4d future, %4d values: %4d events / %4d limit" ,
+                                ld, cur, format_offset( offset ),
+                                format_offset( upcoming.value - advance.value ) if upcoming is not None else None,
+                                len( ld.future ), len( ld.values ), len( events ), limit )
 
-            logging.warning( "%s loaded up to %s; %d future, %d values: %d events total",
+            logging.warning( "%s loaded up to %s; %3d future, %4d values: %6d events total",
                                 ld, cur, len( ld.future ), len( ld.values ), eventcnt )
             try:
                 snapshot	= tracemalloc.take_snapshot()

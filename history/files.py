@@ -271,10 +271,13 @@ class HistoryExhausted( Exception ):
     pass
 
 class reader( object ):
-    """Read register values from the the specified history file(s), and provide register() and
-    updates() methods to access the values coming from the file(s).
+    """Open the specified history file(s) and read register values from them, yielding a stream of
+    <fileinfo>,<record> tuples.  Produces data until the "current" historical time is reached,
+    relative to current wall-clock time.  There is no provision to force reader.open to yield
+    records up to a "historical" time the maps to some other wall-clock time; derived classes may,
+    however, store up the records and absorb them at a different rate and/or order.
 
-    Begin replaying history from the 'historical' timestamp.  The history files will be searched for
+    Replays history from the provided 'historical' timestamp.  The history files will be searched for
     the first file beginning at or before 'historical'.  If none found, then historical playback
     will proceed at the oldest available file, and its initial values will be considered as "frozen"
     before that time.
@@ -333,7 +336,6 @@ class reader( object ):
             <ts> - <historical>
             ------------------ + <basis>=                  <now>
             <factor>
-
 
         These values would be the ones used when historical values are inserted into data structures
         that need to be ordered and compared using realtime wall-clock UNIX timestamps.
@@ -454,8 +456,8 @@ class reader( object ):
                     # want records before target, and this file is older than target; use last opened
                     break
 
-            # The last opened file is the winner.  Close any extras right now, leaving
-            # the last one in opened, so that we can clean it up on exit
+            # The last opened file is the winner.  Close any extras right now, leaving the last one
+            # in opened, so that we can clean it up on exit
             if len( opened ) == 0:
                 raise HistoryExhausted( "No history files found for %s %s" % ( "after" if after else "before", target ))
             while len( opened ) > 1:
@@ -470,7 +472,7 @@ class reader( object ):
             # advancing historical time plus lookahead (only recompute when it fails).  The meanings
             # of combinations of <timestamp>,<data>:
             # 
-            #     <timettamp>,<data>		Meaning
+            #     <timestamp>,<data>		Meaning
             #     None        None/string	No timestamp parsed due to error in history file
             #     (valid)     None		No data ready yet; next valid record is in the future
             #     (valid)     '{ ... }'		A timestamp record
@@ -605,7 +607,7 @@ class loader( reader ):
     SUPPRESS			= 0
     FAIL			= 1
     RAISE			= 2
-    def load( self, limit=None, on_bad_iframe=FAIL, on_bad_data=SUPPRESS, encoding=None ):
+    def load( self, limit=None, upcoming=None, on_bad_iframe=FAIL, on_bad_data=SUPPRESS, encoding=None ):
         """Load values up to the current historical timestamp (optionally defined by 'now') into
         self.values, and fill self.future with pending input.  As records are loaded from history
         files, generate a list of (up to 'limit') events which are returned).  Events are of the
@@ -620,7 +622,7 @@ class loader( reader ):
 
         If already open, continue reading.  If not, find the history file containing data at/before
         the given/current historical time.  Read any pending events into self.future, up to
-        'historical' timestamp + lookahead.  Load self.future int self.value, up to the
+        'historical' timestamp + lookahead.  Load self.future into self.value, up to the
         given/current 'historical' timestamp.  Note that the underlying 'open' iterator will always
         return values up to the current advancing historical timestamp + lookahead; if we are
         provided with a 'now', it should be close to the current time; this function will load all
@@ -630,16 +632,34 @@ class loader( reader ):
 
         To avoid a possible degenerate memory usage condition where a large amount of history is
         loaded, and 'load' collects and returns a large number (eg. millions) of events, set 'limit'
-        to a positive value, and repeatedly call <loader>.load until <loader>.state !=
-        <loader>.STREAMING:
+        to a positive value, and repeatedly call <loader>.load until it doesn't return any events:
 
-        ld			= loader( ... )
-        events			= []
-        while True:
-            events.extend( ld.load( limit=1000 ))
-            if ld.state != ld.STREAMING:
-                break
-        # ld.state is (SWITCHING, AWAITING, EXHAUSTED, COMPLETE, FAILED)
+            ld			= loader( ... )
+            events		= []
+            e			= True
+            while e:
+                cur,e		= ld.load( limit=1000 )
+                events.extend( e )
+
+        If an 'upcoming' timestamp is provided, no events >= this timestamp will be processed and
+        returned (they will be stored in self.future 'til 'upcoming' is advanced).  In this case,
+        since no events may be returned, use the <loader>.state < loader.AWAITING to determine if
+        <loader>.load should be called again.  Alternatively, if an 'upcoming=<timestamp>'' is
+        supplied, continue until the returned <timestamp>,<list> returns an empty <list> and a
+        <timestamp> less than the supplied 'upcoming=<timestamp>'.  This indicates that the
+        <loader>.load stopped before 'limit', and returned no events.
+
+
+            ld			= loader( ..., limit=<timestamp> )
+            events		= []
+            upcoming		= <timestamp>	# some historical time >= <loader>.until
+            while True:
+                cur,e		= ld.load( limit=1000, upcoming=upcoming )
+                if ld.state >= loader.AWAITING:
+                    break
+                if not e:
+                    # No events returned, but not AWAITING/COMPLETE/FAILED -- advance 'upcoming'
+                    upcoming	= <timestamp>	# The next historical event to advance to, or None
 
         """
         cur,events		= self.advance(),[]
@@ -661,11 +681,13 @@ class loader( reader ):
                                              strict=self._strict, encoding=encoding )
                     self._strict= True # remains until we see increasing timestamps
 
-                # We have an open generator; process records.  We also still know if it was our INITIAL
-                # open, or a SWITCHING open; if initial, we can tolerate no JSON errors, or we'll miss
-                # our "iframe" of initial register values!
                 assert self.state in (self.INITIAL, self.SWITCHING, self.STREAMING, self.EXHAUSTED, self.AWAITING)
-                for (self._f,self._n,cur),(ts,js) in self._i: # Only yields ts,js where <ts> <= advancing historical time
+                # We have an open generator; process records.  We also still know if it was our
+                # INITIAL open, or a SWITCHING open; if initial, we can tolerate no JSON errors, or
+                # we'll miss our "iframe" of initial register values!  Only yields ts,js where <ts>
+                # <= advancing historical time + lookahead; cur is always simply advancing
+                # historical time.
+                for (self._f,self._n,cur),(ts,js) in self._i:
 
                     # If js is None there is no record ready; if it evaluates to a string, then
                     # there is no record, it is just a Note.  If something goes wrong after here, we
@@ -771,6 +793,10 @@ class loader( reader ):
 
                     while len( self.future ) and self.future[0][0] <= cur:
                         # Process element(s) from self.history whose time has come, updating 'until'
+                        if upcoming is not None and self.future[0][0] >= upcoming:
+                            # But, if the 'upcoming' event is exceeded, return the events up to the
+                            # designated 'upcoming' timestamp (always with self.state < AWAITING)
+                            return upcoming,events
                         ts,regs		= self.future.popleft()
                         log.info( "%s Absorbing %3d regs", self, len( regs ))
                         self.values.update( regs )
@@ -781,9 +807,10 @@ class loader( reader ):
                             self.state = self.COMPLETE, "Playback complete; history exhausted, lookahead empty"
                         break
 
-                    if limit and len( events ) > limit:
-                        # Event limit exceeded.  We could still be STREAMING, so return directly
-                        return cur,events
+                    if limit is not None and len( events ) >= limit:
+                        # Event limit exceeded.  We could still be STREAMING/EXHAUSTED, so return
+                        # directly the events up to the last processed timestamp.
+                        return self.until,events
 
                     # Out of ready values in self.future; go get more from the file via self._i
  
@@ -822,5 +849,6 @@ class loader( reader ):
 
 	# We're in a state >= AWAITING; either we have remaining unprocessed records in self.future
         # or in the history file and we'll evaluate True (caller should come back later for more
-        # history), or we're COMPLETE/FAILED and we'll evaluate False (no more history to process)
+        # history), or we're COMPLETE/FAILED and we'll evaluate False (no more history to process).
+        # Return the events processed, and the current advancing historical timestamp.
         return cur,events
