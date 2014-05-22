@@ -124,7 +124,7 @@ vagrant:
 # Check if jessie64-{virtualbox,vmware_desktop} exists in the vagrant box list.
 # If not, install it.
 jessie64-%:
-	@if ! vagrant box list | grep -q '^jessie64.*($*)'; then	\
+	@if ! vagrant box list | grep -q '^jessie64.*($*'; then		\
 	    vagrant box add jessie64 http://box.hardconsulting.com/jessie64-$*.box --provider $*; \
 	fi
 

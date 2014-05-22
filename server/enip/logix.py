@@ -306,14 +306,14 @@ class Logix( Message_Router ):
             if data.service in (self.RD_TAG_RPY, self.RD_FRG_RPY):
                 # Read Tag [Fragmented]
                 data[context].data	= attribute[beg:end]
-                log.normal( "%s Reading %3d elements %3d-%3d from %s: %s",
+                log.detail( "%s Reading %3d elements %3d-%3d from %s: %s",
                             self, end - beg, beg, end-1, attribute, data[context].data )
                 # Final .status is 0x00 if all requested elements were shipped; 0x06 if not
                 data.status		= 0x00 if end == endactual else 0x06
                 data.pop( 'status_ext' ) # non-empty dotdict level; use pop instead of del
             else:
                 # Write Tag [Fragmented].  We know the type is right.
-                log.normal( "%s Writing %3d elements %3d-%3d into %s: %r",
+                log.detail( "%s Writing %3d elements %3d-%3d into %s: %r",
                             self, end - beg, beg, end-1, attribute, data[context].data )
                 attribute[beg:end]	= data[context].data
                 data.status		= 0x00
@@ -341,14 +341,12 @@ class Logix( Message_Router ):
 
         # Always produce a response payload; if a failure occured, will contain an error status
         if log.isEnabledFor( logging.DETAIL ):
-            log.detail( "%s Service 0x%02x %s %s", self,
+            log.detail( "%s Response: Service 0x%02x %s %s", self,
                         data.service if 'service' in data else 0,
                         ( self.service[data.service]
                           if 'service' in data and data.service in self.service
                           else "(Unknown)"), enip_format( data ))
         data.input		= bytearray( self.produce( data ))
-        if log.isEnabledFor( logging.DETAIL ):
-            log.detail( "%s Response: %s", self, enip_format( data ))
         return True
 
     @classmethod
@@ -606,7 +604,6 @@ def process( addr, data, **kwds ):
 
 
     """
-    log.detail( "EtherNet/IP CIP Request  (Client %16s): begins", addr )
     ucmm			= setup()
 
     # If tags are specified, check that we've got them all set up right.  If the tag doesn't exist,
@@ -632,7 +629,6 @@ def process( addr, data, **kwds ):
                 attribute.error	= val.error
 
 
-    log.detail( "EtherNet/IP CIP Request  (Client %16s): parsing request", addr )
     source			= cpppo.rememberable()
     try:
         # Find the Connection Manager, and use it to parse the encapsulated EtherNet/IP request.  We

@@ -720,8 +720,8 @@ class UCMM( Object ):
         processed and connection should proceed to process further messages.
 
         """
-        if log.isEnabledFor( logging.DETAIL ):
-            log.detail( "%r Request: %s", self, enip_format( data ))
+        if log.isEnabledFor( logging.INFO ):
+            log.info( "%r Request: %s", self, enip_format( data ))
 
         proceed			= True
 
@@ -741,7 +741,7 @@ class UCMM( Object ):
                         session	= random.randint( 0, 2**32 )
                     self.__class__.sessions[data.addr] = session
                 data.enip.session_handle = session
-                log.normal( "EtherNet/IP (Client %r) Session Established: %r", data.addr, session )
+                log.detail( "EtherNet/IP (Client %r) Session Established: %r", data.addr, session )
                 data.enip.input	= bytearray( self.parser.produce( data.enip ))
                 data.enip.status= 0x00
 
@@ -750,7 +750,7 @@ class UCMM( Object ):
                 # inhibits any EtherNet/IP response from being generated, and closes connection.
                 with self.lock:
                     session	= self.__class__.sessions.pop( data.addr, None )
-                log.normal( "EtherNet/IP (Client %r) Session Terminated: %r", data.addr, 
+                log.detail( "EtherNet/IP (Client %r) Session Terminated: %r", data.addr, 
                             session or "(Unknown)" )
                 proceed		= False
             
@@ -851,16 +851,16 @@ class UCMM( Object ):
                 # the request to the target Object, and then is discarded and the EtherNet/IP
                 # envelope is simply returned directly to the originator carrying the response
                 # payload.
-                if log.isEnabledFor( logging.DETAIL ):
-                    log.detail( "%s Repackaged: %s", self, enip_format( data ))
+                if log.isEnabledFor( logging.DEBUG ):
+                    log.debug( "%s Repackaged: %s", self, enip_format( data ))
                 
                 data.enip.CIP.send_data.CPF.item[1].unconnected_send  = cpppo.dotdict()
                 data.enip.CIP.send_data.CPF.item[1].unconnected_send.request = unc_send.request
 
                 # And finally, re-encapsulate the CIP SendRRData, with its (now unwrapped)
                 # Unconnected Send request response payload.
-                if log.isEnabledFor( logging.DETAIL ):
-                    log.detail( "%s Regenerating: %s", self, enip_format( data ))
+                if log.isEnabledFor( logging.DEBUG ):
+                    log.debug( "%s Regenerating: %s", self, enip_format( data ))
                 data.enip.input		= bytearray( self.parser.produce( data.enip ))
                 
         except Exception as exc:
@@ -879,8 +879,8 @@ class UCMM( Object ):
 
         # The enip.input EtherNet/IP encapsulation is assumed to have been filled in.  Otherwise, no
         # encapsulated response is expected.
-        if log.isEnabledFor( logging.DETAIL ):
-            log.detail( "%s Response: %s", self, enip_format( data ))
+        if log.isEnabledFor( logging.INFO ):
+            log.info( "%s Response: %s", self, enip_format( data ))
         return proceed
             
 
@@ -939,8 +939,8 @@ class Connection_Manager( Object ):
         # don't encode the response here; it is done by the UCMM.
         assert 'request' in data and 'input' in data.request, \
             "Unconnected Send message with absent or empty request"
-        if log.isEnabledFor( logging.DETAIL ):
-            log.detail( "%s Request: %s", self, enip_format( data ))
+        if log.isEnabledFor( logging.INFO ):
+            log.info( "%s Request: %s", self, enip_format( data ))
 
         #log.info( "%s Parsing: %s", self, enip_format( data.request ))
         # Get the Message Router to parse and process the request into a response, producing a
@@ -968,7 +968,7 @@ class Connection_Manager( Object ):
             log.error( "EtherNet/IP CIP error %s\n", where )
             raise
 
-        if log.isEnabledFor( logging.DETAIL ):
-            log.detail( "%s Response: %s", self, enip_format( data ))
+        if log.isEnabledFor( logging.INFO ):
+            log.info( "%s Response: %s", self, enip_format( data ))
         return True
 
