@@ -312,18 +312,23 @@ class reader( object ):
         return '<' + self.__str__() + '>'
 
     def advance( self, now=None ):
-        """Return a timestamp representing the computed historical time.  Compute the historical timestamp,
-        from the present real time 'now' and the specified starting time basis, and time scaling
-        factor.
+        """Return a timestamp representing the computed historical time.  Compute the historical
+        timestamp, from the present real time 'now' and the specified starting time basis, and time
+        scaling factor.  Accepts int/float UNIX time, <timestamp>, or any type <timestamp> accepts.
 
         """
         if now is None:
             now			= timer()
+        elif type( now ) not in (int,float):
+            if not isinstance( now, timestamp ):
+                now		= timestamp( now )
+            now			= now.value
         return self.historical + ( now - self.basis.value ) * self.factor
 
-    def realtime( self, ts ):
+    def realtime( self, when ):
         """Return the realtime wall-clock UNIX timestamp that the provided <ts> corresponds to.
-        Inverts the formula used by advance:
+        Accepts int/float UNIX time, <timestamp>, or any type <timestamp> accepts.  Inverts the
+        formula used by advance:
         
             <ts>			= <historical> + ( <now> - <basis>.value ) * <factor>
 
@@ -341,7 +346,13 @@ class reader( object ):
         that need to be ordered and compared using realtime wall-clock UNIX timestamps.
 
         """
-        return ( ts.value - self.historical.value ) / self.factor + self.basis.value
+        if when is None:
+            when		= timer()
+        elif type( when ) not in (int,float):
+            if not isinstance( when, timestamp ):
+                when		= timestamp( when )
+            when		= when.value
+        return ( when - self.historical.value ) / self.factor + self.basis.value
 
     def open( self, target=None, after=True, lookahead=None, strict=False, encoding=None ):
         """Open an iterator which will yield its historical records vs. self.historical, at the

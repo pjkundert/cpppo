@@ -578,6 +578,12 @@ class timestamp( object ):
             result	       += dt.strftime( ' %Z' )
         return result
 
+    def __float__( self ):
+        return self.value
+
+    def __int__( self ):
+        return int( self.value )
+
     def __str__( self ):
         """Lazily produce (and cache) the UTC string formatted version."""
         if self._str is None:

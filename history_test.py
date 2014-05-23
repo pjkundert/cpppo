@@ -172,6 +172,10 @@ def test_history_timestamp():
     assert timestamp( 1399326141.999836 ).render( ms=5 ) == '2014-05-05 21:42:21.99984'
     assert timestamp( 1399326141.999836 ).render() == '2014-05-05 21:42:22.000'
 
+    # Type caste support
+    assert abs( float( timestamp( 1399326141.999836 )) - 1399326141.999836 ) < 1e-6
+    assert int( timestamp( 1399326141.999836 )) == 1399326141
+
     # Adjust timestamp default precision and comparison epsilon.
     save			= timestamp._precision,timestamp._epsilon
     try:
