@@ -94,10 +94,10 @@ def zone_names( region ):
         else:
             yield r		# Some random unrecognized zone name
 
-def parse_offset( term ):
+def parse_offset( term, symbols='<>' ):
     """Convert a string like '</> h:mm:ss.sss' into -'ve/+'ve seconds."""
     try:
-        sign		= max( *map( term.find, '<>' ))
+        sign		= max( *map( term.find, symbols ))
         assert sign >= 0, "missing sign"
         assert term[:sign].strip() == '', "garbage before sign"
         hms		= term[sign+1:].split( ':' )
@@ -107,15 +107,15 @@ def parse_offset( term ):
         offset		= 0
         for v in hms:
             offset	= offset * 60 + float( v )
-        if term[sign] == '<':
+        if term[sign] == symbols[0]:
             offset	= -offset
     except Exception as exc:
-        raise ValueError( "Invalid offset %r; must be </>[[h:]m:]s[.s]: %s" % ( term, exc ))
+        raise ValueError( "Invalid offset %r; must be %s[[h:]m:]s[.s]: %s" % ( term, '/'.join( symbols ), exc ))
     return offset
 
-def format_offset( dt, ms=True ):
+def format_offset( dt, ms=True, symbols='<>' ):
     """Convert a floating point number of -'ve/+'ve seconds into '</> h:mm:ss.sss'"""
-    return (( '<' if dt < 0 else '>' ) + "%2d:%02d:" + ( "%06.3f" if ms else "%02d" )) % (
+    return (( symbols[0] if dt < 0 else symbols[1] ) + "%2d:%02d:" + ( "%06.3f" if ms else "%02d" )) % (
         int( abs( dt ) // 3600 ), 
         int( abs( dt ) % 3600 // 60 ), 
         abs( dt ) % 60 )

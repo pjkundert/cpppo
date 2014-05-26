@@ -45,7 +45,7 @@ try:
 except ImportError:
     import reprlib as reprlib
 
-from .times		import timestamp
+from .times		import timestamp, format_offset
 from ..misc		import timer, natural
 from ..automata		import type_str_base
 
@@ -566,9 +566,12 @@ class loader( reader ):
         (SWITCHING,AWAITING):	logging.NORMAL,
     }
 
-    def __init__( self, path, historical, basis=None, factor=None, lookahead=None, values=None ):
+    def __init__( self, path, historical, basis=None, factor=None, lookahead=None, duration=None, values=None ):
         super( loader, self ).__init__( path=path, historical=historical, basis=basis, factor=factor )
         self.lookahead		= lookahead
+        self._duration		= None
+        self._deadline		= None
+        self.duration		= duration		# How many historical seconds to run before terminating
         self.future		= collections.deque()	# Available events; may be in future
         self.until		= None			#   and the timestamp of the last event's registers loaded into .values
         self._state		= self.INITIAL
@@ -587,6 +590,14 @@ class loader( reader ):
             self.values.update( { int( r ): (0.0,int( v )) for r,v in values.items() } )
             log.warning( "%s Providing %d initial default register values: %s", self,
                               len( values ), reprlib.repr( values ))
+
+    @property
+    def duration( self ):
+        return self._duration
+    @duration.setter
+    def duration( self, value ):
+        self._duration		= value
+        self._deadline		= None if value is None else self.historical + value
 
     @property
     def state( self ):
@@ -727,6 +738,9 @@ class loader( reader ):
                         data_bad	= True
                         assert self.state not in (self.INITIAL, self.SWITCHING)
                         continue
+                    if self._deadline is not None and ts >= self._deadline:
+                        raise HistoryExhausted( "Exhausted history duration %s" %
+                                                format_offset( self._duration, symbols='-+' ))
 
                     if js is None:
                         # Our incoming <js> was None; Parsing timestamp (at least) was OK, but is in
