@@ -560,8 +560,8 @@ class loader( reader ):
         AWAITING:		logging.DETAIL,
         COMPLETE:		logging.WARNING,
         FAILED:			logging.WARNING,
-        (INITIAL,STREAMING):	logging.NORMAL,
-        (INITIAL,AWAITING):	logging.NORMAL,
+        (INITIAL,STREAMING):	logging.WARNING,
+        (INITIAL,AWAITING):	logging.WARNING,
         (SWITCHING,STREAMING):	logging.NORMAL,
         (SWITCHING,AWAITING):	logging.NORMAL,
     }
@@ -738,7 +738,8 @@ class loader( reader ):
                         data_bad	= True
                         assert self.state not in (self.INITIAL, self.SWITCHING)
                         continue
-                    if self._deadline is not None and ts >= self._deadline:
+                    if self._deadline is not None and self.state < self.EXHAUSTED and ts >= self._deadline:
+                        # A deadline, and not yet marked EXHAUSTED; switch state, then consume lookahead
                         raise HistoryExhausted( "Exhausted history duration %s" %
                                                 format_offset( self._duration, symbols='-+' ))
 

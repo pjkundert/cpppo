@@ -721,17 +721,28 @@ def test_history_performance():
 
         logging.warning( "Generated data in %.3fs; lines: %d", timer() - start, linecnt )
 
-        # Start somewhere within 1/100-1/10th the dur of the beg, forcing the load the look back to
+        # Start somewhere within 0-1% the dur of the beg, forcing the load the look back to
         # find the first file.  Try to do it all in the next 'playback' second (just to push it to
         # the max), in 'chunks' pieces.
-        historical	= timestamp( random.uniform( beg + dur/100, beg + dur/10 ))
+        historical	= timestamp( random.uniform( beg + dur*0/100, beg + dur*1/100 ))
         basis		= timer()
         playback	= 2.0 * dur/day # Can sustain ~2 seconds / day of history on a single CPU
         chunks		= 1000
         factor		= dur / playback
         lookahead	= 60.0
+        duration	= None
+        if random.choice( (True,False) ):
+            duration	= random.uniform( dur * 98/100, dur * 102/100 )
+
+        begoff		= historical.value - beg
+        endoff		= 0 if duration is None else (( historical.value + duration ) - ( beg + dur ))
+        logging.warning( "Playback starts at beginning %s %s, duration %s, ends at ending %s %s",
+                         timestamp( beg ), format_offset( begoff, ms=False ),
+                         None if duration is None else format_offset( duration, ms=False, symbols='-+' ),
+                         timestamp( beg + dur ), format_offset( endoff, ms=False ))
+
         ld		= loader(
-            path, historical=historical, basis=basis, factor=factor, lookahead=lookahead )
+            path, historical=historical, basis=basis, factor=factor, lookahead=lookahead, duration=duration )
         eventcnt	= 0
         slept		= 0
         cur		= None
