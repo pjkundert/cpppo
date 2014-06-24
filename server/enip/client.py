@@ -199,26 +199,40 @@ class client( object ):
         return data
 
     def read( self, path, elements=1, offset=0, route_path=None, send_path=None, timeout=None ):
-        read_frag		= {
-            'elements':		elements,
-            'offset':		offset,
-        }
+        cmd			= {}
+        if offset is None:
+            cmd['read_tag']	= {
+                'elements':	elements
+            }
+        else:
+            cmd['read_frag']	= {
+                'elements':	elements,
+                'offset':	offset,
+            }
         return self.unconnected_send( path=path, route_path=route_path, send_path=send_path,
-                                      timeout=timeout, read_frag=read_frag )
+                                      timeout=timeout, **cmd )
 
     def write( self, path, data, elements=1, offset=0, tag_type=enip.INT.tag_type,
                route_path=None, send_path=None, timeout=None ):
-        write_frag		= {
-            'elements':		elements,
-            'offset':		offset,
-            'data':		data,
-            'type':		tag_type,
+        cmd			= {}
+        if offset is None:
+            cmd['write_tag']	= {
+                'elements':	elements,
+                'data':		data,
+                'type':		tag_type,
+            }
+        else:
+            cmd['write_frag']	= {
+                'elements':	elements,
+                'offset':	offset,
+                'data':		data,
+                'type':		tag_type,
         }
         return self.unconnected_send( path=path, route_path=route_path, send_path=send_path,
-                                      timeout=timeout, write_frag=write_frag )
+                                      timeout=timeout, **cmd )
 
     def unconnected_send( self, path, route_path=None, send_path=None, timeout=None,
-                          read_frag=None, write_frag=None ):
+                          read_frag=None, read_tag=None, write_frag=None, write_tag=None ):
         if route_path is None:
             # Default to the CPU in chassis (link 0), port 1
             route_path		= [{'link': 0, 'port': 1}]
@@ -258,8 +272,12 @@ class client( object ):
     
         if read_frag:
             us.request.read_frag= read_frag
+        elif read_tag:
+            us.request.read_tag	= read_tag
         elif write_frag:
             us.request.write_frag= write_frag
+        elif write_tag:
+            us.request.write_tag= write_tag
         else:
             raise ValueError( "Expected a Read/Write Tag [Fragmented] request" )
 
@@ -298,6 +316,11 @@ def main( argv=None ):
     ap.add_argument( '-r', '--repeat',
                      default=1,
                      help="Repeat EtherNet/IP request (default: 1)" )
+    ap.add_argument( '-f', '--fragment', dest='fragment', action='store_true',
+                     help="Use Read/Write Tag Fragmented requests (default: True)" )
+    ap.add_argument( '-n', '--no-fragment', dest='fragment', action='store_false',
+                     help="Use Read/Write Tag requests (default: False)" )
+    ap.set_defaults( fragment=False )
     ap.add_argument( 'tags', nargs="+",
                      help="Any tags to read/write, eg: SCADA[1]")
 
@@ -418,11 +441,11 @@ def main( argv=None ):
         for op in operations: # {'path': [...], 'elements': #}
             begun		= misc.timer()
             if 'data' in op:
-                descr		= "Write Frag"
-                request		= cli.write( offset=0, timeout=timeout, **op )
+                descr		= "Write " + "Frag" if args.fragment else "Tag "
+                request		= cli.write( offset=0 if args.fragment else None, timeout=timeout, **op )
             else:
-                descr		= "Read  Frag"
-                request		= cli.read( offset=0, timeout=timeout, **op )
+                descr		= "Read  " + "Frag" if args.fragment else "Tag "
+                request		= cli.read( offset=0 if args.fragment else None, timeout=timeout, **op )
             elapsed		= misc.timer() - begun
             log.normal( "Client %s Sent %7.3f/%7.3fs: %s" % ( descr, elapsed, timeout, enip.enip_format( request )))
             response			= None
@@ -452,7 +475,10 @@ def main( argv=None ):
                 if 'read_frag' in request:
                     act		= "=="
                     val		= request.read_frag.data
-                elif 'write_frag' in request:
+                elif 'read_tag' in request:
+                    act		= "=="
+                    val		= request.read_tag.data
+                elif 'write_frag' in request or 'write_tag' in request:
                     act		= "<="
                     val		= op['data']
                 if not request.status:
@@ -475,7 +501,7 @@ def main( argv=None ):
             log.warning( "%10s[%5d-%-5d] %s %r: %r" % ( tag, elm, elm + cnt - 1, act, val, res ))
 
     duration			= misc.timer() - start
-    log.warning( "Client ReadFrg. Average %7.3f TPS (%7.3fs ea)." % ( repeat / duration, duration / repeat ))
+    log.warning( "Client Tag I/O  Average %7.3f TPS (%7.3fs ea)." % ( repeat / duration, duration / repeat ))
     return status
 
 if __name__ == "__main__":

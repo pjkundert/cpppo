@@ -57,8 +57,6 @@ except ImportError:
     import repr as reprlib
 
 import cpppo
-from   cpppo import misc
-import cpppo.server
 from   cpppo.server import network
 
 from . import parser
@@ -305,13 +303,13 @@ def api_request( group, match, command, value,
 
     # Collect up all the matching objects, execute any command, and then get
     # their attributes, adding any command { success: ..., message: ... }
-    now			= misc.timer()
+    now			= cpppo.timer()
     content		= {
         "alarm":	[],
         "command":	None,
         "data":		{},
         "since":	since,		# time, 0, None (null)
-        "until":	misc.timer(),	# time (default, unless we return alarms)
+        "until":	cpppo.timer(),	# time (default, unless we return alarms)
         }
 
     logging.debug( "Searching for %s/%s, since: %s (%s)" % (
@@ -606,7 +604,7 @@ def enip_srv( conn, addr, enip_process=None, delay=None, **kwds ):
                 source.forget()
                 # If no/partial EtherNet/IP header received, parsing will fail with a NonTerminal
                 # Exception (dfa exits in non-terminal state).  Build data.request.enip:
-                begun		= misc.timer()
+                begun		= cpppo.timer()
                 log.detail( "Transaction begins" )
                 states		= 0
                 for mch,sta in enip_mesg.run( path='request', source=source, data=data ):
@@ -621,9 +619,9 @@ def enip_srv( conn, addr, enip_process=None, delay=None, **kwds ):
                         while msg is None and not stats.eof:
                             wait=( kwds['server']['control']['latency']
                                    if source.peek() is None else 0 )
-                            brx = misc.timer()
+                            brx = cpppo.timer()
                             msg	= network.recv( conn, timeout=wait )
-                            now = misc.timer()
+                            now = cpppo.timer()
                             log.detail( "Transaction receive after %7.3fs (%5s bytes in %7.3f/%7.3fs)" % (
                                 now - begun, len( msg ) if msg is not None else "None",
                                 now - brx, wait ))
@@ -654,7 +652,7 @@ def enip_srv( conn, addr, enip_process=None, delay=None, **kwds ):
                                 # We're at a None (can't proceed), and no input is available.  This
                                 # is where we implement "Blocking"; just loop.
 
-                log.detail( "Transaction parsed  after %7.3fs" % ( misc.timer() - begun ))
+                log.detail( "Transaction parsed  after %7.3fs" % ( cpppo.timer() - begun ))
                 # Terminal state and EtherNet/IP header recognized, or clean EOF (no partial
                 # message); process and return response
                 log.info( "%s req. data (%5d states): %s", enip_mesg.name_centered(), states,
@@ -696,7 +694,7 @@ def enip_srv( conn, addr, enip_process=None, delay=None, **kwds ):
                                     parser.enip_format( data ))
                         eof	= True
                     log.detail( "Transaction complete after %7.3fs (w/ %7.3fs delay)" % (
-                        misc.timer() - begun, delayseconds ))
+                        cpppo.timer() - begun, delayseconds ))
                 except:
                     log.error( "Failed request: %s", parser.enip_format( data ))
                     enip_process( addr, data=cpppo.dotdict() ) # Terminate.
