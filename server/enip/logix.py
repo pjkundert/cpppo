@@ -479,7 +479,7 @@ def __write_tag():
     # Write Tag Service
     srvc			= USINT(		  	context='service' )
     srvc[True]		= path	= EPATH(			context='path' )
-    path[True]		= dtyp	= UINT(		'type',   	context='type' )
+    path[True]		= dtyp	= UINT(		'type',   	context='write_tag', extension='.type' )
     dtyp[True]			= typed_data( 	'write_tag',	context='write_tag' ,
                                         datatype='.type',
                                         terminal=True )
