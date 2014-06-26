@@ -507,7 +507,7 @@ class Object( object ):
             self.__class__.max_instance = instance_id
         self.instance_id	= instance_id
 
-        ( log.normal if self.instance_id else log.info )( 
+        ( log.detail if self.instance_id else log.info )( 
             "%24s, Class ID 0x%04x, Instance ID %3d created",
             self, self.class_id, self.instance_id )
 

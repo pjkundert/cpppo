@@ -785,6 +785,8 @@ def main( argv=None, **kwds ):
                      default=( "%s:%d" % address ),
                      help="EtherNet/IP interface[:port] to bind to (default: %s:%d)" % (
                          address[0], address[1] ))
+    ap.add_argument( '-p', '--print', default=False, action='store_true',
+                     help="Print a summary of operations to stdout" )
     ap.add_argument( '-l', '--log',
                      help="Log file, if desired" )
     ap.add_argument( '-w', '--web',
@@ -794,7 +796,7 @@ def main( argv=None, **kwds ):
     ap.add_argument( '-d', '--delay',
                      help="Delay response to each request by a certain number of seconds (default: 0.0)",
                      default="0.0" )
-    ap.add_argument( '-p', '--profile',
+    ap.add_argument( '-P', '--profile',
                      help="Output profiling data to a file (default: None)",
                      default=None )
     ap.add_argument( 'tags', nargs="+",
@@ -883,7 +885,28 @@ def main( argv=None, **kwds ):
         mutator.start()
 
     # Create all the specified tags/Attributes.  The enip_process function will (somehow) assign the
-    # given tag name to reference the specified Attribute.
+    # given tag name to reference the specified Attribute.  We'll define an Attribute to print
+    # I/O if args.print is specified; reads will only be logged at logging.NORMAL and above.
+    class Attribute_print( device.Attribute ):
+        def __getitem__( self, key ):
+            value		= super( Attribute_print, self ).__getitem__( key )
+            if log.isEnabledFor( logging.NORMAL ):
+                print( "%20s[%5s-%-5s] == %s" % (
+                    self.name, 
+                    key.indices( len( self ))[0]   if isinstance( key, slice ) else key,
+                    key.indices( len( self ))[1]-1 if isinstance( key, slice ) else key,
+                    value ))
+            return value
+
+        def __setitem__( self, key, value ):
+            """Do the assignment, then use our underlying __getitem__ to actually get the assigned values"""
+            super( Attribute_print, self ).__setitem__( key, value )
+            print( "%20s[%5s-%-5s] <= %s" % (
+                self.name, 
+                key.indices( len( self ))[0]   if isinstance( key, slice ) else key,
+                key.indices( len( self ))[1]-1 if isinstance( key, slice ) else key,
+                super( Attribute_print, self ).__getitem__( key )))
+
     for t in args.tags:
         tag_name, rest		= t, ''
         if '=' in tag_name:
@@ -907,8 +930,8 @@ def main( argv=None, **kwds ):
         # is 1, it will be a scalar Attribute.
         log.normal( "Creating tag: %s=%s[%d]", tag_name, tag_type, tag_size )
         tags[tag_name]		= cpppo.dotdict()
-        tags[tag_name].attribute= device.Attribute( tag_name, typenames[tag_type],
-                default=( 0 if tag_size == 1 else [0] * tag_size ))
+        tags[tag_name].attribute= ( Attribute_print if args.print else device.Attribute )(
+            tag_name, typenames[tag_type], default=( 0 if tag_size == 1 else [0] * tag_size ))
         tags[tag_name].error	= 0x00
 
     # Use the Logix simulator by default (unless some other one was supplied as a keyword options to

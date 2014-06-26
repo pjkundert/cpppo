@@ -86,7 +86,7 @@ class client( object ):
         """
         if self.source.peek() is None:
             rcvd		= network.recv( self.conn, timeout=0 )
-            log.detail(
+            log.info(
                 "EtherNet/IP-->%16s:%-5d rcvd %5d: %s",
                 self.addr[0], self.addr[1], len( rcvd ) if rcvd is not None else 0, repr( rcvd ))
             if rcvd is not None:
@@ -110,13 +110,13 @@ class client( object ):
                 if self.engine is None:
                     self.data	= cpppo.dotdict()
                     self.engine	= machine.run( source=self.source, data=self.data )
-                    log.detail(
+                    log.debug(
                         "EtherNet/IP   %16s:%-5d run.: %s -> %10.10s; next byte %3d: %-10.10r: %r",
                         self.addr[0], self.addr[1], machine.name_centered(), machine.current, 
                         self.source.sent, self.source.peek(), self.data )
                     
                 for m,s in self.engine:
-                    log.detail(
+                    log.debug(
                         "EtherNet/IP<--%16s:%-5d rpy.: %s -> %10.10s; next byte %3d: %-10.10r: %r",
                         self.addr[0], self.addr[1], machine.name_centered(), s,
                         self.source.sent, self.source.peek(), self.data )
@@ -126,7 +126,7 @@ class client( object ):
                 self.engine		= None
                 raise
             if machine.terminal:
-                log.detail( "EtherNet/IP   %16s:%-5d done: %s -> %10.10s; next byte %3d: %-10.10r: %r",
+                log.info( "EtherNet/IP   %16s:%-5d done: %s -> %10.10s; next byte %3d: %-10.10r: %r",
                             self.addr[0], self.addr[1], machine.name_centered(), machine.current, 
                             self.source.sent, self.source.peek(), self.data )
                 # Got an EtherNet/IP frame.  Return it (after parsing its payload.)
@@ -138,7 +138,7 @@ class client( object ):
             with self.cip as machine:
                 for m,s in machine.run(
                         path='enip', source=cpppo.peekable( result.enip.input ), data=result ):
-                    log.detail(
+                    log.debug(
                         "EtherNet/IP<--%16s:%-5d CIP : %s -> %10.10s; next byte %3d: %-10.10r: %r",
                         self.addr[0], self.addr[1], machine.name_centered(), s,
                         self.source.sent, self.source.peek(), self.data )
@@ -166,7 +166,7 @@ class client( object ):
         assert self.writable( timeout=timeout ), \
             "Failed to send to %r within %7.3fs: %r" % ( self.addr, timeout, request )
         self.conn.send( request )
-        log.detail(
+        log.info(
             "EtherNet/IP-->%16s:%-5d send %5d: %s",
                     self.addr[0], self.addr[1], len( request ), repr( request ))
 
@@ -308,6 +308,8 @@ def main( argv=None ):
                      default=( "%s:%d" % enip.address ),
                      help="EtherNet/IP interface[:port] to connect to (default: %s:%d)" % (
                          enip.address[0], enip.address[1] ))
+    ap.add_argument( '-p', '--print', default=False, action='store_true',
+                     help="Print a summary of operations to stdout" )
     ap.add_argument( '-l', '--log',
                      help="Log file, if desired" )
     ap.add_argument( '-t', '--timeout',
@@ -360,18 +362,18 @@ def main( argv=None ):
     begun			= misc.timer()
     request			= cli.register( timeout=timeout )
     elapsed			= misc.timer() - begun
-    log.normal( "Client Register Sent %7.3f/%7.3fs: %s" % ( elapsed, timeout, enip.enip_format( request )))
+    log.detail( "Client Register Sent %7.3f/%7.3fs: %s" % ( elapsed, timeout, enip.enip_format( request )))
     data			= None # In case nothing is returned by cli iterable
     for data in cli:
         elapsed			= misc.timer() - begun
-        log.detail( "Client Register Resp %7.3f/%7.3fs: %s" % ( elapsed, timeout, enip.enip_format( data )))
+        log.info( "Client Register Resp %7.3f/%7.3fs: %s" % ( elapsed, timeout, enip.enip_format( data )))
         if data is None:
             if elapsed <= timeout:
                 cli.readable( timeout=timeout - elapsed )
                 continue
         break
     elapsed			= misc.timer() - begun
-    log.normal( "Client Register Rcvd %7.3f/%7.3fs: %s" % ( elapsed, timeout, enip.enip_format( data )))
+    log.detail( "Client Register Rcvd %7.3f/%7.3fs: %s" % ( elapsed, timeout, enip.enip_format( data )))
     assert data is not None, "Failed to receive any response"
     assert 'enip.status' in data, "Failed to receive EtherNet/IP response"
     assert data.enip.status == 0, "EtherNet/IP response indicates failure: %s" % data.enip.status
@@ -447,18 +449,18 @@ def main( argv=None ):
                 descr		= "Read  " + "Frag" if args.fragment else "Tag "
                 request		= cli.read( offset=0 if args.fragment else None, timeout=timeout, **op )
             elapsed		= misc.timer() - begun
-            log.normal( "Client %s Sent %7.3f/%7.3fs: %s" % ( descr, elapsed, timeout, enip.enip_format( request )))
+            log.detail( "Client %s Sent %7.3f/%7.3fs: %s" % ( descr, elapsed, timeout, enip.enip_format( request )))
             response			= None
             for response in cli:
                 elapsed		= misc.timer() - begun
-                log.normal( "Client %s Resp %7.3f/%7.3fs: %s" % ( descr, elapsed, timeout, enip.enip_format( response )))
+                log.debug( "Client %s Resp %7.3f/%7.3fs: %s" % ( descr, elapsed, timeout, enip.enip_format( response )))
                 if response is None:
                     if elapsed <= timeout:
                         cli.readable( timeout=timeout - elapsed )
                         continue
                 break
             elapsed		= misc.timer() - begun
-            log.normal( "Client %s Rcvd %7.3f/%7.3fs: %s" % ( descr, elapsed, timeout, enip.enip_format( response )))
+            log.detail( "Client %s Rcvd %7.3f/%7.3fs: %s" % ( descr, elapsed, timeout, enip.enip_format( response )))
             tag			= op['path'][0]['symbolic']
             elm			= op['path'][1]['element']
             cnt			= op['elements']
@@ -498,10 +500,14 @@ def main( argv=None ):
                 status		= 1
                 res		= "Client %s Exception: %s" % exc
 
-            log.warning( "%10s[%5d-%-5d] %s %r: %r" % ( tag, elm, elm + cnt - 1, act, val, res ))
+            # To disable printing to stdout, 
+            out			= "%20s[%5d-%-5d] %s %r: %r" % ( tag, elm, elm + cnt - 1, act, val, res )
+            log.normal( out )
+            if args.print:
+                print( out )
 
     duration			= misc.timer() - start
-    log.warning( "Client Tag I/O  Average %7.3f TPS (%7.3fs ea)." % ( repeat / duration, duration / repeat ))
+    log.normal( "Client Tag I/O  Average %7.3f TPS (%7.3fs ea)." % ( repeat / duration, duration / repeat ))
     return status
 
 if __name__ == "__main__":
