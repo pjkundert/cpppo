@@ -649,18 +649,34 @@ def process( addr, data, **kwds ):
         if log.isEnabledFor( logging.DETAIL ):
             log.detail( "EtherNet/IP CIP Request  (Client %16s): %s", addr, enip_format( data.request ))
 
-        # Create a data.response with a structural copy of the request.enip.header.  This means that
+        # Create a data.response with a structural copy of the data.request.enip.  This means that
         # the dictionary structure is new (we won't alter the request.enip... when we add entries in
-        # the resonse...), but the actual mutable values (eg. bytearray ) are copied.  If we need
-        # to change any values, replace them with new values instead of altering them!
+        # the resonse...), but the actual mutable values (eg. bytearray ) are shared.  If we need to
+        # change any values, replace them with new values instead of altering them!
         data.response		= cpppo.dotdict( data.request )
+        if 'enip' in data.request:
+            data.response.enip	= cpppo.dotdict( data.request.enip )
+
+        # Get rid of our raw request encapsulated enip.input; we'll generate a new one for the
+        # response, and we don't want to ever be accidentally returning our request as our response
+        # if we returned unexpectedly.  This is where we'll enforce (arbitrary) limits on incoming
+        # request size; an otherwise correctly parsed request can be rejected here due to size.
+        # This should probably kill the connection, but we'll let the higher level protocol elements
+        # decide that; since we parsed the request and returned a valid response, the channel is
+        # still theoretically good.
+        if 'enip.input' in data.response:
+            del data.response.enip['input']
+            if 'size' in kwds and kwds['size'] is not None and len( data.request.enip.input ) > int( kwds['size'] ):
+                log.warning( "EtherNet/IP encapsulated request of length %d exceeds specified size limit %s",
+                             len( data.request.enip.input ), kwds['size'] )
+                data.response.enip.status = 0x65
+                return True
 
         # Let the Connection Manager process the (copied) request in response.enip, producing the
         # appropriate data.response.enip.input encapsulated EtherNet/IP message to return, along
         # with other response.enip... values (eg. .session_handle for a new Register Session).  The
         # enip.status should normally be 0x00; the encapsulated response will contain appropriate
         # error indications if the encapsulated request failed.
-        
         proceed			= ucmm.request( data.response )
         if log.isEnabledFor( logging.DETAIL ):
             log.detail( "EtherNet/IP CIP Response (Client %16s): %s", addr, enip_format( data.response ))

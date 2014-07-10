@@ -326,19 +326,21 @@ class enip_machine( cpppo.dfa ):
         super( enip_machine, self ).__init__( name=name, initial=hedr, **kwds )
 
 def enip_encode( data ):
-    """Produce an encoded EtherNet/IP message from the supplied data; assumes any encapsulated data
-    has been encoded to enip.input and is already available.  Assumes a data artifact is supplied
-    like the one produced by enip_machine.
+    """Produce an encoded EtherNet/IP message from the supplied data; assumes any encapsulated data has
+    been encoded to enip.input and is already available.  Assumes a data artifact is supplied like
+    the one produced by enip_machine.  If no encapsulated message available in data.input, then a
+    payload size of 0 is returned; normally, this should be accompanied by a non-zero status, but we
+    don't check here.
 
     """
-    result			= b''.join( [
+    result			= b''.join([
         UINT.produce(	data.command ),
-        UINT.produce(len(data.input )),
+        UINT.produce( len(data.input ) if 'input' in data else 0 ),
         UDINT.produce(	data.session_handle ),
         UDINT.produce(	data.status ),
         octets_encode(	data.sender_context.input ),
         UDINT.produce(	data.options ),
-        octets_encode(	data.input ),
+        octets_encode(	data.input ) if 'input' in data else b'',
     ])
     return result
     

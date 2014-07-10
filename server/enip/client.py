@@ -83,6 +83,8 @@ class client( object ):
         
         If no input is presently available, harvest any input immediately available; terminate on EOF.
 
+        The response may not actually contain a payload, eg. if the EtherNet/IP header contains a
+        non-zero status.
         """
         if self.source.peek() is None:
             rcvd		= network.recv( self.conn, timeout=0 )
@@ -133,8 +135,9 @@ class client( object ):
                 self.engine		= None
                 result			= self.data
 
-        # Parse the EtherNet/IP encapsulated CIP frame
-        if result is not None:
+        # Parse the EtherNet/IP encapsulated CIP frame, if any.  If the EtherNet/IP header .size was
+        # zero, it's status probably indicates why.
+        if result is not None and 'enip.input' in result:
             with self.cip as machine:
                 for m,s in machine.run(
                         path='enip', source=cpppo.peekable( result.enip.input ), data=result ):
@@ -469,6 +472,7 @@ def main( argv=None ):
             act			= "??" # denotation of request action
 
             try:
+                assert response.enip.status == 0, "EtherNet/IP status: %d" % response.enip.status
                 # The response should contain either an status code (possibly with an extended
                 # status), or the read_frag request's data.  Remember; a successful response may
                 # carry read_frag.data, but report a status == 6 indicating that more data remains
@@ -498,7 +502,7 @@ def main( argv=None ):
                 res		= "Client %s Response missing data: %s" % ( descr, exc )
             except Exception as exc:
                 status		= 1
-                res		= "Client %s Exception: %s" % exc
+                res		= "Client %s Exception: %s" % ( descr, exc )
 
             # To disable printing to stdout, 
             out			= "%20s[%5d-%-5d] %s %r: %r" % ( tag, elm, elm + cnt - 1, act, val, res )

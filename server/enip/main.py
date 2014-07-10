@@ -606,9 +606,7 @@ def enip_srv( conn, addr, enip_process=None, delay=None, **kwds ):
                 # Exception (dfa exits in non-terminal state).  Build data.request.enip:
                 begun		= cpppo.timer()
                 log.detail( "Transaction begins" )
-                states		= 0
                 for mch,sta in enip_mesg.run( path='request', source=source, data=data ):
-                    states    += 1
                     if sta is None:
                         # No more transitions available.  Wait for input.  EOF (b'') will lead to
                         # termination.  We will simulate non-blocking by looping on None (so we can
@@ -655,8 +653,6 @@ def enip_srv( conn, addr, enip_process=None, delay=None, **kwds ):
                 log.detail( "Transaction parsed  after %7.3fs" % ( cpppo.timer() - begun ))
                 # Terminal state and EtherNet/IP header recognized, or clean EOF (no partial
                 # message); process and return response
-                log.info( "%s req. data (%5d states): %s", enip_mesg.name_centered(), states,
-                             parser.enip_format( data ))
                 if 'request' in data:
                     stats['requests'] += 1
                 try:
@@ -667,9 +663,13 @@ def enip_srv( conn, addr, enip_process=None, delay=None, **kwds ):
                     delayseconds= 0	# response delay (if any)
                     if enip_process( addr, data=data, **kwds ):
                         # Produce an EtherNet/IP response carrying the encapsulated response data.
-                        assert 'response' in data, "Expected EtherNet/IP response; none found"
-                        assert 'enip.input' in data.response, \
-                            "Expected EtherNet/IP response encapsulated message; none found"
+                        # If no encapsulated data, ensure we also return a non-zero EtherNet/IP
+                        # status.  A non-zero status indicates the end of the session.
+                        assert 'response.enip' in data, "Expected EtherNet/IP response; none found"
+                        if 'input' not in data.response.enip or not data.response.enip.input:
+                            log.warning( "Expected EtherNet/IP response encapsulated message; none found" )
+                            assert data.response.enip.status, "If no/empty response payload, expected non-zero EtherNet/IP status"
+
                         rpy	= parser.enip_encode( data.response.enip )
                         log.detail( "%s send: %5d: %s %s", enip_mesg.name_centered(),
                                     len( rpy ), reprlib.repr( rpy ),
@@ -686,13 +686,17 @@ def enip_srv( conn, addr, enip_process=None, delay=None, **kwds ):
                         try:
                             conn.send( rpy )
                         except socket.error as exc:
-                            log.detail( "%s session ended (client abandoned): %s", enip_mesg.name_centered(), exc )
-                            eof	= True
+                            log.detail( "Session ended (client abandoned): %s", exc )
+                            stats['eof'] = True
+                        if data.response.enip.status:
+                            log.warning( "Session ended (server EtherNet/IP status: 0x%02x == %d)",
+                                        data.response.enip.status, data.response.enip.status )
+                            stats['eof'] = True
                     else:
                         # Session terminated.  No response, just drop connection.
-                        log.detail( "%s session ended (client initiated): %s", enip_mesg.name_centered(),
+                        log.detail( "Session ended (client initiated): %s",
                                     parser.enip_format( data ))
-                        eof	= True
+                        stats['eof'] = True
                     log.detail( "Transaction complete after %7.3fs (w/ %7.3fs delay)" % (
                         cpppo.timer() - begun, delayseconds ))
                 except:
@@ -796,6 +800,9 @@ def main( argv=None, **kwds ):
     ap.add_argument( '-d', '--delay',
                      help="Delay response to each request by a certain number of seconds (default: 0.0)",
                      default="0.0" )
+    ap.add_argument( '-s', '--size',
+                     help="Limit EtherNet/IP encapsulated request size to the specified number of bytes (default: None)",
+                     default=None )
     ap.add_argument( '-P', '--profile',
                      help="Output profiling data to a file (default: None)",
                      default=None )
@@ -965,7 +972,7 @@ def main( argv=None, **kwds ):
     # timeout; this will block the web API for several seconds to allow all threads to respond to
     # the signals delivered via the web API.
     logging.normal( "EtherNet/IP Simulator: %r" % ( bind, ))
-    kwargs			= dict( options, latency=latency, tags=tags, server=srv_ctl )
+    kwargs			= dict( options, latency=latency, size=args.size, tags=tags, server=srv_ctl )
 
     tf				= network.server_thread
     tf_kwds			= dict()
