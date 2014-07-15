@@ -761,7 +761,12 @@ def logrotate_perform():
 # 
 # main		-- Run the EtherNet/IP Controller Simulation
 # 
-def main( argv=None, **kwds ):
+#     Uses the provided attribute_class (default: device.Attribute) to process all EtherNet/IP
+# attribute I/O (eg. Read/Write Tag [Fragmented]) requests.  By default, device.Attribute stores and
+# retrieves the supplied data.  To perform other actions (ie. forward the data to your own
+# application), derive from device.Attribute, and override the __getitem__ and __setitem__ methods.
+# 
+def main( argv=None, attribute_class=device.Attribute, **kwds ):
     """Pass the desired argv (excluding the program name in sys.arg[0]; typically
     pass argv=None, which is equivalent to argv=sys.argv[1:], the default for
     argparse.  Requires at least one tag to be defined.
@@ -894,7 +899,7 @@ def main( argv=None, **kwds ):
     # Create all the specified tags/Attributes.  The enip_process function will (somehow) assign the
     # given tag name to reference the specified Attribute.  We'll define an Attribute to print
     # I/O if args.print is specified; reads will only be logged at logging.NORMAL and above.
-    class Attribute_print( device.Attribute ):
+    class Attribute_print( attribute_class ):
         def __getitem__( self, key ):
             value		= super( Attribute_print, self ).__getitem__( key )
             if log.isEnabledFor( logging.NORMAL ):
@@ -906,13 +911,12 @@ def main( argv=None, **kwds ):
             return value
 
         def __setitem__( self, key, value ):
-            """Do the assignment, then use our underlying __getitem__ to actually get the assigned values"""
             super( Attribute_print, self ).__setitem__( key, value )
             print( "%20s[%5s-%-5s] <= %s" % (
                 self.name, 
                 key.indices( len( self ))[0]   if isinstance( key, slice ) else key,
                 key.indices( len( self ))[1]-1 if isinstance( key, slice ) else key,
-                super( Attribute_print, self ).__getitem__( key )))
+                value ))
 
     for t in args.tags:
         tag_name, rest		= t, ''
@@ -937,7 +941,7 @@ def main( argv=None, **kwds ):
         # is 1, it will be a scalar Attribute.
         log.normal( "Creating tag: %s=%s[%d]", tag_name, tag_type, tag_size )
         tags[tag_name]		= cpppo.dotdict()
-        tags[tag_name].attribute= ( Attribute_print if args.print else device.Attribute )(
+        tags[tag_name].attribute= ( Attribute_print if args.print else attribute_class )(
             tag_name, typenames[tag_type], default=( 0 if tag_size == 1 else [0] * tag_size ))
         tags[tag_name].error	= 0x00
 

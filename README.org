@@ -68,6 +68,28 @@
     The available types are INT (16-bit), SINT (8-bit) DINT (32-bit) integer,
     and REAL (32-bit float).
 
+*** EtherNet/IP Controller I/O Customization
+
+    If you require access to the data streaming from client to and from the
+    EtherNet/IP CIP Attributes hosted in your simulated controller, you can
+    easily provide a custom cpppo.server.enip.device Attribute implementation
+    which will receive all PLC Read/Write Tag [Fragmented] request data.
+
+    For example purposes, we have implemented the cpppo.server.enip.historize
+    module which intercepts all I/O (and exceptions) and writes it to the file
+    specified in the first command-line argument to the module:
+    : $ python -m cpppo.server.enip.historize some_file.hst Tag_Name=INT[1000] &
+    : $ tail -f some_file.txt
+    : # 2014-07-15 22:03:35.945: Started recording Tag: Tag_Name
+    : 2014-07-15 22:03:44.186 ["Tag_Name", [0, 3]]    {"write": [0, 1, 2, 3]}
+    : ...
+    (in another terminal)
+    : $ python -m cpppo.server.enip.client Tag_Name[0-3]=[0,1,2,3]
+
+    You can examine the code in cpppo/server/enip/historize.py to see how to
+    easily implement your own such modular customization of the provide
+    EtherNet/IP CIP Controller simulator.
+    
 
 *** EtherNet/IP Controller Client
 

@@ -147,7 +147,7 @@ class logger( object ):
         log.info( "Logging history to path: %s", path )
         if type( path ) is str:
             path_dir		= os.path.dirname( path )
-            if not os.path.exists(path_dir):
+            if path_dir and not os.path.exists(path_dir):
                 os.makedirs(path_dir)
 
         self.path		= path

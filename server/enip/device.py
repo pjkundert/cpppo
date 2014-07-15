@@ -50,7 +50,6 @@ except ImportError:
     import repr as reprlib
 
 import cpppo
-from   cpppo import misc
 import cpppo.server
 from   cpppo.server import network
 
