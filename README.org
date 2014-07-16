@@ -1,5 +1,5 @@
 * Comm. Protocol Python Parser and Originator
-
+  
   Cpppo (pronounced 'c'+3*'p'+'o' in Python) is used to implement binary
   communications protocol parsers.  The protocol's communication elements are
   described in terms of state machines which change state in response to input
@@ -7,17 +7,36 @@
 
 ** Installing
 
-   Cpppo depends on several Python packages; 'greenery', a Regular Expression
-   parsing and state machinery library, 'web', the web.py framework, and (for
-   testing) 'pytest'.
+   Cpppo depends on several Python packages:
 
-   To install 'cpppo' and its dependencies 'greenery', and 'web.py' using pip:
+   | Package  | For?      | Description                                              |
+   |----------+-----------+----------------------------------------------------------|
+   | greenery | all       | Regular Expression parsing and state machinery library   |
+   | web      | web API   | The web.py HTTP web application framework                |
+   | pytz     | history   | The Python time-zone library                             |
+   | tzlocal  | history   | Access to system's local timezone (on Mac, Windows)      |
+   | pymodbus | remote    | Modbus/TCP support for polling Schneider compatible PLCs |
+   | pytest   | unit test | A Python unit-test framework                             |
+   
+   To install 'cpppo' and its required dependency 'greenery' using pip:
    : $ pip install cpppo
+
+   To install all required and optional Python modules, use:
+   : pip install -r requirements.txt
+   : pip install -r requirements-optional.txt
 
    If you need system admin privileges to install packages, you may need to use
    'sudo' on the above pip commands:
    : $ sudo pip install ...
 
+*** Installing from source
+
+    Clone the repo by going to your preferred source directory and using:
+    : $ git clone git@github.com:pjkundert/cpppo.git
+
+    You can then install from the provided setuptools-based setup.py installer:
+    : $ cd cpppo
+    : $ python setup.py install
 
 * Protocols
 
@@ -87,9 +106,16 @@
     : $ python -m cpppo.server.enip.client Tag_Name[0-3]=[0,1,2,3]
 
     You can examine the code in cpppo/server/enip/historize.py to see how to
-    easily implement your own such modular customization of the provide
-    EtherNet/IP CIP Controller simulator.
-    
+    easily implement your own customization of the EtherNet/IP CIP Controller
+    simulator.
+
+    If you invoke the 'main' method provided by cpppo.server.enip.main directly,
+    all command-line args will be parsed, and the EtherNet/IP service will not
+    return control until termination.  Alternatively, you may start the service
+    in a separate threading.Thread and provide it with a list of configuration
+    options.  Note that each individual EtherNet/IP Client session is serviced
+    by a separate Thread, and thus all method invocations arriving at your
+    customized Attribute object need to process data in a Thread-safe fashion.
 
 *** EtherNet/IP Controller Client
 
