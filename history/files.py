@@ -274,7 +274,7 @@ class reader( object ):
     """Open the specified history file(s) and read register values from them, yielding a stream of
     <fileinfo>,<record> tuples.  Produces data until the "current" historical time is reached,
     relative to current wall-clock time.  There is no provision to force reader.open to yield
-    records up to a "historical" time the maps to some other wall-clock time; derived classes may,
+    records up to a "historical" time that maps to some other wall-clock time; derived classes may,
     however, store up the records and absorb them at a different rate and/or order.
 
     Replays history from the provided 'historical' timestamp.  The history files will be searched for
