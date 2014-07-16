@@ -17,7 +17,7 @@
 # 
 # cpppo.server.enip.historize
 # 
-# Example of how to run an EtherNet/IP simuluator, and intercept all /IP Attribute I/O.  In this
+# Example of how to run an EtherNet/IP simulator, and intercept all /IP Attribute I/O.  In this
 # instance, we'll arrange to output a copy of all I/O to the file specified in the first
 # command-line argument to the module.  Invoke using:
 # 
