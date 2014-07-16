@@ -38,6 +38,17 @@
     : $ cd cpppo
     : $ python setup.py install
 
+*** Python Version Support
+
+    Cpppo is implemented and fully tested on both Python 2 and 3. However, some
+    of cpppo's modules are not (yet) fully supported in both versions:
+
+    - The pymodbus module does not support Python 3, so Modbus/TCP support for
+      polling remote PLCs is only available for Python 2.
+    - Greenery supports both Python 2 and 3, but doesn't provide meaningful
+      Unicode (UTF-8) support in Python 2, so regular expression based DFAs are
+      only supported for Python 3.
+
 * Protocols
 
   The protocols implemented (presently, few) are described here.
@@ -250,7 +261,7 @@
      can adjust this range to a new range, using:
      : $ curl http://localhost:12345/api/options/delay/range=0.5-1.5
 
-     You can cause it to never response (in time), to cause future connection
+     You can cause it to never respond (in time), to cause future connection
      attempts to fail:
      : $ curl http://localhost:12345/api/options/delay/value=10.0
 
@@ -477,6 +488,13 @@
    # A regular expression; the default dfa name is the regular expression itself.
    REGEX		= cpppo.regex( initial='(ab+)((,[ ]*)(ab+))*', context='regex' )
    #+END_SRC
+
+*** Unicode Support
+
+    Cpppo supports Unicode (UTF-8) on both Python 2 and 3.  However, greenery
+    provides meaningful Unicode support only under Python 3.  Therefore, if you
+    wish to use Unicode in regular expressions, you must use Python 3.
+
 
 * Running State Machines
 
