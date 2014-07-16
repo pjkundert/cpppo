@@ -91,6 +91,9 @@
     To send log output to a file (limited to 10MB, rotates through 5 copies):
     : -l|--log <file>
 
+    To print a summary of PLC I/O to stdout:
+    : -p|--print
+
     You may specify as many tags as you like on the command line; at least one
     is required:
     : <tag>=<type>[<length>]   # eg. SCADA=INT[1000]
@@ -147,6 +150,16 @@
 
     Specify a number of times to repeat the specified operations:
     : -r|--repeat #
+
+    To send log output to a file (limited to 10MB, rotates through 5 copies):
+    : -l|--log <file>
+
+    To print a summary of PLC I/O to stdout:
+    : -p|--print
+
+    To force the client to use plain Read/Write Tag commands (instead of the
+    Fragmented commands, which are the default):
+    : -n|--no-fragment
 
     You may specify as many tags as you like on the command line; at least one
     is required.  An optional register (range) can be specified (default is
