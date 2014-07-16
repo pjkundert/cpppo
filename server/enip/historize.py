@@ -96,7 +96,6 @@ class Attribute_historize( device.Attribute ):
             raise
 
     def __setitem__( self, key, value ):
-        """Do the assignment, then use our underlying __getitem__ to actually get the assigned values"""
         try:
             super( Attribute_historize, self ).__setitem__( key, value )
             self.__logger.write( { 'write': value }, serial=(self.name, (
