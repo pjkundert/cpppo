@@ -129,13 +129,15 @@ class timestamp( object ):
     """Initialize from a timestamp or a UTC formatted date-time string, and produce float timestamp
     value or string.
 
-    All numeric timestamps are converted to string, and all comparisons between timestamps should be
-    in string form, to ensure that all timestamps are truncated to the same precision.  The format
-    is chosen to ensure that it is lexicographically comparable while maintaining monotonic and
-    increasing comparability of timestamps.  In other words, two timestamps that compare > (if
-    truncated to 3 digits of sub-second precision) will also compare identically as strings.
+    All comparisons between timestamps occurs in numeric form, to the precision specified by
+    _epsilon; timestamps nearer than _epsilon seconds from each other are considered equal.  The
+    default string format (to millisecond precision) and default _epsilon (10^-3) are chosen so that
+    string form and numeric form timestamps compare equivalently.  In other words, two timestamps
+    that compare > (if truncated to 3 digits of sub-second precision) will also compare identically
+    as strings.
 
     Always has a .value which is the unix timestamp as a float.  The string version is lazily produced.
+
     """
     UTC				= pytz.utc
     LOC				= get_localzone()	# from environment TZ, /etc/timezone, etc.
