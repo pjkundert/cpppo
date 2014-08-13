@@ -385,13 +385,16 @@ def main( argv=None ):
     cli.session			= data.enip.session_handle
     
     # Parse each EtherNet/IP Tag Read or Write; only write operations will have 'data'
-    #     TAG[0] 		read 1 value index 0 (default)
-    #     TAG[1-5]		read 5 values from indices 1 to 5
+    #     TAG	 		read 1 value (no element index)
+    #     TAG[0] 		read 1 value from element index 0
+    #     TAG[1-5]		read 5 values from element indices 1 to 5
     #     TAG[4-7]=1,2,3,4	write 4 values from indices 4 to 7
-
+    # 
+    # To support accesst to scalar attributes (no element index allowed in path), we cannot default
+    # to supply an element index of 0; default is no element in path, and a data value count of 1.
     operations			= []
     for tag in args.tags:
-        # Compute tag, elm, end and cnt (default elm is 0, cnt is 1)
+        # Compute tag, elm, end and cnt (default elm is None (no element index), cnt is 1)
         val			= ''
         if '=' in tag:
             tag,val		= tag.split( '=', 1 )
@@ -402,11 +405,12 @@ def main( argv=None ):
             if '-' in elm:
                 elm,end		= elm.split( '-' )
             elm,end		= int(elm), int(end)
+            cnt			= end + 1 - elm
         else:
-            elm,end		= 0,0
-        cnt			= end + 1 - elm
+            elm			= None
+            cnt			= 1
         opr			= {
-            'path':	[{'symbolic': tag}, {'element': elm}],
+            'path':	[{'symbolic': tag}] + ([{'element': elm}] if elm is not None else []),
             'elements': cnt,
         }
         if val:
@@ -465,7 +469,10 @@ def main( argv=None ):
             elapsed		= misc.timer() - begun
             log.detail( "Client %s Rcvd %7.3f/%7.3fs: %s" % ( descr, elapsed, timeout, enip.enip_format( response )))
             tag			= op['path'][0]['symbolic']
-            elm			= op['path'][1]['element']
+            try:
+                elm		= op['path'][1]['element']	# array access
+            except IndexError:
+                elm		= None				# scalar access
             cnt			= op['elements']
             val			= []   # data values read/written
             res			= None # result of request
@@ -504,8 +511,10 @@ def main( argv=None ):
                 status		= 1
                 res		= "Client %s Exception: %s" % ( descr, exc )
 
-            # To disable printing to stdout, 
-            out			= "%20s[%5d-%-5d] %s %r: %r" % ( tag, elm, elm + cnt - 1, act, val, res )
+            if elm is None:
+                out		= "%20s              %s %r: %r" % ( tag, act, val, res ) # scalar access
+            else:
+                out		= "%20s[%5d-%-5d] %s %r: %r" % ( tag, elm, elm + cnt - 1, act, val, res )
             log.normal( out )
             if args.print:
                 print( out )
