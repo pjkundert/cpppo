@@ -33,6 +33,64 @@ from   cpppo.server.enip import logix, client
 log				= logging.getLogger( "lgx.prof" )
 
 
+def test_logix_multiple():
+    """Test the Multiple Request Service"""
+    size			= 1000
+    Obj				= logix.Logix()
+    Obj_a1 = Obj.attribute['1']	= enip.device.Attribute( 'parts',       enip.parser.DINT, default=[n for n in range( size )])
+    Obj_a2 = Obj.attribute['2']	= enip.device.Attribute( 'ControlWord', enip.parser.DINT, default=[n for n in range( size )])
+
+    assert len( Obj_a1 ) == size
+    assert len( Obj_a2 ) == size
+
+    # Set up a symbolic tag referencing the Logix Object's Attribute
+    enip.device.symbol['parts']	= {'class': Obj.class_id, 'instance': Obj.instance_id, 'attribute':1 }
+    enip.device.symbol['ControlWord'] \
+				= {'class': Obj.class_id, 'instance': Obj.instance_id, 'attribute':2 }
+
+    data			= cpppo.dotdict()
+    data.multiple		= {}
+    data.multiple.request	= [ cpppo.dotdict(), cpppo.dotdict() ]
+    req				= data.multiple.request
+
+    req[0].path			= { 'segment': [ cpppo.dotdict( d )
+                                                 for d in [{'symbolic': 'parts'}]] }
+    req[0].read_tag		= {}
+    req[0].read_tag.elements	= 1
+    
+    req[1].path			= { 'segment': [ cpppo.dotdict( d )
+                                                 for d in [{'symbolic': 'ControlWord'}]] }
+    req[1].read_tag		= {}
+    req[1].read_tag.elements	= 1
+
+    request			= Obj.produce( data )
+
+    req_1			= bytes(bytearray([
+        0x0A,
+        0x02,
+        0x20, 0x02, 0x24, 0x01,
+        
+        0x02, 0x00,
+        
+        0x06, 0x00,
+        0x12, 0x00,
+        
+        0x4C,
+        0x04, 0x91, 0x05, 0x70, 0x61,
+        0x72, 0x74, 0x73, 0x00,
+        0x01, 0x00,
+        
+        0x4C,
+        0x07, 0x91, 0x0B, 0x43, 0x6F,
+        0x6E, 0x74, 0x72, 0x6F, 0x6C,
+        0x57, 0x6F, 0x72, 0x64, 0x00,
+        0x01, 0x00,
+    ]))
+                       
+    assert request == req_1, \
+        "Unexpected result from Multiple Request Service; got: \n%r\nvs.\n%r " % ( request, req_1 )
+
+
 def logix_performance( repeat=1000 ):
     """Characterize the performance of the logix module."""
     size			= 1000

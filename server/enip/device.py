@@ -888,7 +888,105 @@ class Message_Router( Object ):
     with any specific to the actual device.
 
     """
+    MULTIPLE_CTX		= "multiple"
+    MULTIPLE_REQ		= 0x0A
+    MULTIPLE_RPY		= MULTIPLE_REQ | 0x80
+
     class_id			= 0x02
+
+    @classmethod
+    def produce( cls, data ):
+        """Produces an encode Multiple Request Server request or reply.  Defaults to produce the request, if
+        no .service specified, and just .multiple_request.  Expects multiple_request to be an array
+        of Message_Router requests, each one individually able to produce() a serialized result,
+        using this same cls.produce() method.
+
+            "unconnected_send.service": 0x0A,					# default, if '.multiple' seen
+            "unconnected_send.multiple.path": { 'class': 0x06, 'instance': 1}	# default, if no path provided
+            "unconnected_send.multiple.request[0].path": { 'symbolic': "SCADA_40100", 'element': 123 }
+            "unconnected_send.multiple.request[0].read_tag.elements": 1		# vector access, single element
+            "unconnected_send.multiple.request[1].path": { 'symbolic': "part" }
+            "unconnected_send.multiple.request[1].read_tag.elements": 1		# scalar access
+
+        Iterate over the available multiple.request entries, and produce each of their encoded
+        messages in turn.  Add each new encoded message's length to the developing list of requests
+        offsets.  Finally, prepend a 0 to the list of offsets (the offset of the latest request),
+        and prepend it to the request data.  Finally, add 2 + 2 * #requests to all offsets.
+
+        Encode the beginning of message up to the number of requests and request offsets, and
+        prepend to requests data.  The Multiple Service Request/Reply message formats are:
+
+        | Message Field     | Bytes          | Description                                         |
+        |-------------------+----------------+-----------------------------------------------------|
+        | Request Service   | 0A             | Multiple Request Service (Request)                  |
+        | Request Path Size | 02             | Request path is 2 words (4 bytes)                   |
+        | Request Path      | 20 02 24 01    | Logical Segment class 0x02, instance 1              |
+        | ----------------- | -------------- | --------------------------------------------------- |
+        | Request Data      | 02 00          | Number of Services contained in req.                |
+        |                   | -------------- | --------------------------------------------------- |
+        |                   | 06 00          | Offsets for each Service from start of Request Data |
+        |                   | 12 00          |                                                     |
+        |                   | -------------- | --------------------------------------------------- |
+        |                   | 4C             | First Request: Read Tag Service                     |
+        |                   | 04 91 05 70 61 | EPATH, 4 words, symbolic "parts"                    |
+        |                   | 72 74 73 00    |                                                     |
+        |                   | 01 00          | Read 1 element                                      |
+        |                   | -------------- | --------------------------------------------------- |
+        |                   | 4C             | Second Request: Read Tag Service                    |
+        |                   | 07 91 0B 43 6F | EPATH, 7 words, symbolic "ControlWord"              |
+        |                   | 6E 74 72 6F 6C |                                                     |
+        |                   | 57 6F 72 64 00 |                                                     |
+        |                   | 01 00          | Read 1 element                                      |
+        |                   |                |                                                     |
+        |                   |                |                                                     |
+        | Request Service   | 8A             | Multiple Request Service (Reply)                    |
+        | Reserved          | 00             |                                                     |
+        | General Status    | 00             | Success                                             |
+        | Extended Sts Size | 00             | No extended status                                  |
+        | ----------------- | -------------- | --------------------------------------------------- |
+        | Reply Data        | 02 00          | Number of Service Replies                           |
+        |                   | -------------- | --------------------------------------------------- |
+        |                   | 06 00          | Offsets for each Reply, from start of Reply Data    |
+        |                   | 10 00          |                                                     |
+        |                   | -------------- | --------------------------------------------------- |
+        |                   | CC 00 00 00    | Read Tag Service Reply, Status: Success             |
+        |                   | C4 00          | DINT Tag Type Value                                 |
+        |                   | 2A 00 00 00    | Value: 0x0000002A (42 decimal)                      |
+        |                   | -------------- | --------------------------------------------------- |
+        |                   | CC 00 00 00    | Read Tag Service Reply, Status: Success             |
+        |                   | C4 00          | DINT Tag Type Value                                 |
+        |                   | DC 01 00 00    | Value: 0x000001DC (476 decimal)                     |
+
+
+        """
+        result			= b''
+        if ( data.get( 'service' ) == cls.MULTIPLE_REQ
+             or 'multiple' in data and data.setdefault( 'service', cls.MULTIPLE_REQ ) == cls.MULTIPLE_REQ ):
+            offsets		= []
+            reqdata		= b''
+            for r in reversed( data.multiple.request ):
+                req		= cls.produce( r )
+                offsets		= [ 0 ] + [ o + len( req ) for o in offsets ]
+                reqdata		= req + reqdata
+
+            result	       += USINT.produce(        data.service )
+            result	       += EPATH.produce(        data.path if 'path' in data
+                                    else cpppo.dotdict( segment=[{ 'class': cls.class_id }, { 'instance': 1 }] ))
+            result	       += UINT.produce( 	len( offsets ))
+            for o in offsets:
+                result	       += UINT.produce( 	2 + 2 * len( offsets ) + o )
+            result	       += reqdata
+        elif data.get( 'service' ) == cls.MULTIPLE_RPY:
+            result	       += USINT.produce(	data.service )
+            result	       += USINT.produce(	0x00 )	# fill
+            result	       += status.produce(	data )
+            if data.status == 0x00:
+                result	       += UINT.produce(		data.read_tag.type )
+                result	       += typed_data.produce(	data.read_tag )
+        else:
+            result		= super( Message_Router, cls ).produce( data )
+        return result
+
 
 
 class Connection_Manager( Object ):
