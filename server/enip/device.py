@@ -890,7 +890,7 @@ class Message_Router( Object ):
     """
     class_id			= 0x02
 
-    MULTIPLE_NAM		= "Multiple Request Service"
+    MULTIPLE_NAM		= "Multiple Service Packet"
     MULTIPLE_CTX		= "multiple"
     MULTIPLE_REQ		= 0x0a
     MULTIPLE_RPY		= MULTIPLE_REQ | 0x80
@@ -926,29 +926,71 @@ class Message_Router( Object ):
         """Any exception should result in a reply being generated with a non-zero status.  Fails with
         Exception on invalid route.
 
-        """
-        target			= self.route( data, fail=ROUTE_RAISE )
-        if ( target ):
-            if log.isEnabledFor( logging.DETAIL ):
-                log.detail( "%s Routing to %s: %s", self, target, enip_format( data ))
-            return target.request( data )
+        NOTE
 
+        If the .path designates another object, should we route the Multiple Service Packet request
+        to the object, or should we process it here and route the encapsulated requests to that
+        object?  Perhaps the latter...  This request was routed to this Message_Router by the path
+        in the Unconnected Send.  Then, another path is provided in the Multiple Service Packet,
+        identifying the target Message_Router for all the encapsulated requests.  Finally, each
+        request specifies a path for the object known to that Message Router -- however, it may not
+        necessarily know how to process the Multiple Service Packet request -- only the payload
+        requests(s).  So, we will *not* route the Multiple Service Packet to the target; only the
+        individual requests in the payload.
+
+        """
         if ( data.get( 'service' ) == self.MULTIPLE_REQ
              or 'multiple' in data and data.setdefault( 'service', self.MULTIPLE_REQ ) == self.MULTIPLE_REQ ):
-            # Multiple Request --> Multiple Reply.
+            # Multiple Service Packet Request
             pass
         else:
             # Not recognized; more generic command?
             return super( Message_Router, self ).request( data )
 
-        # It is a Multiple Request Service request.  Turn it into a reply.  Any exception processing
-        # one of the sub-requests will fail this Multiple Request command; normally, the sub-request
-        # should just return a non-zero Response Status in its payload...
+        # It is a Multiple Service Packet request; turn it into a reply.  Any exception processing
+        # one of the sub-requests will fail this request; normally, the sub-request should just
+        # return a non-zero Response Status in its payload...  If we cannot successfully disassemble
+        # the payload of request_data, return a generic Service not supported.
         data.service	       |= 0x80
         try:
+            data.status		= 0x16			# Object does not exist, if path invalid
+            data.pop( 'status_ext', None )
+            target		= self.route( data, fail=self.ROUTE_RAISE ) # None if target is self
+            if log.isEnabledFor( logging.DETAIL ):
+                log.detail( "%s Routing to %s: %s", self, target or "(self)", enip_format( data ))
+            if target is None:
+                target		= self
 
-            log.warning( "%r Service 0x%02x %s processing", self,
-                         data.service if 'service' in data else 0 )
+            data.status		= 8			# Service not supported, if anything blows up
+
+            # Match up pairs of offsets[oi,oi+1], and use the target Object to parse the snippet of
+            # request data payload into request[oi].  Last request offset gets balance request data.
+            request		= data.multiple.request = []
+            offsets		= data.multiple.offsets
+            reqdata		= data.multiple.request_data
+            for oi in range( len( offsets )):
+                beg		= offsets[oi  ] - ( 2 + 2 * len( offsets ))
+                if ( oi < len( offsets ) - 1 ):
+                    end		= offsets[oi+1] - ( 2 + 2 * len( offsets ))
+                else:
+                    end		= len( reqdata )
+                if log.isEnabledFor( logging.DETAIL ):
+                    log.detail( "%s Parsing on %s: %3d-%3d of %r", self, target, beg, end, reqdata )
+                source		= cpppo.rememberable( reqdata[beg:end] )
+                dest		= cpppo.dotdict()
+                with target.parser as machine:
+                    for m,s in machine.run( source=source, data=dest ):
+                        pass
+                data.multiple.request.append( dest )
+
+            if log.isEnabledFor( logging.DETAIL ):
+                log.detail( "%s Parsed  on %s: %s", self, target, enip_format( data ))
+
+            # We have a fully parsed Multiple Service Packet request, including sub-requests
+            # Now, convert each sub-request into a response.
+            for r in request:
+                target.request( r )
+            data.status		= 0x00
 
         except Exception as exc:
             # On Exception, if we haven't specified a more detailed error code, return General
@@ -965,7 +1007,7 @@ class Message_Router( Object ):
                 "Implementation error: must specify non-zero .status before raising Exception!"
             pass
 
-        # Always produce a response payload; if a failure occured, will contain an error status
+        # Always produce a response payload; if a failure occurred, will contain an error status
         if log.isEnabledFor( logging.DETAIL ):
             log.detail( "%s Response: Service 0x%02x %s %s", self,
                         data.service if 'service' in data else 0,
@@ -977,10 +1019,10 @@ class Message_Router( Object ):
 
     @classmethod
     def produce( cls, data ):
-        """Produces an encode Multiple Request Server request or reply.  Defaults to produce the request, if
-        no .service specified, and just .multiple_request.  Expects multiple_request to be an array
-        of Message_Router requests, each one individually able to produce() a serialized result,
-        using this same cls.produce() method.
+        """Produces an encoded Multiple Service Packet request or reply.  Defaults to produce the
+        request, if no .service specified, and just .multiple_request.  Expects multiple_request to
+        be an array of Message_Router requests, each one individually able to produce() a serialized
+        result, using this same cls.produce() method.
 
             "unconnected_send.service": 0x0A,					# default, if '.multiple' seen
             "unconnected_send.multiple.path": { 'class': 0x06, 'instance': 1}	# default, if no path provided
@@ -995,11 +1037,11 @@ class Message_Router( Object ):
         and prepend it to the request data.  Finally, add 2 + 2 * #requests to all offsets.
 
         Encode the beginning of message up to the number of requests and request offsets, and
-        prepend to requests data.  The Multiple Service Request/Reply message formats are:
+        prepend to requests data.  The Multiple Service Packet request/reply message formats are:
 
         | Message Field     | Bytes          | Description                                         |
         |-------------------+----------------+-----------------------------------------------------|
-        | Request Service   | 0A             | Multiple Request Service (Request)                  |
+        | Request Service   | 0A             | Multiple Service Packet (Request)                   |
         | Request Path Size | 02             | Request path is 2 words (4 bytes)                   |
         | Request Path      | 20 02 24 01    | Logical Segment class 0x02, instance 1              |
         | ----------------- | -------------- | --------------------------------------------------- |
@@ -1020,7 +1062,7 @@ class Message_Router( Object ):
         |                   | 01 00          | Read 1 element                                      |
         |                   |                |                                                     |
         |                   |                |                                                     |
-        | Request Service   | 8A             | Multiple Request Service (Reply)                    |
+        | Request Service   | 8A             | Multiple Service Packet (Reply)                     |
         | Reserved          | 00             |                                                     |
         | General Status    | 00             | Success                                             |
         | Extended Sts Size | 00             | No extended status                                  |
@@ -1037,7 +1079,6 @@ class Message_Router( Object ):
         |                   | CC 00 00 00    | Read Tag Service Reply, Status: Success             |
         |                   | C4 00          | DINT Tag Type Value                                 |
         |                   | DC 01 00 00    | Value: 0x000001DC (476 decimal)                     |
-
 
         """
         result			= b''
@@ -1058,6 +1099,7 @@ class Message_Router( Object ):
                 result	       += UINT.produce( 	2 + 2 * len( offsets ) + o )
             result	       += reqdata
         elif data.get( 'service' ) == cls.MULTIPLE_RPY:
+            # Collect up all (already produced) request results stored in each request[...].input
             result	       += USINT.produce(	data.service )
             result	       += USINT.produce(	0x00 )	# fill
             result	       += status.produce(	data )
@@ -1065,7 +1107,7 @@ class Message_Router( Object ):
                 offsets		= []
                 rpydata		= b''
                 for r in reversed( data.multiple.request ):
-                    rpy		= cls.produce( r )
+                    rpy		= bytes( r.input ) # bytearray --> bytes
                     offsets	= [ 0 ] + [ o + len( rpy ) for o in offsets ]
                     rpydata	= rpy + rpydata
                 result	       += UINT.produce(		len( offsets ))
@@ -1074,10 +1116,11 @@ class Message_Router( Object ):
                 result	       += rpydata
         else:
             result		= super( Message_Router, cls ).produce( data )
+
         return result
 
 def __multiple():
-    """Multiple Request Service Request.  Parses only the header and .number, .offsets[...]; the
+    """Multiple Service Packet request.  Parses only the header and .number, .offsets[...]; the
     remainder of the payload is the encapsulated requests, each of which must be parsed by the
     appropriate Object parser.
 
@@ -1100,7 +1143,8 @@ def __multiple():
     numr[None]		= offs	= cpppo.dfa(    'offsets',
                                                 initial=off_,	repeat='.multiple.number' )
     # And finally, absorb all remaining data as the request data.
-    offs[None]		= reqd	= octets(	'requests',	context='multiple', extension=".request_data",
+    offs[None]		= reqd	= octets(	'requests',	context='multiple',
+                                                octets_extension=".request_data",
                                                 terminal=True )
     reqd[True]			= reqd
     reqd[None]			= cpppo.state( 	'requests',
@@ -1109,6 +1153,13 @@ def __multiple():
     return srvc
 Message_Router.register_service_parser( number=Message_Router.MULTIPLE_REQ, name=Message_Router.MULTIPLE_NAM,
                                         short=Message_Router.MULTIPLE_CTX, machine=__multiple() )
+
+def __multiple_reply():
+    """Multiple Service Packet reply."""
+    srvc			= USINT(	context='service' )
+    return srvc
+Message_Router.register_service_parser( number=Message_Router.MULTIPLE_RPY, name=Message_Router.MULTIPLE_NAM + " Reply",
+                                        short=Message_Router.MULTIPLE_CTX, machine=__multiple_reply() )
 
 
 class Connection_Manager( Object ):

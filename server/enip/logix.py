@@ -169,7 +169,7 @@ class Logix( Message_Router ):
         # If the resolution/lookup fails (eg. bad symbolic Tag); ignore it (return False on error)
         # and continue processing, so we can return a proper .status error code from the actual
         # request, below.
-        target			= self.route( data, fail=ROUTE_FALSE )
+        target			= self.route( data, fail=Message_Router.ROUTE_FALSE )
         if target:
             if log.isEnabledFor( logging.DETAIL ):
                 log.detail( "%s Routing to %s: %s", self, target, enip_format( data ))
@@ -331,7 +331,7 @@ class Logix( Message_Router ):
                 "Implementation error: must specify .status not in (0x00, 0x06) before raising Exception!"
             pass
 
-        # Always produce a response payload; if a failure occured, will contain an error status
+        # Always produce a response payload; if a failure occurred, will contain an error status
         if log.isEnabledFor( logging.DETAIL ):
             log.detail( "%s Response: Service 0x%02x %s %s", self,
                         data.service if 'service' in data else 0,
