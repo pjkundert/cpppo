@@ -24,7 +24,7 @@ if __name__ == "__main__":
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
     from cpppo.automata import log_cfg
     logging.basicConfig( **log_cfg )
-    #logging.getLogger().setLevel( logging.NORMAL )
+    #logging.getLogger().setLevel( logging.INFO )
 
 import cpppo
 from   cpppo.server import network, enip
@@ -89,6 +89,17 @@ def test_logix_multiple():
                        
     assert request == req_1, \
         "Unexpected result from Multiple Request Service; got: \n%r\nvs.\n%r " % ( request, req_1 )
+    # Now, use the Message_Router's parser
+    source			= cpppo.rememberable( request )
+    data			= cpppo.dotdict()
+    with Obj.parser as machine:
+        for i,(m,s) in enumerate( machine.run( path='request', source=source, data=data )):
+            pass
+    log.normal( "Multiple Request: %s", enip.enip_format( data ))
+    assert 'request' in data and 'multiple' in data.request, \
+        "No parsed request.multiple found in data: %s" % data
+    assert data.request.multiple.number == 2, \
+        "Expected 2 requests in request.multiple: %s" % data
 
 
 def logix_performance( repeat=1000 ):

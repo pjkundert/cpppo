@@ -888,11 +888,92 @@ class Message_Router( Object ):
     with any specific to the actual device.
 
     """
+    class_id			= 0x02
+
+    MULTIPLE_NAM		= "Multiple Request Service"
     MULTIPLE_CTX		= "multiple"
-    MULTIPLE_REQ		= 0x0A
+    MULTIPLE_REQ		= 0x0a
     MULTIPLE_RPY		= MULTIPLE_REQ | 0x80
 
-    class_id			= 0x02
+    ROUTE_FALSE			= 0	# Return False if invalid route
+    ROUTE_RAISE			= 1	# Raise an Exception if invalid route
+
+    def route( self, data, fail=ROUTE_FALSE ):
+        """If the request is not for this object, return the target, else None.  On invalid route (no such
+        object found), either raise Exception or return False.  Thus, we're returning a non-truthy
+        value iff not routing to another object, OR if the route was invalid.
+
+        """
+        try:
+            path, ids, target	= None, None, None
+            path		= data.path
+            ids			= resolve( path )
+            if ( ids[0] == self.class_id and ids[1] == self.instance_id ):
+                return None
+            target		= lookup( *ids )
+        except Exception as exc:
+            # The resolution/lookup fails (eg. bad symbolic Tag); Either ignore it (return False)
+            # and continue processing, so we can return a proper .status error code from the actual
+            # request processing code, or raise an Exception.
+            log.warning( "%s Failed attempting to resolve path %r: class,inst,addr: %r, target: %r",
+                         self, path, ids, target )
+            if ( fail == ROUTE_FALSE ):
+                return False
+            raise
+        return target
+
+    def request( self, data ):
+        """Any exception should result in a reply being generated with a non-zero status.  Fails with
+        Exception on invalid route.
+
+        """
+        target			= self.route( data, fail=ROUTE_RAISE )
+        if ( target ):
+            if log.isEnabledFor( logging.DETAIL ):
+                log.detail( "%s Routing to %s: %s", self, target, enip_format( data ))
+            return target.request( data )
+
+        if ( data.get( 'service' ) == self.MULTIPLE_REQ
+             or 'multiple' in data and data.setdefault( 'service', self.MULTIPLE_REQ ) == self.MULTIPLE_REQ ):
+            # Multiple Request --> Multiple Reply.
+            pass
+        else:
+            # Not recognized; more generic command?
+            return super( Message_Router, self ).request( data )
+
+        # It is a Multiple Request Service request.  Turn it into a reply.  Any exception processing
+        # one of the sub-requests will fail this Multiple Request command; normally, the sub-request
+        # should just return a non-zero Response Status in its payload...
+        data.service	       |= 0x80
+        try:
+
+            log.warning( "%r Service 0x%02x %s processing", self,
+                         data.service if 'service' in data else 0 )
+
+        except Exception as exc:
+            # On Exception, if we haven't specified a more detailed error code, return General
+            # Error.  Remember: 0x06 (Insufficent Packet Space) is a NORMAL response to a successful
+            # Read Tag Fragmented that returns a subset of the requested data.
+            log.warning( "%r Service 0x%02x %s failed with Exception: %s\nRequest: %s\n%s", self,
+                         data.service if 'service' in data else 0,
+                         ( self.service[data.service]
+                           if 'service' in data and data.service in self.service
+                           else "(Unknown)"), exc, enip_format( data ),
+                         ( '' if log.getEffectiveLevel() >= logging.NORMAL
+                           else ''.join( traceback.format_exception( *sys.exc_info() ))))
+            assert data.status, \
+                "Implementation error: must specify non-zero .status before raising Exception!"
+            pass
+
+        # Always produce a response payload; if a failure occured, will contain an error status
+        if log.isEnabledFor( logging.DETAIL ):
+            log.detail( "%s Response: Service 0x%02x %s %s", self,
+                        data.service if 'service' in data else 0,
+                        ( self.service[data.service]
+                          if 'service' in data and data.service in self.service
+                          else "(Unknown)"), enip_format( data ))
+        data.input		= bytearray( self.produce( data ))
+        return True
 
     @classmethod
     def produce( cls, data ):
@@ -981,12 +1062,53 @@ class Message_Router( Object ):
             result	       += USINT.produce(	0x00 )	# fill
             result	       += status.produce(	data )
             if data.status == 0x00:
-                result	       += UINT.produce(		data.read_tag.type )
-                result	       += typed_data.produce(	data.read_tag )
+                offsets		= []
+                rpydata		= b''
+                for r in reversed( data.multiple.request ):
+                    rpy		= cls.produce( r )
+                    offsets	= [ 0 ] + [ o + len( rpy ) for o in offsets ]
+                    rpydata	= rpy + rpydata
+                result	       += UINT.produce(		len( offsets ))
+                for o in offsets:
+                    result     += UINT.produce( 	2 + 2 * len( offsets ) + o )
+                result	       += rpydata
         else:
             result		= super( Message_Router, cls ).produce( data )
         return result
 
+def __multiple():
+    """Multiple Request Service Request.  Parses only the header and .number, .offsets[...]; the
+    remainder of the payload is the encapsulated requests, each of which must be parsed by the
+    appropriate Object parser.
+
+    Note that this request parser cannot deduce the length of the encapsulated command data; all
+    remaining data is absorbed into .request_data
+
+    """
+    srvc			= USINT(	context='service' )
+    srvc[True]		= path	= EPATH(	context='path' )
+    path[True]		= numr	= UINT(		'number',	context='multiple', extension='.number' )
+
+    # Prepare a state-machine to parse each UINT into .UINT, and move it onto the .offset list
+    off_			= UINT(		'offset',	context='multiple', extension='.UINT' )
+    off_[None]			= move_if( 	'offset',	source='.multiple.UINT',
+                                        destination='.multiple.offsets', initializer=lambda **kwds: [] )
+    off_[None]			= cpppo.state( 	'offset',
+                                                terminal=True )
+
+    # Parse each of the .offset__ --> .offsets[...] values in a sub-dfa, repeating .number times
+    numr[None]		= offs	= cpppo.dfa(    'offsets',
+                                                initial=off_,	repeat='.multiple.number' )
+    # And finally, absorb all remaining data as the request data.
+    offs[None]		= reqd	= octets(	'requests',	context='multiple', extension=".request_data",
+                                                terminal=True )
+    reqd[True]			= reqd
+    reqd[None]			= cpppo.state( 	'requests',
+                                                terminal=True )
+
+    return srvc
+Message_Router.register_service_parser( number=Message_Router.MULTIPLE_REQ, name=Message_Router.MULTIPLE_NAM,
+                                        short=Message_Router.MULTIPLE_CTX, machine=__multiple() )
 
 
 class Connection_Manager( Object ):
