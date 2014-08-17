@@ -96,23 +96,23 @@ def test_logix_multiple():
     source			= cpppo.rememberable( request )
     data			= cpppo.dotdict()
     with Obj.parser as machine:
-        for i,(m,s) in enumerate( machine.run( path='request', source=source, data=data )):
+        for i,(m,s) in enumerate( machine.run( source=source, data=data )):
             pass
     log.normal( "Multiple Request: %s", enip.enip_format( data ))
-    assert 'request' in data and 'multiple' in data.request, \
-        "No parsed request.multiple found in data: %s" % enip.enip_format( data )
-    assert data.request.service == device.Message_Router.MULTIPLE_REQ, \
+    assert 'multiple' in data, \
+        "No parsed multiple found in data: %s" % enip.enip_format( data )
+    assert data.service == device.Message_Router.MULTIPLE_REQ, \
         "Expected a Multiple Request Service request: %s" % enip.enip_format( data )
-    assert data.request.multiple.number == 2, \
+    assert data.multiple.number == 2, \
         "Expected 2 requests in request.multiple: %s" % enip.enip_format( data )
 
-    # Unfortunately, since the Multiple Request Service carries a payload of 1 or more other
-    # requests, we have to process the request (to unpack ); we won't get the request list.
-    # Therefore, we can't just go straight to Obj.produce here to re-generate the request.  We 
-    # actually have to process the request into a reply.
-    Obj.request( data.request )
+    # And ensure if we re-encode the parsed result, we get the original encoded request back
+    assert Obj.produce( data ) == req_1
+
+    # Process the request into a reply.
+    Obj.request( data )
     log.normal( "Multiple Response: %s", enip.enip_format( data ))
-    assert data.request.service == device.Message_Router.MULTIPLE_RPY, \
+    assert data.service == device.Message_Router.MULTIPLE_RPY, \
         "Expected a Multiple Request Service reply: %s" % enip.enip_format( data )
 
     rpy_1			= bytearray([
@@ -135,8 +135,8 @@ def test_logix_multiple():
         0xDC, 0x01, 0x00, 0x00,
     ])
 
-    assert data.request.input == rpy_1, \
-        "Unexpected reply from Multiple Request Service request; got: \n%r\nvs.\n%r " % ( data.request.input, rpy_1 )
+    assert data.input == rpy_1, \
+        "Unexpected reply from Multiple Request Service request; got: \n%r\nvs.\n%r " % ( data.input, rpy_1 )
 
 def logix_performance( repeat=1000 ):
     """Characterize the performance of the logix module."""

@@ -464,8 +464,8 @@ class Object( object ):
     transit			= {} # Symbol to transition to service parser on
 
     # The parser doesn't add a layer of context; run it with a path= keyword to add a layer
-    parser			= cpppo.dfa( service, initial=cpppo.state( 'select' ),
-                                             terminal=True )
+    parser			= cpppo.dfa_post( service, initial=cpppo.state( 'select' ),
+                                                  terminal=True )
 
     @classmethod
     def register_service_parser( cls, number, name, short, machine ):
@@ -949,8 +949,8 @@ class Message_Router( Object ):
 
         # It is a Multiple Service Packet request; turn it into a reply.  Any exception processing
         # one of the sub-requests will fail this request; normally, the sub-request should just
-        # return a non-zero Response Status in its payload...  If we cannot successfully disassemble
-        # the payload of request_data, return a generic Service not supported.
+        # return a non-zero Response Status in its payload...  If we cannot successfully iterate the
+        # request payload, return a generic Service not supported.
         data.service	       |= 0x80
         try:
             data.status		= 0x16			# Object does not exist, if path invalid
@@ -962,33 +962,14 @@ class Message_Router( Object ):
                 target		= self
 
             data.status		= 8			# Service not supported, if anything blows up
-
-            # Match up pairs of offsets[oi,oi+1], and use the target Object to parse the snippet of
-            # request data payload into request[oi].  Last request offset gets balance request data.
-            request		= data.multiple.request = []
-            offsets		= data.multiple.offsets
-            reqdata		= data.multiple.request_data
-            for oi in range( len( offsets )):
-                beg		= offsets[oi  ] - ( 2 + 2 * len( offsets ))
-                if ( oi < len( offsets ) - 1 ):
-                    end		= offsets[oi+1] - ( 2 + 2 * len( offsets ))
-                else:
-                    end		= len( reqdata )
-                if log.isEnabledFor( logging.DETAIL ):
-                    log.detail( "%s Parsing on %s: %3d-%3d of %r", self, target, beg, end, reqdata )
-                source		= cpppo.rememberable( reqdata[beg:end] )
-                dest		= cpppo.dotdict()
-                with target.parser as machine:
-                    for m,s in machine.run( source=source, data=dest ):
-                        pass
-                data.multiple.request.append( dest )
-
             if log.isEnabledFor( logging.DETAIL ):
                 log.detail( "%s Parsed  on %s: %s", self, target, enip_format( data ))
 
             # We have a fully parsed Multiple Service Packet request, including sub-requests
             # Now, convert each sub-request into a response.
-            for r in request:
+            for r in data.multiple.request:
+                if log.isEnabledFor( logging.DETAIL ):
+                    log.detail( "%s Process on %s: %s", self, target, enip_format( data ))
                 target.request( r )
             data.status		= 0x00
 
@@ -1119,20 +1100,71 @@ class Message_Router( Object ):
 
         return result
 
+class state_multiple_service( cpppo.state ):
+    def terminate( self, exception, machine, path, data ):
+        super( state_multiple_service, self ).terminate( exception, machine, path, data )
+        target			= None
+        try:
+            target		= lookup( *resolve( data.path ))
+        except:
+            log.warning( "Multiple Service failure: %s\n%s",
+                         ''.join( traceback.format_exception( *sys.exc_info() )),
+                         ''.join( traceback.format_stack() ))
+            return
+        finally:
+            if log.isEnabledFor( logging.DETAIL ):
+                log.detail( "%s Target: %s", target, enip_format( data ))
+
+        def closure():
+            """Closure capturing data, to parse the data.multiple.request_data and append the resultant
+            decoded requests to data.multiple.request.
+
+            Match up pairs of offsets[oi,oi+1], and use the target Object to parse the snippet of
+            request data payload into request[oi].  Last request offset gets balance request data.
+            If the DFA is in use (eg. we're using our own Object's parser), schedule it for
+            post-processing.
+
+            """
+            request		= data.multiple.request = []
+            reqdata		= data.multiple.request_data
+            offsets		= data.multiple.offsets
+            for oi in range( len( offsets )):
+                beg			= offsets[oi  ] - ( 2 + 2 * len( offsets ))
+                if ( oi < len( offsets ) - 1 ):
+                    end		= offsets[oi+1] - ( 2 + 2 * len( offsets ))
+                else:
+                    end		= len( reqdata )
+                if log.isEnabledFor( logging.DETAIL ):
+                    log.detail( "%s Parsing: %3d-%3d of %r", target, beg, end, reqdata )
+                req		= cpppo.dotdict()
+                with target.parser as machine:
+                    for m,s in machine.run( source=cpppo.peekable( reqdata[beg:end] ), data=req ):
+                        pass
+                request.append( req )
+
+        if target.parser.lock.locked():
+            target.parser.post.append( closure )
+        else:
+            closure()
+        if log.isEnabledFor( logging.DETAIL ):
+            log.detail( "%s Parsed: %s", target, enip_format( data ))
+                   
 def __multiple():
     """Multiple Service Packet request.  Parses only the header and .number, .offsets[...]; the
     remainder of the payload is the encapsulated requests, each of which must be parsed by the
     appropriate Object parser.
 
     Note that this request parser cannot deduce the length of the encapsulated command data; all
-    remaining data is absorbed into .request_data
+    remaining data is absorbed into .request_data.  Also, as with other encapsulation schemes, such
+    as EtherNet/IP frames, CPF frames, etc., this only partially decodes the packet; the payload
+    requests/replies remain undecoded.
 
     """
     srvc			= USINT(	context='service' )
     srvc[True]		= path	= EPATH(	context='path' )
     path[True]		= numr	= UINT(		'number',	context='multiple', extension='.number' )
 
-    # Prepare a state-machine to parse each UINT into .UINT, and move it onto the .offset list
+    # Prepare a state-machine to parse each UINT into .UINT, and move it onto the .offsets list
     off_			= UINT(		'offset',	context='multiple', extension='.UINT' )
     off_[None]			= move_if( 	'offset',	source='.multiple.UINT',
                                         destination='.multiple.offsets', initializer=lambda **kwds: [] )
@@ -1147,16 +1179,46 @@ def __multiple():
                                                 octets_extension=".request_data",
                                                 terminal=True )
     reqd[True]			= reqd
-    reqd[None]			= cpppo.state( 	'requests',
+    reqd[None]			= state_multiple_service( 'requests',
                                                 terminal=True )
-
     return srvc
 Message_Router.register_service_parser( number=Message_Router.MULTIPLE_REQ, name=Message_Router.MULTIPLE_NAM,
                                         short=Message_Router.MULTIPLE_CTX, machine=__multiple() )
 
 def __multiple_reply():
-    """Multiple Service Packet reply."""
+    """Multiple Service Packet reply.  We could make use of Message_Router.parser to decode the payload
+    contents.  This is, strictly speaking, not correct -- if the original target path specifies
+    an object that understands different Services (very likely), our parser may not have the
+    capability to decode. 
+
+    Therefore, we look for an indication of that target object to be provided in data.target.  If
+    provided, we will use it to decode the payload requests.
+
+    """
     srvc			= USINT(	context='service' )
+    srvc[True]		= rsvd	= octets_drop(	'reserved',	repeat=1 )
+    rsvd[True]		= stts	= status()
+    stts[True]		= numr	= UINT(		'number',	context='multiple', extension='.number' )
+    
+    # Prepare a state-machine to parse each UINT into .UINT, and move it onto the .offsets list
+    off_			= UINT(		'offset',	context='multiple', extension='.UINT' )
+    off_[None]			= move_if( 	'offset',	source='.multiple.UINT',
+                                        destination='.multiple.offsets', initializer=lambda **kwds: [] )
+    off_[None]			= cpppo.state( 	'offset',
+                                             terminal=True )
+    # Parse each of the .offset__ --> .offsets[...] values in a sub-dfa, repeating .number times
+    numr[None]		= offs	= cpppo.dfa(    'offsets',
+                                             initial=off_,	repeat='.multiple.number' )
+    # And finally, absorb all remaining data as the request data.
+    offs[None]		= reqd	= octets(	'requests',	context='multiple',
+                                             octets_extension=".request_data",
+                                             terminal=True )
+    reqd[True]			= reqd
+
+    # If target Object can be found, decode the request payload
+    reqd[None]			= state_multiple_service( 'requests',
+                                             terminal=True )
+   
     return srvc
 Message_Router.register_service_parser( number=Message_Router.MULTIPLE_RPY, name=Message_Router.MULTIPLE_NAM + " Reply",
                                         short=Message_Router.MULTIPLE_CTX, machine=__multiple_reply() )
