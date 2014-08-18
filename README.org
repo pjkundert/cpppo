@@ -157,6 +157,11 @@
     To print a summary of PLC I/O to stdout:
     : -p|--print
 
+    To force use of the Multiple Service Packet request, which carries multiple
+    Read/Write Tag [Fragmented] requests in a single EtherNet/IP CIP I/O
+    operation (default is to issue each request as a separate I/O operation):
+    : -m|--multiple
+
     To force the client to use plain Read/Write Tag commands (instead of the
     Fragmented commands, which are the default):
     : -n|--no-fragment
@@ -507,7 +512,6 @@
     Cpppo supports Unicode (UTF-8) on both Python 2 and 3.  However, greenery
     provides meaningful Unicode support only under Python 3.  Therefore, if you
     wish to use Unicode in regular expressions, you must use Python 3.
-
 
 * Running State Machines
 
