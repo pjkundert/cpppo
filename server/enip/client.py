@@ -35,6 +35,7 @@ import logging
 import select
 import socket
 import sys
+import traceback
 
 try:
     import reprlib
@@ -201,48 +202,68 @@ class client( object ):
         self.send( data.input, timeout=timeout )
         return data
 
-    def read( self, path, elements=1, offset=0, route_path=None, send_path=None, timeout=None ):
-        cmd			= {}
+    def read( self, path, elements=1, offset=0,
+              route_path=None, send_path=None, timeout=None, send=True ):
+        req			= cpppo.dotdict()
+        req.path		= { 'segment': [ cpppo.dotdict( d ) for d in path ]}
         if offset is None:
-            cmd['read_tag']	= {
+            req.read_tag	= {
                 'elements':	elements
             }
         else:
-            cmd['read_frag']	= {
+            req.read_frag	= {
                 'elements':	elements,
                 'offset':	offset,
             }
-        return self.unconnected_send( path=path, route_path=route_path, send_path=send_path,
-                                      timeout=timeout, **cmd )
+        if send:
+            self.unconnected_send(
+                request=req, route_path=route_path, send_path=send_path, timeout=timeout )
+        return req
 
     def write( self, path, data, elements=1, offset=0, tag_type=enip.INT.tag_type,
-               route_path=None, send_path=None, timeout=None ):
-        cmd			= {}
+               route_path=None, send_path=None, timeout=None, send=True ):
+        req			= cpppo.dotdict()
+        req.path		= { 'segment': [ cpppo.dotdict( d ) for d in path ]}
         if offset is None:
-            cmd['write_tag']	= {
+            req.write_tag	= {
                 'elements':	elements,
                 'data':		data,
                 'type':		tag_type,
             }
         else:
-            cmd['write_frag']	= {
+            req.write_frag	= {
                 'elements':	elements,
                 'offset':	offset,
                 'data':		data,
                 'type':		tag_type,
-        }
-        return self.unconnected_send( path=path, route_path=route_path, send_path=send_path,
-                                      timeout=timeout, **cmd )
+            }
+        if send:
+            self.unconnected_send(
+                request=req, route_path=route_path, send_path=send_path, timeout=timeout )
+        return req
 
-    def unconnected_send( self, path, route_path=None, send_path=None, timeout=None,
-                          read_frag=None, read_tag=None, write_frag=None, write_tag=None ):
+    def multiple( self, request, path=None, route_path=None, send_path=None, timeout=None, send=True ):
+        assert isinstance( request, list ), \
+            "A Multiple Service Packet requires a request list"
+        req			= cpppo.dotdict()
+        if path:
+            req.path		= { 'segment': [ cpppo.dotdict( d ) for d in path ]}
+        req.multiple		= {
+            'request':		request,
+        }
+        if send:
+            self.unconnected_send(
+                request=req, route_path=route_path, send_path=send_path, timeout=timeout )
+        return req
+
+    def unconnected_send( self, request, route_path=None, send_path=None, timeout=None ):
         if route_path is None:
             # Default to the CPU in chassis (link 0), port 1
             route_path		= [{'link': 0, 'port': 1}]
         if send_path is None:
             # Default to the Connection Manager
             send_path		= [{'class': 6}, {'instance': 1}]
-        assert isinstance( path, list )
+        assert isinstance( request, dict )
 
         data			= cpppo.dotdict()
         data.enip		= {}
@@ -270,19 +291,10 @@ class client( object ):
         us.timeout_ticks	= 157
         us.path			= { 'segment': [ cpppo.dotdict( d ) for d in send_path ]}
         us.route_path		= { 'segment': [ cpppo.dotdict( d ) for d in route_path ]}
-        us.request		= {}
-        us.request.path		= { 'segment': [ cpppo.dotdict( d ) for d in path ]}
-    
-        if read_frag:
-            us.request.read_frag= read_frag
-        elif read_tag:
-            us.request.read_tag	= read_tag
-        elif write_frag:
-            us.request.write_frag= write_frag
-        elif write_tag:
-            us.request.write_tag= write_tag
-        else:
-            raise ValueError( "Expected a Read/Write Tag [Fragmented] request" )
+
+        us.request		= request
+
+        log.detail( "Client Unconnected Send: %s", enip.enip_format( data ))
 
         us.request.input	= bytearray( logix.Logix.produce( us.request ))
         sd.input		= bytearray( enip.CPF.produce( sd.CPF ))
@@ -321,6 +333,8 @@ def main( argv=None ):
     ap.add_argument( '-r', '--repeat',
                      default=1,
                      help="Repeat EtherNet/IP request (default: 1)" )
+    ap.add_argument( '-m', '--multiple', action='store_true',
+                     help="Use Multiple Service Packet request (default: False)" )
     ap.add_argument( '-f', '--fragment', dest='fragment', action='store_true',
                      help="Use Read/Write Tag Fragmented requests (default: True)" )
     ap.add_argument( '-n', '--no-fragment', dest='fragment', action='store_false',
@@ -441,20 +455,41 @@ def main( argv=None ):
                     len( opr['data'] ), cnt, tag, val )
         operations.append( opr )
 
+    def output( out ):
+        log.normal( out )
+        if args.print:
+            print( out )
             
     # Perform all specified tag operations, the specified number of repeat times.  Doesn't handle
-    # fragmented reads yet.  If any operation fails, return a non-zero exit status.
+    # fragmented reads yet.  If any operation fails, return a non-zero exit status.  If --multiple
+    # specified, perform all operations in a single Multiple Service Packet request.
+    
     status			= 0
     start			= misc.timer()
     for i in range( repeat ):
-        for op in operations: # {'path': [...], 'elements': #}
+        requests		= []		# If --multiple, collects all requests, else one at at time
+        for o in range( len( operations )):
+            op			= operations[o] # {'path': [...], 'elements': #}
             begun		= misc.timer()
             if 'data' in op:
                 descr		= "Write " + "Frag" if args.fragment else "Tag "
-                request		= cli.write( offset=0 if args.fragment else None, timeout=timeout, **op )
+                req		= cli.write( offset=0 if args.fragment else None, timeout=timeout, send=not args.multiple, **op )
             else:
                 descr		= "Read  " + "Frag" if args.fragment else "Tag "
-                request		= cli.read( offset=0 if args.fragment else None, timeout=timeout, **op )
+                req		= cli.read( offset=0 if args.fragment else None, timeout=timeout, send=not args.multiple, **op )
+            if args.multiple:
+                # Multiple requests; each request is returned simply, not in an Unconnected Send
+                requests.append( req )
+                if o != len( operations ) - 1:
+                    continue
+                # No more operations!  Issue the Multiple Service Packet containing all operations
+                descr		= "Multiple  "
+                cli.multiple( request=requests, timeout=timeout )
+            else:
+                # Single request issued
+                requests	= [ req ]
+
+            # Issue the request(s), and get the response
             elapsed		= misc.timer() - begun
             log.detail( "Client %s Sent %7.3f/%7.3fs: %s" % ( descr, elapsed, timeout, enip.enip_format( request )))
             response			= None
@@ -468,59 +503,83 @@ def main( argv=None ):
                 break
             elapsed		= misc.timer() - begun
             log.detail( "Client %s Rcvd %7.3f/%7.3fs: %s" % ( descr, elapsed, timeout, enip.enip_format( response )))
-            tag			= op['path'][0]['symbolic']
-            try:
-                elm		= op['path'][1]['element']	# array access
-            except IndexError:
-                elm		= None				# scalar access
-            cnt			= op['elements']
-            val			= []   # data values read/written
-            res			= None # result of request
-            act			= "??" # denotation of request action
 
-            try:
-                assert response.enip.status == 0, "EtherNet/IP status: %d" % response.enip.status
-                # The response should contain either an status code (possibly with an extended
-                # status), or the read_frag request's data.  Remember; a successful response may
-                # carry read_frag.data, but report a status == 6 indicating that more data remains
-                # to return via a subsequent fragmented read request.
-                request		= response.enip.CIP.send_data.CPF.item[1].unconnected_send.request
-                if 'read_frag' in request:
-                    act		= "=="
-                    val		= request.read_frag.data
-                elif 'read_tag' in request:
-                    act		= "=="
-                    val		= request.read_tag.data
-                elif 'write_frag' in request or 'write_tag' in request:
-                    act		= "<="
-                    val		= op['data']
-                if not request.status:
-                    res		= "OK"
-                else:
-                    res		= "Status %d %s" % ( request.status,
-                        repr( request.status_ext.data ) if 'status_ext' in request and request.status_ext.size else "" )
-                if request.status:
-                    if not status:
-                        status	= request.status
-                    log.warning( "Client %s returned non-zero status: %s", descr, res )
-
-            except AttributeError as exc:
+            # Find the replies in the response; could be single or multiple; should match requests!
+            replies		= []
+            if response.enip.status != 0:
                 status		= 1
-                res		= "Client %s Response missing data: %s" % ( descr, exc )
-            except Exception as exc:
-                status		= 1
-                res		= "Client %s Exception: %s" % ( descr, exc )
-
-            if elm is None:
-                out		= "%20s              %s %r: %r" % ( tag, act, val, res ) # scalar access
+                output( "Client %s Response EtherNet/IP status: %d" % ( descr, response.enip.status ))
+            elif args.multiple \
+               and 'enip.CIP.send_data.CPF.item[1].unconnected_send.request.multiple.request' in response:
+                # Multiple Service Packet; request.multiple.request is an array of read/write_tag/frag
+                replies		= response.enip.CIP.send_data.CPF.item[1].unconnected_send.request.multiple.request
+            elif 'enip.CIP.send_data.CPF.item[1].unconnected_send.request' in response:
+                # Single request; request is a read/write_tag/frag
+                replies		= [ response.enip.CIP.send_data.CPF.item[1].unconnected_send.request ]
             else:
-                out		= "%20s[%5d-%-5d] %s %r: %r" % ( tag, elm, elm + cnt - 1, act, val, res )
-            log.normal( out )
-            if args.print:
-                print( out )
+                status		= 1
+                output( "Client %s Response Unrecognized: " % ( descr, enip.enip_format( response )))
+
+            for request,reply in zip( requests, replies ):
+                log.detail( "Client %s Request: %s", descr, enip.enip_format( request ))
+                log.detail( "  Yields Reply: %s", enip.enip_format( reply ))
+                val		= []   # data values read/written
+                res		= None # result of request
+                act		= "??" # denotation of request action
+                try:
+                    tag		= request.path.segment[0].symbolic
+                    try:
+                        elm	= request.path.segment[1].element	# array access
+                    except IndexError:
+                        elm	= None					# scalar access
+                  
+                    # The response should contain either an status code (possibly with an extended
+                    # status), or the read_frag request's data.  Remember; a successful response may
+                    # carry read_frag.data, but report a status == 6 indicating that more data remains
+                    # to return via a subsequent fragmented read request.
+                    if 'read_frag' in reply:
+                        act	= "=="
+                        val	= reply.read_frag.data
+                        cnt	= request.read_frag.elements
+                    elif 'read_tag' in reply:
+                        act	= "=="
+                        val	= reply.read_tag.data
+                        cnt	= request.read_tag.elements
+                    elif 'write_frag' in reply:
+                        act	= "<="
+                        val	= request.write_frag.data
+                        cnt	= request.write_frag.elements
+                    elif 'write_tag' in reply:
+                        act	= "<="
+                        val	= request.write_tag.data
+                        cnt	= request.write_tag.elements
+                    if not reply.status:
+                        res	= "OK"
+                    else:
+                        res	= "Status %d %s" % ( reply.status,
+                            repr( reply.status_ext.data ) if 'status_ext' in reply and reply.status_ext.size else "" )
+                    if reply.status:
+                        if not status:
+                            status	= reply.status
+                        log.warning( "Client %s returned non-zero status: %s", descr, res )
+
+                except AttributeError as exc:
+                    status	= 1
+                    res		= "Client %s Response missing data: %s" % ( descr, exc )
+                    log.detail( "%s: %s", res, ''.join( traceback.format_exception( *sys.exc_info() )), )
+                except Exception as exc:
+                    status	= 1
+                    res		= "Client %s Exception: %s" % ( descr, exc )
+                    log.detail( "%s: %s", res, ''.join( traceback.format_exception( *sys.exc_info() )), )
+
+                if elm is None:
+                    output( "%20s              %s %r: %r" % ( tag, act, val, res )) # scalar access
+                else:
+                    output( "%20s[%5d-%-5d] %s %r: %r" % ( tag, elm, elm + cnt - 1, act, val, res ))
 
     duration			= misc.timer() - start
-    log.normal( "Client Tag I/O  Average %7.3f TPS (%7.3fs ea)." % ( repeat / duration, duration / repeat ))
+    log.normal( "Client Tag I/O  Average %7.3f TPS (%7.3fs ea)." % (
+        repeat * len( operations )/ duration, duration / repeat / len( operations )))
     return status
 
 if __name__ == "__main__":

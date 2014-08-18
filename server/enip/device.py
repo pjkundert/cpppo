@@ -1103,9 +1103,17 @@ class Message_Router( Object ):
 class state_multiple_service( cpppo.state ):
     def terminate( self, exception, machine, path, data ):
         super( state_multiple_service, self ).terminate( exception, machine, path, data )
+
+        # Find the specified target Object, defaulting to the Message Router (eg. to parse reply).
+        # This requires that a Message_Router derived class has been instantiated that understands
+        # all protocol elements that could be included in the Multiple Service Packet response.
         target			= None
+        if path+'.path' in data:
+            ids			= resolve( data[path+'.path'] )
+        else:
+            ids			= (Message_Router.class_id, 1, None)
         try:
-            target		= lookup( *resolve( data.path ))
+            target		= lookup( *ids )
         except:
             log.warning( "Multiple Service failure: %s\n%s",
                          ''.join( traceback.format_exception( *sys.exc_info() )),
@@ -1125,11 +1133,13 @@ class state_multiple_service( cpppo.state ):
             post-processing.
 
             """
-            request		= data.multiple.request = []
-            reqdata		= data.multiple.request_data
-            offsets		= data.multiple.offsets
+            if log.isEnabledFor( logging.DETAIL ):
+                log.detail( "%s Process: %s", target, enip_format( data ))
+            request		= data[path+'.multiple.request'] = []
+            reqdata		= data[path+'.multiple.request_data']
+            offsets		= data[path+'.multiple.offsets']
             for oi in range( len( offsets )):
-                beg			= offsets[oi  ] - ( 2 + 2 * len( offsets ))
+                beg		= offsets[oi  ] - ( 2 + 2 * len( offsets ))
                 if ( oi < len( offsets ) - 1 ):
                     end		= offsets[oi+1] - ( 2 + 2 * len( offsets ))
                 else:
