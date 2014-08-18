@@ -164,21 +164,13 @@ class Logix( Message_Router ):
 
     def request( self, data ):
         """Any exception should result in a reply being generated with a non-zero status."""
-        
+
         # See if this request is for us; if not, route to the correct Object, and return its result.
-        try:
-            path, ids, target	= None, None, None
-            path		= data.path
-            ids			= resolve( path )
-            target		= lookup( *ids )
-        except Exception as exc:
-            # The resolution/lookup fails (eg. bad symbolic Tag); ignore it and continue processing,
-            # so we can return a proper .status error code from the actual request, below.
-            log.warning( "%s Failed attempting to resolve path %r: class,inst,addr: %r, target: %r",
-                         self, path, ids, target )
-            ids			= (self.class_id, self.instance_id, None)
-            pass
-        if ids[0] != self.class_id or ids[1] != self.instance_id:
+        # If the resolution/lookup fails (eg. bad symbolic Tag); ignore it (return False on error)
+        # and continue processing, so we can return a proper .status error code from the actual
+        # request, below.
+        target			= self.route( data, fail=Message_Router.ROUTE_FALSE )
+        if target:
             if log.isEnabledFor( logging.DETAIL ):
                 log.detail( "%s Routing to %s: %s", self, target, enip_format( data ))
             return target.request( data )
@@ -339,7 +331,7 @@ class Logix( Message_Router ):
                 "Implementation error: must specify .status not in (0x00, 0x06) before raising Exception!"
             pass
 
-        # Always produce a response payload; if a failure occured, will contain an error status
+        # Always produce a response payload; if a failure occurred, will contain an error status
         if log.isEnabledFor( logging.DETAIL ):
             log.detail( "%s Response: Service 0x%02x %s %s", self,
                         data.service if 'service' in data else 0,

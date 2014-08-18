@@ -464,8 +464,8 @@ class Object( object ):
     transit			= {} # Symbol to transition to service parser on
 
     # The parser doesn't add a layer of context; run it with a path= keyword to add a layer
-    parser			= cpppo.dfa( service, initial=cpppo.state( 'select' ),
-                                             terminal=True )
+    parser			= cpppo.dfa_post( service, initial=cpppo.state( 'select' ),
+                                                  terminal=True )
 
     @classmethod
     def register_service_parser( cls, number, name, short, machine ):
@@ -889,6 +889,349 @@ class Message_Router( Object ):
 
     """
     class_id			= 0x02
+
+    MULTIPLE_NAM		= "Multiple Service Packet"
+    MULTIPLE_CTX		= "multiple"
+    MULTIPLE_REQ		= 0x0a
+    MULTIPLE_RPY		= MULTIPLE_REQ | 0x80
+
+    ROUTE_FALSE			= 0	# Return False if invalid route
+    ROUTE_RAISE			= 1	# Raise an Exception if invalid route
+
+    def route( self, data, fail=ROUTE_FALSE ):
+        """If the request is not for this object, return the target, else None.  On invalid route (no such
+        object found), either raise Exception or return False.  Thus, we're returning a non-truthy
+        value iff not routing to another object, OR if the route was invalid.
+
+        """
+        try:
+            path, ids, target	= None, None, None
+            path		= data.path
+            ids			= resolve( path )
+            if ( ids[0] == self.class_id and ids[1] == self.instance_id ):
+                return None
+            target		= lookup( *ids )
+        except Exception as exc:
+            # The resolution/lookup fails (eg. bad symbolic Tag); Either ignore it (return False)
+            # and continue processing, so we can return a proper .status error code from the actual
+            # request processing code, or raise an Exception.
+            log.warning( "%s Failed attempting to resolve path %r: class,inst,addr: %r, target: %r",
+                         self, path, ids, target )
+            if ( fail == ROUTE_FALSE ):
+                return False
+            raise
+        return target
+
+    def request( self, data ):
+        """Any exception should result in a reply being generated with a non-zero status.  Fails with
+        Exception on invalid route.
+
+        NOTE
+
+        If the .path designates another object, should we route the Multiple Service Packet request
+        to the object, or should we process it here and route the encapsulated requests to that
+        object?  Perhaps the latter...  This request was routed to this Message_Router by the path
+        in the Unconnected Send.  Then, another path is provided in the Multiple Service Packet,
+        identifying the target Message_Router for all the encapsulated requests.  Finally, each
+        request specifies a path for the object known to that Message Router -- however, it may not
+        necessarily know how to process the Multiple Service Packet request -- only the payload
+        requests(s).  So, we will *not* route the Multiple Service Packet to the target; only the
+        individual requests in the payload.
+
+        """
+        if ( data.get( 'service' ) == self.MULTIPLE_REQ
+             or 'multiple' in data and data.setdefault( 'service', self.MULTIPLE_REQ ) == self.MULTIPLE_REQ ):
+            # Multiple Service Packet Request
+            pass
+        else:
+            # Not recognized; more generic command?
+            return super( Message_Router, self ).request( data )
+
+        # It is a Multiple Service Packet request; turn it into a reply.  Any exception processing
+        # one of the sub-requests will fail this request; normally, the sub-request should just
+        # return a non-zero Response Status in its payload...  If we cannot successfully iterate the
+        # request payload, return a generic Service not supported.
+        data.service	       |= 0x80
+        try:
+            data.status		= 0x16			# Object does not exist, if path invalid
+            data.pop( 'status_ext', None )
+            target		= self.route( data, fail=self.ROUTE_RAISE ) # None if target is self
+            if log.isEnabledFor( logging.DETAIL ):
+                log.detail( "%s Routing to %s: %s", self, target or "(self)", enip_format( data ))
+            if target is None:
+                target		= self
+
+            data.status		= 8			# Service not supported, if anything blows up
+            if log.isEnabledFor( logging.DETAIL ):
+                log.detail( "%s Parsed  on %s: %s", self, target, enip_format( data ))
+
+            # We have a fully parsed Multiple Service Packet request, including sub-requests
+            # Now, convert each sub-request into a response.
+            for r in data.multiple.request:
+                if log.isEnabledFor( logging.DETAIL ):
+                    log.detail( "%s Process on %s: %s", self, target, enip_format( data ))
+                target.request( r )
+            data.status		= 0x00
+
+        except Exception as exc:
+            # On Exception, if we haven't specified a more detailed error code, return General
+            # Error.  Remember: 0x06 (Insufficent Packet Space) is a NORMAL response to a successful
+            # Read Tag Fragmented that returns a subset of the requested data.
+            log.warning( "%r Service 0x%02x %s failed with Exception: %s\nRequest: %s\n%s", self,
+                         data.service if 'service' in data else 0,
+                         ( self.service[data.service]
+                           if 'service' in data and data.service in self.service
+                           else "(Unknown)"), exc, enip_format( data ),
+                         ( '' if log.getEffectiveLevel() >= logging.NORMAL
+                           else ''.join( traceback.format_exception( *sys.exc_info() ))))
+            assert data.status, \
+                "Implementation error: must specify non-zero .status before raising Exception!"
+            pass
+
+        # Always produce a response payload; if a failure occurred, will contain an error status
+        if log.isEnabledFor( logging.DETAIL ):
+            log.detail( "%s Response: Service 0x%02x %s %s", self,
+                        data.service if 'service' in data else 0,
+                        ( self.service[data.service]
+                          if 'service' in data and data.service in self.service
+                          else "(Unknown)"), enip_format( data ))
+        data.input		= bytearray( self.produce( data ))
+        return True
+
+    @classmethod
+    def produce( cls, data ):
+        """Produces an encoded Multiple Service Packet request or reply.  Defaults to produce the
+        request, if no .service specified, and just .multiple_request.  Expects multiple_request to
+        be an array of Message_Router requests, each one individually able to produce() a serialized
+        result, using this same cls.produce() method.
+
+            "unconnected_send.service": 0x0A,					# default, if '.multiple' seen
+            "unconnected_send.multiple.path": { 'class': 0x06, 'instance': 1}	# default, if no path provided
+            "unconnected_send.multiple.request[0].path": { 'symbolic': "SCADA_40100", 'element': 123 }
+            "unconnected_send.multiple.request[0].read_tag.elements": 1		# vector access, single element
+            "unconnected_send.multiple.request[1].path": { 'symbolic': "part" }
+            "unconnected_send.multiple.request[1].read_tag.elements": 1		# scalar access
+
+        Iterate over the available multiple.request entries, and produce each of their encoded
+        messages in turn.  Add each new encoded message's length to the developing list of requests
+        offsets.  Finally, prepend a 0 to the list of offsets (the offset of the latest request),
+        and prepend it to the request data.  Finally, add 2 + 2 * #requests to all offsets.
+
+        Encode the beginning of message up to the number of requests and request offsets, and
+        prepend to requests data.  The Multiple Service Packet request/reply message formats are:
+
+        | Message Field     | Bytes          | Description                                         |
+        |-------------------+----------------+-----------------------------------------------------|
+        | Request Service   | 0A             | Multiple Service Packet (Request)                   |
+        | Request Path Size | 02             | Request path is 2 words (4 bytes)                   |
+        | Request Path      | 20 02 24 01    | Logical Segment class 0x02, instance 1              |
+        | ----------------- | -------------- | --------------------------------------------------- |
+        | Request Data      | 02 00          | Number of Services contained in req.                |
+        |                   | -------------- | --------------------------------------------------- |
+        |                   | 06 00          | Offsets for each Service from start of Request Data |
+        |                   | 12 00          |                                                     |
+        |                   | -------------- | --------------------------------------------------- |
+        |                   | 4C             | First Request: Read Tag Service                     |
+        |                   | 04 91 05 70 61 | EPATH, 4 words, symbolic "parts"                    |
+        |                   | 72 74 73 00    |                                                     |
+        |                   | 01 00          | Read 1 element                                      |
+        |                   | -------------- | --------------------------------------------------- |
+        |                   | 4C             | Second Request: Read Tag Service                    |
+        |                   | 07 91 0B 43 6F | EPATH, 7 words, symbolic "ControlWord"              |
+        |                   | 6E 74 72 6F 6C |                                                     |
+        |                   | 57 6F 72 64 00 |                                                     |
+        |                   | 01 00          | Read 1 element                                      |
+        |                   |                |                                                     |
+        |                   |                |                                                     |
+        | Request Service   | 8A             | Multiple Service Packet (Reply)                     |
+        | Reserved          | 00             |                                                     |
+        | General Status    | 00             | Success                                             |
+        | Extended Sts Size | 00             | No extended status                                  |
+        | ----------------- | -------------- | --------------------------------------------------- |
+        | Reply Data        | 02 00          | Number of Service Replies                           |
+        |                   | -------------- | --------------------------------------------------- |
+        |                   | 06 00          | Offsets for each Reply, from start of Reply Data    |
+        |                   | 10 00          |                                                     |
+        |                   | -------------- | --------------------------------------------------- |
+        |                   | CC 00 00 00    | Read Tag Service Reply, Status: Success             |
+        |                   | C4 00          | DINT Tag Type Value                                 |
+        |                   | 2A 00 00 00    | Value: 0x0000002A (42 decimal)                      |
+        |                   | -------------- | --------------------------------------------------- |
+        |                   | CC 00 00 00    | Read Tag Service Reply, Status: Success             |
+        |                   | C4 00          | DINT Tag Type Value                                 |
+        |                   | DC 01 00 00    | Value: 0x000001DC (476 decimal)                     |
+
+        """
+        result			= b''
+        if ( data.get( 'service' ) == cls.MULTIPLE_REQ
+             or 'multiple' in data and data.setdefault( 'service', cls.MULTIPLE_REQ ) == cls.MULTIPLE_REQ ):
+            offsets		= []
+            reqdata		= b''
+            for r in reversed( data.multiple.request ):
+                req		= cls.produce( r )
+                offsets		= [ 0 ] + [ o + len( req ) for o in offsets ]
+                reqdata		= req + reqdata
+
+            result	       += USINT.produce(        data.service )
+            result	       += EPATH.produce(        data.path if 'path' in data
+                                    else cpppo.dotdict( segment=[{ 'class': cls.class_id }, { 'instance': 1 }] ))
+            result	       += UINT.produce( 	len( offsets ))
+            for o in offsets:
+                result	       += UINT.produce( 	2 + 2 * len( offsets ) + o )
+            result	       += reqdata
+        elif data.get( 'service' ) == cls.MULTIPLE_RPY:
+            # Collect up all (already produced) request results stored in each request[...].input
+            result	       += USINT.produce(	data.service )
+            result	       += USINT.produce(	0x00 )	# fill
+            result	       += status.produce(	data )
+            if data.status == 0x00:
+                offsets		= []
+                rpydata		= b''
+                for r in reversed( data.multiple.request ):
+                    rpy		= bytes( r.input ) # bytearray --> bytes
+                    offsets	= [ 0 ] + [ o + len( rpy ) for o in offsets ]
+                    rpydata	= rpy + rpydata
+                result	       += UINT.produce(		len( offsets ))
+                for o in offsets:
+                    result     += UINT.produce( 	2 + 2 * len( offsets ) + o )
+                result	       += rpydata
+        else:
+            result		= super( Message_Router, cls ).produce( data )
+
+        return result
+
+class state_multiple_service( cpppo.state ):
+    def terminate( self, exception, machine, path, data ):
+        super( state_multiple_service, self ).terminate( exception, machine, path, data )
+
+        # Find the specified target Object, defaulting to the Message Router (eg. to parse reply).
+        # This requires that a Message_Router derived class has been instantiated that understands
+        # all protocol elements that could be included in the Multiple Service Packet response.
+        target			= None
+        if path+'.path' in data:
+            ids			= resolve( data[path+'.path'] )
+        else:
+            ids			= (Message_Router.class_id, 1, None)
+        try:
+            target		= lookup( *ids )
+        except:
+            log.warning( "Multiple Service failure: %s\n%s",
+                         ''.join( traceback.format_exception( *sys.exc_info() )),
+                         ''.join( traceback.format_stack() ))
+            return
+        finally:
+            if log.isEnabledFor( logging.DETAIL ):
+                log.detail( "%s Target: %s", target, enip_format( data ))
+
+        def closure():
+            """Closure capturing data, to parse the data.multiple.request_data and append the resultant
+            decoded requests to data.multiple.request.
+
+            Match up pairs of offsets[oi,oi+1], and use the target Object to parse the snippet of
+            request data payload into request[oi].  Last request offset gets balance request data.
+            If the DFA is in use (eg. we're using our own Object's parser), schedule it for
+            post-processing.
+
+            """
+            if log.isEnabledFor( logging.DETAIL ):
+                log.detail( "%s Process: %s", target, enip_format( data ))
+            request		= data[path+'.multiple.request'] = []
+            reqdata		= data[path+'.multiple.request_data']
+            offsets		= data[path+'.multiple.offsets']
+            for oi in range( len( offsets )):
+                beg		= offsets[oi  ] - ( 2 + 2 * len( offsets ))
+                if ( oi < len( offsets ) - 1 ):
+                    end		= offsets[oi+1] - ( 2 + 2 * len( offsets ))
+                else:
+                    end		= len( reqdata )
+                if log.isEnabledFor( logging.DETAIL ):
+                    log.detail( "%s Parsing: %3d-%3d of %r", target, beg, end, reqdata )
+                req		= cpppo.dotdict()
+                with target.parser as machine:
+                    for m,s in machine.run( source=cpppo.peekable( reqdata[beg:end] ), data=req ):
+                        pass
+                request.append( req )
+
+        if target.parser.lock.locked():
+            target.parser.post.append( closure )
+        else:
+            closure()
+        if log.isEnabledFor( logging.DETAIL ):
+            log.detail( "%s Parsed: %s", target, enip_format( data ))
+                   
+def __multiple():
+    """Multiple Service Packet request.  Parses only the header and .number, .offsets[...]; the
+    remainder of the payload is the encapsulated requests, each of which must be parsed by the
+    appropriate Object parser.
+
+    Note that this request parser cannot deduce the length of the encapsulated command data; all
+    remaining data is absorbed into .request_data.  Also, as with other encapsulation schemes, such
+    as EtherNet/IP frames, CPF frames, etc., this only partially decodes the packet; the payload
+    requests/replies remain undecoded.
+
+    """
+    srvc			= USINT(	context='service' )
+    srvc[True]		= path	= EPATH(	context='path' )
+    path[True]		= numr	= UINT(		'number',	context='multiple', extension='.number' )
+
+    # Prepare a state-machine to parse each UINT into .UINT, and move it onto the .offsets list
+    off_			= UINT(		'offset',	context='multiple', extension='.UINT' )
+    off_[None]			= move_if( 	'offset',	source='.multiple.UINT',
+                                        destination='.multiple.offsets', initializer=lambda **kwds: [] )
+    off_[None]			= cpppo.state( 	'offset',
+                                                terminal=True )
+
+    # Parse each of the .offset__ --> .offsets[...] values in a sub-dfa, repeating .number times
+    numr[None]		= offs	= cpppo.dfa(    'offsets',
+                                                initial=off_,	repeat='.multiple.number' )
+    # And finally, absorb all remaining data as the request data.
+    offs[None]		= reqd	= octets(	'requests',	context='multiple',
+                                                octets_extension=".request_data",
+                                                terminal=True )
+    reqd[True]			= reqd
+    reqd[None]			= state_multiple_service( 'requests',
+                                                terminal=True )
+    return srvc
+Message_Router.register_service_parser( number=Message_Router.MULTIPLE_REQ, name=Message_Router.MULTIPLE_NAM,
+                                        short=Message_Router.MULTIPLE_CTX, machine=__multiple() )
+
+def __multiple_reply():
+    """Multiple Service Packet reply.  We could make use of Message_Router.parser to decode the payload
+    contents.  This is, strictly speaking, not correct -- if the original target path specifies
+    an object that understands different Services (very likely), our parser may not have the
+    capability to decode. 
+
+    Therefore, we look for an indication of that target object to be provided in data.target.  If
+    provided, we will use it to decode the payload requests.
+
+    """
+    srvc			= USINT(	context='service' )
+    srvc[True]		= rsvd	= octets_drop(	'reserved',	repeat=1 )
+    rsvd[True]		= stts	= status()
+    stts[True]		= numr	= UINT(		'number',	context='multiple', extension='.number' )
+    
+    # Prepare a state-machine to parse each UINT into .UINT, and move it onto the .offsets list
+    off_			= UINT(		'offset',	context='multiple', extension='.UINT' )
+    off_[None]			= move_if( 	'offset',	source='.multiple.UINT',
+                                        destination='.multiple.offsets', initializer=lambda **kwds: [] )
+    off_[None]			= cpppo.state( 	'offset',
+                                             terminal=True )
+    # Parse each of the .offset__ --> .offsets[...] values in a sub-dfa, repeating .number times
+    numr[None]		= offs	= cpppo.dfa(    'offsets',
+                                             initial=off_,	repeat='.multiple.number' )
+    # And finally, absorb all remaining data as the request data.
+    offs[None]		= reqd	= octets(	'requests',	context='multiple',
+                                             octets_extension=".request_data",
+                                             terminal=True )
+    reqd[True]			= reqd
+
+    # If target Object can be found, decode the request payload
+    reqd[None]			= state_multiple_service( 'requests',
+                                             terminal=True )
+   
+    return srvc
+Message_Router.register_service_parser( number=Message_Router.MULTIPLE_RPY, name=Message_Router.MULTIPLE_NAM + " Reply",
+                                        short=Message_Router.MULTIPLE_CTX, machine=__multiple_reply() )
 
 
 class Connection_Manager( Object ):
