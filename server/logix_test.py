@@ -34,11 +34,15 @@ log				= logging.getLogger( "lgx.prof" )
 
 
 def test_logix_multiple():
-    """Test the Multiple Request Service"""
+    """Test the Multiple Request Service.  Ensure multiple requests can be successfully handled, and
+    invalid tags are correctly rejected.
+
+    """
     size			= 1000
     Obj				= logix.Logix()
     Obj_a1 = Obj.attribute['1']	= enip.device.Attribute( 'parts',       enip.parser.DINT, default=[n for n in range( size )])
     Obj_a2 = Obj.attribute['2']	= enip.device.Attribute( 'ControlWord', enip.parser.DINT, default=[n for n in range( size )])
+    Obj_a3 = Obj.attribute['3']	= enip.device.Attribute( 'SCADA_40001', enip.parser.INT,  default=[n for n in range( size )])
 
     assert len( Obj_a1 ) == size
     assert len( Obj_a2 ) == size
@@ -49,6 +53,8 @@ def test_logix_multiple():
     enip.device.symbol['parts']	= {'class': Obj.class_id, 'instance': Obj.instance_id, 'attribute':1 }
     enip.device.symbol['ControlWord'] \
 				= {'class': Obj.class_id, 'instance': Obj.instance_id, 'attribute':2 }
+    enip.device.symbol['SCADA_40001'] \
+				= {'class': Obj.class_id, 'instance': Obj.instance_id, 'attribute':3 }
 
     data			= cpppo.dotdict()
     data.multiple		= {}
@@ -137,6 +143,119 @@ def test_logix_multiple():
 
     assert data.input == rpy_1, \
         "Unexpected reply from Multiple Request Service request; got: \n%r\nvs.\n%r " % ( data.input, rpy_1 )
+
+    # Now lets try some valid and invalid requests
+    data			= cpppo.dotdict()
+    data.multiple		= {}
+    data.multiple.request = req	= [ cpppo.dotdict() ]
+    req[0].path			= { 'segment': [ cpppo.dotdict( d )
+                                                 for d in [{'symbolic': 'SCADA_40001'}]] }
+    req[0].read_tag		= {}
+    req[0].read_tag.elements	= 1
+    data.multiple.number	= len( data.multiple.request )
+
+    request			= Obj.produce( data )
+
+    req_good			= bytearray([
+        0x0A,
+        0x02,
+        0x20, 0x02, ord('$'), 0x01,
+        
+        0x01, 0x00,
+        
+        0x04, 0x00,
+        
+        0x4C,
+        0x07, 0x91, 0x0b, ord('S'), ord('C'),
+        ord('A'), ord('D'), ord('A'), ord('_'), ord('4'),
+        ord('0'), ord('0'), ord('0'), ord('1'), 0x00,
+        0x01, 0x00,
+    ])
+    assert request == req_good, \
+        "Unexpected result from Multiple Request Service request for SCADA_40001; got: \n%r\nvs.\n%r " % ( request, req_good )
+
+    Obj.request( data )
+    rpy_good			= bytearray([
+        0x8A,
+        0x00,
+        0x00,
+        0x00,
+
+        0x01, 0x00,
+
+        0x04, 0x00,
+
+        0xCC, 0x00, 0x00, 0x00,
+        0xC3, 0x00,
+        0x00, 0x00,
+    ])
+
+    assert data.input == rpy_good, \
+        "Unexpected reply from Multiple Request Service request for SCADA_40001; got: \n%r\nvs.\n%r " % ( data.input, rpy_good )
+
+    # Add an invalid request
+    data			= cpppo.dotdict()
+    data.multiple		= {}
+    data.multiple.request = req	= [ cpppo.dotdict(), cpppo.dotdict() ]
+    req[0].path			= { 'segment': [ cpppo.dotdict( d )
+                                                 for d in [{'symbolic': 'SCADA_40001'}]] }
+    req[0].read_tag		= {}
+    req[0].read_tag.elements	= 1
+    req[1].path			= { 'segment': [ cpppo.dotdict( d )
+                                                 for d in [{'symbolic': 'SCADA_40002'}]] }
+    req[1].read_tag		= {}
+    req[1].read_tag.elements	= 1
+    data.multiple.number	= len( data.multiple.request )
+
+    request			= Obj.produce( data )
+
+    req_bad			= bytearray([
+        0x0A,
+        0x02,
+        0x20, 0x02, ord('$'), 0x01,
+        
+        0x02, 0x00,
+        
+        0x06, 0x00,
+        0x18, 0x00,
+        
+        0x4C,
+        0x07, 0x91, 0x0b, ord('S'), ord('C'),
+        ord('A'), ord('D'), ord('A'), ord('_'), ord('4'),
+        ord('0'), ord('0'), ord('0'), ord('1'), 0x00,
+        0x01, 0x00,
+
+        0x4C,
+        0x07, 0x91, 0x0b, ord('S'), ord('C'),
+        ord('A'), ord('D'), ord('A'), ord('_'), ord('4'),
+        ord('0'), ord('0'), ord('0'), ord('2'), 0x00,
+        0x01, 0x00,
+    ])
+    assert request == req_bad, \
+        "Unexpected result from Multiple Request Service request for SCADA_40001/2; got: \n%r\nvs.\n%r " % ( request, req_bad )
+
+    Obj.request( data )
+    rpy_bad			= bytearray([
+        0x8A,
+        0x00,
+        0x00,
+        0x00,
+
+        0x02, 0x00,
+
+        0x06, 0x00,
+        0x0e, 0x00,
+
+        0xCC, 0x00, 0x00, 0x00,
+        0xC3, 0x00,
+        0x00, 0x00,
+
+        0xCC, 0x00, 0x05, 0x01, # Status code 0x05 (invalid path)
+        0x00, 0x00,
+    ])
+    assert data.input == rpy_bad, \
+        "Unexpected reply from Multiple Request Service request for SCADA_40001/2; got: \n%r\nvs.\n%r " % ( data.input, rpy_bad )
+
 
 def logix_performance( repeat=1000 ):
     """Characterize the performance of the logix module."""

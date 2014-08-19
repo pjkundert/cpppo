@@ -917,7 +917,7 @@ class Message_Router( Object ):
             # request processing code, or raise an Exception.
             log.warning( "%s Failed attempting to resolve path %r: class,inst,addr: %r, target: %r",
                          self, path, ids, target )
-            if ( fail == ROUTE_FALSE ):
+            if ( fail == self.ROUTE_FALSE ):
                 return False
             raise
         return target
@@ -955,7 +955,11 @@ class Message_Router( Object ):
         try:
             data.status		= 0x16			# Object does not exist, if path invalid
             data.pop( 'status_ext', None )
-            target		= self.route( data, fail=self.ROUTE_RAISE ) # None if target is self
+            # If no data.path, default to self; If path, None if target is self.  Otherwise, an
+            # invalid path with raise Exception.
+            target		= None
+            if 'path' in data:
+                target		= self.route( data, fail=self.ROUTE_RAISE )
             if log.isEnabledFor( logging.DETAIL ):
                 log.detail( "%s Routing to %s: %s", self, target or "(self)", enip_format( data ))
             if target is None:
