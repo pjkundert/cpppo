@@ -56,6 +56,64 @@ def test_logix_multiple():
     enip.device.symbol['SCADA_40001'] \
 				= {'class': Obj.class_id, 'instance': Obj.instance_id, 'attribute':3 }
 
+    # Test that we correctly compute beg,end,endactual for various Read Tag Fragmented scenarios,
+    # with 2-byte and 4-byte types.  For the purposes of this test, we only look at path...elements.
+    data			= cpppo.dotdict()
+    data.service		= Obj.RD_FRG_RPY
+    data.path			= { 'segment': [ cpppo.dotdict( d )
+                                                 for d in [
+                                                         {'element': 0 },
+                                                       ]] }
+    data.read_frag		= {}
+    data.read_frag.elements	= 1000
+    data.read_frag.offset	= 0
+    
+    # Request maximum size limited
+    beg,end,endactual		= Obj.read_limit( Obj_a1, data, 'read_frag' )
+    assert beg == 0 and end == 125 and endactual == 1000 # DINT == 4 bytes
+    beg,end,endactual		= Obj.read_limit( Obj_a3, data, 'read_frag' )
+    assert beg == 0 and end == 250 and endactual == 1000 # INT == 2 bytes
+
+    data.read_frag.offset	= 125*4 # OK, second request; begin after byte offset of first
+    beg,end,endactual		= Obj.read_limit( Obj_a1, data, 'read_frag' )
+    assert beg == 125 and end == 250 and endactual == 1000 # DINT == 4 bytes
+
+    # Request elements limited; 0 offset
+    data.read_frag.elements	= 30
+    data.read_frag.offset	= 0
+    beg,end,endactual		= Obj.read_limit( Obj_a3, data, 'read_frag' )
+    assert beg == 0 and end == 30 and endactual == 30 # INT == 2 bytes
+
+    # Request elements limited; +'ve offset
+    data.read_frag.elements	= 70
+    data.read_frag.offset	= 80
+    beg,end,endactual		= Obj.read_limit( Obj_a3, data, 'read_frag' )
+    assert beg == 40 and end == 70 and endactual == 70 # INT == 2 bytes
+
+    # Request limited by size of data provided (Write Tag Fragmented)
+    data			= cpppo.dotdict()
+    data.service		= Obj.WR_FRG_RPY
+    data.path			= { 'segment': [ cpppo.dotdict( d )
+                                                 for d in [
+                                                         {'element': 0 },
+                                                       ]] }
+    data.write_frag		= {}
+    data.write_frag.data	= [0] * 100 # 100 elements provided in this request
+    data.write_frag.elements	= 200       # Total request is to write 200 elements
+    data.write_frag.offset	= 16        # request starts 16 bytes in (8 INTs)
+    beg,end,endactual		= Obj.read_limit( Obj_a3, data, 'write_frag' )
+    assert beg == 8 and end == 108 and endactual == 200 # INT == 2 bytes
+
+    # ... same, but lets say request started somewhere in the middle of the array
+    data.path			= { 'segment': [ cpppo.dotdict( d )
+                                                 for d in [
+                                                         {'element': 222 },
+                                                       ]] }
+    beg,end,endactual		= Obj.read_limit( Obj_a3, data, 'write_frag' )
+    assert beg == 8+222 and end == 108+222 and endactual == 200+222 # INT == 2 bytes
+
+
+    # Test an example valid multiple request
     data			= cpppo.dotdict()
     data.multiple		= {}
     data.multiple.request	= [ cpppo.dotdict(), cpppo.dotdict() ]
@@ -298,9 +356,9 @@ def logix_performance( repeat=1000 ):
         repeat		       -= 1
 
     assert data.status == 0
-    assert len( data.read_frag.data ) == 20
+    assert len( data.read_frag.data ) == 19
     assert data.read_frag.data[ 0] == 1
-    assert data.read_frag.data[-1] == 20
+    assert data.read_frag.data[-1] == 19
 
 
 # This number of repetitions is the point where the performance of pypy 2.1

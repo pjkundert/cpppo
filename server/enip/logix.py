@@ -143,7 +143,7 @@ class Logix( Message_Router ):
     # TODO: MAX_BYTES is arbitrary.  We're supposed to be able to return data sufficient to fill the
     # remaining reply package size, but how can we do that?  We'd have to be informed of the
     # remaining packet size available, as an argument to the produce method...
-    MAX_BYTES			= 200
+    MAX_BYTES			= 500
 
     RD_TAG_NAM			= "Read Tag"
     RD_TAG_CTX			= "read_tag"
@@ -161,6 +161,59 @@ class Logix( Message_Router ):
     WR_FRG_CTX			= "write_frag"
     WR_FRG_REQ			= 0x53
     WR_FRG_RPY			= WR_FRG_REQ | 0x80
+
+    def read_limit( self, attribute, data, context ):
+        """Given an attribute, and a data.path (perhaps containing an element offset) and an (optional)
+        data.<context>.elements count to read and (optional) data.<context>.offset byte offset into
+        the result to begin returning data after, compute the attribute elements to (begin,end] the
+        result.
+    
+        Find the actual beginning/ending element, and fill data.read_{t,fr}ag.data.  For example, we
+        could read 1000 elements starting at element 30, then starting at requested offset of 900
+        (bytes); assuming a maximum element capacity of 150, the actual beginning element would be
+        30 + 450 == 480, and the ending element would be 480 + 150 == 630 (the element beyond ).
+    
+        Ensure we reduce the requested elements count as we advance due to byte offset.
+    
+        Basically, the number of bytes returned using this service is calculated by taking the
+        Number of elements to read and subtracting the byte offset. As an example I am going to
+        request elements 0-29 and 40-69 from an array of 16 bit integers.
+    
+        To request elements 0-29 the offset starts at 0 and the number of elements to read is 30.
+        To request elements 40-69 the offset starts at 80 and the number of elements to read is 70
+        (the offset is 80 because we are doing 2 byte data types).
+    
+        *Logix internally determines the correct number of elements to return by subtracting the
+        offset from the number of elements requested.
+
+        """
+        index			= resolve_element( data.path )	
+        assert type( index ) is tuple and len( index ) == 1, \
+            "Unsupported/Multi-dimensional index: %s" % index
+        siz			= attribute.parser.calcsize
+        off			= data[context].get( 'offset', 0 )
+        assert siz and off % siz == 0, \
+            "Requested byte offset %d is not on a %d-byte data element boundary" % ( off, siz )
+        beg			= index[0]
+        cnt			= len( attribute )
+        elm			= data[context].get( 'elements', cnt ) # Read/Write Tag defaults to all
+        endactual		= beg + elm
+
+        # Maximum elements for read is the capacity of the reply message, for write is the
+        # number actually provided in request.  Compute this from the beginning element 
+        # deduced from the byte offset of this request.
+        beg		       += off // siz
+        endmax	 		= ( beg + self.MAX_BYTES // siz
+                                    if ( data.service in (self.RD_TAG_RPY, self.RD_FRG_RPY) )
+                                    else beg + len( data[context].data ))
+        end			= min( endactual, endmax )
+        assert 0 <= beg < cnt, \
+            "Attribute %s initial element invalid: %r" % ( attribute, (beg, end) )
+        assert 0 <  end <= cnt, \
+            "Attribute %s ending element invalid: %r" % ( attribute, (beg, end) )
+        assert beg < end, \
+            "Attribute %s ending element before beginning: %r" % ( attribute, (beg, end) )
+        return (beg,end,endactual)
 
     def request( self, data ):
         """Any exception should result in a reply being generated with a non-zero status."""
@@ -265,35 +318,12 @@ class Logix( Message_Router ):
             else:
                 raise AssertionError( "Unhandled Service Reply" )
 
-            # Find the actual beginning/ending element, and fill data.read_{t,fr}ag.data.  For
-            # example, we could read 1000 elements starting at element 30, then starting at
-            # requested offset of 900 (bytes); assuming a maximum element capacity of 150, the
-            # actual beginning element would be 30 + 450 == 480, and the ending element would be
-            # 480 + 150 == 630 (the element beyond ).
             data.status		= 0xFF # On Failure: General Error
             data.status_ext	= {'size': 1, 'data': [ 0x2105 ]} # Number of elements beyond of tag
-            index		= resolve_element( data.path )	
-            assert type( index ) is tuple and len( index ) == 1, \
-                "Unsupported/Multi-dimensional index: %s" % index
-            siz			= attribute.parser.calcsize
-            off			= data[context].get( 'offset', 0 )
-            assert siz and off % siz == 0, \
-                "Requested byte offset %d is not on a %d-byte data element boundary" % ( off, siz )
-            beg			= index[0]
-            beg		       += off // siz
-            cnt			= len( attribute )
-            elm			= data[context].get( 'elements', cnt ) # Read/Write Tag defaults to all
-            endactual		= beg + elm
-            # Maximum elements for read is the capacity of the reply message, for write is the
-            # number actually provided in request
-            endmax 		= ( beg + self.MAX_BYTES // siz
-                                    if ( data.service in (self.RD_TAG_RPY, self.RD_FRG_RPY) )
-                                    else beg + len( data[context].data ))
-            end			= min( endactual, endmax )
-            assert 0 <= beg < cnt, \
-                "Attribute %s initial element invalid: %r" % ( attribute, (beg, end) )
-            assert 0 <  end <= cnt, \
-                "Attribute %s ending element invalid: %r" % ( attribute,  (beg, end) )
+
+            # Compute (beg,end] for this requests, given data.path...element, data.elements/offset
+            # The actual end element of the request (not the size-limited end) is in endactual
+            beg,end,endactual	= self.read_limit( attribute, data, context )
 
             if data.service in (self.RD_TAG_RPY, self.RD_FRG_RPY):
                 # Read Tag [Fragmented]
