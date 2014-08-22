@@ -314,7 +314,18 @@ def main( argv=None ):
     """
     ap				= argparse.ArgumentParser(
         description = "An EtherNet/IP Client",
-        epilog = "" )
+        formatter_class = argparse.RawDescriptionHelpFormatter,
+        epilog = """\
+One or more EtherNet/IP CIP Tags may be read or written.  The full format for
+specifying a tag and an operation is:
+
+    Tag[<first>-<last>]+<offset>=(SINT|INT|DINT|REAL)<value>,<value>
+
+All components except Tag are optional.  Specifying a +<offset> (in bytes)
+forces the use of the Fragmented command, regardless of whether --[no-]fragment
+was specified.  If an element range [<first>] or [<first>-<last>] was specified
+and --no-fragment selected, then the exact correct number of elements must be
+provided.""" )
 
     ap.add_argument( '-v', '--verbose',
                      default=0, action="count",
@@ -341,7 +352,7 @@ def main( argv=None ):
                      help="Use Read/Write Tag requests (default: False)" )
     ap.set_defaults( fragment=False )
     ap.add_argument( 'tags', nargs="+",
-                     help="Any tags to read/write, eg: SCADA[1]")
+                     help="Tags to read/write, eg: SCADA[1], SCADA[2-10]+4=(DINT)3,4,5")
 
     args			= ap.parse_args( argv )
 
@@ -402,37 +413,52 @@ def main( argv=None ):
     #     TAG	 		read 1 value (no element index)
     #     TAG[0] 		read 1 value from element index 0
     #     TAG[1-5]		read 5 values from element indices 1 to 5
+    #     TAG[1-5]+4		read 5 values from element indices 1 to 5, beginning at byte offset 4
     #     TAG[4-7]=1,2,3,4	write 4 values from indices 4 to 7
     # 
-    # To support accesst to scalar attributes (no element index allowed in path), we cannot default
+    # To support access to scalar attributes (no element index allowed in path), we cannot default
     # to supply an element index of 0; default is no element in path, and a data value count of 1.
+    # If a byte offset is specified, the request is forced to use Read/Write Tag Fragmented
+    # (regardless of whether --[no-]fragment was specified)
+
     operations			= []
     for tag in args.tags:
         # Compute tag, elm, end and cnt (default elm is None (no element index), cnt is 1)
         val			= ''
+        off			= None
+        elm,lst			= None,None
+        cnt			= 1
         if '=' in tag:
+            # A write; strip off the values into 'val'
             tag,val		= tag.split( '=', 1 )
+        if '+' in tag:
+            # A byte offset (valid for Fragmented)
+            tag,off		= tag.split( '+', 1 )
         if '[' in tag:
             tag,elm		= tag.split( '[', 1 )
             elm,_		= elm.split( ']' )
-            end			= elm
+            lst			= elm
             if '-' in elm:
-                elm,end		= elm.split( '-' )
-            elm,end		= int(elm), int(end)
-            cnt			= end + 1 - elm
-        else:
-            elm			= None
-            cnt			= 1
-        opr			= {
-            'path':	[{'symbolic': tag}] + ([{'element': elm}] if elm is not None else []),
-            'elements': cnt,
-        }
+                elm,lst		= elm.split( '-' )
+            elm,lst		= int( elm ),int( lst )
+            cnt			= lst + 1 - elm
+
+        opr			= {}
+        opr['path']		= [{'symbolic': tag}]
+        if elm is not None:
+            opr['path']       += [{'element': elm}]
+        opr['elements']		= cnt
+        if off:
+            opr['offset']	= int( off )
+
         if val:
             if '.' in val:
                 opr['tag_type']	= enip.REAL.tag_type
+                size		= enip.REAL().calcsize
                 cast		= lambda x: float( x )
             else:
                 opr['tag_type']	= enip.INT.tag_type
+                size		= enip.INT().calcsize
                 cast		= lambda x: int( x )
             # Allow an optional (TYPE)value,value,...
             if ')' in val:
@@ -442,17 +468,33 @@ def main( argv=None ):
                     return res
                 typ,val		= val.split( ')' )
                 _,typ		= typ.split( '(' )
-                opr['tag_type'],cast = {
-                    'REAL': 	(enip.REAL.tag_type,	lambda x: float( x )),
-                    'DINT':	(enip.DINT.tag_type,	lambda x: int_validate( x, -2**31, 2**31-1 )),
-                    'INT':	(enip.INT.tag_type,	lambda x: int_validate( x, -2**15, 2**15-1 )),
-                    'SINT':	(enip.SINT.tag_type,	lambda x: int_validate( x, -2**7,  2**7-1 )),
+                opr['tag_type'],size,cast = {
+                    'REAL': 	(enip.REAL.tag_type,	enip.REAL().calcsize,	lambda x: float( x )),
+                    'DINT':	(enip.DINT.tag_type,	enip.DINT().calcsize,	lambda x: int_validate( x, -2**31, 2**31-1 )),
+                    'INT':	(enip.INT.tag_type,	enip.INT().calcsize,	lambda x: int_validate( x, -2**15, 2**15-1 )),
+                    'SINT':	(enip.SINT.tag_type,	enip.SINT().calcsize,	lambda x: int_validate( x, -2**7,  2**7-1 )),
                 }[typ.upper()]
             opr['data']		= list( map( cast, val.split( ',' )))
 
-            assert len( opr['data'] ) == cnt, \
-                "Number of data values (%d) doesn't match element count (%d): %s=%s" % (
-                    len( opr['data'] ), cnt, tag, val )
+            if 'offset' not in opr and not args.fragment:
+                # Non-fragment write.  The exact correct number of data elements must be provided
+                assert len( opr['data'] ) == cnt, \
+                    "Number of data values (%d) doesn't match element count (%d): %s=%s" % (
+                        len( opr['data'] ), cnt, tag, val )
+            elif elm != lst:
+                # Fragmented write, to an identified range of indices, hence we can check length.
+                # If the byte offset + data provided doesn't match the number of elements, then a
+                # subsequent Write Tag Fragmented command will be required to write the balance.
+                byte		= opr.get( 'offset' ) or 0
+                assert byte % size == 0, \
+                    "Invalid byte offset %d for elements of size %d bytes" % ( byte, size )
+                beg		= byte // size
+                end		= beg + len( opr['data'] )
+                assert end <= cnt, \
+                    "Number of elements (%d) provided and byte offset %d / %d-byte elements exceeds element count %d: " % (
+                        len( opr['data'] ), byte, size, cnt )
+                if beg != 0 or end != cnt:
+                    log.normal( "Partial Write Tag Fragmented; elements %d-%d of %d", beg, end-1, cnt )
         operations.append( opr )
 
     def output( out ):
@@ -471,12 +513,15 @@ def main( argv=None ):
         for o in range( len( operations )):
             op			= operations[o] # {'path': [...], 'elements': #}
             begun		= misc.timer()
+            if 'offset' not in op:
+                op['offset']	= 0 if args.fragment else None
             if 'data' in op:
-                descr		= "Write " + "Frag" if args.fragment else "Tag "
-                req		= cli.write( offset=0 if args.fragment else None, timeout=timeout, send=not args.multiple, **op )
+                descr		= "Write "
+                req		= cli.write( timeout=timeout, send=not args.multiple, **op )
             else:
-                descr		= "Read  " + "Frag" if args.fragment else "Tag "
-                req		= cli.read( offset=0 if args.fragment else None, timeout=timeout, send=not args.multiple, **op )
+                descr		= "Read  "
+                req		= cli.read( timeout=timeout, send=not args.multiple, **op )
+            descr	       += "Frag" if op['offset'] is not None else "Tag "
             if args.multiple:
                 # Multiple requests; each request is returned simply, not in an Unconnected Send
                 requests.append( req )
@@ -579,7 +624,7 @@ def main( argv=None ):
 
     duration			= misc.timer() - start
     log.normal( "Client Tag I/O  Average %7.3f TPS (%7.3fs ea)." % (
-        repeat * len( operations )/ duration, duration / repeat / len( operations )))
+        repeat * len( operations ) / duration, duration / repeat / len( operations )))
     return status
 
 if __name__ == "__main__":

@@ -162,14 +162,14 @@ class Logix( Message_Router ):
     WR_FRG_REQ			= 0x53
     WR_FRG_RPY			= WR_FRG_REQ | 0x80
 
-    def read_limit( self, attribute, data, context ):
-        """Given an attribute, and a data.path (perhaps containing an element offset) and an (optional)
-        data.<context>.elements count to read and (optional) data.<context>.offset byte offset into
-        the result to begin returning data after, compute the attribute elements to (begin,end] the
-        result.
+    def request_elements( self, attribute, data, context ):
+        """Given an attribute, a data.service specifying a Read/Write Tag [Fragmented] request or
+        reply, a data.path (perhaps containing an element offset) and a data.<context>.elements
+        (optional) count to read and (optional) data.<context>.offset byte offset into the result to
+        begin returning data after, compute the attribute elements to (begin,end] the result.
     
-        Find the actual beginning/ending element, and fill data.read_{t,fr}ag.data.  For example, we
-        could read 1000 elements starting at element 30, then starting at requested offset of 900
+        Find the actual beginning/ending element, and check data.read_{t,fr}ag.data.  For example,
+        we could read 1000 elements starting at element 30, then starting at requested offset of 900
         (bytes); assuming a maximum element capacity of 150, the actual beginning element would be
         30 + 450 == 480, and the ending element would be 480 + 150 == 630 (the element beyond ).
     
@@ -191,7 +191,9 @@ class Logix( Message_Router ):
         assert type( index ) is tuple and len( index ) == 1, \
             "Unsupported/Multi-dimensional index: %s" % index
         siz			= attribute.parser.calcsize
-        off			= data[context].get( 'offset', 0 )
+        off			= 0
+        if data.service in (self.RD_FRG_REQ, self.RD_FRG_RPY, self.WR_FRG_REQ, self.WR_FRG_RPY):
+            off			= data[context].get( 'offset' ) or 0 # nonexistent/None/0 --> 0
         assert siz and off % siz == 0, \
             "Requested byte offset %d is not on a %d-byte data element boundary" % ( off, siz )
         beg			= index[0]
@@ -323,7 +325,7 @@ class Logix( Message_Router ):
 
             # Compute (beg,end] for this requests, given data.path...element, data.elements/offset
             # The actual end element of the request (not the size-limited end) is in endactual
-            beg,end,endactual	= self.read_limit( attribute, data, context )
+            beg,end,endactual	= self.request_elements( attribute, data, context )
 
             if data.service in (self.RD_TAG_RPY, self.RD_FRG_RPY):
                 # Read Tag [Fragmented]

@@ -69,25 +69,25 @@ def test_logix_multiple():
     data.read_frag.offset	= 0
     
     # Request maximum size limited
-    beg,end,endactual		= Obj.read_limit( Obj_a1, data, 'read_frag' )
+    beg,end,endactual		= Obj.request_elements( Obj_a1, data, 'read_frag' )
     assert beg == 0 and end == 125 and endactual == 1000 # DINT == 4 bytes
-    beg,end,endactual		= Obj.read_limit( Obj_a3, data, 'read_frag' )
+    beg,end,endactual		= Obj.request_elements( Obj_a3, data, 'read_frag' )
     assert beg == 0 and end == 250 and endactual == 1000 # INT == 2 bytes
 
     data.read_frag.offset	= 125*4 # OK, second request; begin after byte offset of first
-    beg,end,endactual		= Obj.read_limit( Obj_a1, data, 'read_frag' )
+    beg,end,endactual		= Obj.request_elements( Obj_a1, data, 'read_frag' )
     assert beg == 125 and end == 250 and endactual == 1000 # DINT == 4 bytes
 
     # Request elements limited; 0 offset
     data.read_frag.elements	= 30
     data.read_frag.offset	= 0
-    beg,end,endactual		= Obj.read_limit( Obj_a3, data, 'read_frag' )
+    beg,end,endactual		= Obj.request_elements( Obj_a3, data, 'read_frag' )
     assert beg == 0 and end == 30 and endactual == 30 # INT == 2 bytes
 
     # Request elements limited; +'ve offset
     data.read_frag.elements	= 70
     data.read_frag.offset	= 80
-    beg,end,endactual		= Obj.read_limit( Obj_a3, data, 'read_frag' )
+    beg,end,endactual		= Obj.request_elements( Obj_a3, data, 'read_frag' )
     assert beg == 40 and end == 70 and endactual == 70 # INT == 2 bytes
 
     # Request limited by size of data provided (Write Tag Fragmented)
@@ -101,7 +101,7 @@ def test_logix_multiple():
     data.write_frag.data	= [0] * 100 # 100 elements provided in this request
     data.write_frag.elements	= 200       # Total request is to write 200 elements
     data.write_frag.offset	= 16        # request starts 16 bytes in (8 INTs)
-    beg,end,endactual		= Obj.read_limit( Obj_a3, data, 'write_frag' )
+    beg,end,endactual		= Obj.request_elements( Obj_a3, data, 'write_frag' )
     assert beg == 8 and end == 108 and endactual == 200 # INT == 2 bytes
 
     # ... same, but lets say request started somewhere in the middle of the array
@@ -109,7 +109,7 @@ def test_logix_multiple():
                                                  for d in [
                                                          {'element': 222 },
                                                        ]] }
-    beg,end,endactual		= Obj.read_limit( Obj_a3, data, 'write_frag' )
+    beg,end,endactual		= Obj.request_elements( Obj_a3, data, 'write_frag' )
     assert beg == 8+222 and end == 108+222 and endactual == 200+222 # INT == 2 bytes
 
 
