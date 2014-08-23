@@ -184,7 +184,20 @@ def test_logix_multiple():
     except Exception as exc:
         assert "ending element invalid" in str( exc )
 
-    # Beginning element after ending (should be no way to trigger)
+    # Beginning element after ending (should be no way to trigger).  This request doesn't specify an
+    # element in the path, hence defaults to element 0, and asks for a number of elements == 2.
+    # Thus, there is no 6-byte offset possible (a 2-byte offset is, though).
+    data.read_frag.offset	= 6
+    data.read_frag.elements	= 2
+    try:
+        beg,end,endactual	= Obj.reply_elements( Obj_a3, data, 'read_frag' )
+        assert False, "Should have raised Exception due to ending element order"
+    except Exception as exc:
+        assert "ending element before beginning" in str( exc )
+    data.read_frag.offset	= 2
+    data.read_frag.elements	= 2
+    beg,end,endactual		= Obj.reply_elements( Obj_a3, data, 'read_frag' )
+    assert beg == 1 and end == 2 and endactual == 2 # INT == 2 bytes
 
 
     # Test an example valid multiple request
