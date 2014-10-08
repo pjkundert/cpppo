@@ -74,9 +74,6 @@ class client( object ):
     def __iter__( self ):
         return self
 
-    def next( self ):
-        return self.__next__()
-
     def __next__( self ):
         """Return the next available response, or None if no complete response is available.  Raises
         StopIteration (cease iterating) on EOF.  Any other Exception indicates a client failure,
@@ -164,6 +161,8 @@ class client( object ):
                             result )
 
         return result
+
+    next = __next__ # Python 2/3 compatibility
 
     def send( self, request, timeout=None ):
         """Send encoded request data."""
@@ -303,6 +302,28 @@ class client( object ):
 
         self.send( data.input, timeout=timeout )
         return data
+
+
+def await( cli, timeout=None ):
+    """Await a response on an iterable client() instance (for timeout seconds, or forever if None).
+    Returns (response,elapsed).  A 'timeout' may be supplied, of:
+
+        0         --> Immediate timeout (response must be ready)
+        None      --> No timeout (wait forever for response)
+        float/int --> The specified number of seconds
+
+    """
+    response			= None
+    begun			= cpppo.timer()
+    for response in cli:
+        if response is None:
+            elapsed		= cpppo.timer() - begun
+            if not timeout or elapsed <= timeout:
+                if cli.readable( timeout=timeout if not timeout else timeout - elapsed ):
+                    continue # Client I/O pending w/in timeout; see if response complete
+        break
+    elapsed			= cpppo.timer() - begun
+    return response,elapsed
 
 
 def main( argv=None ):
@@ -512,7 +533,6 @@ provided.""" )
         requests		= []		# If --multiple, collects all requests, else one at at time
         for o in range( len( operations )):
             op			= operations[o] # {'path': [...], 'elements': #}
-            begun		= misc.timer()
             if 'offset' not in op:
                 op['offset']	= 0 if args.fragment else None
             if 'data' in op:
@@ -534,24 +554,20 @@ provided.""" )
                 # Single request issued
                 requests	= [ req ]
 
-            # Issue the request(s), and get the response
-            elapsed		= misc.timer() - begun
-            log.detail( "Client %s Sent %7.3f/%7.3fs: %s" % ( descr, elapsed, timeout, enip.enip_format( request )))
-            response			= None
-            for response in cli:
-                elapsed		= misc.timer() - begun
-                log.debug( "Client %s Resp %7.3f/%7.3fs: %s" % ( descr, elapsed, timeout, enip.enip_format( response )))
-                if response is None:
-                    if elapsed <= timeout:
-                        cli.readable( timeout=timeout - elapsed )
-                        continue
-                break
-            elapsed		= misc.timer() - begun
-            log.detail( "Client %s Rcvd %7.3f/%7.3fs: %s" % ( descr, elapsed, timeout, enip.enip_format( response )))
+            # Issue the request(s), and get the response.  We're ignoring the send wrt. timeout
+            elapsed		= 0
+            if log.isEnabledFor( logging.DETAIL ):
+                log.detail( "Client %s Sent %7.3f/%7.3fs: %s", descr, elapsed, timeout, enip.enip_format( request ))
+            response,elapsed	= await( cli, timeout=timeout )
+            if log.isEnabledFor( logging.DETAIL ):
+                log.detail( "Client %s Rcvd %7.3f/%7.3fs: %s", descr, elapsed, timeout, enip.enip_format( response ))
 
             # Find the replies in the response; could be single or multiple; should match requests!
             replies		= []
-            if response.enip.status != 0:
+            if response is None:
+                status		= 1
+                output( "Client %s Response Not Received w/in %7.2fs" % ( descr, timeout ))
+            elif response.enip.status != 0:
                 status		= 1
                 output( "Client %s Response EtherNet/IP status: %d" % ( descr, response.enip.status ))
             elif args.multiple \
@@ -563,7 +579,7 @@ provided.""" )
                 replies		= [ response.enip.CIP.send_data.CPF.item[1].unconnected_send.request ]
             else:
                 status		= 1
-                output( "Client %s Response Unrecognized: " % ( descr, enip.enip_format( response )))
+                output( "Client %s Response Unrecognized: %s" % ( descr, enip.enip_format( response )))
 
             for request,reply in zip( requests, replies ):
                 log.detail( "Client %s Request: %s", descr, enip.enip_format( request ))

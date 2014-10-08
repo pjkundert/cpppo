@@ -566,15 +566,16 @@ Logix.register_service_parser( number=Logix.WR_FRG_RPY, name=Logix.WR_FRG_NAM + 
 
 
 
-def setup():
+def setup( identity_class=None ):
     """Create the required CIP device Objects, return UCMM.  First one in initialize, and don't let
     anyone else proceed 'til complete.  The UCMM isn't really an addressable CIP Object, so we just
     have to return it.
 
+    If an identity_class has been supplied, use it; otherwise, use the default Identity (a Logix PLC)
     """
     with setup.lock:
         if not setup.ucmm:
-            Identity()				# Class 0x01, Instance 1
+            ( identity_class or Identity )()	# Class 0x01, Instance 1
             Logix()				# Class 0x02, Instance 1 -- Message Router; knows Logix Tag requests
             Connection_Manager()		# Class 0x06, Instance 1
         
@@ -643,7 +644,7 @@ def process( addr, data, **kwds ):
 
 
     """
-    ucmm			= setup()
+    ucmm			= setup( identity_class=kwds.get( 'identity_class' ))
 
     # If tags are specified, check that we've got them all set up right.  If the tag doesn't exist,
     # add it.  If it's error code doesn't match, change it.

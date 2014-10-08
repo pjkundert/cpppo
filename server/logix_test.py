@@ -516,7 +516,9 @@ def test_logix_remote( count=100 ):
     logixthread.join()
 
 def logix_remote( count, svraddr, kwargs ):
-    time.sleep(.25)
+    time.sleep(.25) # Wait for server to be established
+
+    # Confirm that a known Register encodes as expected
     data			= cpppo.dotdict()
     data.enip			= {}
     data.enip.options		= 0
@@ -524,7 +526,6 @@ def logix_remote( count, svraddr, kwargs ):
     data.enip.status		= 0
     data.enip.sender_context	= {}
     data.enip.sender_context.input = bytearray( [0x00] * 8 )
-    	#array.array( cpppo.type_bytes_array_symbol, "\x00" * 8 )
     data.enip.CIP		= {}
     data.enip.CIP.register 	= {}
     data.enip.CIP.register.options 		= 0
@@ -536,7 +537,7 @@ def logix_remote( count, svraddr, kwargs ):
     
     assert bytes( data.input ) == rss_004_request
 
-
+    # Try to Register a real session, followed by commands
     timeout			= 5
 
     begun			= cpppo.timer()
@@ -547,46 +548,26 @@ def logix_remote( count, svraddr, kwargs ):
 
     begun			= cpppo.timer()
     request			= cli.register( timeout=timeout )
-    elapsed			= cpppo.timer() - begun
-    log.normal( "Client Register Sent %7.3f/%7.3fs: %r" % ( elapsed, timeout, request ))
-    for data in cli:
-        elapsed			= cpppo.timer() - begun
-        log.detail( "Client Register Resp %7.3f/%7.3fs: %r" % ( elapsed, timeout, data ))
-        if data is None:
-            if elapsed <= timeout:
-                cli.readable( timeout=timeout - elapsed )
-                continue
-        break
-    elapsed			= cpppo.timer() - begun
-    log.normal( "Client Register Rcvd %7.3f/%7.3fs: %r" % ( elapsed, timeout, data ))
+    data,elapsed		= client.await( cli, timeout=timeout )
+    log.normal( "Client Register Rcvd %7.3f/%7.3fs: %r", elapsed, timeout, data )
     assert data is not None and 'enip.CIP.register' in data, "Failed to receive Register response"
     assert data.enip.status == 0, "Register response indicates failure: %s" % data.enip.status
 
+    # Establish the EtherNet/IP "session handle" used by all further requests
     cli.session			= data.enip.session_handle
-
 
     start			= cpppo.timer()
     for _ in range( count ):
         begun			= cpppo.timer()
         request			= cli.read( path=[{'symbolic': 'SCADA'}, {'element': 12}],
                                                 elements=1, offset=0, timeout=timeout )
-        elapsed			= cpppo.timer() - begun
-        log.normal( "Client ReadFrg. Sent %7.3f/%7.3fs: %r" % ( elapsed, timeout, request ))
-        for data in cli:
-            elapsed		= cpppo.timer() - begun
-            log.detail( "Client ReadFrg. Resp %7.3f/%7.3fs: %r" % ( elapsed, timeout, data ))
-            if data is None:
-                if elapsed <= timeout:
-                    cli.readable( timeout=timeout - elapsed )
-                    continue
-            break
-        elapsed			= cpppo.timer() - begun
-        log.normal( "Client ReadFrg. Rcvd %7.3f/%7.3fs: %r" % ( elapsed, timeout, data ))
+        data,elapsed		= client.await( cli, timeout=timeout )
+        log.normal( "Client ReadFrg. Rcvd %7.3f/%7.3fs: %r", elapsed, timeout, data )
 
     duration			= cpppo.timer() - start
     log.warning( "Client ReadFrg. Average %7.3f TPS (%7.3fs ea)." % ( count / duration, duration / count ))
 
-    kwargs['server'].control.done= True
+    kwargs['server'].control.done= True # Signal the server to terminate
 
 
 

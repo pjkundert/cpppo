@@ -766,7 +766,7 @@ def logrotate_perform():
 # retrieves the supplied data.  To perform other actions (ie. forward the data to your own
 # application), derive from device.Attribute, and override the __getitem__ and __setitem__ methods.
 # 
-def main( argv=None, attribute_class=device.Attribute, **kwds ):
+def main( argv=None, attribute_class=device.Attribute, identity_class=None, **kwds ):
     """Pass the desired argv (excluding the program name in sys.arg[0]; typically
     pass argv=None, which is equivalent to argv=sys.argv[1:], the default for
     argparse.  Requires at least one tag to be defined.
@@ -946,9 +946,10 @@ def main( argv=None, attribute_class=device.Attribute, **kwds ):
         tags[tag_name].error	= 0x00
 
     # Use the Logix simulator by default (unless some other one was supplied as a keyword options to
-    # main(), loaded above into 'options').  This key indexes an immutable value (not another dotdict
-    # layer), so is not available for the web API to report/manipulate.
+    # main(), loaded above into 'options').  This key indexes an immutable value (not another
+    # dotdict layer), so is not available for the web API to report/manipulate.
     options.setdefault( 'enip_process', logix.process )
+    options.setdefault( 'identity_class', identity_class )
 
     # The Web API
 

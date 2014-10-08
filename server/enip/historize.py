@@ -17,17 +17,25 @@
 # 
 # cpppo.server.enip.historize
 # 
-# Example of how to run an EtherNet/IP simulator, and intercept all /IP Attribute I/O.  In this
+#     Example of how to run an EtherNet/IP simulator, and intercept all Attribute I/O.  In this
 # instance, we'll arrange to output a copy of all I/O to the file specified in the first
 # command-line argument to the module.  Invoke using:
 # 
 #     python -m cpppo.server.enip.historize some_file.hst Tag_Name=DINT[1000]
 # 
-# You may use a cpppo.history.reader to retrieve the previously historized records and replay them
-# in real-time.  Alternatively, since they are stored in JSON format records, you can write your own
-# processor.  Processing times is non-trivial, especially in the presence of timezone information,
-# and you may want to use the cpppo.history.timestamp class to correctly handle the timestamp
-# information in the file.
+#     You may use a cpppo.history.reader to retrieve the previously historized records and replay
+# them in real-time.  Alternatively, since they are stored in JSON format records, you can write
+# your own processor.  Processing time stamps is non-trivial, especially in the presence of timezone
+# information, and you may want to use the cpppo.history.timestamp class to correctly handle the
+# timestamp information in the file.
+# 
+# 
+#     Use this as a template for intercepting and processing EtherNet/IP Attribute I/O for your own
+# project; Replace the code between vvvv and ^^^^ with your own code, which maps EtherNet/IP
+# Attribute indices to data values.  In this case, we're using the default implementation (which
+# just remembers any values written, and returns them to future read requests).  You will probably
+# map certain Tag names to certain aspects of your application, and provide read and/or write access
+# to pre-existing data from within your application instead.
 # 
 
 from __future__ import absolute_import
@@ -50,8 +58,8 @@ from cpppo.server.enip.main import main
 # Attribute_historize -- intercept all EtherNet/IP Attribute I/O, and output to a file
 # 
 class Attribute_historize( device.Attribute ):
-    """Capture sys.argv[1] (the first command-line argument) as a filename, and arrange to output a copy
-    of all Attribute I/O (and exceptions) to that file.  However, trapping exceptions should be
+    """Capture sys.argv[1] (the first command-line argument) as a filename, and arrange to output a
+    copy of all Attribute I/O (and exceptions) to that file.  However, trapping exceptions should be
     rare, as most PLC I/O issues are detected before processing the I/O request to the Attribute.
 
     The 'key' arguments to __{get,set}item__ are of type slice or int, and 'value' is a list (for
@@ -61,13 +69,14 @@ class Attribute_historize( device.Attribute ):
 
     An instance of this class is created for each EtherNet/IP CIP Tag, and multiple client request
     service Threads may access it simultaneously.  Ensure that your arrange to protect any code
-    subject to race conditions with a threading.mutex.  In this contrived example, we are opening a
-    single file at module load time, and separate Threads are writing complete records of text out
-    to a shared file object in 'a' (append) mode, so the risks are minimal.
+    subject to race conditions with a threading.[R]Lock mutex.  In this contrived example, we are
+    opening a single file at module load time, and separate Threads are writing complete records of
+    text out to a shared file object in 'a' (append) mode, so the risks are minimal.
 
     In a real (production) example derived from this code, you should be aware of the fact that each
     EtherNet/IP CIP client is serviced asynchronously in a separate Thread, and that these
-    __getitem__ and __setitem__ invocations may (appear) to occur simultaneously.
+    __getitem__ and __setitem__ invocations may (appear) to occur simultaneously; lock your mutex
+    around any critical sections!
 
     """
     
@@ -80,35 +89,59 @@ class Attribute_historize( device.Attribute ):
         
     def __getitem__( self, key ):
         try:
+            # vvvv -- Process an EtherNet/IP CIP Read [Tag [Fragmented]].
+            # 
+            # We'll just access the (previously written) saved data here, and output the read
+            # request (and the value returned) to our time-series history file.
+            # 
             value		= super( Attribute_historize, self ).__getitem__( key )
             self.__logger.write( { 'read': value }, serial=(self.name, (
                 key.indices( len( self ))[0]   if isinstance( key, slice ) else key,
                 key.indices( len( self ))[1]-1 if isinstance( key, slice ) else key,
             )))
+            # ^^^^
             return value
         except Exception as exc:
+            # vvvv -- Process an EtherNet/IP CIP Read [Tag [Fragmented]] Exception.
+            # 
+            # Something went wrong with the Read request processing.  Log something intelligent and
+            # re-raise the exception, to return a failure to the EtherNet/IP client.
+            # 
             self.__logger.comment(
                 "%s: PLC I/O Read  Tag %20s[%5s-%-5s] Exception: %s" % (
                     history.timestamp(), self.name,
                     key.indices( len( self ))[0]   if isinstance( key, slice ) else key,
                     key.indices( len( self ))[1]-1 if isinstance( key, slice ) else key,
                     exc ))
+            # ^^^^
             raise
 
     def __setitem__( self, key, value ):
         try:
+            # vvvv -- Process an EtherNet/IP CIP Write [Tag [Fragmented]].
+            # 
+            # We'll just store the value, and output the write request (and the value written) to
+            # our time-series history file.
+            # 
             super( Attribute_historize, self ).__setitem__( key, value )
             self.__logger.write( { 'write': value }, serial=(self.name, (
                 key.indices( len( self ))[0]   if isinstance( key, slice ) else key,
                 key.indices( len( self ))[1]-1 if isinstance( key, slice ) else key,
             )))
+            # ^^^^
         except Exception as exc:
+            # vvvv -- Process an EtherNet/IP CIP Write [Tag [Fragmented]] Exception.
+            # 
+            # Something went wrong with the Write request processing.  Log something intelligent and
+            # re-raise the exception, to return a failure to the EtherNet/IP client.
+            # 
             self.__logger.comment(
                 "%s: PLC I/O Write Tag %20s[%5s-%-5s] Exception: %s" % (
                     history.timestamp(), self.name,
                     key.indices( len( self ))[0]   if isinstance( key, slice ) else key,
                     key.indices( len( self ))[1]-1 if isinstance( key, slice ) else key,
                     exc ))
+            # ^^^^
             raise
 
 sys.exit( main( attribute_class=Attribute_historize ))

@@ -62,17 +62,17 @@ deb	http://security.debian.org/		jessie/updates	main contrib non-free\n"\
   config.vm.synced_folder		   "../../..", "/home/vagrant/src_host", type: "nfs"
   config.vm.provider "vmware_desktop" do |v|
     v.gui 				= true
-    v.vmx["memsize"]			= "2048"
-    v.vmx["numvcpus"]			= "2"
+    v.vmx["memsize"]			= "4096"
+    v.vmx["numvcpus"]			= "4"
   end
   config.vm.provider "vmware_fusion" do |v|
     v.gui 				= true
-    v.vmx["memsize"]			= "2048"
-    v.vmx["numvcpus"]			= "2"
+    v.vmx["memsize"]			= "4096"
+    v.vmx["numvcpus"]			= "4"
   end
   config.vm.provider "virtualbox" do |v|
     v.gui 				= true
-    v.customize ["modifyvm", :id, "--memory", "2048"]
+    v.customize ["modifyvm", :id, "--memory", "4096"]
     v.customize ["modifyvm", :id, "--cpus", "2"]
   end
 end
