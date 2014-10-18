@@ -51,25 +51,30 @@
 
 * Protocols
 
-  The protocols implemented (presently, few) are described here.
+  The protocols implemented are described here.
 
-** EtherNet/IP CIP Logix Controller Simulation
+** EtherNet/IP CIP Logix Controller Simulator and Client
 
    A subset of the EtherNet/IP client and server protocol is implemented, and a
-   simulation of a very small subset of a *Logix Controller is provided.  It is
-   capable of simulating Logix "tags", and the Read/Write Tag [Fragmented]
-   services.
+   simulation of a subset of a Allen-Bradley ControlLogix 5561 Controller is
+   provided.  It is capable of simulating ControlLogix Tag access, via the
+   Read/Write Tag [Fragmented] services.
 
    Only EtherNet/IP "Unconnected" type connections are supported.  These are
-   (anomalously) persistent connections to a single EtherNet/IP device (such as
-   a Controller), which allow a sequence of CIP service requests (commands) to
-   be sent to arbitrary CIP objects resident on the target device.
+   (somewhat anomalously) a persistent connection to a single EtherNet/IP device
+   (such as a Controller), which allow a sequence of CIP service requests
+   (commands) to be sent to arbitrary CIP objects resident on the target device.
+
+   A Tag is simply a shortcut to a specific EtherNet/IP CIP Object Instance and
+   Attribute.  Instead of the Client needing to know the specific Instance and
+   Attribute numbers, the more easily remembered and meaning Tag may be supplied
+   in the request path.
 
 *** EtherNet/IP Controller Simulator
 
-    To run a simulation of a small subset of a Logix(tm) Controller with the tag
+    To run a simulation of a subset of a ControlLogix(tm) Controller with the tag
     'SCADA' for you to read/write, run:
-    : $ python -m cpppo.server.enip -v SCADA=INT[1000]
+    : $ python -m cpppo.server.enip --print SCADA=INT[1000]
     : # (alternatively, invoke enip_server <options> ... )
 
     These options are available when you execute the cpppo.server.enip module:
@@ -103,33 +108,80 @@
 
 *** EtherNet/IP Controller I/O Customization
 
-    If you require access to the data streaming from client to and from the
-    EtherNet/IP CIP Attributes hosted in your simulated controller, you can
-    easily provide a custom cpppo.server.enip.device Attribute implementation
-    which will receive all PLC Read/Write Tag [Fragmented] request data.
+    If you require access to the read and write I/O events streaming from
+    client(s) to and from the EtherNet/IP CIP Attributes hosted in your
+    simulated controller, you can easily make a custom cpppo.server.enip.device
+    Attribute implementation which will receive all PLC Read/Write Tag
+    [Fragmented] request data.
 
-    For example purposes, we have implemented the cpppo.server.enip.historize
-    module which intercepts all I/O (and exceptions) and writes it to the file
-    specified in the first command-line argument to the module:
-    : $ python -m cpppo.server.enip.historize some_file.hst Tag_Name=INT[1000] &
-    : $ tail -f some_file.txt
-    : # 2014-07-15 22:03:35.945: Started recording Tag: Tag_Name
-    : 2014-07-15 22:03:44.186 ["Tag_Name", [0, 3]]    {"write": [0, 1, 2, 3]}
-    : ...
-    (in another terminal)
-    : $ python -m cpppo.server.enip.client Tag_Name[0-3]=[0,1,2,3]
+    We provide two examples; one which records a history of all read/write
+    events to each Tag, and one which connects each Tag to the current
+    temperature of the city with the same name as the Tag.
 
-    You can examine the code in cpppo/server/enip/historize.py to see how to
-    easily implement your own customization of the EtherNet/IP CIP Controller
-    simulator.
+**** Record Tag History
 
-    If you invoke the 'main' method provided by cpppo.server.enip.main directly,
-    all command-line args will be parsed, and the EtherNet/IP service will not
-    return control until termination.  Alternatively, you may start the service
-    in a separate threading.Thread and provide it with a list of configuration
-    options.  Note that each individual EtherNet/IP Client session is serviced
-    by a separate Thread, and thus all method invocations arriving at your
-    customized Attribute object need to process data in a Thread-safe fashion.
+     For example purposes, we have implemented the cpppo.server.enip.historize
+     module which intercepts all I/O (and exceptions) and writes it to the file
+     specified in the first command-line argument to the module:
+     : $ python -m cpppo.server.enip.historize some_file.hst Tag_Name=INT[1000] &
+     : $ tail -f some_file.txt
+     : # 2014-07-15 22:03:35.945: Started recording Tag: Tag_Name
+     : 2014-07-15 22:03:44.186 ["Tag_Name", [0, 3]]    {"write": [0, 1, 2, 3]}
+     : ...
+     (in another terminal)
+     : $ python -m cpppo.server.enip.client Tag_Name[0-3]=[0,1,2,3]
+   
+     You can examine the code in cpppo/server/enip/historize.py to see how to
+     easily implement your own customization of the EtherNet/IP CIP Controller
+     simulator.
+   
+     If you invoke the 'main' method provided by cpppo.server.enip.main directly,
+     all command-line args will be parsed, and the EtherNet/IP service will not
+     return control until termination.  Alternatively, you may start the service
+     in a separate threading.Thread and provide it with a list of configuration
+     options.  Note that each individual EtherNet/IP Client session is serviced
+     by a separate Thread, and thus all method invocations arriving at your
+     customized Attribute object need to process data in a Thread-safe fashion.
+
+**** City Temperature Tag
+
+     In this example, we intercept read requests to the Tag, and look up the
+     current temperature of the city named with the Tag's name.  This example is
+     simple enough to include here:
+
+     #+BEGIN_EXAMPLE python
+     import sys, logging, json
+     try:
+         from urllib2 import urlopen
+     except ImportError:
+         from urllib.request import urlopen
+     
+     from cpppo.server.enip import device
+     from cpppo.server.enip.main import main
+     
+     class Attribute_weather( device.Attribute ):
+         def __getitem__( self, key ):
+             try:
+                 url = "http://api.openweathermap.org/data/2.5/weather?units=metric&q=%s" % self.name 
+                 weather = json.loads( urlopen( url ).read() )
+                 return [ weather['main']['temp'] ]
+             except Exception as exc:
+                 logging.warning( "Couldn't get temperature for %s: %s", self.name, exc )
+                 raise
+     
+         def __setitem__( self, key, value ):
+             raise Exception( "Changing the weather isn't that easy..." )
+     
+     sys.exit( main( attribute_class=Attribute_weather ))
+     #+END_EXAMPLE
+
+     By providing a specialized implementation of device.Attribute's =__getitem__=
+     (which is invoked each time an Attribute is accessed), we arrange to query
+     the city's weather at the given URL, and return the current temperature.
+     Of course, =__setitem__= (which would be invoked whenever someone wishes to
+     change the city's temperature) would have a much more complex
+     implementation, the details of which are left as an exercise to the
+     reader...
 
 *** EtherNet/IP Controller Client
 
@@ -425,14 +477,14 @@
 
    #+BEGIN_SRC python
    # Basic DFA that accepts ab+
-   E			= cpppo.state( "E" )
-   A			= cpppo.state_input( "A" )
-   B			= cpppo.state_input( "B", terminal=True )
-   E['a']		= A
-   A['b']		= B
-   B['b']		= B
+   E                    = cpppo.state( "E" )
+   A                    = cpppo.state_input( "A" )
+   B                    = cpppo.state_input( "B", terminal=True )
+   E['a']               = A
+   A['b']               = B
+   B['b']               = B
 
-   BASIC		= cpppo.dfa( 'ab+', initial=E, context='basic' )
+   BASIC                = cpppo.dfa( 'ab+', initial=E, context='basic' )
    #+END_SRC
 
 ** Composite Machines
@@ -462,13 +514,13 @@
 
    #+BEGIN_SRC python
    # Composite state machine accepting ab+, ignoring ,[ ]* separators
-   ABP			= cpppo.dfa( "ab+", initial=E, terminal=True )
-   SEP			= cpppo.state_drop( "SEP" )
-   ABP[',']		= SEP
-   SEP[' ']		= SEP
-   SEP[None]		= ABP
+   ABP                  = cpppo.dfa( "ab+", initial=E, terminal=True )
+   SEP                  = cpppo.state_drop( "SEP" )
+   ABP[',']             = SEP
+   SEP[' ']             = SEP
+   SEP[None]            = ABP
 
-   CSV			= cpppo.dfa( 'CSV', initial=ABP, context='csv' )
+   CSV                  = cpppo.dfa( 'CSV', initial=ABP, context='csv' )
    #+END_SRC
 
    When the lower level state machine doesn't recognize the input symbol for a
@@ -504,7 +556,7 @@
 
    #+BEGIN_SRC python
    # A regular expression; the default dfa name is the regular expression itself.
-   REGEX		= cpppo.regex( initial='(ab+)((,[ ]*)(ab+))*', context='regex' )
+   REGEX                = cpppo.regex( initial='(ab+)((,[ ]*)(ab+))*', context='regex' )
    #+END_SRC
 
 *** Unicode Support
@@ -520,10 +572,10 @@
   to store their data; the path used is the cpppo.dfa's <context> + '\_input':
 
   #+BEGIN_SRC python
-  data			= cpppo.dotdict()
+  data                  = cpppo.dotdict()
   for machine in [ BASIC, CSV, REGEX ]:
-      path		= machine.context() + '.input' # default for state_input data
-      source		= cpppo.peekable( str( 'abbbb, ab' ))
+      path              = machine.context() + '.input' # default for state_input data
+      source            = cpppo.peekable( str( 'abbbb, ab' ))
       with machine:
           for i,(m,s) in enumerate( machine.run( source=source, data=data )):
               print( "%s #%3d; next byte %3d: %-10.10r: %r" % (
@@ -651,13 +703,13 @@
     the command we ran previously so we don't have to remember to type it in.
     Create a new Dockerfile in, say, cpppo/docker/cpppo/scada/:
     #+BEGIN_EXAMPLE
-    FROM	cpppo/cpppo
-    MAINTAINER	Whoever You Are "whoever@example.com"
-    EXPOSE	44818
+    FROM        cpppo/cpppo
+    MAINTAINER  Whoever You Are "whoever@example.com"
+    EXPOSE      44818
     # We'll always run this as our base command
-    ENTRYPOINT 	[ "python",  "-m", "cpppo.server.enip" ]
+    ENTRYPOINT  [ "python",  "-m", "cpppo.server.enip" ]
     # But we will allow this to be (optionally) overridden
-    CMD		[ "SCADA=dint[1000]" ]
+    CMD         [ "SCADA=dint[1000]" ]
     #+END_EXAMPLE
 
     Then, we can build and save the container under a new name:
