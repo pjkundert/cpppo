@@ -67,7 +67,7 @@
 
    A Tag is simply a shortcut to a specific EtherNet/IP CIP Object Instance and
    Attribute.  Instead of the Client needing to know the specific Instance and
-   Attribute numbers, the more easily remembered and meaning Tag may be supplied
+   Attribute numbers, the more easily remembered and meaningful Tag may be supplied
    in the request path.
 
 *** EtherNet/IP Controller Simulator
@@ -583,6 +583,34 @@
       print( "Accepted: %r; remaining: %r\n" % ( data.get(path), ''.join( source )))
   print( "Final: %r" % ( data ))
   #+END_SRC
+
+* Historical 
+
+  Recording and playing back time series data is often required for industrial
+  control development and testing.  Common pain points are:
+
+  - time stamp formats, especially if timezone information is required
+  - storage/access of time series data, which may be compressed
+  - playback of the data at various speeds
+
+  The cpppo.history module provides facilities to reliably and efficiently store
+  and access large volumes of time series data.
+
+** The =timestamp=
+
+   Saving and restoring high-precision timestamps is surprisingly difficult -- especially if
+   timezone abbreviations are involved.  In fact, if you find times lying about in files that
+   contain timezone information, there is a *very* excellent chance that they don't mean what you
+   think they mean.  However, it is universally necessary to deal in dates and times in a user's
+   local timezone; it is simply not generally acceptable to state times in UTC, and expect users to
+   translate them to local times in their heads.
+
+   The =cpppo.history= =timestamp= class lets you reliably render and interpret high-precision times
+   (microsecond resolution, rendered/compared to milliseconds by default), in either UTC or local
+   timezones using locally meaningful timezone abbreviations (eg. 'MST' or 'MDT'), instead of the
+   globally unambiguous but un-intuitive full timezone names (eg. 'Canada/Mountain' or
+   'America/Edmonton').
+
 
 * Virtualization
 

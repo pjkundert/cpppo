@@ -16,7 +16,7 @@ def dump(data, encoding='utf-8'):
     character data are supplied as bytes, and if unicode '$' format data is
     suppoed).  All internally generated numeric str data and dictionary keys
     must be simple 'ascii' encoded (non-multibyte, 7-bit clean)."""
-    if type(data) in ((int,long) if sys.version_info.major < 3 else (int,)):
+    if type(data) in ((int,long) if sys.version_info[0] < 3 else (int,)):
         out = str(data).encode('ascii')
         typ = b'#'
     elif type(data) is float:
@@ -25,7 +25,7 @@ def dump(data, encoding='utf-8'):
     elif type(data) is bytes: # =~= str in Python2, bytes in Python3
         out = data
         typ = b','
-    elif type(data) is (unicode if sys.version_info.major < 3 else str):
+    elif type(data) is (unicode if sys.version_info[0] < 3 else str):
         # User-supplied non-bytes character data: must decode to bytes
         # according to supplied encoding (typically should be 'utf-8').
         out = data.encode(encoding) # u'...' in Python2, str in Python3

@@ -84,7 +84,7 @@ from   cpppo import misc
 import cpppo.server
 from   cpppo.server import network
 
-address				= ('0.0.0.0', 8008)
+address				= ('', 8008)
 
 log				= logging.getLogger( "tnet.srv" )
 
@@ -117,7 +117,7 @@ def tnet_machine( name="TNET", context="tnet" ):
             tntype		= next( source )
             ours		= self.context( path )
             raw			= ours + '...data.input'
-            src			= ( data[raw].tostring() if sys.version_info.major < 3
+            src			= ( data[raw].tostring() if sys.version_info[0] < 3
                                     else data[raw].tobytes() )
 
             if tntype == b','[0]:

@@ -145,7 +145,7 @@ class timestamp( object ):
     _precision			= 3			# How many default sub-second digits
     _epsilon			= 10**-_precision	# How small a difference to consider ==
     _timeseps			= ( string
-                                    if sys.version_info.major < 3
+                                    if sys.version_info[0] < 3
                                     else str ).maketrans( ":-.", "   " )
     _fmt			= '%Y-%m-%d %H:%M:%S'	# 2014-04-01 10:11:12
 

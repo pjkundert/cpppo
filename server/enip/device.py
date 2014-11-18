@@ -476,7 +476,7 @@ class Object( object ):
 
         cls.service[number]	= name
         cls.service[name]	= number
-        cls.transit[number]	= chr( number ) if sys.version_info.major < 3 else number
+        cls.transit[number]	= chr( number ) if sys.version_info[0] < 3 else number
         cls.parser.initial[cls.transit[number]] \
 				= cpppo.dfa( name=short, initial=machine, terminal=True )
 

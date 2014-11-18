@@ -383,7 +383,7 @@ class motor( device ):
         return None if value is None else bool( value )
     @reset.setter
     def reset( self, value ):
-        if isinstance( value,  basestring if sys.version_info.major < 3 else str ):
+        if isinstance( value,  cpppo.type_str_base ):
             value	= json.loads( value.lower() )
         self._reset.value = bool( value )
 
@@ -393,7 +393,7 @@ class motor( device ):
         return None if value is None else bool( value )
     @start.setter
     def start( self, value ):
-        if isinstance( value,  basestring if sys.version_info.major < 3 else str ):
+        if isinstance( value,  cpppo.type_str_base ):
             value	= json.loads( value.lower() )
         self._start.value = bool( value )
 

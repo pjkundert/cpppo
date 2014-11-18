@@ -179,7 +179,7 @@ def test_state():
     to convert them to symbols."""
 
     unicodekwds			= {
-        'alphabet':	unicode if sys.version_info.major < 3 else str,
+        'alphabet':	unicode if sys.version_info[0] < 3 else str,
         'encoder':	cpppo.type_unicode_encoder,
     }
     s1				= cpppo.state(
@@ -447,7 +447,7 @@ def to_hex( data, nbytes ):
 def test_codecs():
     # In Python3, the greenery.fsm is able to handle the Unicode str type; under
     # Python2, it can sanely only handle the non-Unicode str type.
-    if sys.version_info.major < 3:
+    if sys.version_info[0] < 3:
         return
 
     # Test parsing of greenery.fsm/lego regexes specified in Unicode.  Then,
@@ -582,7 +582,7 @@ def test_limit():
             assert i == 10
             assert source.sent == 10
             assert ( data.odd_b.input.tostring()
-                     if sys.version_info.major < 3
+                     if sys.version_info[0] < 3
                      else data.odd_b.input.tounicode() ) == str( 'a'+'b'*9 )
         
 def test_decode():
@@ -597,7 +597,7 @@ def test_decode():
         assert source.sent == 2
         assert data.pi == 'π'
     
-    if sys.version_info.major < 3:
+    if sys.version_info[0] < 3:
         # Test regexes over plain string data (no decode required).  Force non-unicode (counteracts
         # import unicode_literals above).  We can't use greenery.lego regexes on unicode data in
         # Python 2...
@@ -656,9 +656,9 @@ def test_decode():
             assert i == 4
             assert source.sent == 3
             assert data.integer == 123
-        assert sys.version_info.major < 3, \
+        assert sys.version_info[0] < 3, \
             "Should have failed in Python3; str/bytes iterator both produce str/int"
     except AssertionError:
-        assert not sys.version_info.major < 3, \
+        assert not sys.version_info[0] < 3, \
             "Shouldn't have failed in Python2; str/bytes iterator both produce str"
 

@@ -70,7 +70,7 @@ timeout				= 20.0	# Await completion of all I/O, thread activity (on many thread
 log				= logging.getLogger( "enip.srv" )
 
 # The default cpppo.enip.address
-address				= ('0.0.0.0', 44818)
+address				= ('', 44818)
 
 
 # Maintain a global 'options' cpppo.dotdict() containing all our configuration options, configured
@@ -761,19 +761,23 @@ def logrotate_perform():
 # 
 # main		-- Run the EtherNet/IP Controller Simulation
 # 
-#     Uses the provided attribute_class (default: device.Attribute) to process all EtherNet/IP
-# attribute I/O (eg. Read/Write Tag [Fragmented]) requests.  By default, device.Attribute stores and
-# retrieves the supplied data.  To perform other actions (ie. forward the data to your own
-# application), derive from device.Attribute, and override the __getitem__ and __setitem__ methods.
-# 
-def main( argv=None, attribute_class=device.Attribute, identity_class=None, **kwds ):
-    """Pass the desired argv (excluding the program name in sys.arg[0]; typically
-    pass argv=None, which is equivalent to argv=sys.argv[1:], the default for
-    argparse.  Requires at least one tag to be defined.
+def main( argv=None, attribute_class=device.Attribute, identity_class=None, idle_service=None,
+          **kwds ):
+    """Pass the desired argv (excluding the program name in sys.arg[0]; typically pass argv=None, which
+    is equivalent to argv=sys.argv[1:], the default for argparse.  Requires at least one tag to be
+    defined.
 
-    If a cpppo.apidict() is passed for kwds['server']['control'], we'll use it
-    to transmit server control signals via its .done, .disable, .timeout and
-    .latency attributes.
+    If a cpppo.apidict() is passed for kwds['server']['control'], we'll use it to transmit server
+    control signals via its .done, .disable, .timeout and .latency attributes.
+
+    Uses the provided attribute_class (default: device.Attribute) to process all EtherNet/IP
+    attribute I/O (eg. Read/Write Tag [Fragmented]) requests.  By default, device.Attribute stores
+    and retrieves the supplied data.  To perform other actions (ie. forward the data to your own
+    application), derive from device.Attribute, and override the __getitem__ and __setitem__
+    methods.
+
+    If an idle_service function is provided, it will be called after a period of latency between
+    incoming requests.
 
     """
     global address
@@ -834,13 +838,15 @@ def main( argv=None, attribute_class=device.Attribute, identity_class=None, **kw
                                     if args.verbose in levelmap
                                     else logging.DEBUG )
 
-    idle_service		= None
+    # Chain any provided idle_service function with log rotation; these may (also) consult global
+    # signal flags such as logrotate_request, so execute supplied functions before logrotate_perform
+    idle_service		= [ idle_service ] if idle_service else []
     if args.log:
         # Output logging to a file, and handle UNIX-y log file rotation via 'logrotate', which sends
         # signals to indicate that a service's log file has been moved/renamed and it should re-open
         cpppo.log_cfg['filename']= args.log
         signal.signal( signal.SIGHUP, logrotate_request )
-        idle_service		= logrotate_perform
+        idle_service.append( logrotate_perform )
 
     logging.basicConfig( **cpppo.log_cfg )
 
@@ -992,7 +998,8 @@ def main( argv=None, attribute_class=device.Attribute, identity_class=None, **kw
                 logging.detail( "EtherNet/IP Server enabled" )
                 disabled= False
             network.server_main( address=bind, target=enip_srv, kwargs=kwargs,
-                                 idle_service=idle_service, thread_factory=tf, **tf_kwds )
+                                 idle_service=lambda: map( lambda f: f(), idle_service ),
+                                 thread_factory=tf, **tf_kwds )
         else:
             if not disabled:
                 logging.detail( "EtherNet/IP Server disabled" )

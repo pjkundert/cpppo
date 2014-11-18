@@ -165,6 +165,8 @@ class logger( object ):
         log.debug( "f = %s, error: %s", self.f, self.error )
         return bool( self.f and not self.error )
 
+    __bool__			= __nonzero__		# Python3
+
     def __enter__( self ):
         return self
 
@@ -624,6 +626,7 @@ class loader( reader ):
 
     def __nonzero__( self ):
         return self.state < self.COMPLETE
+
     __bool__			= __nonzero__		# Python3
 
     SUPPRESS			= 0
@@ -666,7 +669,7 @@ class loader( reader ):
         If an 'upcoming' timestamp is provided, no events >= this timestamp will be processed and
         returned (they will be stored in self.future 'til 'upcoming' is advanced).  In this case,
         since no events may be returned, use the <loader>.state < loader.AWAITING to determine if
-        <loader>.load should be called again.  Alternatively, if an 'upcoming=<timestamp>'' is
+        <loader>.load should be called again.  Alternatively, if an 'upcoming=<timestamp>' is
         supplied, continue until the returned <timestamp>,<list> returns an empty <list> and a
         <timestamp> less than the supplied 'upcoming=<timestamp>'.  This indicates that the
         <loader>.load stopped before 'limit', and returned no events.

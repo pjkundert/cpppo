@@ -155,7 +155,7 @@ def test_history_timestamp():
         return
 
     trtab			= ( string 
-                                    if sys.version_info.major < 3
+                                    if sys.version_info[0] < 3
                                     else str ).maketrans( ":-.", "   " )
 
     def utc_strp( loctime ):
