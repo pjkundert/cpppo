@@ -4,18 +4,22 @@ import os, sys
 here = os.path.abspath( os.path.dirname( __file__ ))
 exec( open( 'version.py', 'r' ).read() )
 
-# Presently the pymodbus-based Modbus/TCP scripts are only compatible with
-# Python2, as is web.py.  So, make web.py and pymodbus requirements optional
+# Presently the pymodbus-based Modbus/TCP scripts are only compatible with Python2, as is web.py.
+# So, make web.py and pymodbus requirements optional.  The argparse module wasn't included 'til
+# Python 2.7, but is available for installation in prior versions.
 console_scripts			= [
     'enip_server	= cpppo.server.enip.main:main',
     'enip_client	= cpppo.server.enip.client:main',
 ]
-install_requires		= open( os.path.join( here, "requirements.txt" )).readlines()
-if sys.version_info.major < 3:
+if sys.version_info[0:2] < (3,0):
     console_scripts	       += [
         'modbus_sim	= cpppo.bin.modbus_sim:main',
         'modbus_poll	= cpppo.bin.modbus_poll:main',
     ]
+
+install_requires		= open( os.path.join( here, "requirements.txt" )).readlines()
+if sys.version_info[0:2] < (2,7):
+    install_requires.append( "argparse" )
 
 setup(
     name			= "cpppo",
@@ -65,13 +69,15 @@ In addition, the ability to read, write and poll remote PLCs of
 various types including Modbus/TCP is provided.
 """,
     license			= "Dual License; GPLv3 and Proprietary",
-    keywords			= "cpppo protocol parser DFA",
+    keywords			= "cpppo protocol parser DFA EtherNet/IP",
     url				= "https://github.com/pjkundert/cpppo",
     classifiers			= [
         "License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)",
         "License :: Other/Proprietary License",
+        "Programming Language :: Python :: 2.6",
         "Programming Language :: Python :: 2.7",
         "Programming Language :: Python :: 3.3",
+        "Programming Language :: Python :: 3.4",
         "Development Status :: 5 - Production/Stable",
         "Intended Audience :: Developers",
         "Environment :: Console",

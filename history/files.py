@@ -217,7 +217,7 @@ class logger( object ):
         """
         if not self.f:
             assert self.open(), "Could not open file %s for writing" % self.path
-        self.f.write( msg.encode( encoding=encoding or 'ascii' ))
+        self.f.write( msg.encode( encoding or 'ascii' ))
         
     def comment( self, s, encoding=None ):
         if self.path is None:
@@ -258,7 +258,7 @@ def parse_record( fd, n=-1, encoding=None ):
     l				= None
     for l in fd:
         n		       += 1
-        l			= l.decode( encoding=encoding or 'ascii' ).lstrip()
+        l			= l.decode( encoding or 'ascii' ).lstrip()
         if not l or l.startswith( '#' ):
             l			= None
             continue # blank or comment
@@ -589,7 +589,7 @@ class loader( reader ):
             # in an environment where clients are already receiving value updates, and we want to
             # make certain we over-write them to default values, until the initial historical
             # playback record is returned.
-            self.values.update( { int( r ): (0.0,int( v )) for r,v in values.items() } )
+            self.values.update( ( (int( r ),(0.0,int( v ))) for r,v in values.items() ) )
             log.warning( "%s Providing %d initial default register values: %s", self,
                               len( values ), reprlib.repr( values ))
 
@@ -787,7 +787,7 @@ class loader( reader ):
                         try:
                             assert isinstance( data, dict ), "Unsupported %s" % type( data )
                             realtime	= self.realtime( ts )
-                            regs	= { int( r ): (realtime,int( v )) for r,v in data.items() }
+                            regs	= dict( ( (int( r ),(realtime,int( v ))) for r,v in data.items() ) )
                         except Exception as exc:
                             data	= "Parsing problem: invalid register data: %s" % exc
                             data_bad	= True

@@ -372,7 +372,9 @@ def api_request( group, match, command, value,
 
             # Get all of target's attributes (except _*) advertised by its dir() results
             attrs		= [ a for a in dir( target ) if not a.startswith('_') ]
-            data		= { a: getattr( target, a ) for a in attrs }
+            data		= {}
+            for a in attrs:
+                data[a]		= getattr( target, a )
             content["command"]	= result
             content["data"].setdefault( grp, {} )[mch] = data
         
