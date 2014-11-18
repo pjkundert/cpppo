@@ -59,9 +59,15 @@ class client( object ):
     """
     def __init__( self, host, port=None, timeout=None ):
         """Connect to the EtherNet/IP client, waiting  """
-        self.addr		= (host or address[0], port or address[1])
+        self.addr               = (host if host is not None else enip.address[0],
+                                   port if port is not None else enip.address[1])
         self.conn		= socket.socket(  socket.AF_INET, socket.SOCK_STREAM )
-        self.conn.connect( self.addr )
+        try:
+            self.conn.connect( self.addr )
+        except Exception as exc:
+            log.warning( "Couldn't connect to EtherNet/IP server at %s:%s: %s",
+                        self.addr[0], self.addr[1], exc )
+            raise
         self.session		= None
         self.source		= cpppo.chainable()
         self.data		= None
