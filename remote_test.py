@@ -29,17 +29,26 @@ import logging
 import os
 import random
 import re
+import signal
 import socket
-import time
+import subprocess
 import threading
+import time
 import traceback
+
+has_o_nonblock			= False
+try:
+    import fcntl
+    has_o_nonblock		= True
+except Exception:
+    logging.warning( "Failed to import fcntl; skipping simulated Modbus/TCP PLC tests" )
 
 import pytest
 
 import cpppo
 from   cpppo		import misc
 from   cpppo.remote.plc	import (poller, poller_simulator, PlcOffline)
-from   cpppo.remote.io	import (motor)
+from   cpppo.remote.io	import motor
 
 log				= logging.getLogger(__name__)
 
@@ -54,10 +63,71 @@ except Exception:
     logging.warning( "Failed to import pymodbus module; skipping Modbus/TCP related tests; run 'pip install pymodbus'" )
 
 
+class nonblocking_command( object ):
+    """Set up a non-blocking command producing output.  Read the output using:
+
+        collect 		= ''
+        while True:
+            if command is None:
+                # Restarts command on failure, for example
+                command 	= nonblocking_command( ... )
+
+            try:
+                data 		= command.stdout.read()
+                logging.debug( "Received %d bytes from command, len( data ))
+                collect        += data
+            except IOError as exc:
+                if exc.errno != errno.EAGAIN:
+                    logging.warning( "I/O Error reading data: %s" % traceback.format_exc() )
+                    command	= None
+                # Data not presently available; ignore
+            except:
+                logging.warning( "Exception reading data: %s", traceback.format_exc() )
+                command		= None
+
+            # do other stuff in loop...
+
+    The command is killed when it goes out of scope.
+    """
+    def __init__( self, command ):
+        import fcntl
+        import subprocess
+        import signal
+
+        shell			= type( command ) is not list
+        self.command		= ' '.join( command ) if not shell else command
+        logging.info( "Starting command: %s", self.command )
+        self.process		= subprocess.Popen(
+            command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+            preexec_fn=os.setsid, shell=shell )
+
+        fd 			= self.process.stdout.fileno()
+        fl			= fcntl.fcntl( fd, fcntl.F_GETFL )
+        fcntl.fcntl( fd, fcntl.F_SETFL, fl | os.O_NONBLOCK )
+
+    @property
+    def stdout( self ):
+        return self.process.stdout
+
+    def kill( self ):
+        logging.info( 'Sending SIGTERM to PID [%d]: %s', self.process.pid, self.command )
+        try:
+            os.killpg( self.process.pid, signal.SIGTERM )
+        except OSError as exc:
+            logging.info( 'Failed to send SIGTERM to PID [%d]: %s', self.process.pid, exc )
+        else:
+            logging.info( "Waiting for command (PID [%d]) to terminate", self.process.pid )
+            self.process.wait()
+
+        logging.info("Command (PID [%d]) finished with status [%d]: %s", self.process.pid, self.process.returncode, self.command )
+
+    __del__			= kill
+
+
 @pytest.fixture(scope="module")
 def simulated_modbus_plc( wait=2.0, latency=.05 ):
     """Start a simulator over a range of ports; parse the port successfully bound."""
-    command			= misc.nonblocking_command( [
+    command			= nonblocking_command( [
         os.path.join( '.', 'bin', 'modbus_sim.py' ), 
         '-vvv', '--log', 'remote_test.modbus_sim.log',
         '--evil', 'delay:.25', 
@@ -201,7 +271,7 @@ def test_plc_merge():
         == [(1,130), (140,4), (232,170), (40001,100)]
 
 def test_plc_modbus_basic( simulated_modbus_plc ):
-    if not has_pymodbus:
+    if not has_pymodbus or not has_o_nonblock:
         return
     command,(iface,port)	= simulated_modbus_plc
     Defaults.Timeout		= 1.0
@@ -215,7 +285,7 @@ def test_plc_modbus_basic( simulated_modbus_plc ):
 
 
 def test_plc_modbus_timeouts( simulated_modbus_plc ):
-    if not has_pymodbus:
+    if not has_pymodbus or not has_o_nonblock:
         return
     # Now, try one that will fail due to PLC I/O response timeout.  The PLC
     # should be configured to time out around 0.25s.
@@ -253,7 +323,7 @@ def test_plc_modbus_timeouts( simulated_modbus_plc ):
 
 
 def test_plc_modbus_nonexistent( simulated_modbus_plc ):
-    if not has_pymodbus:
+    if not has_pymodbus or not has_o_nonblock:
         return
     Defaults.Timeout		= 0.1
     command,(iface,port)	= simulated_modbus_plc
@@ -272,7 +342,7 @@ def test_plc_modbus_nonexistent( simulated_modbus_plc ):
 
 
 def test_plc_modbus_polls( simulated_modbus_plc ):
-    if not has_pymodbus:
+    if not has_pymodbus or not has_o_nonblock:
         return
     Defaults.Timeout		= 1.0 # PLC simulator has .25s delay
     # Set a default poll rate of 1.0s for new registers, and a reach of 10.
