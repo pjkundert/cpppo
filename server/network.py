@@ -56,7 +56,7 @@ def readable( timeout=0 ):
                 try:
                     r,_,_	= select.select( [args[0].fileno()], [], [], rem )
                 except select.error as exc:
-                    if ( exc.args[0] if sys.version_info.major < 3 else exc.errno ) == errno.EINTR:
+                    if ( exc.args[0] if sys.version_info[0] < 3 else exc.errno ) == errno.EINTR:
                         now	= misc.timer()
                         if now >= beg + tmo:
                             break	# EINTR, timeout exceeded

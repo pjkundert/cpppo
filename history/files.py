@@ -165,6 +165,8 @@ class logger( object ):
         log.debug( "f = %s, error: %s", self.f, self.error )
         return bool( self.f and not self.error )
 
+    __bool__			= __nonzero__		# Python3
+
     def __enter__( self ):
         return self
 
@@ -215,7 +217,7 @@ class logger( object ):
         """
         if not self.f:
             assert self.open(), "Could not open file %s for writing" % self.path
-        self.f.write( msg.encode( encoding=encoding or 'ascii' ))
+        self.f.write( msg.encode( encoding or 'ascii' ))
         
     def comment( self, s, encoding=None ):
         if self.path is None:
@@ -256,7 +258,7 @@ def parse_record( fd, n=-1, encoding=None ):
     l				= None
     for l in fd:
         n		       += 1
-        l			= l.decode( encoding=encoding or 'ascii' ).lstrip()
+        l			= l.decode( encoding or 'ascii' ).lstrip()
         if not l or l.startswith( '#' ):
             l			= None
             continue # blank or comment
@@ -587,7 +589,7 @@ class loader( reader ):
             # in an environment where clients are already receiving value updates, and we want to
             # make certain we over-write them to default values, until the initial historical
             # playback record is returned.
-            self.values.update( { int( r ): (0.0,int( v )) for r,v in values.items() } )
+            self.values.update( ( (int( r ),(0.0,int( v ))) for r,v in values.items() ) )
             log.warning( "%s Providing %d initial default register values: %s", self,
                               len( values ), reprlib.repr( values ))
 
@@ -624,6 +626,7 @@ class loader( reader ):
 
     def __nonzero__( self ):
         return self.state < self.COMPLETE
+
     __bool__			= __nonzero__		# Python3
 
     SUPPRESS			= 0
@@ -666,7 +669,7 @@ class loader( reader ):
         If an 'upcoming' timestamp is provided, no events >= this timestamp will be processed and
         returned (they will be stored in self.future 'til 'upcoming' is advanced).  In this case,
         since no events may be returned, use the <loader>.state < loader.AWAITING to determine if
-        <loader>.load should be called again.  Alternatively, if an 'upcoming=<timestamp>'' is
+        <loader>.load should be called again.  Alternatively, if an 'upcoming=<timestamp>' is
         supplied, continue until the returned <timestamp>,<list> returns an empty <list> and a
         <timestamp> less than the supplied 'upcoming=<timestamp>'.  This indicates that the
         <loader>.load stopped before 'limit', and returned no events.
@@ -784,7 +787,7 @@ class loader( reader ):
                         try:
                             assert isinstance( data, dict ), "Unsupported %s" % type( data )
                             realtime	= self.realtime( ts )
-                            regs	= { int( r ): (realtime,int( v )) for r,v in data.items() }
+                            regs	= dict( ( (int( r ),(realtime,int( v ))) for r,v in data.items() ) )
                         except Exception as exc:
                             data	= "Parsing problem: invalid register data: %s" % exc
                             data_bad	= True

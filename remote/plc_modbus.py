@@ -43,7 +43,7 @@ from   cpppo.remote.plc import poller, PlcOffline
 # We need to monkeypatch ModbusTcpServer's SocketServer.serve_forever to be
 # Python3 socketserver compatible.  When pymodbus is ported to Python3, this
 # will not be necessary in the Python3 implementation.
-assert sys.version_info.major < 3, "pymodbus is not yet Python3 compatible"
+assert sys.version_info[0] < 3, "pymodbus is not yet Python3 compatible"
 from pymodbus.server.sync import ModbusTcpServer
 from SocketServer import _eintr_retry
 

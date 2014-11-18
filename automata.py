@@ -60,16 +60,16 @@ log_cfg				= {
 # Python2/3 compatibility types, for ascii/unicode str type
 
 # Types produced by iterators over various input stream types
-type_bytes_iter			= str if sys.version_info.major < 3 else int
+type_bytes_iter			= str if sys.version_info[0] < 3 else int
 type_str_iter			= str
 
 # The base class of string types
-type_str_base			= basestring if sys.version_info.major < 3 else str
+type_str_base			= basestring if sys.version_info[0] < 3 else str
 
 # The array.array typecode for iterated items of various input stream types
 type_unicode_array_symbol	= 'u'
-type_str_array_symbol		= 'c' if sys.version_info.major < 3 else 'u'
-type_bytes_array_symbol		= 'c' if sys.version_info.major < 3 else 'B'
+type_str_array_symbol		= 'c' if sys.version_info[0] < 3 else 'u'
+type_bytes_array_symbol		= 'c' if sys.version_info[0] < 3 else 'B'
 
 # Various default data path contexts/extensions
 path_ext_input			= '.input'	# default destination input
@@ -81,7 +81,7 @@ path_ext_input			= '.input'	# default destination input
 # will properly encode the Unicode str symbols to bytes, and then return an
 # iterable over the result.
 type_unicode_encoder		= lambda s: ( b for b in s.encode( 'utf-8' ))
-type_str_encoder		= None if sys.version_info.major < 3 else type_unicode_encoder
+type_str_encoder		= None if sys.version_info[0] < 3 else type_unicode_encoder
 
 # 
 # peekable/peeking
@@ -352,11 +352,12 @@ class state( dict ):
             self.limit		= limit
 
     # Any state evaluates to True (to easily distinguish from None), even if its dict is empty.
-    def __bool__( self ):
+    def __nonzero__( self ):
         return True
-    __nonzero__			= __bool__
 
-    # Make us hashable for us in sets, etc. (and don't define equality in terms of content), even
+    __bool__			= __nonzero__	# Python3
+
+    # Make us hashable for use in sets, etc. (and don't define equality in terms of content), even
     # though we're derived from a dict.
     def __hash__( self ):
         return id( self )

@@ -85,8 +85,8 @@ def test_dotdict():
 
     # Make sure keys/items returns a list/iterator appropriate to Python version
     import types
-    assert isinstance( d.keys(), list if sys.version_info.major < 3 else types.GeneratorType )
-    assert isinstance( d.items(), list if sys.version_info.major < 3 else types.GeneratorType )
+    assert isinstance( d.keys(), list if sys.version_info[0] < 3 else types.GeneratorType )
+    assert isinstance( d.items(), list if sys.version_info[0] < 3 else types.GeneratorType )
 
 
     # Test deletion, including refusing partial keys (unless empty)
@@ -241,7 +241,7 @@ def test_apidict():
     # allow for a factor at least 0.05 vs. the shorter latency, increased by 10%.  
     
     shorter = latency/2.0
-    if (sys.version_info.major, sys.version_info.minor) < (3,3):
+    if (sys.version_info[0], sys.version_info[1]) < (3,3):
         significance = max( significance, 0.05 / shorter * 1.1 )
 
     for kwargs in [ {'attr': 'boo'}, {'item': 'boo'}, {'attr': 'noo'}, {'item': 'noo'} ]:

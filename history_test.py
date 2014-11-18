@@ -76,7 +76,7 @@ def test_history_timestamp_abbreviations():
     assert sorted( abbrev ) == ['CEST', 'CET']
     assert 'CEST' in timestamp._tzabbrev
     assert 'EEST' not in timestamp._tzabbrev
-    abbrev			= timestamp.support_abbreviations( 'Europe', exclude=[ 'Europe/Simferopol', 'Europe/Istanbul'] )
+    abbrev			= timestamp.support_abbreviations( 'Europe', exclude=[ 'Europe/Simferopol', 'Europe/Istanbul', 'Europe/Minsk' ] )
     #print( sorted( abbrev ))
     assert sorted( abbrev ) == ['BST', 'EEST', 'EET', 'FET', 'IST', 'MSK', 'SAMT', 'WEST', 'WET']
 
@@ -97,7 +97,7 @@ def test_history_timestamp_abbreviations():
     #print( sorted( abbrev ))
     assert sorted( abbrev ) == [ 'EEST', 'EET']
     z,dst,off			= timestamp._tzabbrev['EEST']
-    assert str(z) == 'Asia/Amman'	and dst == True  and format_offset( off.total_seconds(), ms=None ) == "> 3:00:00"
+    assert str(z) == 'Asia/Amman'	and dst == True  and format_offset( timedelta_total_seconds( off ), ms=None ) == "> 3:00:00"
     abbrev			= timestamp.support_abbreviations( 'IE', reset=True ) # Israel
     #print( sorted( abbrev ))
     assert sorted( abbrev ) == [ 'GMT', 'IST' ]
@@ -107,7 +107,7 @@ def test_history_timestamp_abbreviations():
     #print( sorted( abbrev ))
     assert sorted( abbrev ) == [ 'EEST', 'EET', 'GMT', 'IST' ]
     z,dst,off			= timestamp._tzabbrev['EEST']
-    assert str(z) == 'Asia/Beirut'	and dst == True  and format_offset( off.total_seconds(), ms=None ) == "> 3:00:00"
+    assert str(z) == 'Asia/Beirut'	and dst == True  and format_offset( timedelta_total_seconds( off ), ms=None ) == "> 3:00:00"
 
     # Australia zones incompatible with a bunch of other timezone abbreviations, eg. CST; reset
     abbrev			= timestamp.support_abbreviations( 'Australia', reset=True )
@@ -115,7 +115,7 @@ def test_history_timestamp_abbreviations():
     #print( repr( timestamp._tzabbrev ))
     assert sorted( abbrev ) == ['ACDT', 'ACST', 'ACWST', 'AEDT', 'AEST', 'AWST', 'LHDT', 'LHST']
     z,dst,off			= timestamp._tzabbrev['LHST']
-    assert str(z) == 'Australia/Lord_Howe'	and dst == False and format_offset( off.total_seconds(), ms=None ) == ">10:30:00"
+    assert str(z) == 'Australia/Lord_Howe'	and dst == False and format_offset( timedelta_total_seconds( off ), ms=None ) == ">10:30:00"
 
     # Ensure that non-ambiguous (DST-specific) zone abbreviations override ambiguous (no longer
     # relevant, as pytz >= 2014.7 no longer contains dst == None for some of the Australian zones
@@ -123,13 +123,13 @@ def test_history_timestamp_abbreviations():
     abbrev			= timestamp.support_abbreviations( [ 'Australia/Adelaide' ], reset=True )
     #print( sorted( abbrev )) # ['ACDT', 'ACST']
     z,dst,off			= timestamp._tzabbrev['ACST']
-    assert str(z) == 'Australia/Adelaide'	and dst == False and format_offset( off.total_seconds(), ms=None ) == "> 9:30:00"
+    assert str(z) == 'Australia/Adelaide'	and dst == False and format_offset( timedelta_total_seconds( off ), ms=None ) == "> 9:30:00"
     abbrev			= timestamp.support_abbreviations( [ 'Australia/Adelaide', 'Australia/Darwin' ], reset=True )
     #print( sorted( abbrev ))
     #print( repr( timestamp._tzabbrev ))
     z,dst,off			= timestamp._tzabbrev['ACST']
     assert str(z) in ( 'Australia/Darwin',
-                       'Australia/Adelaide' ) and dst == False and format_offset( off.total_seconds(), ms=None ) == "> 9:30:00"
+                       'Australia/Adelaide' ) and dst == False and format_offset( timedelta_total_seconds( off ), ms=None ) == "> 9:30:00"
 
     # Check that zones with complete, permanent offset changes (not just DST) are handled.  We know
     # that within a year of 2014-04-28, the America/Eirunepe (west Amazonas) zone had such a change.
@@ -137,9 +137,9 @@ def test_history_timestamp_abbreviations():
     #print( sorted( abbrev ))
     assert sorted( abbrev ) == [ 'ACT', 'AMT' ]
     z,dst,off			= timestamp._tzabbrev['ACT']
-    assert str(z) == 'America/Eirunepe'		and dst == False and format_offset( off.total_seconds(), ms=None ) == "< 5:00:00"
+    assert str(z) == 'America/Eirunepe'		and dst == False and format_offset( timedelta_total_seconds( off ), ms=None ) == "< 5:00:00"
     z,dst,off			= timestamp._tzabbrev['AMT']
-    assert str(z) == 'America/Eirunepe'		and dst == False and format_offset( off.total_seconds(), ms=None ) == "< 4:00:00"
+    assert str(z) == 'America/Eirunepe'		and dst == False and format_offset( timedelta_total_seconds( off ), ms=None ) == "< 4:00:00"
 
 
 def test_history_timestamp():
@@ -155,7 +155,7 @@ def test_history_timestamp():
         return
 
     trtab			= ( string 
-                                    if sys.version_info.major < 3
+                                    if sys.version_info[0] < 3
                                     else str ).maketrans( ":-.", "   " )
 
     def utc_strp( loctime ):
@@ -704,10 +704,9 @@ def test_history_performance():
                     now += random.uniform( *regstps )
                     assert now >= lst
                     assert timestamp( now ) >= timestamp( lst ), "now: %s, timestamp(now): %s" % ( now, timestamp( now ))
-                    updates = {
-                        random.randint( regsbase, regsbase + regscount - 1 ): random.randint( 0, 1<<16 - 1 )
-                        for _ in range( random.randint( *regschanged ))
-                    }
+                    updates = {}
+                    for _ in range( random.randint( *regschanged )):
+                        updates[random.randint( regsbase, regsbase + regscount - 1 )] = random.randint( 0, 1<<16 - 1 )
                     values.update( updates )
                     l.write( updates, now=now ); linecnt += 1
                 lst 	= now

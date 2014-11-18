@@ -143,7 +143,7 @@ def change_function( function, **kwds ):
     # Enumerate  all the __code__ attributes in the same order; types.CodeTypes
     # doesn't accept keyword args, only position.
     attrs			= [ "co_argcount" ]
-    if sys.version_info.major >= 3:
+    if sys.version_info[0] >= 3:
         attrs		       += [ "co_kwonlyargcount" ]
     attrs		       += [ "co_nlocals",
                                     "co_stacksize",
@@ -390,9 +390,9 @@ def natural( string, fmt="%9s", ):
                    else itm )
                   for itm in res )
 
-natural.str_type 	= ( basestring if sys.version_info.major < 3
+natural.str_type 	= ( basestring if sys.version_info[0] < 3
                             else str )
-natural.num_types	= ( (float, int, long) if sys.version_info.major < 3
+natural.num_types	= ( (float, int, long) if sys.version_info[0] < 3
                             else (float, int))
 
 

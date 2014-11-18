@@ -276,7 +276,7 @@ class dotdict( dict ):
         """Issue keys for layers of dotdict() in a.b.c... form.  For dotdicts containing a list of
         dotdict, issue keys in a.b[0].c form, since we can handle simple indexes in paths for
         indexing (we'll arbitrarily limit it to just one layer deep)."""
-        items			= dict.iteritems if sys.version_info.major < 3 else dict.items
+        items			= dict.iteritems if sys.version_info[0] < 3 else dict.items
         for key,val in items( self ):
             if isinstance( val, dotdict ):
                 for subkey,subval in val.iteritems():
@@ -306,9 +306,9 @@ class dotdict( dict ):
         return list( self.iteritems() )
 
     __iter__			= iterkeys
-    keys 			= __listkeys   if sys.version_info.major < 3 else iterkeys
-    values			= __listvalues if sys.version_info.major < 3 else itervalues
-    items			= __listitems  if sys.version_info.major < 3 else iteritems
+    keys 			= __listkeys   if sys.version_info[0] < 3 else iterkeys
+    values			= __listvalues if sys.version_info[0] < 3 else itervalues
+    items			= __listitems  if sys.version_info[0] < 3 else iteritems
 
 
 class apidict( dotdict ):

@@ -23,7 +23,7 @@ __email__                       = "perry@hardconsulting.com"
 __copyright__                   = "Copyright (c) 2013 Hard Consulting Corporation"
 __license__                     = "Dual License: GPLv3 (or later) and Commercial (see LICENSE)"
 
-__all__				= ["timestamp", "get_localzone", "zone_names",
+__all__				= ["timestamp", "get_localzone", "zone_names", "timedelta_total_seconds",
                                    "parse_offset", "format_offset", "AmbiguousTimeZoneError"]
 
 import bisect
@@ -35,6 +35,13 @@ import os
 import string
 import sys
 import threading
+
+def timedelta_total_seconds( td ):
+    if hasattr( td, 'total_seconds' ):
+        return td.total_seconds()
+    # In Python 2.6, timedelta lacks total_seconds; add it
+    return ( td.microseconds + ( td.seconds + td.days * 24 * 3600 ) * 1e6 ) / 1e6
+
 
 from ..misc		import timer, mutexmethod
 from ..automata		import type_str_base
@@ -145,7 +152,7 @@ class timestamp( object ):
     _precision			= 3			# How many default sub-second digits
     _epsilon			= 10**-_precision	# How small a difference to consider ==
     _timeseps			= ( string
-                                    if sys.version_info.major < 3
+                                    if sys.version_info[0] < 3
                                     else str ).maketrans( ":-.", "   " )
     _fmt			= '%Y-%m-%d %H:%M:%S'	# 2014-04-01 10:11:12
 
@@ -236,7 +243,7 @@ class timestamp( object ):
                 dst		= bool( loc.dst() )
                 off		= loc.utcoffset()
                 log.detail( "%-30s: %-5s %s %s: no time change in %s to %s",
-                            tzinfo, abb, format_offset( off.total_seconds(), ms=False ), format_dst( dst ),
+                            tzinfo, abb, format_offset( timedelta_total_seconds( off ), ms=False ), format_dst( dst ),
                             at - reach, at + reach )
                 tzdetails	= [ (at,abb,dst,off) ]
             else:
@@ -254,8 +261,8 @@ class timestamp( object ):
                 insabb,outabb	= ( dt.strftime( "%Z" ) for dt in ( insloc, outloc ))	# The timezone abbrev.
                 insdst,outdst	= ( bool( dt.dst() )    for dt in ( insloc, outloc ))	# Is there a DST offset?
                 msg		= "%-5s %s %s / %-5s %s %s" % (
-                        insabb, format_offset( insoff.total_seconds(), ms=False ), format_dst( insdst ),
-                        outabb, format_offset( outoff.total_seconds(), ms=False ), format_dst( outdst ))
+                        insabb, format_offset( timedelta_total_seconds( insoff ), ms=False ), format_dst( insdst ),
+                        outabb, format_offset( timedelta_total_seconds( outoff ), ms=False ), format_dst( outdst ))
                 if insabb == outabb:
                     # This timezone has the same name for DST/non-DST (eg. 'Australia/Adelaide' CST
                     # Australian Central Standard Time ).  Thus, 'is_dst' will be None, and times
@@ -283,7 +290,7 @@ class timestamp( object ):
                 if abb in exclusions:
                     log.detail( "%-30s: Ignoring %s; excluded", tzinfo, abb )
                 msg		= "%-5s %s %s" % (
-                    abb, format_offset( off.total_seconds(), ms=False ), format_dst( dst ))
+                    abb, format_offset( timedelta_total_seconds( off ), ms=False ), format_dst( dst ))
                 dup		= abb in abbrev
                 if dup and not dst:
                     # A duplicate; non-DST or ambiguous, must have consistent UTC offset and DST
@@ -292,12 +299,12 @@ class timestamp( object ):
                     abbtzi,abbdst,abboff= abbrev[abb]
                     if abboff != off:
                         msg    += " x %-5s %s %s in %s; incompatible" % (
-                            abb, format_offset( abboff.total_seconds(), ms=False ), format_dst( abbdst ), abbtzi )
+                            abb, format_offset( timedelta_total_seconds( abboff ), ms=False ), format_dst( abbdst ), abbtzi )
                         incompatible.append( "%s: %s" % ( tzinfo, msg ))
                         log.warning( "%-30s: %s", tzinfo, msg )
                     elif abbdst is None:
                         msg    += " ~ %-5s %s %s in %s; replacing ambiguous w/ concrete non-DST zone" % (
-                            abb, format_offset( abboff.total_seconds(), ms=False ), format_dst( abbdst ), abbtzi )
+                            abb, format_offset( timedelta_total_seconds( abboff ), ms=False ), format_dst( abbdst ), abbtzi )
                         dup	= False
 
                 if dup and dst:
@@ -324,13 +331,13 @@ class timestamp( object ):
                     if difs:
                         msg	= "%s time changes differ vs. %s" % ( abb, abbtzi )
                         incompatible.append( "%s: %s" % ( tzinfo, msg ))
-                        desc	= " vs. ".join( "on %s, offset %s, dst %s" % ( dt, format_offset( off.total_seconds(), ms=False ),
-                                                                               format_offset( dst.total_seconds(), ms=False ))
+                        desc	= " vs. ".join( "on %s, offset %s, dst %s" % ( dt, format_offset( timedelta_total_seconds( off ), ms=False ),
+                                                                               format_offset( timedelta_total_seconds( dst ), ms=False ))
                                                 for dt,(off,dst,_) in ( difs[0][0], difs[0][1] ))
                         logging.warning( "%-30s: %s; %d differences: %s", tzinfo, msg, len( difs ), desc )
                         continue
                 ( log.detail if dup else log.normal )( "%-30s: %-5s %s %s at %s UTC%s",
-                    tzinfo, abb, format_offset( off.total_seconds(), ms=False ), format_dst( dst ),
+                    tzinfo, abb, format_offset( timedelta_total_seconds( off ), ms=False ), format_dst( dst ),
                                                        dt.strftime( cls._fmt ), "; Ignoring duplicate" if dup else "" )
                 if not dup:
                     abbrev[abb]	= tzinfo,dst,off

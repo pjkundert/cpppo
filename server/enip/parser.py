@@ -95,7 +95,7 @@ class octets( octets_base, cpppo.state ):
 
 def octets_encode( value ):
     if isinstance( value, array.array ):
-        return value.tostring() if sys.version_info.major < 3 else value.tobytes()
+        return value.tostring() if sys.version_info[0] < 3 else value.tobytes()
     elif isinstance( value, bytearray ):
         return bytes( value )
     raise AssertionError( "Unrecognized octets type: %r" % value )

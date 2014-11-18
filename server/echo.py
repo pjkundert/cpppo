@@ -50,7 +50,7 @@ from   cpppo import misc
 import cpppo.server
 from   cpppo.server import network
 
-address				= ('0.0.0.0', 8007)
+address				= ('', 8007)
 
 if __name__ == "__main__":
     logging.basicConfig( **cpppo.log_cfg )
