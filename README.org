@@ -38,16 +38,21 @@
     : $ cd cpppo
     : $ python setup.py install
 
-*** Python Version Support
+*** Python Version and OS Support
 
-    Cpppo is implemented and fully tested on both Python 2 and 3. However, some
-    of cpppo's modules are not (yet) fully supported in both versions:
+    Cpppo is implemented and fully tested on both Python 2 (2.6 and 2.7), and
+    Python 3 (3.3 and 3.4). However, some of cpppo's modules are not (yet) fully
+    supported in both versions:
 
     - The pymodbus module does not support Python 3, so Modbus/TCP support for
       polling remote PLCs is only available for Python 2.
     - Greenery supports both Python 2 and 3, but doesn't provide meaningful
       Unicode (UTF-8) support in Python 2, so regular expression based DFAs are
       only supported for Python 3.
+
+    Linux (native or Docker containerized), Mac and Windows OSs are supported.
+    However, Linux or Mac are recommended for stability, performance and ease of
+    use.
 
 * Protocols
 
@@ -75,11 +80,15 @@
     To run a simulation of a subset of a ControlLogix(tm) Controller with the tag
     'SCADA' for you to read/write, run:
     : $ python -m cpppo.server.enip --print SCADA=INT[1000]
-    : # (alternatively, invoke enip_server <options> ... )
+    Alternatively, invoke the supplied wrapper script:
+    : enip_server --print SCADA=INT[1000]
+    This is especially handy under Python 2.6, where you must manually specify
+    the module entry point, eg. =cpppo.server.enip.__main__=.
 
-    These options are available when you execute the cpppo.server.enip module:
+    The following options are available when you execute the cpppo.server.enip module:
 
-    Specify a different local interface and/or port to bind to (default is 0.0.0.0:44818):
+    Specify a different local interface and/or port to bind to (default is
+    =:44818=, indicating all interfaces and port 44818):
     : -a|--address [<interface>][:<port>]
 
     Change the verbosity (supply more to increase further):
@@ -89,7 +98,7 @@
     : -d|--delay #.#[-#.#]
 
     Specify an HTTP web server interface and/or port, if a web API is desired
-    (just ':' will enable the web API on defaults 0.0.0.0:80, or whatever
+    (just ':' will enable the web API on defaults :80, or whatever
     interface was specified for --address):
     : -w|--web [<interface>]:[<port>]
 
@@ -188,11 +197,15 @@
     A simple EtherNet/IP Controller Client is provided.  Presently, it only
     knows how to Register, and issue Read Tag Fragmented requests (and only for
     offset 0; the first block of results):
-    : python -m cpppo.server.enip.client SCADA[1] SCADA[0-10] ...
-    : # (alternatively, invoke enip_client <options> ... )
+    : python -m cpppo.server.enip.client SCADA[1]=99 SCADA[0-10]
+    Alternatively, invoke the supplied wrapper script:
+    : enip_client SCADA[1]=99 SCADA[0-10]
     
-    Specify a different local interface and/or port to connect to (default is 0.0.0.0:44818):
+    Specify a different local interface and/or port to connect to (default is :44818):
     : -a|--address [<interface>][:<port>]
+    On Windows systems, you must specify an actual interface.  For example, if you started the
+    cpppo.server.enip simulator above (running on the all interfaces by default), use =--address
+    localhost=.
 
     Change the verbosity (supply more to increase further):
     : -v[vv...]|--verbose
