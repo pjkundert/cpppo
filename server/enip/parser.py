@@ -363,8 +363,8 @@ def enip_format( data ):
 # EtherNet/IP CIP Parsing
 # 
 # See Vol2_1.14.pdf, Chapter 3-2.1 Unconnected Messages, for a simplified overview of parsing.  We
-# parse the SendRRData, the CPF encapsulation, and the CFP Null Address and [Un]connected Data
-# items, and finally the CIP Message Router Request from the second CFP item.
+# parse the SendRRData, the CPF encapsulation, and the CPF Null Address and [Un]connected Data
+# items, and finally the CIP Message Router Request from the second CPF item.
 # 
 
 class move_if( cpppo.decide ):
@@ -845,7 +845,59 @@ class unconnected_send( cpppo.dfa ):
         return result
 
 
+class communications_service( cpppo.dfa ):
+    """The ListServices response contains a CPF item list containing one item: a "Communications"
+    type_id 0x0100, indicating that the device supports encapsulation of CIP packets.  These CPF
+    items contain the standard type_id and length, followed by:
+
+       .CPF.item[0].version		UINT		2	Version of protocol (shall be 1)
+       .CPF.item[0].capability		UINT		2	Capability flags
+       .CPF.item[0].service_name	USINT[*]    .length-8	Name of service + NUL (eg. "Communications\0")
+
+    +-------------+---------------------------------------------------------------+
+    | Flag        | Description                                                   |
+    +-------------+---------------------------------------------------------------+
+    | Bits 0 - 4  | Reserved for legacy usage 1                                   |
+    | Bit 5       | If the device supports EtherNet/IP encapsulation of CIP       |
+    |             | this bit shall be set (=1); otherwise, it shall be clear (=0) |
+    | Bits 6 - 7  | Reserved for legacy usage 1                                   |
+    | Bit 8       | Supports CIP transport class 0 or 1 UDP-based connections     |
+    | Bits 9 - 15 | Reserved for future expansion                                 |
+    +-------------+---------------------------------------------------------------+
+
+
+    """
+    def __init__( self, name=None, **kwds ):
+        name 			= name or kwds.setdefault( 'context', self.__class__.__name__ )
+        
+        vers			= UINT(	context='version' )
+        vers[True]	= capa	= UINT(	context='capability' )
+        capa[True]	= svnm	= cpppo.string_bytes( 'service_name',
+                                        context='service_name', greedy=True,
+                                        initial='.*', decode='iso-8859-1' )
+        svnm[b'\0'[0]]		= octets_drop( 'NUL', repeat=1, terminal=True )
+
+        '''
+        capa[b'\0'[0]]	= done	= octets_drop( 'NUL', repeat=1, terminal=True )
+        capa[True]	= svnm	= octets(	context='service_name' )
+        svnm[b'\0'[0]]	= done
+        svnm[True]	= svnm
+        '''
+
+        super( communications_service, self ).__init__( name=name, initial=vers, **kwds )
+
+    @classmethod
+    def produce( cls, data ):
+        result			= b''
+        result	       	       += UINT.produce( data.version )
+        result	               += UINT.produce( data.capability )
+        result		       += data.service_name.encode( 'iso-8859-1' )
+        result		       += b'\0'
+        return result
+
+
 class CPF( cpppo.dfa ):
+
     """A SendRRData Common Packet Format specifies the number and type of the encapsulated CIP
     address items or data items that follow:
 
@@ -874,7 +926,8 @@ class CPF( cpppo.dfa ):
 
     """
     item_parsers		= {
-            0x00b2: 	unconnected_send,
+            0x00b2: 	unconnected_send,	# used in SendRRData request/response
+            0x0100:	communications_service, # used in ListServices response
     } 
 
     def __init__( self, name=None, **kwds ):
@@ -927,7 +980,7 @@ class CPF( cpppo.dfa ):
         for item in data.item:
             result	       += UINT.produce( item.type_id )
             if item.type_id in cls.item_parsers:
-                itmprs		= cls.item_parsers[item.type_id] # eg 'unconnected_send'
+                itmprs		= cls.item_parsers[item.type_id] # eg 'unconnected_send', 'communications_service'
                 item.input	= bytearray( itmprs.produce( item[itmprs.__name__] ))
             if 'input' in item:
                 result	       += UINT.produce( len( item.input ))
@@ -935,6 +988,7 @@ class CPF( cpppo.dfa ):
             else:
                 result	       += UINT.produce( 0 )
         return result
+
 
 class send_data( cpppo.dfa ):
     """Handle Connected (SendUnitData) or Unconnected (SendRRData) Send Data request/reply."""
@@ -989,13 +1043,22 @@ class unregister( octets_noop ):
 
 
 class list_services( cpppo.dfa ):
-    """Handle ListServices request.  Services are encoded as a CPF list."""
+    """Handle ListServices request/reply.  Services are encoded as a CPF list.  We must deduce whether
+    we are parsing a request or a reply.  The request will have a 0 length; the reply (which must
+    contain a CPF with at least an item count) will have a non-zero length.
+
+    """
     def __init__( self, name=None, **kwds ):
         name 			= name or kwds.setdefault( 'context', self.__class__.__name__ )
 
         svcs			= CPF( terminal=True )
 
         super( list_services, self ).__init__( name=name, initial=svcs, **kwds )
+
+    @staticmethod
+    def produce( data ):
+        result			= b''
+        result		       += CPF.produce( data.CPF )
 
 
 class CIP( cpppo.dfa ):
@@ -1034,7 +1097,7 @@ class CIP( cpppo.dfa ):
         .CIP.unregister
 
     ListServices		0x0004
-        .CIP.listservices.CPF...	...
+        .CIP.list_services.CPF...	...
 
     SendRRData			0x006f
     SendUnitData		0x0070

@@ -27,7 +27,7 @@ if __name__ == "__main__":
 import cpppo
 from   cpppo import misc
 from   cpppo.server import (network, enip)
-from   cpppo.server.enip import logix
+from   cpppo.server.enip import (parser, logix)
 
 log				= logging.getLogger( "enip.tst" )
 log.setLevel( logging.INFO )
@@ -695,6 +695,35 @@ def test_enip_EPATH():
             "Invalid EPATH data: %r\nexpect: %r\nactual: %r" % ( data, prod, out )
 
 
+commserv_1			= bytes(bytearray([
+    0x52, 0x04, 0x91, 0x05, 0x53, 0x43, 0x41, 0x44, #/* R...SCAD */
+    0x41, 0x00, 0x14, 0x00, 0x02, 0x00, 0x00, 0x00, #/* A....... */
+]))
+
+def test_enip_list_services():
+    # The CPF item produced by the ListServices command is the "Communications"
+    # item (type_id = 0x0100).
+    
+    data			= cpppo.dotdict()
+    data.type_id		= 0x0100
+    data.length			= 0
+    data.version		= 1
+    data.capability		= 0x0001 << 5 # CIP encapsulation only
+    data.service_name		= 'Communications'
+
+    cs				= parser.communications_service()
+    result			= cs.produce( data )
+    assert result == bytes(bytearray([
+    0x01, 0x00, 0x20, 0x00,  'C',  'o',  'm',  'm',
+     'u',  'n',  'i',  'c',  'a',  't',  'i',  'o',
+     'n',  's', 0x00,
+    ]))
+
+    data			= cpppo.dotdict()
+    data.list_services		= {}
+    data.list_services.CPF	= {}
+    
+    
 
 
 # "17","0.423597000","192.168.222.128","10.220.104.180","CIP CM","124","Unconnected Send: Unknown Service (0x52)"
