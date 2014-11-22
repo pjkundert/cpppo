@@ -872,9 +872,10 @@ class communications_service( cpppo.dfa ):
         
         vers			= UINT(	context='version' )
         vers[True]	= capa	= UINT(	context='capability' )
+
         capa[True]	= svnm	= cpppo.string_bytes( 'service_name',
                                         context='service_name', greedy=True,
-                                        initial='.*', decode='iso-8859-1' )
+                                        initial='[^\x00]*', decode='iso-8859-1' )
         svnm[b'\0'[0]]		= octets_drop( 'NUL', repeat=1, terminal=True )
 
         '''

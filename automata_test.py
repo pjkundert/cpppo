@@ -431,6 +431,51 @@ def test_regex():
         assert num == 14
         assert sta is None and machine.current.name == '3'
 
+    regex			= str('.*')
+    machine			= cpppo.regex( name=str('dot'), initial=regex )
+    data			= cpppo.dotdict()
+    with machine:
+        source			= cpppo.chainable( str('aaab1230xoxx\0') )
+        for i,(m,s) in enumerate( machine.run( source=source, data=data )):
+            log.info( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r", m.name_centered(),
+                      i, s, source.sent, source.peek(), data )
+        assert i == 14
+        assert source.sent == 13
+        if sys.version_info[0] < 3:
+            assert data.input.input.tostring()  == 'aaab1230xoxx\x00'
+        else:
+            assert data.input.input.tounicode() == 'aaab1230xoxx\x00'
+
+    regex			= str('[^xyz]*')
+    machine			= cpppo.regex( name=str('not_xyz'), initial=regex )
+    data			= cpppo.dotdict()
+    with machine:
+        source			= cpppo.chainable( str('aaab1230xoxx\0') )
+        for i,(m,s) in enumerate( machine.run( source=source, data=data )):
+            log.info( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r", m.name_centered(),
+                      i, s, source.sent, source.peek(), data )
+        assert i == 9
+        assert source.sent == 8
+        if sys.version_info[0] < 3:
+            assert data.input.input.tostring()  == 'aaab1230'
+        else:
+            assert data.input.input.tounicode() == 'aaab1230'
+
+    regex			= str('[^\x00]*')
+    machine			= cpppo.regex( name=str('not_NUL'), initial=regex )
+    data			= cpppo.dotdict()
+    with machine:
+        source			= cpppo.chainable( str('aaab1230xoxx\0') )
+        for i,(m,s) in enumerate( machine.run( source=source, data=data )):
+            log.info( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r", m.name_centered(),
+                      i, s, source.sent, source.peek(), data )
+        assert i == 13
+        assert source.sent == 12
+        if sys.version_info[0] < 3:
+            assert data.input.input.tostring()  == 'aaab1230xoxx'
+        else:
+            assert data.input.input.tounicode() == 'aaab1230xoxx'
+
 
 import binascii
 import codecs

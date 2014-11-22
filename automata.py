@@ -906,7 +906,11 @@ class state( dict ):
 
         # Create a state machine identical to the greenery.fsm 'machine'.  There are no "no-input"
         # (NULL) transitions in a greenery.fsm; the None (./anychar) transition is equivalent to the
-        # default "True" transition.
+        # default "True" transition.  Detect "dead" states; non-terminal states where all outgoing
+        # edges loop back onto itself.  This is used by the greenery state machine to absorb
+        # sequences of input that are impossible in the state regular expression.  We want our
+        # machine to fail on that input, instead.  So, below, we'll make any transition to a dead
+        # (now, missing) state into a non-transition (target state is None).
         #log.debug( "greenery.fsm:\n%s", machine )
         states			= {}
         for pre,tab in machine.map.items():
@@ -916,7 +920,7 @@ class state( dict ):
             dead		= loopback and not terminal and not initial
 
             node		= cls( str( pre ), terminal=terminal, **kwds )
-            #log.debug( "%s --> %r %-10s, %-10s, %-10s %s", node.name_centered(), tab.values(), 
+            #log.debug( "%s --> %r %-10s, %-10s, %-10s", node.name_centered(), tab.values(), 
             #          "initial" if initial else "", "terminal" if terminal else "", "dead" if dead else "" )
             if not dead:
                 states[pre]	= node    # must check for dead states in mapping below...
@@ -931,9 +935,11 @@ class state( dict ):
         for pre,tab in machine.map.items():
             for sym in sorted( tab, key=lambda k: [] if k is None else [k] ):
                 nxt		= tab[sym]
-                if nxt not in states:
-                    #log.debug( "dead trans %s <- %-10.10r --> %s", pre, sym, nxt )
+                if pre not in states:
+                    #log.debug( "dead state %s <- %-10.10r", pre, sym )
                     continue
+                #if nxt not in states:
+                #   log.debug( "dead trans %s <- %-10.10r --> %s", pre, sym, nxt )
                 
                 if sym is None:
                     sym		= True
@@ -981,8 +987,8 @@ class state( dict ):
                     if len( xformed ):
                         pre	= lst
                     sym		= enc
-                #log.debug( "%s <- %-10.10r --> %s", states[pre].name_centered(), sym, states[nxt] )
-                states[pre][sym]=states[nxt]
+                #log.debug( "%s <- %-10.10r --> %s", states[pre].name_centered(), sym, states.get( nxt ))
+                states[pre][sym]=states.get( nxt ) # will be None for "dead" states
 
         # We create a non-input state copying the initial state's transitions, so we don't consume
         # the first symbol of input before it is accepted by the regex.

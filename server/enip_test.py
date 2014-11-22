@@ -696,9 +696,10 @@ def test_enip_EPATH():
 
 
 commserv_1			= bytes(bytearray([
-    0x52, 0x04, 0x91, 0x05, 0x53, 0x43, 0x41, 0x44, #/* R...SCAD */
-    0x41, 0x00, 0x14, 0x00, 0x02, 0x00, 0x00, 0x00, #/* A....... */
-]))
+    0x01, 0x00, 0x20, 0x00, b'C'[0], b'o'[0], b'm'[0], b'm'[0],
+     b'u'[0], b'n'[0], b'i'[0], b'c'[0], b'a'[0], b't'[0], b'i'[0], b'o'[0],
+     b'n'[0], b's'[0], 0x00,
+    ]))
 
 def test_enip_list_services():
     # The CPF item produced by the ListServices command is the "Communications"
@@ -711,19 +712,27 @@ def test_enip_list_services():
     data.capability		= 0x0001 << 5 # CIP encapsulation only
     data.service_name		= 'Communications'
 
-    cs				= parser.communications_service()
+    cs				= parser.communications_service( terminal=True )
     result			= cs.produce( data )
-    assert result == bytes(bytearray([
-    0x01, 0x00, 0x20, 0x00,  'C',  'o',  'm',  'm',
-     'u',  'n',  'i',  'c',  'a',  't',  'i',  'o',
-     'n',  's', 0x00,
-    ]))
+    
+    assert result == commserv_1
+
 
     data			= cpppo.dotdict()
-    data.list_services		= {}
-    data.list_services.CPF	= {}
-    
-    
+    source			= cpppo.chainable( commserv_1 )
+
+    with cs as machine:
+        for i,(m,s) in enumerate( machine.run( source=source, data=data )):
+            log.info( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r", m.name_centered(),
+                      i, s, source.sent, source.peek(), data )
+        assert machine.terminal, "%s: Should have reached terminal state" % machine.name_centered()
+        assert i == 24
+    assert source.peek() is None
+    assert 'communications_service' in data
+    assert data.communications_service.type_id == 0x0100
+    assert data.communications_service.version == 1
+    assert data.communications_service.service_name == 'Communications'
+
 
 
 # "17","0.423597000","192.168.222.128","10.220.104.180","CIP CM","124","Unconnected Send: Unknown Service (0x52)"
