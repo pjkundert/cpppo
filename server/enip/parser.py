@@ -928,7 +928,7 @@ class CPF( cpppo.dfa ):
     """
     item_parsers		= {
             0x00b2: 	unconnected_send,	# used in SendRRData request/response
-            0x0100:	communications_service, # used in ListServices response
+            #0x0100:	communications_service, # used in ListServices response
     } 
 
     def __init__( self, name=None, **kwds ):

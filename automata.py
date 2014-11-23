@@ -938,9 +938,18 @@ class state( dict ):
                 if pre not in states:
                     #log.debug( "dead state %s <- %-10.10r", pre, sym )
                     continue
-                #if nxt not in states:
-                #   log.debug( "dead trans %s <- %-10.10r --> %s", pre, sym, nxt )
-                
+                if nxt not in states:
+                    # This is a transition into a dead state.  If we have a wildcard transition out
+                    # of the previous state (a True, which we ensured has been processed first),
+                    # then we must also include any specific transitions to "dead" states on more
+                    # specific symbols as non-transitions.  Otherwise, they'll be subsumed by the
+                    # wildcard.  If no wildcard (only specific transitions), there is no need to
+                    # include them; they will not be recognized, and yield a non-transition.
+                    if True not in states[pre]:
+                        # log.debug( "dead trans %s <- %-10.10r --> %s", pre, sym, nxt )
+                        continue
+                    # log.debug( "rej. trans %s <- %-10.10r --> %s", pre, sym, nxt )
+
                 if sym is None:
                     sym		= True
                 elif encoder:

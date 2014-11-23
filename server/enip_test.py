@@ -701,7 +701,7 @@ commserv_1			= bytes(bytearray([
      b'n'[0], b's'[0], 0x00,
     ]))
 
-def test_enip_list_services():
+def test_enip_listservices():
     # The CPF item produced by the ListServices command is the "Communications"
     # item (type_id = 0x0100).
     
@@ -729,7 +729,6 @@ def test_enip_list_services():
         assert i == 24
     assert source.peek() is None
     assert 'communications_service' in data
-    assert data.communications_service.type_id == 0x0100
     assert data.communications_service.version == 1
     assert data.communications_service.service_name == 'Communications'
 
