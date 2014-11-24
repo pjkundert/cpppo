@@ -19,9 +19,11 @@ import timeit
 
 import cpppo
 
+logging.basicConfig( **cpppo.log_cfg )
 log				= logging.getLogger()
 log_not				= 0
 #log.setLevel( logging.INFO )
+log.setLevel( logging.DEBUG )
 
 def test_logging():
     # Test lazy log message evaluation, ensuring it is at least an order of
@@ -432,13 +434,17 @@ def test_regex():
         assert sta is None and machine.current.name == '3'
 
     regex			= str('.*')
-    machine			= cpppo.regex( name=str('dot'), initial=regex )
+    machine			= cpppo.regex( name=str('dot'), initial=regex, terminal=True )
     data			= cpppo.dotdict()
     with machine:
         source			= cpppo.chainable( str('aaab1230xoxx\0') )
-        for i,(m,s) in enumerate( machine.run( source=source, data=data )):
-            log.info( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r", m.name_centered(),
-                      i, s, source.sent, source.peek(), data )
+        try:
+            for i,(m,s) in enumerate( machine.run( source=source, data=data )):
+                log.info( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r", m.name_centered(),
+                          i, s, source.sent, source.peek(), data )
+        except cpppo.NonTerminal:
+            pass
+        assert machine.terminal
         assert i == 14
         assert source.sent == 13
         if sys.version_info[0] < 3:
@@ -451,9 +457,13 @@ def test_regex():
     data			= cpppo.dotdict()
     with machine:
         source			= cpppo.chainable( str('aaab1230xoxx\0') )
-        for i,(m,s) in enumerate( machine.run( source=source, data=data )):
-            log.info( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r", m.name_centered(),
-                      i, s, source.sent, source.peek(), data )
+        try:
+            for i,(m,s) in enumerate( machine.run( source=source, data=data )):
+                log.info( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r", m.name_centered(),
+                          i, s, source.sent, source.peek(), data )
+        except cpppo.NonTerminal:
+            pass
+        assert not machine.terminal
         assert i == 9
         assert source.sent == 8
         if sys.version_info[0] < 3:
@@ -505,51 +515,59 @@ def test_codecs():
         'This contains π,π and more πs',
         'a 480Ω resistor',
         ]
+    tests			= [
+        ('.*π.*',True),
+        ('[^π]*',False)
+        ]
 
     for text in texts:
-        # First, convert the unicode regex to a state machine in unicode symbols.
-        with cpppo.regex( name='pies',  context="pies", initial='.*π.*', terminal=True ) as pies:
-            source			= cpppo.chainable( text )
-            data			= cpppo.dotdict()
-            try:
-                for mch, sta in pies.run( source=source, data=data ):
+        for re,tr in tests:
+            # First, convert the unicode regex to a state machine in unicode symbols.  Only if both
+            # the dfa and its sub-state are "terminal", will it be terminal.
+            with cpppo.regex(
+                    name='pies',  context="pies", initial=re, terminal=True ) as pies:
+                source			= cpppo.chainable( text )
+                data			= cpppo.dotdict()
+                try:
+                    for mch, sta in pies.run( source=source, data=data ):
+                        pass
+                except cpppo.NonTerminal:
                     pass
-            except cpppo.NonTerminal:
-                pass
-                    
-            log.info( "%s ends: %s: %r", pies.name_centered(),
-                      "string accepted" if pies.terminal else "string rejected", data )
-        
-            # Each of these are greedy, and so run 'til the end of input (next state
-            # is None); they collect the full input string.
-            assert pies.terminal == ( 'π' in text )
-            assert data.pies.input.tounicode() == text
+                accepted		= pies.terminal
+                log.info( "%s ends w/ re %s: %s: %r", pies.name_centered(), re,
+                          "string accepted" if accepted else "string rejected", data )
+            
+                # Each of these are greedy, and so run 'til the end of input (next state is None); they
+                # collect the full input string, unless they run into a non-matching input.
+                expected		= tr == ('π' in text )
+                assert accepted == expected
+                assert text.startswith( data.pies.input.tounicode() )
 
     for text in texts:
         # Then convert the unicode regex to a state machine in bytes symbols.
         # Our encoder generates 1 or more bytes for each unicode symbol.
+        for re,tr in tests:
 
-        pies			= cpppo.regex( name='pies', context="pies", initial='.*π.*',
-                                               terminal=True,
-                                               regex_alphabet=int,
-                                               regex_typecode='B',
-                                               regex_encoder=lambda s: ( b for b in s.encode( 'utf-8' )))
         
-        source			= cpppo.chainable( text.encode( 'utf-8' ))
-        data			= cpppo.dotdict()
+            source		= cpppo.chainable( text.encode( 'utf-8' ))
+            data		= cpppo.dotdict()
 
-        with pies:
-            try:
-                for mch, sta in pies.run( source=source, data=data ):
+            with cpppo.regex(
+                    name='pies', context="pies", initial=re, terminal=True,
+                    regex_alphabet=int,
+                    regex_typecode='B',
+                    regex_encoder=lambda s: ( b for b in s.encode( 'utf-8' ))) as pies:
+                try:
+                    for mch, sta in pies.run( source=source, data=data ):
+                        pass
+                except cpppo.NonTerminal:
                     pass
-            except cpppo.NonTerminal:
-                pass
-
-            log.info( "%s ends: %s: %r", pies.name_centered(),
-                      "string accepted" if pies.terminal else "string rejected", data )
-            
-            assert pies.terminal == ( 'π' in text )
-            assert data.pies.input.tobytes().decode('utf-8') == text
+                accepted		= pies.terminal
+                log.detail( "%s ends w/ re: %s: %s: %r", pies.name_centered(), re,
+                          "string accepted" if accepted else "string rejected", data )
+                expected		= tr == ('π' in text )
+                assert accepted == expected
+                assert text.startswith( data.pies.input.tobytes().decode('utf-8'))
 
 
 def test_decide():
@@ -582,7 +600,7 @@ def test_decide():
         for i,(m,s) in enumerate( comparo.run( source=source, data=data )):
             log.info( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r", m.name_centered(),
                       i, s, source.sent, source.peek(), data )
-        assert i == 11
+        assert i == 12
         assert s is less
             
     source			= cpppo.peekable( str('a 33 33') )
@@ -591,7 +609,7 @@ def test_decide():
         for i,(m,s) in enumerate( comparo.run( source=source, data=data )):
             log.info( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r", m.name_centered(),
                       i, s, source.sent, source.peek(), data )
-        assert i == 13
+        assert i == 14
         assert s is equal
 
 def test_limit():
@@ -631,7 +649,7 @@ def test_limit():
                      else data.odd_b.input.tounicode() ) == str( 'a'+'b'*9 )
         
 def test_decode():
-    # Test decode of regexes over bytes data.  Operates in raw bytes symbols.
+    # Test decode of regexes over bytes data.  Operates in raw bytes symbols., works in Python 2/3.
     source			= cpppo.peekable( 'π'.encode( 'utf-8' ))
     data			= cpppo.dotdict()
     with cpppo.string_bytes( 'pi', initial='.*', greedy=True, context='pi', decode='utf-8' ) as machine:

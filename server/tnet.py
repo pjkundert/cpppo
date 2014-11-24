@@ -81,7 +81,6 @@ except ImportError:
 
 import cpppo
 from   cpppo import misc
-import cpppo.server
 from   cpppo.server import network
 
 address				= ('', 8008)
@@ -141,20 +140,20 @@ def tnet_machine( name="TNET", context="tnet" ):
         "typecode":	cpppo.type_bytes_array_symbol,
     }
 
-    SIZE			= cpppo.integer_bytes( name="SIZE", context="size", decode='ascii' )
+    SIZE			= cpppo.dfa( name="SIZE", 
+                                             initial=cpppo.integer_bytes( 
+                                                 name="INT", context="size", decode='ascii', terminal=True ))
     COLON			= cpppo.state_drop( name="COLON", **bytes_conf )
     DATA			= data_parser( name="DATA", context="data", repeat="..size" )
     TYPE			= tnet_parser( name="TYPE", context="type", terminal=True,
                                                      **bytes_conf )
-    SIZE[b':'[0]]		= COLON
-    SIZE[True]			= None  # SIZE terminal, but only : acceptable
 
+    SIZE[b':'[0]]		= COLON
     COLON[None]			= DATA
     for t in tnet_parser.codes:
         DATA[t]			= TYPE
-    DATA[True]			= None # DATA terminal, but only TNET codes acceptable
 
-    # Recognize a TNET string and then terminate, resetting automatically
+    # Recognize a TNET string and then terminate, resetting to automatically
     # recognize another
     return cpppo.dfa( name=name, context=context, initial=SIZE, terminal=True )
 

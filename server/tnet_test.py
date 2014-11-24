@@ -22,18 +22,17 @@ except ImportError:
 
 import cpppo
 from   cpppo        import misc
-import cpppo.server
-from   cpppo.server import network
-from   cpppo.server import tnet
-from   cpppo.server import tnetstrings # reference implementation
+from   cpppo.server import (network, tnet, tnetstrings)
 
+#logging.basicConfig( **cpppo.log_cfg )
 log				= logging.getLogger( "tnet.cli")
+#log.setLevel( logging.DEBUG )
 
 
 def test_tnet_machinery():
     # parsing integers
     path			= "machinery"
-    SIZE			= cpppo.integer_bytes( name="SIZE", context="size" )
+    SIZE			= cpppo.integer_bytes( name="SIZE", context="size", terminal=True )
     data			= cpppo.dotdict()
     source			= cpppo.chainable( b'123:' )
     with SIZE:
@@ -41,7 +40,7 @@ def test_tnet_machinery():
             if s is None:
                 break
     log.info( "After SIZE: %r", data )
-    assert s and s.terminal
+    assert SIZE.terminal
     assert data.machinery.size == 123
 
     # repeat, limited by parent context's 'value' in data
@@ -55,7 +54,7 @@ def test_tnet_machinery():
     log.info( "After DATA: %r", data )
     
 
-def test_tnet():
+def test_tnet_string():
     testvec			= [
         "The π character is called pi",
     ]

@@ -686,7 +686,7 @@
 
    BASIC                = cpppo.dfa( 'ab+', initial=E, context='basic' )
    #+END_SRC
-
+   
 ** Composite Machines
 
    A higher-level DFA can be produced by wrapping this one in a cpppo.dfa, and
@@ -756,8 +756,28 @@
 
    #+BEGIN_SRC python
    # A regular expression; the default dfa name is the regular expression itself.
-   REGEX                = cpppo.regex( initial='(ab+)((,[ ]*)(ab+))*', context='regex' )
+   REGEX                = cpppo.regex( initial='(ab+)((,[ ]*)(ab+))*' )
    #+END_SRC
+
+*** Consume all possible symbols: =greedy=
+
+    The default behaviour is to recognize the maximal regular expression; to
+    continue running 'til input symbols are exhausted, or the first symbol is
+    encountered that *cannot* form part of an acceptable sentence in the regular
+    expression's grammar.  Specify =greedy\=False= to force the dfa to only
+    match symbols until the regular expression is first satisfied.
+
+*** Detect if regular expression satisfied: =terminal=
+
+    A =cpppo.dfa= will evaluate as =terminal= if and only if:
+    - it was itself marked as =terminal=True= at creation
+    - its final sub-state was a =terminal=True= state
+
+    In the case of regular expressions, only sub-machine states which indicate
+    accept of the sentence of input symbols by the regular expression's grammar
+    are marked as terminal.  Therefore, setting the cpppo.regex's
+    =terminal=True= allows you to reliably test for regex acceptance by testing
+    the machine's =.terminal= property at completion.
 
 *** Unicode Support
 
