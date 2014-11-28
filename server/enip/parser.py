@@ -535,7 +535,7 @@ class EPATH( cpppo.dfa ):
         pnlk[None]		= pmov	 	# and done; move segment, get next
 
         # [11-1E][SS]'123.123.123.123'[00]	port 0x01-0E, link address '123.123.123.123' (pad if size 0xSS odd)
-        pseg[b'\x11']	= padr	= USINT(	'port_adr',	context='port' )
+        pseg[b'\x11'[0]]= padr	= USINT(	'port_adr',	context='port' )
         pseg[b'\x12'[0]]	= padr
         pseg[b'\x13'[0]]	= padr
         pseg[b'\x14'[0]]	= padr
@@ -1078,6 +1078,18 @@ class typed_data( cpppo.dfa ):
         elif data.type == REAL.tag_type:
             return b''.join(  REAL.produce( v ) for v in data.data )
 
+    @staticmethod
+    def estimate( tag_type, data ):
+        """Compute the encoded data size for the specified type and amount of data."""
+        if tag_type ==   SINT.tag_type:
+            return 1 * len( data )
+        elif tag_type ==  INT.tag_type:
+            return 2 * len( data )
+        elif tag_type == DINT.tag_type:
+            return 4 * len( data )
+        elif tag_type == REAL.tag_type:
+            return 4 * len( data )
+        
 
 class status( cpppo.dfa ):
     """Parses CIP status, and status_ext.size/.data:

@@ -156,7 +156,7 @@
 
      In this example, we intercept read requests to the Tag, and look up the
      current temperature of the city named with the Tag's name.  This example is
-     simple enough to include here:
+     simple enough to include here (see =cpppo/server/enip/weather.py=):
 
      #+BEGIN_EXAMPLE python
      import sys, logging, json
@@ -248,6 +248,41 @@
     type (and limit the values to the appropriate value range), you may specify
     a "cast" to a specific type, eg. 'TAG[4-6]=(INT)1,2,3'.  The types SINT,
     INT, DINT and REAL are supported.
+
+    In addition to symbolic Tag addressing, numeric Class/Instance/Attribute
+    addressing is available.  A Class, Instance and Attribute address values are
+    in decimal by default, but hexadecimal, octal etc. are available using
+    escapes, eg. 26 == 0x1A == 0o49 == 0b100110.
+    
+    : @<class>/<instance>/<attribute>		# read a scalar, eg. @0x1FF/01/0x1A
+    : @<class>/<instance>/<attribute>[99]=1	# write element, eg. @511/01/26=1
+
+*** EtherNet/IP Controller Client I/O Python API
+
+    Dispatching a multitude of EtherNet/IP CIP I/O operations to a Controller
+    is very simple (see =cpppo/server/enip/client/io.py=):
+    #+BEGIN_EXAMPLE python
+    timeout			= float( args.timeout )
+    depth			= int( args.depth )
+    multiple			= 500 if args.multiple else 0
+    operations			= client.parse_operations( args.tags )
+    connection			= client.connector( host=addr[0], port=addr[1], timeout=timeout )
+    results			= connection.pipeline(
+        operations=operations, depth=depth, multiple=multiple, timeout=timeout )
+    failures			= 0
+    for idx,dsc,req,rpy,sts,val in results:
+        if val is None:
+            failures	       += 1
+        print( "%r" % ( val ))
+
+    sys.exit( 1 if failures else 0 )
+    #+END_EXAMPLE
+
+    The API is able to "pipeline" requests -- issue multiple requests on the
+    wire, while simultaneously harvesting prior requests.  This is absolutely
+    necessary, in order to obtain reasonable I/O performance over high-latency
+    links (eg. via Satellite).
+
 
 *** Web Interface
 
@@ -475,16 +510,14 @@
 
 ** Basic State Machines
 
-#   #+BEGIN_DITAA abplus.png -r -S
-   #+BEGIN_EXAMPLE
+   #+BEGIN_DITAA abplus.png -r -S
        +-----+ 'a' +-----+ 'b' +-----+ 'b'
        |  E  |---->|  A  |---->| (B) |----+
        +-----+     +-----+     +-----+    |
                                   ^       |
                                   |       |
                                   +-------+
-   #+END_EXAMPLE
-#   #+END_DITAA
+   #+END_DITAA
 
    This machine is easily created like this:
 
@@ -506,8 +539,7 @@
    giving it some of its own transitions.  For example, lets make a machine that
    accepts 'ab+' separated by ',[ ]*'.
 
-#   #+BEGIN_DITAA abplus_csv.png -r -S
-   #+BEGIN_EXAMPLE
+   #+BEGIN_DITAA abplus_csv.png -r -S
                           +------------------------------+
                           |                              |
                           v                              |
@@ -520,8 +552,7 @@
        |                             |       |  |        |       |
        |                             +-------+  |        +-------+
        +----------------------------------------+
-   #+END_EXAMPLE
-#   #+END_DITAA
+   #+END_DITAA
 
    This is implemented:
 
@@ -551,8 +582,7 @@
    that it doesn't ignore the separators), and produces the following state
    machine:
 
-#   #+BEGIN_DITAA abplus_regex.png -r -S
-   #+BEGIN_EXAMPLE
+   #+BEGIN_DITAA abplus_regex.png -r -S
                       +----------------------------+
                       |                            |
                       v                            | 'a'
@@ -562,8 +592,7 @@
                                  ^ |         ^ |
                                  | | 'b'     | | ' '
                                  +-+         +-+
-   #+END_EXAMPLE
-#   #+END_DITAA
+   #+END_DITAA
 
    A regular expression based cpppo.dfa is created thus:
 
