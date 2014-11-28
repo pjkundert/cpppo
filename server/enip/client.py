@@ -23,26 +23,28 @@ __email__                       = "perry@hardconsulting.com"
 __copyright__                   = "Copyright (c) 2013 Hard Consulting Corporation"
 __license__                     = "Dual License: GPLv3 (or later) and Commercial (see LICENSE)"
 
-"""
-enip.client	-- basic EtherNet/IP client API and module entry point
-"""
-
 __all__				= ['parse_int', 'parse_path', 'format_path',
                                    'format_context', 'parse_context', 'parse_operations',
-                                   'client', 'await', 'connector', 'main']
+                                   'client', 'await', 'connector', 'recycle', 'main']
+
+"""enip.client	-- EtherNet/IP client API and module entry point
+
+    A high-thruput pipelining API for accessing EtherNet/IP CIP Controller data via Tags or
+Class/Instance/Attribute numbers.
+
+    Module entry point process tags specified on the command-line and/or from stdin (if '-'
+specified).  Optionally prints results (if --print specified).
+
+"""
 
 import argparse
 import array
+import itertools
 import logging
 import select
 import socket
 import sys
 import traceback
-
-try:
-    import reprlib
-except ImportError:
-    import repr as reprlib
 
 import cpppo
 from   cpppo import misc
@@ -150,8 +152,22 @@ def parse_context( sender_context ):
 
 
 def parse_operations( tags, fragment=False ):
-    """Given a sequence of tags, deduce the set of I/O desired operations.  """
-    operations			= []
+    """Given a sequence of tags, deduce the set of I/O desired operations, yielding each one.
+
+    Parse each EtherNet/IP Tag Read or Write; only write operations will have 'data':
+
+        TAG	 		read 1 value (no element index)
+        TAG[0] 		read 1 value from element index 0
+        TAG[1-5]		read 5 values from element indices 1 to 5
+        TAG[1-5]+4		read 5 values from element indices 1 to 5, beginning at byte offset 4
+        TAG[4-7]=1,2,3,4	write 4 values from indices 4 to 7
+        @0x1FF/01/0x1A[99]	read the 100th element of class 511/0x1ff, instance 1, attribute 26
+
+    To support access to scalar attributes (no element index allowed in path), we cannot default to
+    supply an element index of 0; default is no element in path, and a data value count of 1.  If a
+    byte offset is specified, the request is forced to use Read/Write Tag Fragmented.
+
+    """
     for tag in tags:
         # Compute tag, elm, end and cnt (default elm is None (no element index), cnt is 1)
         val			= ''
@@ -223,8 +239,9 @@ def parse_operations( tags, fragment=False ):
                         len( opr['data'] ), byte, size, cnt )
                 if beg != 0 or end != cnt:
                     log.detail( "Partial Write Tag Fragmented; elements %d-%d of %d", beg, end-1, cnt )
-        operations.append( opr )
-    return operations
+        log.detail("Tag: %r yields Operation: %r", tag, opr )
+        yield opr
+
 
 
 class client( object ):
@@ -719,9 +736,35 @@ class connector( client ):
             assert rpy_ctx == req_ctx, "Mismatched request/reply: %r vs. %r" % ( req_ctx, rpy_ctx )
             yield index,descr,request,reply,status,value
 
-    def pipeline( self, operations, index=0, depth=1, fragment=False, multiple=0, timeout=None ):
-        """Issue the requested 'operations', allowing up to 'depth' outstanding requests to be in
-        the pipeline.
+    # 
+    # synchronous
+    # pipeline
+    # 
+    #     The normal APIs for issuing transactions and harvesting the corresponding results.
+    # 
+    #     The <value> yielded comes from the reply, hence there is a data list for reads, but no data
+    # for writes (just a True).
+    #
+    #     None	-- Request failure
+    #     True	-- Request successful write (no resultant data)
+    #     [...]	-- Request successful read data
+    # 
+    #     Use validate to post-process these results, to fill in data for reads (from the request).
+    # 
+    def synchronous( self, operations, index=0, fragment=False, multiple=0, timeout=None ):
+        """Issue the requested 'operations' synchronously.  Yield each harvested record.
+
+        """
+        for col in self.harvest(
+                issued=self.issue(
+                    operations=operations, index=index, fragment=fragment, multiple=multiple,
+                    timeout=timeout ),
+                timeout=timeout ):
+            yield col
+
+    def pipeline( self, operations, index=0, fragment=False, multiple=0, timeout=None, depth=1 ):
+        """Issue the requested 'operations', allowing up to 'depth' outstanding requests to be in the
+        pipeline, before beginning to harvest results.  Yield each harvested record.
 
         """
         harvester		= None
@@ -734,13 +777,13 @@ class connector( client ):
             inflight.append( (curr,req_ctx,descr,op,req) )
             while curr - last > depth:
                 # The current outgoing request's index is more than 'depth' away from the last
-                # response seen.  Soak up some responses 'til the last
+                # response seen.  Soak up some responses 'til the last reaches w'in depth of curr.
                 if harvester is None:
                     harvester	= self.harvest( issued=iter( inflight ), timeout=timeout )
                 col		= next( harvester )
                 last		= col[0]
                 complete       += 1
-                log.info( "Completed %3d/%3d; curr: %3d - last: %3d == %3d depth",
+                log.detail( "Completed %3d/%3d; curr: %3d - last: %3d == %3d depth",
                           complete, len( inflight ), curr, last, curr - last )
                 yield col
 
@@ -749,14 +792,17 @@ class connector( client ):
         for col in harvester:
             complete	       += 1
             last		= col[0]
-            log.info( "Draining  %3d/%3d; curr: %3d - last: %3d == %3d depth",
-                      complete, len( inflight ), curr, last, curr - last )
+            log.detail( "Draining  %3d/%3d; curr: %3d - last: %3d == %3d depth",
+                        complete, len( inflight ), curr, last, curr - last )
             yield col
-
 
     def validate( self, harvested, printing=False ):
         """Iterate over the harvested (<index>,<descr>,<request>,<reply>,<status>,<value>) tuples, logging
-        further details and (optionally) printing a summary to stdout if desired.
+        further details and (optionally) printing a summary to stdout if desired.  Each harvested
+        record is re-yielded.
+
+        Fill in the <value> detail from the request before re-yielding harvested tuple (records for
+        both reads and writes will carry data arrays).
 
         """
         for index,descr,request,reply,status,val in harvested:
@@ -829,6 +875,56 @@ class connector( client ):
                 print( line )
             yield index,descr,request,reply,status,val
 
+    # 
+    # process
+    # 
+    #     Simple, high-level API entry point that eliminates the need to process any yielded
+    # sequences, and simply returns the number of (<failures>,<transactions>), optionally printing a
+    # summary of I/O performed.
+    # 
+    def process( self, operations, depth=0, multiple=0, fragment=False, printing=False, timeout=None ):
+        """Process a sequence of I/O operations.  If a non-zero 'depth' is specified, then pipeline the
+        requests allowing 'depth' outstanding transactions to be in-flight; otherwise, we just issue
+        the transactions synchronously.  Returns the a tuple (<failures>,<transactions>).  Raises
+        Exception on catastrophic failure of the connection.
+
+        """
+        failures		= 0
+        transactions		= 0
+        if depth:
+            harvested		= self.pipeline(
+                operations=operations, multiple=multiple, fragment=fragment, timeout=timeout,
+                depth=depth )
+        else:
+            harvested		= self.synchronous(
+                operations=operations, multiple=multiple, fragment=fragment, timeout=timeout )
+        validated		= self.validate( harvested=harvested, printing=printing )
+        for idx,dsc,req,rpy,sts,val in validated:
+            transactions       += 1
+            if val is None:
+                failures       += 1
+        return failures,transactions
+
+
+def recycle( iterable, times=None ):
+    """Record and repeat an iterable x 'times'; forever if times is None (the default), not at all if
+    times is 0.  Like itertools.cycle, but with an optional 'times' limit.
+
+    """
+    assert times is None or ( times // 1 == times and times >= 0 ), \
+        "Invalid cycle 'times'; must be None or +'ve integer: %r" % ( times )
+    saved			= []
+    if times == 0:
+        return
+    for element in iterable:
+        yield element
+        saved.append( element )
+
+    while times != 1:
+        for element in saved:
+              yield element
+        if times is not None:
+            times	       -= 1
 
 
 def main( argv=None ):
@@ -872,13 +968,13 @@ provided.""" )
                      help="Repeat EtherNet/IP request (default: 1)" )
     ap.add_argument( '-m', '--multiple', action='store_true',
                      help="Use Multiple Service Packet request (default: False)" )
+    ap.add_argument( '-d', '--depth', default=1,
+                     help="Pipeline requests to this depth (default: 1)" )
     ap.add_argument( '-f', '--fragment', dest='fragment', action='store_true',
-                     help="Use Read/Write Tag Fragmented requests (default: True)" )
-    ap.add_argument( '-n', '--no-fragment', dest='fragment', action='store_false',
-                     help="Use Read/Write Tag requests (default: False)" )
-    ap.set_defaults( fragment=False )
+                     default=False,
+                     help="Always use Read/Write Tag Fragmented requests (default: False)" )
     ap.add_argument( 'tags', nargs="+",
-                     help="Tags to read/write, eg: SCADA[1], SCADA[2-10]+4=(DINT)3,4,5")
+                     help="Tags to read/write (- to read from stdin), eg: SCADA[1], SCADA[2-10]+4=(DINT)3,4,5" )
 
     args			= ap.parse_args( argv )
 
@@ -905,176 +1001,36 @@ provided.""" )
 
     timeout			= float( args.timeout )
     repeat			= int( args.repeat )
+    depth			= int( args.depth )
+    multiple			= 500 if args.multiple else 0
+    fragment			= bool( args.fragment )
+    printing			= args.print
 
+    if '-' in args.tags:
+        # Collect tags from sys.stdin 'til EOF, at position of '-' in argument list
+        minus			= args.tags.index( '-' )
+        tags			= itertools.chain( args.tags[:minus], sys.stdin, args.tags[minus+1:] )
+    else:
+        tags			= args.tags
+
+    # Register and EtherNet/IP CIP connection to a Controller
     begun			= misc.timer()
-    cli				= client( host=addr[0], port=addr[1] )
-    assert cli.writable( timeout=timeout )
+    connection			= connector( host=addr[0], port=addr[1], timeout=timeout )
     elapsed			= misc.timer() - begun
-    log.normal( "Client Connected in  %7.3f/%7.3fs" % ( elapsed, timeout ))
+    log.detail( "Client Register Rcvd %7.3f/%7.3fs" % ( elapsed, timeout ))
 
-    # Register, and harvest EtherNet/IP Session Handle
+    # Issue Tag I/O operations, optionally printing a summary
     begun			= misc.timer()
-    request			= cli.register( timeout=timeout )
+    operations			= parse_operations( recycle( tags, times=repeat ))
+    failures,transactions	= connection.process(
+        operations=operations, depth=depth, multiple=multiple,
+        fragment=fragment, printing=printing, timeout=timeout )
     elapsed			= misc.timer() - begun
-    log.detail( "Client Register Sent %7.3f/%7.3fs: %s" % ( elapsed, timeout, enip.enip_format( request )))
-    data			= None # In case nothing is returned by cli iterable
-    for data in cli:
-        elapsed			= misc.timer() - begun
-        log.info( "Client Register Resp %7.3f/%7.3fs: %s" % ( elapsed, timeout, enip.enip_format( data )))
-        if data is None:
-            if elapsed <= timeout:
-                cli.readable( timeout=timeout - elapsed )
-                continue
-        break
-    elapsed			= misc.timer() - begun
-    log.detail( "Client Register Rcvd %7.3f/%7.3fs: %s" % ( elapsed, timeout, enip.enip_format( data )))
-    assert data is not None, "Failed to receive any response"
-    assert 'enip.status' in data, "Failed to receive EtherNet/IP response"
-    assert data.enip.status == 0, "EtherNet/IP response indicates failure: %s" % data.enip.status
-    assert 'enip.CIP.register' in data, "Failed to receive Register response"
-
-    cli.session			= data.enip.session_handle
-    
-    def output( out ):
-        log.normal( out )
-        if args.print:
-            print( out )
-            
-    # Parse each EtherNet/IP Tag Read or Write; only write operations will have 'data'
-    #     TAG	 		read 1 value (no element index)
-    #     TAG[0] 		read 1 value from element index 0
-    #     TAG[1-5]		read 5 values from element indices 1 to 5
-    #     TAG[1-5]+4		read 5 values from element indices 1 to 5, beginning at byte offset 4
-    #     TAG[4-7]=1,2,3,4	write 4 values from indices 4 to 7
-    #     @0x1FF/01/0x1A[99]	read the 100th element of class 511/0x1ff, instance 1, attribute 26
-    # To support access to scalar attributes (no element index allowed in path), we cannot default
-    # to supply an element index of 0; default is no element in path, and a data value count of 1.
-    # If a byte offset is specified, the request is forced to use Read/Write Tag Fragmented
-    # (regardless of whether --[no-]fragment was specified)
-    operations			= parse_operations( args.tags, fragment=bool( args.fragment ))
-
-    # Perform all specified tag operations, the specified number of repeat times.  Doesn't handle
-    # fragmented reads yet.  If any operation fails, return a non-zero exit status.  If --multiple
-    # specified, perform all operations in a single Multiple Service Packet request.
-
-    status			= 0
-    start			= misc.timer()
-    for i in range( repeat ):
-        requests		= []		# If --multiple, collects all requests, else one at at time
-        for o in range( len( operations )):
-            op			= operations[o] # {'path': [...], 'elements': #}
-            if 'offset' not in op:
-                op['offset']	= 0 if args.fragment else None
-            if 'data' in op:
-                descr		= "Write "
-                req		= cli.write( timeout=timeout, send=not args.multiple, **op )
-            else:
-                descr		= "Read  "
-                req		= cli.read( timeout=timeout, send=not args.multiple, **op )
-            descr	       += "Frag" if op['offset'] is not None else "Tag "
-            if args.multiple:
-                # Multiple requests; each request is returned simply, not in an Unconnected Send
-                requests.append( req )
-                if o != len( operations ) - 1:
-                    continue
-                # No more operations!  Issue the Multiple Service Packet containing all operations
-                descr		= "Multiple  "
-                cli.multiple( request=requests, timeout=timeout )
-            else:
-                # Single request issued
-                requests	= [ req ]
-
-            # Issue the request(s), and get the response.  We're ignoring the send wrt. timeout
-            elapsed		= 0
-            if log.isEnabledFor( logging.DETAIL ):
-                log.detail( "Client %s Sent %7.3f/%7.3fs: %s", descr, elapsed, timeout, enip.enip_format( request ))
-            response,elapsed	= await( cli, timeout=timeout )
-            if log.isEnabledFor( logging.DETAIL ):
-                log.detail( "Client %s Rcvd %7.3f/%7.3fs: %s", descr, elapsed, timeout, enip.enip_format( response ))
-
-            # Find the replies in the response; could be single or multiple; should match requests!
-            replies		= []
-            if response is None:
-                status		= 1
-                output( "Client %s Response Not Received w/in %7.2fs" % ( descr, timeout ))
-            elif response.enip.status != 0:
-                status		= 1
-                output( "Client %s Response EtherNet/IP status: %d" % ( descr, response.enip.status ))
-            elif args.multiple \
-               and 'enip.CIP.send_data.CPF.item[1].unconnected_send.request.multiple.request' in response:
-                # Multiple Service Packet; request.multiple.request is an array of read/write_tag/frag
-                replies		= response.enip.CIP.send_data.CPF.item[1].unconnected_send.request.multiple.request
-            elif 'enip.CIP.send_data.CPF.item[1].unconnected_send.request' in response:
-                # Single request; request is a read/write_tag/frag
-                replies		= [ response.enip.CIP.send_data.CPF.item[1].unconnected_send.request ]
-            else:
-                status		= 1
-                output( "Client %s Response Unrecognized: %s" % ( descr, enip.enip_format( response )))
-
-            for request,reply in zip( requests, replies ):
-                log.detail( "Client %s Request: %s", descr, enip.enip_format( request ))
-                log.detail( "  Yields Reply: %s", enip.enip_format( reply ))
-                val		= []   # data values read/written
-                res		= None # result of request
-                act		= "??" # denotation of request action
-                try:
-                    # Get a symbolic "Tag" or numeric "@<class>/<inst>/<attr>" into 'tag', and
-                    # optional element into 'elm'.  Assumes the leading path.segment elements will
-                    # be either 'symbolic' or 'class', 'instance', 'attribute', and the last may be
-                    # 'element'.
-                    tag		= format_path( request.path.segment )
-                    elm		= None					# scalar access
-                    if 'element' in request.path.segment[-1]:
-                        elm	= request.path.segment[-1].element	# array access
-                  
-                    # The response should contain either an status code (possibly with an extended
-                    # status), or the read_frag request's data.  Remember; a successful response may
-                    # carry read_frag.data, but report a status == 6 indicating that more data remains
-                    # to return via a subsequent fragmented read request.
-                    if 'read_frag' in reply:
-                        act	= "=="
-                        val	= reply.read_frag.data
-                        cnt	= request.read_frag.elements
-                    elif 'read_tag' in reply:
-                        act	= "=="
-                        val	= reply.read_tag.data
-                        cnt	= request.read_tag.elements
-                    elif 'write_frag' in reply:
-                        act	= "<="
-                        val	= request.write_frag.data
-                        cnt	= request.write_frag.elements
-                    elif 'write_tag' in reply:
-                        act	= "<="
-                        val	= request.write_tag.data
-                        cnt	= request.write_tag.elements
-                    if not reply.status:
-                        res	= "OK"
-                    else:
-                        res	= "Status %d %s" % ( reply.status,
-                            repr( reply.status_ext.data ) if 'status_ext' in reply and reply.status_ext.size else "" )
-                    if reply.status:
-                        if not status:
-                            status	= reply.status
-                        log.warning( "Client %s returned non-zero status: %s", descr, res )
-
-                except AttributeError as exc:
-                    status	= 1
-                    res		= "Client %s Response missing data: %s" % ( descr, exc )
-                    log.detail( "%s: %s", res, ''.join( traceback.format_exception( *sys.exc_info() )), )
-                except Exception as exc:
-                    status	= 1
-                    res		= "Client %s Exception: %s" % ( descr, exc )
-                    log.detail( "%s: %s", res, ''.join( traceback.format_exception( *sys.exc_info() )), )
-
-                if elm is None:
-                    output( "%20s              %s %r: %r" % ( tag, act, val, res )) # scalar access
-                else:
-                    output( "%20s[%5d-%-5d] %s %r: %r" % ( tag, elm, elm + cnt - 1, act, val, res ))
-
-    duration			= misc.timer() - start
     log.normal( "Client Tag I/O  Average %7.3f TPS (%7.3fs ea)." % (
-        repeat * len( operations ) / duration, duration / repeat / len( operations )))
-    return status
+        transactions / elapsed, elapsed / transactions ))
+
+    return 1 if failures else 0
+
 
 if __name__ == "__main__":
     sys.exit( main() )

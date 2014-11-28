@@ -303,9 +303,9 @@ class Logix( Message_Router ):
             clid, inid, atid	= resolve( data.path, attribute=True )
             attribute		= lookup( clid, inid, atid )
             assert clid == self.class_id and inid == self.instance_id, \
-                "Path %r processed by wrong Object %r" % ( path['segment'], self )
+                "Path %r processed by wrong Object %r" % ( data.path['segment'], self )
             assert attribute is not None, \
-                "Path %r did not identify attribute in %r" % ( path['segment'], self )
+                "Path %r did not identify attribute in %r" % ( data.path['segment'], self )
             assert attribute.parser.tag_type, \
                 "Invalid EtherNet/IP type %s for %s; must have a non-zero type ID" % (
                     attribute.parser.__class__.__name__, self.service[data.service] )
