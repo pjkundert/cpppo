@@ -315,6 +315,11 @@ def logresult( prefix=None, log=logging, log_level=logging.DEBUG, exc_level=logg
                     log.log( log_level, "%s-->%r" % (
                         prefix or function.__name__+'('+reprargs( *args, **kwds )+')', result ))
                 return result
+            except (GeneratorExit,StopIteration) as exc:
+                if log.isEnabledFor( exc_level ):
+                    log.log( exc_level, "%s-->%r" % (
+                        prefix or function.__name__+'('+reprargs( *args, **kwds )+')', exc ))
+                raise
             except Exception as exc:
                 if log.isEnabledFor( exc_level ):
                     log.log( exc_level, "%s-->%r" % (

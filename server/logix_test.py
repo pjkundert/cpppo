@@ -13,11 +13,6 @@ import threading
 import time
 import traceback
 
-try:
-    import reprlib
-except ImportError:
-    import repr as reprlib
-
 if __name__ == "__main__":
     # Allow relative imports when executing within package directory, for
     # running tests directly

@@ -464,6 +464,7 @@ def __read_tag():
     return srvc
 Logix.register_service_parser( number=Logix.RD_TAG_REQ, name=Logix.RD_TAG_NAM,
                                short=Logix.RD_TAG_CTX, machine=__read_tag() )
+
 def __read_tag_reply():
     # Read Tag Service (reply).  Remainder of symbols are typed data.
     srvc			= USINT(		 	context='service' )
@@ -479,6 +480,8 @@ def __read_tag_reply():
     # For status 0x00 (Success), type/data follows.
     schk[None]			= cpppo.decide(	'ok',		state=dtyp,
         predicate=lambda path=None, data=None, **kwds: data[path+'.status' if path else 'status']== 0x00 )
+    schk[None]			= move_if(	'mark',		initializer=True,
+                                                destination='read_tag' )
     return srvc
 Logix.register_service_parser( number=Logix.RD_TAG_RPY, name=Logix.RD_TAG_NAM + " Reply",
                                short=Logix.RD_TAG_CTX, machine=__read_tag_reply() )
@@ -493,8 +496,11 @@ def __read_frag():
     return srvc
 Logix.register_service_parser( number=Logix.RD_FRG_REQ, name=Logix.RD_FRG_NAM,
                                short=Logix.RD_FRG_CTX, machine=__read_frag() )
+
 def __read_frag_reply():
     # Read Tag Fragmented Service (reply).  Remainder of symbols are typed data.
+    # If no data returned (hence no 'read_frag' sub-dotdict), create one using a
+    # move_if initializer.
     srvc			= USINT(			context='service' )
     srvc[True]	 	= rsvd	= octets_drop(	'reserved',	repeat=1 )
     rsvd[True]		= stts	= status()
@@ -508,6 +514,8 @@ def __read_frag_reply():
     # For status 0x00 (Success) and 0x06 (Not all data returned), type/data follows.
     schk[None]			= cpppo.decide(	'ok',		state=dtyp,
         predicate=lambda path=None, data=None, **kwds: data[path+'.status' if path else 'status'] in (0x00, 0x06) )
+    schk[None]			= move_if(	'mark',		initializer=True,
+                                                destination='read_frag' )
 
     return srvc
 Logix.register_service_parser( number=Logix.RD_FRG_RPY, name=Logix.RD_FRG_NAM + " Reply",
@@ -525,8 +533,12 @@ def __write_tag():
     return srvc
 Logix.register_service_parser( number=Logix.WR_TAG_REQ, name=Logix.WR_TAG_NAM,
                                short=Logix.WR_TAG_CTX, machine=__write_tag() )
+
 def __write_tag_reply():
-    # Write Tag Service (reply)
+    # Write Tag Service (reply).  In order to ensure we have a '.write_tag'
+    # attribute in the the reply dotdict, use a move_if w/ no source or
+    # destination, just an initializer; it'll initialize an attribute at the
+    # mark's context ('write_tag') to True.
     srvc			= USINT(		  	context='service' )
     srvc[True]		= rsvd	= octets_drop(	'reserved',	repeat=1 )
     rsvd[True]		= stts	= status()
@@ -551,6 +563,7 @@ def __write_frag():
     return srvc
 Logix.register_service_parser( number=Logix.WR_FRG_REQ, name=Logix.WR_FRG_NAM,
                                short=Logix.WR_FRG_CTX, machine=__write_frag() )
+
 def __write_frag_reply():
     # Write Tag Fragmented Service (reply)
     srvc			= USINT(			context='service' )

@@ -1079,16 +1079,16 @@ class typed_data( cpppo.dfa ):
             return b''.join(  REAL.produce( v ) for v in data.data )
 
     @staticmethod
-    def estimate( tag_type, data ):
+    def estimate( tag_type, size ):
         """Compute the encoded data size for the specified type and amount of data."""
         if tag_type ==   SINT.tag_type:
-            return 1 * len( data )
+            return 1 * size
         elif tag_type ==  INT.tag_type:
-            return 2 * len( data )
+            return 2 * size
         elif tag_type == DINT.tag_type:
-            return 4 * len( data )
+            return 4 * size
         elif tag_type == REAL.tag_type:
-            return 4 * len( data )
+            return 4 * size
         
 
 class status( cpppo.dfa ):

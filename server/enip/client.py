@@ -39,6 +39,7 @@ specified).  Optionally prints results (if --print specified).
 
 import argparse
 import array
+import collections
 import itertools
 import logging
 import select
@@ -310,16 +311,20 @@ class client( object ):
                 if self.engine is None:
                     self.data	= cpppo.dotdict()
                     self.engine	= machine.run( source=self.source, data=self.data )
-                    log.debug(
-                        "EtherNet/IP   %16s:%-5d run.: %s -> %10.10s; next byte %3d: %-10.10r: %r",
-                        self.addr[0], self.addr[1], machine.name_centered(), machine.current, 
-                        self.source.sent, self.source.peek(), self.data )
                     
-                for m,s in self.engine:
-                    log.debug(
-                        "EtherNet/IP<--%16s:%-5d rpy.: %s -> %10.10s; next byte %3d: %-10.10r: %r",
-                        self.addr[0], self.addr[1], machine.name_centered(), s,
-                        self.source.sent, self.source.peek(), self.data )
+                for mch,sta in self.engine:
+                    if sta is None and self.source.peek() is None:
+                        # Non-transition, and no input available.  Get some.  We'll do a blocking
+                        # recv.  If it returns an EOF (b''), we'll just chain that; it'll force the 
+                        # machine to run (again) on no input, resulting in a detection of
+                        # non-progress and an Exception.
+                        rcvd	= network.recv( self.conn, timeout=0 )
+                        log.info(
+                            "EtherNet/IP-->%16s:%-5d rcvd %5d: %s",
+                            self.addr[0], self.addr[1], len( rcvd ) if rcvd is not None else 0, repr( rcvd ))
+                        if rcvd is not None:
+                            self.source.chain( rcvd )
+                                
             except Exception as exc:
                 log.warning( "EtherNet/IP<x>%16s:%-5d err.: %s",
                              self.addr[0], self.addr[1], str( exc ))
@@ -337,12 +342,8 @@ class client( object ):
         # zero, it's status probably indicates why.
         if result is not None and 'enip.input' in result:
             with self.cip as machine:
-                for m,s in machine.run(
+                for mch,sta in machine.run(
                         path='enip', source=cpppo.peekable( result.enip.input ), data=result ):
-                    log.debug(
-                        "EtherNet/IP<--%16s:%-5d CIP : %s -> %10.10s; next byte %3d: %-10.10r: %r",
-                        self.addr[0], self.addr[1], machine.name_centered(), s,
-                        self.source.sent, self.source.peek(), self.data )
                     pass
                 assert machine.terminal, "No CIP payload in the EtherNet/IP frame: %r" % ( result )
 
@@ -353,7 +354,7 @@ class client( object ):
                     # An Unconnected Send that contained an encapsulated request (ie. not just a
                     # Get Attribute All)
                     with self.lgx as machine:
-                        for m,s in machine.run(
+                        for mch,sta in machine.run(
                                 source=cpppo.peekable( item.unconnected_send.request.input ),
                                 data=item.unconnected_send.request ):
                             pass
@@ -556,7 +557,7 @@ class connector( client ):
         try:
             request		= self.register( timeout=timeout )
             elapsed_req		= cpppo.timer() - begun
-            data,elapsed_rpy	= await( self, timeout=max( 0, timeout - elapsed_req ))
+            data,elapsed_rpy	= await( self, timeout=None if timeout is None else max( 0, timeout - elapsed_req ))
 
             assert data is not None, "Failed to receive any response"
             assert 'enip.status' in data, "Failed to receive EtherNet/IP response"
@@ -565,10 +566,12 @@ class connector( client ):
 
             self.session	= data.enip.session_handle
         except Exception as exc:
-            logging.warning( "Connect:  Failure in %7.3fs/%7.3fs: %s", cpppo.timer() - begun, exc )
+            logging.warning( "Connect:  Failure in %7.3fs/%7.3fs: %s", cpppo.timer() - begun,
+                             misc.inf if timeout is None else timeout, exc )
             raise
 
-        logging.detail( "Connect:  Success in %7.3fs/%7.3fs", elapsed_req + elapsed_rpy, timeout )
+        logging.detail( "Connect:  Success in %7.3fs/%7.3fs", elapsed_req + elapsed_rpy,
+                        misc.inf if timeout is None else timeout )
 
     def close( self ):
         self.conn.close()
@@ -586,33 +589,55 @@ class connector( client ):
         I/O requests are on the wire if some are merged into Multiple Service Packet requests and
         some are single requests.
 
+        Requests are variable in size due to the path (may have long symbolic names).  Read replies
+        and Write requests are variable in size due to data type and length.  Unfortunately, Reads
+        don't specify the data type; this is decided by the type of the target Attribute.  So, any
+        guesses on size of reply are estimates at best.  We'll assume 4-byte data for read replies,
+        and 10-byte Tag names.
+
+        Reads requests are ~22 bytes and replies ~4 bytes + data in response, Writes ~24 bytes +
+        data in request and ~4 bytes in response.
+
+        EtherNet/IP framing is ~24 bytes, CIP ~6, CPF + Unconnected Send ~24, Multiple Service
+        Packet ~14.  So, a Multiple Service Packet request or reply has a wire-level overhead of
+        24+6+24+14 == 68 bytes; about 14 bytes more than a normal single CIP request/reply.
+
+        We must estimate the size of both the request and the reply, and attempt to ensure neither
+        exceeds the target 'multiple' request size.
+
         """
         sender_context		= str( index ).encode( 'iso-8859-1' )
-        requests,siz		= [],0	# If we're collecting for a Multiple Service Packet
+        reqsiz = reqmin		= 68
+        rpysiz = rpymin		= 68
+        requests		= []	# If we're collecting for a Multiple Service Packet
         for op in operations:
             # Chunk up requests if using Multiple Service Request, otherwise send immediately
             descr		= "Multi. " if multiple else "Single "
             op['sender_context']= sender_context
             if 'offset' not in op:
-                op['offset']	= 0 if fragment else None
+                op['offset']	= 0 if fragment else None # Force Read/Write Tag Fragmented
             begun		= cpppo.timer()
             if 'data' in op:
                 descr	       += "Write "
                 req		= self.write( timeout=timeout, send=not multiple, **op )
-                est		= 10 + parser.typed_data.estimate(
-                    tag_type=op.get( 'tag_type', enip.INT.tag_type ), data=op['data'] )
+                reqest		= 24 + parser.typed_data.estimate(
+                    tag_type=op.get( 'tag_type', enip.INT.tag_type ), size=len( op['data'] ))
+                rpyest		= 4
             else:
                 descr	       += "Read  "
                 req		= self.read( timeout=timeout, send=not multiple, **op )
-                est		= 10
+                reqest		= 22
+                rpyest		= 4 + parser.typed_data.estimate(
+                    tag_type=enip.DINT.tag_type, size=op['elements'] )
             elapsed		= cpppo.timer() - begun
             descr	       += 'Frag' if op['offset'] is not None else 'Tag '
             descr	       += ' ' + format_path( op['path'] )
 
             if multiple:
-                if siz + est < multiple or not requests:
+                if max( reqsiz + reqest, rpysiz + rpyest ) < multiple or not requests:
                     # Multiple Service Packet siz OK; keep collecting (at least one!)
-                    siz	       += est
+                    reqsiz     += reqest
+                    rpysiz     += rpyest
                 else:
                     # Multiple Service Packet siz too full w/ this req; issue requests and queue it
                     begun	= cpppo.timer()
@@ -620,14 +645,16 @@ class connector( client ):
                                                  sender_context=sender_context )
                     elapsed	= cpppo.timer() - begun
                     if log.isEnabledFor( logging.DETAIL ):
-                        log.detail( "Sent %7.3f/%7.3fs: %s %s", elapsed,
-                            misc.inf if timeout is None else timeout, descr,
-                            enip.enip_format( mul ))
+                        log.detail( "Sent %7.3f/%7.3fs: %s (req: %d + %d or rpy: %d + %d >= %d): %s", elapsed,
+                                    misc.inf if timeout is None else timeout, "Multiple Service Packet",
+                                    reqsiz, reqest, rpysiz, rpyest, multiple,
+                                    enip.enip_format( mul ))
                     for d,o,r in requests:
-                        yield index,sender_context,d,o.r
+                        yield index,sender_context,d,o,r
                     index      += 1
                     requests	= []
-                    siz		= est
+                    reqsiz	= reqmin
+                    rpysiz	= rpymin
                 requests.append( (descr,op,req) )
                 if log.isEnabledFor( logging.DETAIL ):
                     log.detail( "Que. %7.3f/%7.3fs: %s %s", 0, 0, descr, enip.enip_format( req ))
@@ -713,8 +740,9 @@ class connector( client ):
                 yield parse_context(response.enip.sender_context.input),reply,sts,val
 
     def harvest( self, issued, timeout=None ):
-        """As we iterate over issued requests, collect the corresponding replies, match them up, and
-        yield them as: (<index>,<descr>,<request>,<reply>,<status>,<value>).
+        """As we iterate over issued requests, collect the corresponding replies, match them up, and yield
+        them as: (<index>,<descr>,<request>,<reply>,<status>,<value>).  We use the "lazy"
+        itertools.izip, to only collect responses as we need them.
 
         Invoke this directly with self.issue(...) to synchronously issue requests and collect their
         responses:
@@ -728,7 +756,8 @@ class connector( client ):
         pipeline).
 
         """
-        for iss,col in zip( issued, self.collect( timeout=timeout )):
+        zipper			= itertools.izip if sys.version_info[0] < 3 else zip
+        for iss,col in zipper( issued, self.collect( timeout=timeout )):
             index,req_ctx,descr,op,request \
 				= iss
             rpy_ctx,reply,status,value \
@@ -767,34 +796,46 @@ class connector( client ):
         pipeline, before beginning to harvest results.  Yield each harvested record.
 
         """
-        harvester		= None
-        last			= index - 1	# The index of the last reply collected
-        inflight		= []		# We iterate over this as we append to it...
+        class drainable( collections.deque ):
+            """Use append() to add elements to the right; iterator drains from the left."""
+            def __iter__( self ):
+                return self
+            def __next__( self ):
+                try:
+                    return self.popleft()
+                except IndexError:
+                    raise StopIteration
+            def next( self ):
+                return self.__next__()
+        
+        issuer			= self.issue( operations=operations, index=index, fragment=fragment,
+                                              multiple=multiple, timeout=timeout )
+        inflight		= drainable()	# We iterate over this as we append to it...
+        harvester		= self.harvest( issued=iter( inflight ), timeout=timeout )
         complete		= 0
-        for curr,req_ctx,descr,op,req in self.issue(
-                operations=operations, index=index, fragment=fragment, multiple=multiple,
-                timeout=timeout ):
-            inflight.append( (curr,req_ctx,descr,op,req) )
-            while curr - last > depth:
-                # The current outgoing request's index is more than 'depth' away from the last
-                # response seen.  Soak up some responses 'til the last reaches w'in depth of curr.
-                if harvester is None:
-                    harvester	= self.harvest( issued=iter( inflight ), timeout=timeout )
-                col		= next( harvester )
-                last		= col[0]
-                complete       += 1
-                log.detail( "Completed %3d/%3d; curr: %3d - last: %3d == %3d depth",
-                          complete, len( inflight ), curr, last, curr - last )
-                yield col
-
-        if harvester is None:
-            harvester		= self.harvest( issued=iter( inflight ), timeout=timeout )
-        for col in harvester:
-            complete	       += 1
-            last		= col[0]
-            log.detail( "Draining  %3d/%3d; curr: %3d - last: %3d == %3d depth",
-                        complete, len( inflight ), curr, last, curr - last )
-            yield col
+        last			= index - 1
+        while issuer or inflight:
+            if issuer:
+                try:
+                    iss		= next( issuer )
+                    curr	= iss[0]
+                    inflight.append( iss )
+                    log.detail( "Issued    %3d/%3d; curr: %3d - last: %3d == %3d depth",
+                                complete, len( inflight ), curr, last, curr - last )
+                except StopIteration:
+                    issuer	= None
+            if curr - last > depth or not issuer:
+                try:
+                    col		= next( harvester )
+                    last	= col[0]
+                    complete   += 1
+                    log.detail( "Harvested %3d/%3d; curr: %3d - last: %3d == %3d depth",
+                                complete, len( inflight ), curr, last, curr - last )
+                    yield col
+                except StopIteration:
+                    raise Exception( "Communication ceased from Controller before harvesting all pipeline responses" )
+        log.detail( "Pipelined %3d/%3d; curr: %3d - last: %3d == %3d depth",
+                    complete, len( inflight ), curr, last, curr - last )
 
     def validate( self, harvested, printing=False ):
         """Iterate over the harvested (<index>,<descr>,<request>,<reply>,<status>,<value>) tuples, logging
@@ -824,33 +865,41 @@ class connector( client ):
                 # carry read_frag.data, but report a status == 6 indicating that more data remains
                 # to return via a subsequent fragmented read request.  Compute any Read/Write Tag
                 # Fragmented 'off'-set, in elements (the Read request and the Write response
-                # contains the offset and the data type).
+                # contains the offset and the data type).  Read Tag [Fragmented] replies won't
+                # contain a '.read_tag'/'.read_frag' sub-dotdict (only a True) attribute if
+                # reporting a failure status.
+                off		= 0
+                cnt		= 0
                 if 'read_frag' in reply:
-                    act	= "=="
-                    off = request.read_frag.get( 'offset', 0 ) \
-                          // enip.parser.typed_data.estimate( reply.read_frag['type'], [1] )
-                    val	= reply.read_frag.data
-                    cnt	= len( val )
+                    act		= "=="
+                    if reply.status in (0x00, 0x06):
+                        # Success (may be partial data); we can compute actual element offset
+                        # and count of elements actually included in reply.
+                        off	= request.read_frag.get( 'offset', 0 ) \
+                                      // enip.parser.typed_data.estimate( reply.read_frag['type'], 1 )
+                        cnt	= len( val )
+                    else:
+                        # Failure; no way to compute element offset requested, use count from request
+                        cnt	= request.read_frag.get( 'elements' )
                 elif 'read_tag' in reply:
-                    act	= "=="
-                    off = 0
-                    val	= reply.read_tag.data
-                    cnt	= len( val )
+                    act		= "=="
+                    off		= 0
+                    cnt		= request.read_tag.get( 'elements' )
                 elif 'write_frag' in reply:
-                    act	= "<="
-                    off = request.write_frag.get( 'offset', 0 ) \
-                          // enip.parser.typed_data.estimate( request.write_frag['type'], [1] )
-                    val	= request.write_frag.data
-                    cnt	= request.write_frag.elements - off
+                    act		= "<="
+                    off		= request.write_frag.get( 'offset', 0 ) \
+                                  // enip.parser.typed_data.estimate( request.write_frag['type'], 1 )
+                    val		= request.write_frag.data
+                    cnt		= request.write_frag.elements - off
                 elif 'write_tag' in reply:
-                    act	= "<="
-                    off = 0
-                    val	= request.write_tag.data
-                    cnt	= request.write_tag.elements
+                    act		= "<="
+                    off		= 0
+                    val		= request.write_tag.data
+                    cnt		= request.write_tag.elements
                 if not reply.status:
-                    res	= "OK"
+                    res		= "OK"
                 else:
-                    res	= "Status %d %s" % ( reply.status,
+                    res		= "Status %d %s" % ( reply.status,
                         repr( reply.status_ext.data ) if 'status_ext' in reply and reply.status_ext.size else "" )
                 if reply.status:
                     if not status:
@@ -967,7 +1016,7 @@ provided.""" )
                      default=1,
                      help="Repeat EtherNet/IP request (default: 1)" )
     ap.add_argument( '-m', '--multiple', action='store_true',
-                     help="Use Multiple Service Packet request (default: False)" )
+                     help="Use Multiple Service Packet request targeting ~500 bytes (default: False)" )
     ap.add_argument( '-d', '--depth', default=1,
                      help="Pipeline requests to this depth (default: 1)" )
     ap.add_argument( '-f', '--fragment', dest='fragment', action='store_true',
