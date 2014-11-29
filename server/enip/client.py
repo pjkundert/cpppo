@@ -120,7 +120,7 @@ def format_path( segments ):
                 break
             elif 'class' in seg:
                 assert len( numeric ) == 0, "Unformattable path; the class segment must be first"
-                numeric.append( "0x%X" % seg['class'] )
+                numeric.append( "@0x%04X" % seg['class'] )
             elif 'instance' in seg:
                 assert len( numeric ) == 1, "Unformattable path; the instance segment must follow"
                 numeric.append( "%d" % seg['instance'] )
