@@ -23,32 +23,227 @@ __email__                       = "perry@hardconsulting.com"
 __copyright__                   = "Copyright (c) 2013 Hard Consulting Corporation"
 __license__                     = "Dual License: GPLv3 (or later) and Commercial (see LICENSE)"
 
-"""
-enip.client	-- basic EtherNet/IP client API
-"""
+__all__				= ['parse_int', 'parse_path', 'format_path',
+                                   'format_context', 'parse_context', 'parse_operations',
+                                   'client', 'await', 'connector', 'recycle', 'main']
 
-__all__				= ['client']
+"""enip.client	-- EtherNet/IP client API and module entry point
+
+    A high-thruput pipelining API for accessing EtherNet/IP CIP Controller data via Tags or
+Class/Instance/Attribute numbers.
+
+    Module entry point process tags specified on the command-line and/or from stdin (if '-'
+specified).  Optionally prints results (if --print specified).
+
+"""
 
 import argparse
 import array
+import collections
+import itertools
 import logging
 import select
 import socket
 import sys
 import traceback
 
-try:
-    import reprlib
-except ImportError:
-    import repr as reprlib
-
 import cpppo
 from   cpppo import misc
-from   cpppo.server import network
-from   cpppo.server import enip
-from   cpppo.server.enip import logix
+from   cpppo.server import (network, enip)
+from   cpppo.server.enip import (parser, logix)
 
 log				= logging.getLogger( "enip.cli" )
+
+
+def parse_int( x, base=10 ):
+    """Try parsing in the target base, but then also try deducing the base (eg. if we are provided with
+    an explicit base such as 0x..., 0o..., 0b...).
+
+    The reason this is necessary (instead of just using int( x, base=0 ) directly) is because we
+    don't want leading zeros (eg. "012") to be interpreted as indicating octal (which is the default).
+
+    """
+    try:
+        return int( x, base=base )
+    except ValueError:
+        return int( x, base=0 )
+
+
+def parse_path( path, element=None ):
+    """Convert a "Tag" or "@<class>/<instance>/<attribute>" to a list of EtherNet/IP path segments (if
+    a string is supplied).  If element is not None, also appends an 'element' segment.  Numeric form
+    allows <class>, <class>/<instance> or <class>/<instance>/<attribute>.
+
+    Resultant path will be a list of the form [{'symbolic': "Tag"}, {'element': 3}], or [{'class':
+    511}, {'instance': 1}, {'attribute': 2}].
+
+    If strings are supplied for path or element, any numeric data (eg. class, instance, attribute or
+    element numbers) default to integer (eg. 26), but may be escaped with the normal base indicators
+    (eg. 0x1A, 0o49, 0b100110).  Leading zeros do NOT imply octal.
+
+    """
+    if isinstance( path, cpppo.type_str_base ):
+        if path.startswith( '@' ):
+            try:
+                segments	= [dict( [t] )
+                                   for t in zip( ('class','instance','attribute'),
+                                                 ( parse_int( i ) for i in path[1:].split('/') ))]
+            except Exception as exc:
+                raise Exception( "Invalid Numeric @<class>/<inst>/<attr>; 1-3 (default decimal) terms, eg. 26, 0x1A, 0o46, 0b100110: %s" % exc )
+        else:
+            segments		= [{'symbolic': path}]
+    else:
+        segments		= path
+    if element is not None:
+        if isinstance( element, cpppo.type_str_base ):
+            element		= parse_int( element )
+        segments	       += [{'element': element}]
+    return segments
+
+
+def format_path( segments ):
+    """Format some simple path segment lists in a human-readable form.  Raises an Exception if
+    unrecognized (only [{'symbolic': <tag>},...] or [{'class': ...}, {'instance': ...},
+    {'attribute': ...}, ...] paths are handled.
+
+    Any 'elements' segment is ignored (left to the caller to format appropriately).
+
+    """
+    if isinstance( segments, cpppo.type_str_base ):
+        path			= segments
+    else:
+        symbolic		= ''
+        numeric			= []
+        for seg in segments:
+            if 'symbolic' in seg:
+                symbolic	= seg['symbolic']
+                break
+            elif 'class' in seg:
+                assert len( numeric ) == 0, "Unformattable path; the class segment must be first"
+                numeric.append( "0x%X" % seg['class'] )
+            elif 'instance' in seg:
+                assert len( numeric ) == 1, "Unformattable path; the instance segment must follow"
+                numeric.append( "%d" % seg['instance'] )
+            elif 'attribute' in seg:
+                assert len( numeric ) == 2, "Unformattable path; the attribute segment must follow class and instance"
+                numeric.append( "%d" % seg['attribute'] )
+            elif 'element' in seg:
+                pass
+            else:
+                symbolic 	= numeric = None
+            assert bool( symbolic ) ^ bool( numeric ), \
+                "Unformattable path segment: %r" % seg
+        path			= symbolic if symbolic else '/'.join( numeric )
+    return path
+
+
+def format_context( sender_context ):
+    """Produce a sender_context bytearray of exactly length 8, NUL-padding on the right."""
+    assert isinstance( sender_context, (bytes,bytearray) ), \
+        "Expected sender_context of bytes/bytearray, not %r" % sender_context
+    return bytearray( sender_context[:8] ).ljust( 8, b'\0' )
+
+
+def parse_context( sender_context ):
+    """Restore a bytes string from a bytearray sender_context, stripping any NUL padding on the
+    right."""
+    assert isinstance( sender_context, (bytes,bytearray,array.array) ), \
+        "Expected sender_context of bytes/bytearray/array, not %r" % sender_context
+    return bytes( bytearray( sender_context ).rstrip( b'\0' ))
+
+
+def parse_operations( tags, fragment=False ):
+    """Given a sequence of tags, deduce the set of I/O desired operations, yielding each one.
+
+    Parse each EtherNet/IP Tag Read or Write; only write operations will have 'data':
+
+        TAG	 		read 1 value (no element index)
+        TAG[0] 		read 1 value from element index 0
+        TAG[1-5]		read 5 values from element indices 1 to 5
+        TAG[1-5]+4		read 5 values from element indices 1 to 5, beginning at byte offset 4
+        TAG[4-7]=1,2,3,4	write 4 values from indices 4 to 7
+        @0x1FF/01/0x1A[99]	read the 100th element of class 511/0x1ff, instance 1, attribute 26
+
+    To support access to scalar attributes (no element index allowed in path), we cannot default to
+    supply an element index of 0; default is no element in path, and a data value count of 1.  If a
+    byte offset is specified, the request is forced to use Read/Write Tag Fragmented.
+
+    """
+    for tag in tags:
+        # Compute tag, elm, end and cnt (default elm is None (no element index), cnt is 1)
+        val			= ''
+        off			= None
+        elm,lst			= None,None
+        cnt			= 1
+        if '=' in tag:
+            # A write; strip off the values into 'val'
+            tag,val		= tag.split( '=', 1 )
+        if '+' in tag:
+            # A byte offset (valid for Fragmented)
+            tag,off		= tag.split( '+', 1 )
+        if '[' in tag:
+            tag,elm		= tag.split( '[', 1 )
+            elm,_		= elm.split( ']' )
+            lst			= elm
+            if '-' in elm:
+                elm,lst		= elm.split( '-' )
+            elm,lst		= int( elm ),int( lst )
+            cnt			= lst + 1 - elm
+
+        opr			= {}
+        opr['path']		= parse_path( tag, element=elm )
+        opr['elements']		= cnt
+        if off:
+            opr['offset']	= int( off )
+
+        if val:
+            if '.' in val:
+                opr['tag_type']	= enip.REAL.tag_type
+                size		= enip.REAL().calcsize
+                cast		= lambda x: float( x )
+            else:
+                opr['tag_type']	= enip.INT.tag_type
+                size		= enip.INT().calcsize
+                cast		= lambda x: int( x )
+            # Allow an optional (TYPE)value,value,...
+            if ')' in val:
+                def int_validate( x, lo, hi ):
+                    res		= int( x )
+                    assert lo <= res <= hi, "Invalid %d; not in range (%d,%d)" % ( res, lo, hi)
+                    return res
+                typ,val		= val.split( ')' )
+                _,typ		= typ.split( '(' )
+                opr['tag_type'],size,cast = {
+                    'REAL': 	(enip.REAL.tag_type,	enip.REAL().calcsize,	lambda x: float( x )),
+                    'DINT':	(enip.DINT.tag_type,	enip.DINT().calcsize,	lambda x: int_validate( x, -2**31, 2**31-1 )),
+                    'INT':	(enip.INT.tag_type,	enip.INT().calcsize,	lambda x: int_validate( x, -2**15, 2**15-1 )),
+                    'SINT':	(enip.SINT.tag_type,	enip.SINT().calcsize,	lambda x: int_validate( x, -2**7,  2**7-1 )),
+                }[typ.upper()]
+            opr['data']		= list( map( cast, val.split( ',' )))
+
+            if 'offset' not in opr and not fragment:
+                # Non-fragment write.  The exact correct number of data elements must be provided
+                assert len( opr['data'] ) == cnt, \
+                    "Number of data values (%d) doesn't match element count (%d): %s=%s" % (
+                        len( opr['data'] ), cnt, tag, val )
+            elif elm != lst:
+                # Fragmented write, to an identified range of indices, hence we can check length.
+                # If the byte offset + data provided doesn't match the number of elements, then a
+                # subsequent Write Tag Fragmented command will be required to write the balance.
+                byte		= opr.get( 'offset' ) or 0
+                assert byte % size == 0, \
+                    "Invalid byte offset %d for elements of size %d bytes" % ( byte, size )
+                beg		= byte // size
+                end		= beg + len( opr['data'] )
+                assert end <= cnt, \
+                    "Number of elements (%d) provided and byte offset %d / %d-byte elements exceeds element count %d: " % (
+                        len( opr['data'] ), byte, size, cnt )
+                if beg != 0 or end != cnt:
+                    log.detail( "Partial Write Tag Fragmented; elements %d-%d of %d", beg, end-1, cnt )
+        log.detail("Tag: %r yields Operation: %r", tag, opr )
+        yield opr
+
+
 
 class client( object ):
     """Transmit request(s), and yield replies as available.  The request will fail (raise
@@ -57,7 +252,7 @@ class client( object ):
     responses to previous requests are received.)
 
     """
-    def __init__( self, host, port=None, timeout=None ):
+    def __init__( self, host, port=None ):
         """Connect to the EtherNet/IP client, waiting  """
         self.addr               = (host if host is not None else enip.address[0],
                                    port if port is not None else enip.address[1])
@@ -116,16 +311,20 @@ class client( object ):
                 if self.engine is None:
                     self.data	= cpppo.dotdict()
                     self.engine	= machine.run( source=self.source, data=self.data )
-                    log.debug(
-                        "EtherNet/IP   %16s:%-5d run.: %s -> %10.10s; next byte %3d: %-10.10r: %r",
-                        self.addr[0], self.addr[1], machine.name_centered(), machine.current, 
-                        self.source.sent, self.source.peek(), self.data )
                     
-                for m,s in self.engine:
-                    log.debug(
-                        "EtherNet/IP<--%16s:%-5d rpy.: %s -> %10.10s; next byte %3d: %-10.10r: %r",
-                        self.addr[0], self.addr[1], machine.name_centered(), s,
-                        self.source.sent, self.source.peek(), self.data )
+                for mch,sta in self.engine:
+                    if sta is None and self.source.peek() is None:
+                        # Non-transition, and no input available.  Get some.  We'll do a blocking
+                        # recv.  If it returns an EOF (b''), we'll just chain that; it'll force the 
+                        # machine to run (again) on no input, resulting in a detection of
+                        # non-progress and an Exception.
+                        rcvd	= network.recv( self.conn, timeout=0 )
+                        log.info(
+                            "EtherNet/IP-->%16s:%-5d rcvd %5d: %s",
+                            self.addr[0], self.addr[1], len( rcvd ) if rcvd is not None else 0, repr( rcvd ))
+                        if rcvd is not None:
+                            self.source.chain( rcvd )
+                                
             except Exception as exc:
                 log.warning( "EtherNet/IP<x>%16s:%-5d err.: %s",
                              self.addr[0], self.addr[1], str( exc ))
@@ -143,12 +342,8 @@ class client( object ):
         # zero, it's status probably indicates why.
         if result is not None and 'enip.input' in result:
             with self.cip as machine:
-                for m,s in machine.run(
+                for mch,sta in machine.run(
                         path='enip', source=cpppo.peekable( result.enip.input ), data=result ):
-                    log.debug(
-                        "EtherNet/IP<--%16s:%-5d CIP : %s -> %10.10s; next byte %3d: %-10.10r: %r",
-                        self.addr[0], self.addr[1], machine.name_centered(), s,
-                        self.source.sent, self.source.peek(), self.data )
                     pass
                 assert machine.terminal, "No CIP payload in the EtherNet/IP frame: %r" % ( result )
 
@@ -159,7 +354,7 @@ class client( object ):
                     # An Unconnected Send that contained an encapsulated request (ie. not just a
                     # Get Attribute All)
                     with self.lgx as machine:
-                        for m,s in machine.run(
+                        for mch,sta in machine.run(
                                 source=cpppo.peekable( item.unconnected_send.request.input ),
                                 data=item.unconnected_send.request ):
                             pass
@@ -188,14 +383,15 @@ class client( object ):
         r, w, e			= select.select( [self.conn.fileno()], [], [], timeout )
         return len( r ) > 0
 
-    def register( self, timeout=None ):
+    def register( self, timeout=None, sender_context=b'' ):
         data			= cpppo.dotdict()
         data.enip		= {}
         data.enip.session_handle= 0
         data.enip.options	= 0
         data.enip.status	= 0
         data.enip.sender_context= {}
-        data.enip.sender_context.input = bytearray( [0x00] * 8 )
+        data.enip.sender_context.input = format_context( sender_context )
+
         data.enip.CIP		= {}
         data.enip.CIP.register 	= {}
         data.enip.CIP.register.options 		= 0
@@ -208,9 +404,10 @@ class client( object ):
         return data
 
     def read( self, path, elements=1, offset=0,
-              route_path=None, send_path=None, timeout=None, send=True ):
+              route_path=None, send_path=None, timeout=None, send=True,
+              sender_context=b'' ):
         req			= cpppo.dotdict()
-        req.path		= { 'segment': [ cpppo.dotdict( d ) for d in path ]}
+        req.path		= { 'segment': [ cpppo.dotdict( d ) for d in parse_path( path ) ]}
         if offset is None:
             req.read_tag	= {
                 'elements':	elements
@@ -222,13 +419,15 @@ class client( object ):
             }
         if send:
             self.unconnected_send(
-                request=req, route_path=route_path, send_path=send_path, timeout=timeout )
+                request=req, route_path=route_path, send_path=send_path, timeout=timeout,
+                sender_context=sender_context )
         return req
 
     def write( self, path, data, elements=1, offset=0, tag_type=enip.INT.tag_type,
-               route_path=None, send_path=None, timeout=None, send=True ):
+               route_path=None, send_path=None, timeout=None, send=True,
+               sender_context=b'' ):
         req			= cpppo.dotdict()
-        req.path		= { 'segment': [ cpppo.dotdict( d ) for d in path ]}
+        req.path		= { 'segment': [ cpppo.dotdict( d ) for d in parse_path( path )]}
         if offset is None:
             req.write_tag	= {
                 'elements':	elements,
@@ -244,24 +443,29 @@ class client( object ):
             }
         if send:
             self.unconnected_send(
-                request=req, route_path=route_path, send_path=send_path, timeout=timeout )
+                request=req, route_path=route_path, send_path=send_path, timeout=timeout,
+                sender_context=sender_context )
+
         return req
 
-    def multiple( self, request, path=None, route_path=None, send_path=None, timeout=None, send=True ):
+    def multiple( self, request, path=None, route_path=None, send_path=None, timeout=None, send=True,
+                          sender_context=b'' ):
         assert isinstance( request, list ), \
             "A Multiple Service Packet requires a request list"
         req			= cpppo.dotdict()
         if path:
-            req.path		= { 'segment': [ cpppo.dotdict( d ) for d in path ]}
+            req.path		= { 'segment': [ cpppo.dotdict( d ) for d in parse_path( path )]}
         req.multiple		= {
             'request':		request,
         }
         if send:
             self.unconnected_send(
-                request=req, route_path=route_path, send_path=send_path, timeout=timeout )
+                request=req, route_path=route_path, send_path=send_path, timeout=timeout,
+                sender_context=sender_context )
         return req
 
-    def unconnected_send( self, request, route_path=None, send_path=None, timeout=None ):
+    def unconnected_send( self, request, route_path=None, send_path=None, timeout=None,
+                          sender_context=b'' ):
         if route_path is None:
             # Default to the CPU in chassis (link 0), port 1
             route_path		= [{'link': 0, 'port': 1}]
@@ -276,7 +480,7 @@ class client( object ):
         data.enip.options	= 0
         data.enip.status	= 0
         data.enip.sender_context= {}
-        data.enip.sender_context.input = bytearray( [0x00] * 8 )
+        data.enip.sender_context.input = format_context( sender_context )
         data.enip.CIP		= {}
         data.enip.CIP.send_data = {}
 
@@ -294,8 +498,8 @@ class client( object ):
         us.status		= 0
         us.priority		= 5
         us.timeout_ticks	= 157
-        us.path			= { 'segment': [ cpppo.dotdict( d ) for d in send_path ]}
-        us.route_path		= { 'segment': [ cpppo.dotdict( d ) for d in route_path ]}
+        us.path			= { 'segment': [ cpppo.dotdict( d ) for d in parse_path( send_path ) ]}
+        us.route_path		= { 'segment': [ cpppo.dotdict( d ) for d in route_path ]} # must be {link/port}
 
         us.request		= request
 
@@ -305,6 +509,13 @@ class client( object ):
         sd.input		= bytearray( enip.CPF.produce( sd.CPF ))
         data.enip.input		= bytearray( enip.CIP.produce( data.enip ))
         data.input		= bytearray( enip.enip_encode( data.enip ))
+
+        log.info( "EtherNet/IP: %3d + CIP: %3d + CPF: %3d + Request: %3d == %3d bytes total",
+                  len( data.input ) - len( data.enip.input ),
+                  len( data.enip.input ) - len( sd.input ),
+                  len( sd.input ) - len( us.request.input ),
+                  len( us.request.input ),
+                  len( data.input ))
 
         self.send( data.input, timeout=timeout )
         return data
@@ -330,6 +541,439 @@ def await( cli, timeout=None ):
         break
     elapsed			= cpppo.timer() - begun
     return response,elapsed
+
+
+class connector( client ):
+    """Register a connection to an EtherNet/IP controller, storing the returned session_handle in
+    self.session, ready for processing further requests.
+
+    Raises an Exception if no valid connection can be established within the supplied io_timeout.
+
+    """
+    def __init__( self, host, port=None, timeout=1, **kwds ):
+        super( connector, self ).__init__( host=host, port=port, **kwds )
+
+        begun			= cpppo.timer()
+        try:
+            request		= self.register( timeout=timeout )
+            elapsed_req		= cpppo.timer() - begun
+            data,elapsed_rpy	= await( self, timeout=None if timeout is None else max( 0, timeout - elapsed_req ))
+
+            assert data is not None, "Failed to receive any response"
+            assert 'enip.status' in data, "Failed to receive EtherNet/IP response"
+            assert data.enip.status == 0, "EtherNet/IP response indicates failure: %s" % data.enip.status
+            assert 'enip.CIP.register' in data, "Failed to receive Register response"
+
+            self.session	= data.enip.session_handle
+        except Exception as exc:
+            logging.warning( "Connect:  Failure in %7.3fs/%7.3fs: %s", cpppo.timer() - begun,
+                             misc.inf if timeout is None else timeout, exc )
+            raise
+
+        logging.detail( "Connect:  Success in %7.3fs/%7.3fs", elapsed_req + elapsed_rpy,
+                        misc.inf if timeout is None else timeout )
+
+    def close( self ):
+        self.conn.close()
+
+    def __del__( self ):
+        self.close()
+
+    def issue( self, operations, index=0, fragment=False, multiple=0, timeout=None ):
+        """Issue a sequence of I/O operations, returning the corresponding sequence of:
+        (<index>,<context>,<descr>,<op>,<request>).  If a non-zero 'multiple' is provided, bundle requests
+        'til we exceed the specified multiple service packet request size limit. 
+
+        Each op is instrumented with a sender_context based on the provided 'index', indicating the
+        actual EtherNet/IP CIP request it is part of.  This can be used to detect how many actual
+        I/O requests are on the wire if some are merged into Multiple Service Packet requests and
+        some are single requests.
+
+        Requests are variable in size due to the path (may have long symbolic names).  Read replies
+        and Write requests are variable in size due to data type and length.  Unfortunately, Reads
+        don't specify the data type; this is decided by the type of the target Attribute.  So, any
+        guesses on size of reply are estimates at best.  We'll assume 4-byte data for read replies,
+        and 10-byte Tag names.
+
+        Reads requests are ~22 bytes and replies ~4 bytes + data in response, Writes ~24 bytes +
+        data in request and ~4 bytes in response.
+
+        EtherNet/IP framing is ~24 bytes, CIP ~6, CPF + Unconnected Send ~24, Multiple Service
+        Packet ~14.  So, a Multiple Service Packet request or reply has a wire-level overhead of
+        24+6+24+14 == 68 bytes; about 14 bytes more than a normal single CIP request/reply.
+
+        We must estimate the size of both the request and the reply, and attempt to ensure neither
+        exceeds the target 'multiple' request size.
+
+        """
+        sender_context		= str( index ).encode( 'iso-8859-1' )
+        reqsiz = reqmin		= 68
+        rpysiz = rpymin		= 68
+        requests		= []	# If we're collecting for a Multiple Service Packet
+        for op in operations:
+            # Chunk up requests if using Multiple Service Request, otherwise send immediately
+            descr		= "Multi. " if multiple else "Single "
+            op['sender_context']= sender_context
+            if 'offset' not in op:
+                op['offset']	= 0 if fragment else None # Force Read/Write Tag Fragmented
+            begun		= cpppo.timer()
+            if 'data' in op:
+                descr	       += "Write "
+                req		= self.write( timeout=timeout, send=not multiple, **op )
+                reqest		= 24 + parser.typed_data.estimate(
+                    tag_type=op.get( 'tag_type', enip.INT.tag_type ), size=len( op['data'] ))
+                rpyest		= 4
+            else:
+                descr	       += "Read  "
+                req		= self.read( timeout=timeout, send=not multiple, **op )
+                reqest		= 22
+                rpyest		= 4 + parser.typed_data.estimate(
+                    tag_type=enip.DINT.tag_type, size=op['elements'] )
+            elapsed		= cpppo.timer() - begun
+            descr	       += 'Frag' if op['offset'] is not None else 'Tag '
+            descr	       += ' ' + format_path( op['path'] )
+
+            if multiple:
+                if max( reqsiz + reqest, rpysiz + rpyest ) < multiple or not requests:
+                    # Multiple Service Packet siz OK; keep collecting (at least one!)
+                    reqsiz     += reqest
+                    rpysiz     += rpyest
+                else:
+                    # Multiple Service Packet siz too full w/ this req; issue requests and queue it
+                    begun	= cpppo.timer()
+                    mul		= self.multiple( request=[r for d,o,r in requests], timeout=timeout,
+                                                 sender_context=sender_context )
+                    elapsed	= cpppo.timer() - begun
+                    if log.isEnabledFor( logging.DETAIL ):
+                        log.detail( "Sent %7.3f/%7.3fs: %s (req: %d + %d or rpy: %d + %d >= %d): %s", elapsed,
+                                    misc.inf if timeout is None else timeout, "Multiple Service Packet",
+                                    reqsiz, reqest, rpysiz, rpyest, multiple,
+                                    enip.enip_format( mul ))
+                    for d,o,r in requests:
+                        yield index,sender_context,d,o,r
+                    index      += 1
+                    requests	= []
+                    reqsiz	= reqmin
+                    rpysiz	= rpymin
+                requests.append( (descr,op,req) )
+                if log.isEnabledFor( logging.DETAIL ):
+                    log.detail( "Que. %7.3f/%7.3fs: %s %s", 0, 0, descr, enip.enip_format( req ))
+            else:
+                # Single request issued
+                if log.isEnabledFor( logging.DETAIL ):
+                    log.detail( "Sent %7.3f/%7.3fs: %s %s", elapsed,
+                                misc.inf if timeout is None else timeout, descr,
+                                enip.enip_format( req ))
+                yield index,sender_context,descr,op,req
+                index	       += 1
+
+            sender_context = str( index ).encode( 'iso-8859-1' )
+
+        # No more operations!  Issue the (final) Multiple Service Packet w/ remaining requests
+        if multiple and requests:
+            begun		= cpppo.timer()
+            mul			= self.multiple( request=[r for d,o,r in requests], timeout=timeout,
+                                                 sender_context=sender_context )
+            elapsed		= cpppo.timer() - begun
+            if log.isEnabledFor( logging.DETAIL ):
+                log.detail( "Sent %7.3f/%7.3fs: %s %s", elapsed,
+                            misc.inf if timeout is None else timeout, "Multiple Service Packet",
+                            enip.enip_format( req ))
+            for d,o,r in requests:
+                yield index,sender_context,d,o,r
+
+    def collect( self, timeout=None ):
+        """Yield collected request replies 'til timeout expires (raising StopIteration), or until a
+        GeneratorExit is raised (no more responses expected, and generator was discarded).  Yields a
+        sequence of: (<context>,<reply>,<status>,<value>).
+
+        <context> is a bytes string (any NUL padding on the right removed); All replies in a
+        Multiple Service Packet response will have the same <context>.
+
+        <reply> is the individual parsed read/write reply, regardless of whether it came back as an
+        individual response, or as part of a Multiple Service Packet payload.
+
+        <status> may be an int or a tuple (int,[int...]) if extended status codes returned.
+        Remember: Success (0x00) and Partial Data (0x06) both return valid data!
+
+        <value> will be True for writes, a non-empty array of data for reads, None if there was a
+        failure with the request (will by Truthy on Success, Falsey on Failure.)
+
+        """
+        while True:
+            response,elapsed	= await( self, timeout=timeout )
+            if log.isEnabledFor( logging.DETAIL ):
+                log.detail( "Rcvd %7.3f/%7.3fs %s", elapsed,
+                            misc.inf if timeout is None else timeout,
+                            enip.enip_format( response ))
+
+            # Find the replies in the response; could be single or multiple; should match requests!
+            if response is None:
+                raise StopIteration( "Response Not Received w/in %7.2fs" % ( timeout ))
+            elif response.enip.status != 0:
+                raise Exception( "Response EtherNet/IP status: %d" % ( response.enip.status ))
+            elif 'enip.CIP.send_data.CPF.item[1].unconnected_send.request.multiple.request' in response:
+                # Multiple Service Packet; request.multiple.request is an array of read/write_tag/frag
+                replies		= response.enip.CIP.send_data.CPF.item[1].unconnected_send.request.multiple.request
+            elif 'enip.CIP.send_data.CPF.item[1].unconnected_send.request' in response:
+                # Single request; request is a read/write_tag/frag
+                replies		= [ response.enip.CIP.send_data.CPF.item[1].unconnected_send.request ]
+            else:
+                raise Exception( "Response Unrecognized: %s" % ( enip.enip_format( response )))
+            for reply in replies:
+                val	= None
+                sts	= reply.status			# sts = # or (#,[#...])
+                if reply.status in (0x00,0x06):		# Success or Partial Data; val is Truthy
+                    if 'read_frag' in reply:
+                        val	= reply.read_frag.data
+                    elif 'read_tag' in reply:
+                        val	= reply.read_tag.data
+                    elif 'write_frag' in reply:
+                        val	= True
+                    elif 'write_tag' in reply:
+                        val	= True
+                    else:
+                        raise Exception( "Reply Unrecognized: %s" % ( enip.enip_format( reply )))
+                else:					# Failure; val is Falsey
+                    if 'status_ext' in reply and reply.status_ext.size:
+                        sts	= (reply.status,reply.status_ext.data)
+                yield parse_context(response.enip.sender_context.input),reply,sts,val
+
+    def harvest( self, issued, timeout=None ):
+        """As we iterate over issued requests, collect the corresponding replies, match them up, and yield
+        them as: (<index>,<descr>,<request>,<reply>,<status>,<value>).  We use the "lazy"
+        itertools.izip, to only collect responses as we need them.
+
+        Invoke this directly with self.issue(...) to synchronously issue requests and collect their
+        responses:
+            tags		= [ "SCADA[1]=99", "SCADA[0-9]" ]
+            operations		= parse_operations( tags )
+            for idx,dsc,req,rpy,sts,val in cli.harvest( issued=cli.issue( operations, ... ))):
+                ...
+
+        Or, arrange for 'issued' to be a container (eg. list) which supports iteration and appending
+        simultaneously, and then issue multiple requests before starting to harvest the results (see
+        pipeline).
+
+        """
+        zipper			= itertools.izip if sys.version_info[0] < 3 else zip
+        for iss,col in zipper( issued, self.collect( timeout=timeout )):
+            index,req_ctx,descr,op,request \
+				= iss
+            rpy_ctx,reply,status,value \
+				= col
+            assert rpy_ctx == req_ctx, "Mismatched request/reply: %r vs. %r" % ( req_ctx, rpy_ctx )
+            yield index,descr,request,reply,status,value
+
+    # 
+    # synchronous
+    # pipeline
+    # 
+    #     The normal APIs for issuing transactions and harvesting the corresponding results.
+    # 
+    #     The <value> yielded comes from the reply, hence there is a data list for reads, but no data
+    # for writes (just a True).
+    #
+    #     None	-- Request failure
+    #     True	-- Request successful write (no resultant data)
+    #     [...]	-- Request successful read data
+    # 
+    #     Use validate to post-process these results, to fill in data for reads (from the request).
+    # 
+    def synchronous( self, operations, index=0, fragment=False, multiple=0, timeout=None ):
+        """Issue the requested 'operations' synchronously.  Yield each harvested record.
+
+        """
+        for col in self.harvest(
+                issued=self.issue(
+                    operations=operations, index=index, fragment=fragment, multiple=multiple,
+                    timeout=timeout ),
+                timeout=timeout ):
+            yield col
+
+    def pipeline( self, operations, index=0, fragment=False, multiple=0, timeout=None, depth=1 ):
+        """Issue the requested 'operations', allowing up to 'depth' outstanding requests to be in the
+        pipeline, before beginning to harvest results.  Yield each harvested record.
+
+        """
+        class drainable( collections.deque ):
+            """Use append() to add elements to the right; iterator drains from the left."""
+            def __iter__( self ):
+                return self
+            def __next__( self ):
+                try:
+                    return self.popleft()
+                except IndexError:
+                    raise StopIteration
+            def next( self ):
+                return self.__next__()
+        
+        issuer			= self.issue( operations=operations, index=index, fragment=fragment,
+                                              multiple=multiple, timeout=timeout )
+        inflight		= drainable()	# We iterate over this as we append to it...
+        harvester		= self.harvest( issued=iter( inflight ), timeout=timeout )
+        complete		= 0
+        last			= index - 1
+        while issuer or inflight:
+            if issuer:
+                try:
+                    iss		= next( issuer )
+                    curr	= iss[0]
+                    inflight.append( iss )
+                    log.detail( "Issued    %3d/%3d; curr: %3d - last: %3d == %3d depth",
+                                complete, len( inflight ), curr, last, curr - last )
+                except StopIteration:
+                    issuer	= None
+            if curr - last > depth or not issuer:
+                try:
+                    col		= next( harvester )
+                    last	= col[0]
+                    complete   += 1
+                    log.detail( "Harvested %3d/%3d; curr: %3d - last: %3d == %3d depth",
+                                complete, len( inflight ), curr, last, curr - last )
+                    yield col
+                except StopIteration:
+                    raise Exception( "Communication ceased from Controller before harvesting all pipeline responses" )
+        log.detail( "Pipelined %3d/%3d; curr: %3d - last: %3d == %3d depth",
+                    complete, len( inflight ), curr, last, curr - last )
+
+    def validate( self, harvested, printing=False ):
+        """Iterate over the harvested (<index>,<descr>,<request>,<reply>,<status>,<value>) tuples, logging
+        further details and (optionally) printing a summary to stdout if desired.  Each harvested
+        record is re-yielded.
+
+        Fill in the <value> detail from the request before re-yielding harvested tuple (records for
+        both reads and writes will carry data arrays).
+
+        """
+        for index,descr,request,reply,status,val in harvested:
+            log.detail( "Client %s Request: %s", descr, enip.enip_format( request ))
+            log.detail( "  Yields Reply: %s", enip.enip_format( reply ))
+            res			= None # result of request
+            act			= "??" # denotation of request action
+            try:
+                # Get a symbolic "Tag" or numeric "@<class>/<inst>/<attr>" into 'tag', and optional
+                # element into 'elm'.  Assumes the leading path.segment elements will be either
+                # 'symbolic' or 'class', 'instance', 'attribute', and the last may be 'element'.
+                tag		= format_path( request.path.segment )
+                elm		= None					# scalar access
+                if 'element' in request.path.segment[-1]:
+                    elm		= request.path.segment[-1].element	# array access
+
+                # The response should contain either an status code (possibly with an extended
+                # status), or the read_frag request's data.  Remember; a successful response may
+                # carry read_frag.data, but report a status == 6 indicating that more data remains
+                # to return via a subsequent fragmented read request.  Compute any Read/Write Tag
+                # Fragmented 'off'-set, in elements (the Read request and the Write response
+                # contains the offset and the data type).  Read Tag [Fragmented] replies won't
+                # contain a '.read_tag'/'.read_frag' sub-dotdict (only a True) attribute if
+                # reporting a failure status.
+                off		= 0
+                cnt		= 0
+                if 'read_frag' in reply:
+                    act		= "=="
+                    if reply.status in (0x00, 0x06):
+                        # Success (may be partial data); we can compute actual element offset
+                        # and count of elements actually included in reply.
+                        off	= request.read_frag.get( 'offset', 0 ) \
+                                      // enip.parser.typed_data.estimate( reply.read_frag['type'], 1 )
+                        cnt	= len( val )
+                    else:
+                        # Failure; no way to compute element offset requested, use count from request
+                        cnt	= request.read_frag.get( 'elements' )
+                elif 'read_tag' in reply:
+                    act		= "=="
+                    off		= 0
+                    cnt		= request.read_tag.get( 'elements' )
+                elif 'write_frag' in reply:
+                    act		= "<="
+                    off		= request.write_frag.get( 'offset', 0 ) \
+                                  // enip.parser.typed_data.estimate( request.write_frag['type'], 1 )
+                    val		= request.write_frag.data
+                    cnt		= request.write_frag.elements - off
+                elif 'write_tag' in reply:
+                    act		= "<="
+                    off		= 0
+                    val		= request.write_tag.data
+                    cnt		= request.write_tag.elements
+                if not reply.status:
+                    res		= "OK"
+                else:
+                    res		= "Status %d %s" % ( reply.status,
+                        repr( reply.status_ext.data ) if 'status_ext' in reply and reply.status_ext.size else "" )
+                if reply.status:
+                    if not status:
+                        status	= reply.status
+                    log.warning( "Client %s returned non-zero status: %s", descr, res )
+
+            except AttributeError as exc:
+                res		= "Client %s Response missing data: %s" % ( descr, exc )
+                log.warning( "%s: %s", res, ''.join( traceback.format_exception( *sys.exc_info() )), )
+                raise
+            except Exception as exc:
+                res		= "Client %s Exception: %s" % ( descr, exc )
+                log.warning( "%s: %s", res, ''.join( traceback.format_exception( *sys.exc_info() )), )
+                raise
+
+            if elm is None:
+                line		= "%20s              %s %r: %r" % ( tag, act, val, res ) # scalar access
+            else:
+                line		= "%20s[%5d-%-5d] %s %r: %r" % ( tag, elm + off, elm + off + cnt - 1, act, val, res )
+            log.normal( line )
+            if printing:
+                print( line )
+            yield index,descr,request,reply,status,val
+
+    # 
+    # process
+    # 
+    #     Simple, high-level API entry point that eliminates the need to process any yielded
+    # sequences, and simply returns the number of (<failures>,<transactions>), optionally printing a
+    # summary of I/O performed.
+    # 
+    def process( self, operations, depth=0, multiple=0, fragment=False, printing=False, timeout=None ):
+        """Process a sequence of I/O operations.  If a non-zero 'depth' is specified, then pipeline the
+        requests allowing 'depth' outstanding transactions to be in-flight; otherwise, we just issue
+        the transactions synchronously.  Returns the a tuple (<failures>,<transactions>).  Raises
+        Exception on catastrophic failure of the connection.
+
+        """
+        failures		= 0
+        transactions		= 0
+        if depth:
+            harvested		= self.pipeline(
+                operations=operations, multiple=multiple, fragment=fragment, timeout=timeout,
+                depth=depth )
+        else:
+            harvested		= self.synchronous(
+                operations=operations, multiple=multiple, fragment=fragment, timeout=timeout )
+        validated		= self.validate( harvested=harvested, printing=printing )
+        for idx,dsc,req,rpy,sts,val in validated:
+            transactions       += 1
+            if val is None:
+                failures       += 1
+        return failures,transactions
+
+
+def recycle( iterable, times=None ):
+    """Record and repeat an iterable x 'times'; forever if times is None (the default), not at all if
+    times is 0.  Like itertools.cycle, but with an optional 'times' limit.
+
+    """
+    assert times is None or ( times // 1 == times and times >= 0 ), \
+        "Invalid cycle 'times'; must be None or +'ve integer: %r" % ( times )
+    saved			= []
+    if times == 0:
+        return
+    for element in iterable:
+        yield element
+        saved.append( element )
+
+    while times != 1:
+        for element in saved:
+              yield element
+        if times is not None:
+            times	       -= 1
 
 
 def main( argv=None ):
@@ -372,14 +1016,14 @@ provided.""" )
                      default=1,
                      help="Repeat EtherNet/IP request (default: 1)" )
     ap.add_argument( '-m', '--multiple', action='store_true',
-                     help="Use Multiple Service Packet request (default: False)" )
+                     help="Use Multiple Service Packet request targeting ~500 bytes (default: False)" )
+    ap.add_argument( '-d', '--depth', default=1,
+                     help="Pipeline requests to this depth (default: 1)" )
     ap.add_argument( '-f', '--fragment', dest='fragment', action='store_true',
-                     help="Use Read/Write Tag Fragmented requests (default: True)" )
-    ap.add_argument( '-n', '--no-fragment', dest='fragment', action='store_false',
-                     help="Use Read/Write Tag requests (default: False)" )
-    ap.set_defaults( fragment=False )
+                     default=False,
+                     help="Always use Read/Write Tag Fragmented requests (default: False)" )
     ap.add_argument( 'tags', nargs="+",
-                     help="Tags to read/write, eg: SCADA[1], SCADA[2-10]+4=(DINT)3,4,5")
+                     help="Tags to read/write (- to read from stdin), eg: SCADA[1], SCADA[2-10]+4=(DINT)3,4,5" )
 
     args			= ap.parse_args( argv )
 
@@ -406,248 +1050,36 @@ provided.""" )
 
     timeout			= float( args.timeout )
     repeat			= int( args.repeat )
+    depth			= int( args.depth )
+    multiple			= 500 if args.multiple else 0
+    fragment			= bool( args.fragment )
+    printing			= args.print
 
+    if '-' in args.tags:
+        # Collect tags from sys.stdin 'til EOF, at position of '-' in argument list
+        minus			= args.tags.index( '-' )
+        tags			= itertools.chain( args.tags[:minus], sys.stdin, args.tags[minus+1:] )
+    else:
+        tags			= args.tags
+
+    # Register and EtherNet/IP CIP connection to a Controller
     begun			= misc.timer()
-    cli				= client( host=addr[0], port=addr[1] )
-    assert cli.writable( timeout=timeout )
+    connection			= connector( host=addr[0], port=addr[1], timeout=timeout )
     elapsed			= misc.timer() - begun
-    log.normal( "Client Connected in  %7.3f/%7.3fs" % ( elapsed, timeout ))
+    log.detail( "Client Register Rcvd %7.3f/%7.3fs" % ( elapsed, timeout ))
 
-    # Register, and harvest EtherNet/IP Session Handle
+    # Issue Tag I/O operations, optionally printing a summary
     begun			= misc.timer()
-    request			= cli.register( timeout=timeout )
+    operations			= parse_operations( recycle( tags, times=repeat ))
+    failures,transactions	= connection.process(
+        operations=operations, depth=depth, multiple=multiple,
+        fragment=fragment, printing=printing, timeout=timeout )
     elapsed			= misc.timer() - begun
-    log.detail( "Client Register Sent %7.3f/%7.3fs: %s" % ( elapsed, timeout, enip.enip_format( request )))
-    data			= None # In case nothing is returned by cli iterable
-    for data in cli:
-        elapsed			= misc.timer() - begun
-        log.info( "Client Register Resp %7.3f/%7.3fs: %s" % ( elapsed, timeout, enip.enip_format( data )))
-        if data is None:
-            if elapsed <= timeout:
-                cli.readable( timeout=timeout - elapsed )
-                continue
-        break
-    elapsed			= misc.timer() - begun
-    log.detail( "Client Register Rcvd %7.3f/%7.3fs: %s" % ( elapsed, timeout, enip.enip_format( data )))
-    assert data is not None, "Failed to receive any response"
-    assert 'enip.status' in data, "Failed to receive EtherNet/IP response"
-    assert data.enip.status == 0, "EtherNet/IP response indicates failure: %s" % data.enip.status
-    assert 'enip.CIP.register' in data, "Failed to receive Register response"
-
-    cli.session			= data.enip.session_handle
-    
-    # Parse each EtherNet/IP Tag Read or Write; only write operations will have 'data'
-    #     TAG	 		read 1 value (no element index)
-    #     TAG[0] 		read 1 value from element index 0
-    #     TAG[1-5]		read 5 values from element indices 1 to 5
-    #     TAG[1-5]+4		read 5 values from element indices 1 to 5, beginning at byte offset 4
-    #     TAG[4-7]=1,2,3,4	write 4 values from indices 4 to 7
-    # 
-    # To support access to scalar attributes (no element index allowed in path), we cannot default
-    # to supply an element index of 0; default is no element in path, and a data value count of 1.
-    # If a byte offset is specified, the request is forced to use Read/Write Tag Fragmented
-    # (regardless of whether --[no-]fragment was specified)
-
-    operations			= []
-    for tag in args.tags:
-        # Compute tag, elm, end and cnt (default elm is None (no element index), cnt is 1)
-        val			= ''
-        off			= None
-        elm,lst			= None,None
-        cnt			= 1
-        if '=' in tag:
-            # A write; strip off the values into 'val'
-            tag,val		= tag.split( '=', 1 )
-        if '+' in tag:
-            # A byte offset (valid for Fragmented)
-            tag,off		= tag.split( '+', 1 )
-        if '[' in tag:
-            tag,elm		= tag.split( '[', 1 )
-            elm,_		= elm.split( ']' )
-            lst			= elm
-            if '-' in elm:
-                elm,lst		= elm.split( '-' )
-            elm,lst		= int( elm ),int( lst )
-            cnt			= lst + 1 - elm
-
-        opr			= {}
-        opr['path']		= [{'symbolic': tag}]
-        if elm is not None:
-            opr['path']       += [{'element': elm}]
-        opr['elements']		= cnt
-        if off:
-            opr['offset']	= int( off )
-
-        if val:
-            if '.' in val:
-                opr['tag_type']	= enip.REAL.tag_type
-                size		= enip.REAL().calcsize
-                cast		= lambda x: float( x )
-            else:
-                opr['tag_type']	= enip.INT.tag_type
-                size		= enip.INT().calcsize
-                cast		= lambda x: int( x )
-            # Allow an optional (TYPE)value,value,...
-            if ')' in val:
-                def int_validate( x, lo, hi ):
-                    res		= int( x )
-                    assert lo <= res <= hi, "Invalid %d; not in range (%d,%d)" % ( res, lo, hi)
-                    return res
-                typ,val		= val.split( ')' )
-                _,typ		= typ.split( '(' )
-                opr['tag_type'],size,cast = {
-                    'REAL': 	(enip.REAL.tag_type,	enip.REAL().calcsize,	lambda x: float( x )),
-                    'DINT':	(enip.DINT.tag_type,	enip.DINT().calcsize,	lambda x: int_validate( x, -2**31, 2**31-1 )),
-                    'INT':	(enip.INT.tag_type,	enip.INT().calcsize,	lambda x: int_validate( x, -2**15, 2**15-1 )),
-                    'SINT':	(enip.SINT.tag_type,	enip.SINT().calcsize,	lambda x: int_validate( x, -2**7,  2**7-1 )),
-                }[typ.upper()]
-            opr['data']		= list( map( cast, val.split( ',' )))
-
-            if 'offset' not in opr and not args.fragment:
-                # Non-fragment write.  The exact correct number of data elements must be provided
-                assert len( opr['data'] ) == cnt, \
-                    "Number of data values (%d) doesn't match element count (%d): %s=%s" % (
-                        len( opr['data'] ), cnt, tag, val )
-            elif elm != lst:
-                # Fragmented write, to an identified range of indices, hence we can check length.
-                # If the byte offset + data provided doesn't match the number of elements, then a
-                # subsequent Write Tag Fragmented command will be required to write the balance.
-                byte		= opr.get( 'offset' ) or 0
-                assert byte % size == 0, \
-                    "Invalid byte offset %d for elements of size %d bytes" % ( byte, size )
-                beg		= byte // size
-                end		= beg + len( opr['data'] )
-                assert end <= cnt, \
-                    "Number of elements (%d) provided and byte offset %d / %d-byte elements exceeds element count %d: " % (
-                        len( opr['data'] ), byte, size, cnt )
-                if beg != 0 or end != cnt:
-                    log.normal( "Partial Write Tag Fragmented; elements %d-%d of %d", beg, end-1, cnt )
-        operations.append( opr )
-
-    def output( out ):
-        log.normal( out )
-        if args.print:
-            print( out )
-            
-    # Perform all specified tag operations, the specified number of repeat times.  Doesn't handle
-    # fragmented reads yet.  If any operation fails, return a non-zero exit status.  If --multiple
-    # specified, perform all operations in a single Multiple Service Packet request.
-    
-    status			= 0
-    start			= misc.timer()
-    for i in range( repeat ):
-        requests		= []		# If --multiple, collects all requests, else one at at time
-        for o in range( len( operations )):
-            op			= operations[o] # {'path': [...], 'elements': #}
-            if 'offset' not in op:
-                op['offset']	= 0 if args.fragment else None
-            if 'data' in op:
-                descr		= "Write "
-                req		= cli.write( timeout=timeout, send=not args.multiple, **op )
-            else:
-                descr		= "Read  "
-                req		= cli.read( timeout=timeout, send=not args.multiple, **op )
-            descr	       += "Frag" if op['offset'] is not None else "Tag "
-            if args.multiple:
-                # Multiple requests; each request is returned simply, not in an Unconnected Send
-                requests.append( req )
-                if o != len( operations ) - 1:
-                    continue
-                # No more operations!  Issue the Multiple Service Packet containing all operations
-                descr		= "Multiple  "
-                cli.multiple( request=requests, timeout=timeout )
-            else:
-                # Single request issued
-                requests	= [ req ]
-
-            # Issue the request(s), and get the response.  We're ignoring the send wrt. timeout
-            elapsed		= 0
-            if log.isEnabledFor( logging.DETAIL ):
-                log.detail( "Client %s Sent %7.3f/%7.3fs: %s", descr, elapsed, timeout, enip.enip_format( request ))
-            response,elapsed	= await( cli, timeout=timeout )
-            if log.isEnabledFor( logging.DETAIL ):
-                log.detail( "Client %s Rcvd %7.3f/%7.3fs: %s", descr, elapsed, timeout, enip.enip_format( response ))
-
-            # Find the replies in the response; could be single or multiple; should match requests!
-            replies		= []
-            if response is None:
-                status		= 1
-                output( "Client %s Response Not Received w/in %7.2fs" % ( descr, timeout ))
-            elif response.enip.status != 0:
-                status		= 1
-                output( "Client %s Response EtherNet/IP status: %d" % ( descr, response.enip.status ))
-            elif args.multiple \
-               and 'enip.CIP.send_data.CPF.item[1].unconnected_send.request.multiple.request' in response:
-                # Multiple Service Packet; request.multiple.request is an array of read/write_tag/frag
-                replies		= response.enip.CIP.send_data.CPF.item[1].unconnected_send.request.multiple.request
-            elif 'enip.CIP.send_data.CPF.item[1].unconnected_send.request' in response:
-                # Single request; request is a read/write_tag/frag
-                replies		= [ response.enip.CIP.send_data.CPF.item[1].unconnected_send.request ]
-            else:
-                status		= 1
-                output( "Client %s Response Unrecognized: %s" % ( descr, enip.enip_format( response )))
-
-            for request,reply in zip( requests, replies ):
-                log.detail( "Client %s Request: %s", descr, enip.enip_format( request ))
-                log.detail( "  Yields Reply: %s", enip.enip_format( reply ))
-                val		= []   # data values read/written
-                res		= None # result of request
-                act		= "??" # denotation of request action
-                try:
-                    tag		= request.path.segment[0].symbolic
-                    try:
-                        elm	= request.path.segment[1].element	# array access
-                    except IndexError:
-                        elm	= None					# scalar access
-                  
-                    # The response should contain either an status code (possibly with an extended
-                    # status), or the read_frag request's data.  Remember; a successful response may
-                    # carry read_frag.data, but report a status == 6 indicating that more data remains
-                    # to return via a subsequent fragmented read request.
-                    if 'read_frag' in reply:
-                        act	= "=="
-                        val	= reply.read_frag.data
-                        cnt	= request.read_frag.elements
-                    elif 'read_tag' in reply:
-                        act	= "=="
-                        val	= reply.read_tag.data
-                        cnt	= request.read_tag.elements
-                    elif 'write_frag' in reply:
-                        act	= "<="
-                        val	= request.write_frag.data
-                        cnt	= request.write_frag.elements
-                    elif 'write_tag' in reply:
-                        act	= "<="
-                        val	= request.write_tag.data
-                        cnt	= request.write_tag.elements
-                    if not reply.status:
-                        res	= "OK"
-                    else:
-                        res	= "Status %d %s" % ( reply.status,
-                            repr( reply.status_ext.data ) if 'status_ext' in reply and reply.status_ext.size else "" )
-                    if reply.status:
-                        if not status:
-                            status	= reply.status
-                        log.warning( "Client %s returned non-zero status: %s", descr, res )
-
-                except AttributeError as exc:
-                    status	= 1
-                    res		= "Client %s Response missing data: %s" % ( descr, exc )
-                    log.detail( "%s: %s", res, ''.join( traceback.format_exception( *sys.exc_info() )), )
-                except Exception as exc:
-                    status	= 1
-                    res		= "Client %s Exception: %s" % ( descr, exc )
-                    log.detail( "%s: %s", res, ''.join( traceback.format_exception( *sys.exc_info() )), )
-
-                if elm is None:
-                    output( "%20s              %s %r: %r" % ( tag, act, val, res )) # scalar access
-                else:
-                    output( "%20s[%5d-%-5d] %s %r: %r" % ( tag, elm, elm + cnt - 1, act, val, res ))
-
-    duration			= misc.timer() - start
     log.normal( "Client Tag I/O  Average %7.3f TPS (%7.3fs ea)." % (
-        repeat * len( operations ) / duration, duration / repeat / len( operations )))
-    return status
+        transactions / elapsed, elapsed / transactions ))
+
+    return 1 if failures else 0
+
 
 if __name__ == "__main__":
     sys.exit( main() )
