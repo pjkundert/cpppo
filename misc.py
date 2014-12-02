@@ -199,12 +199,12 @@ logging.Logger.detail		= __detail
 
 def __normal_root( msg, *args, **kwargs ):
     if len( logging.root.handlers ) == 0:
-        basicConfig()
+        logging.basicConfig()
     logging.root.normal( msg, *args, **kwargs )
 
 def __detail_root( msg, *args, **kwargs ):
     if len( logging.root.handlers ) == 0:
-        basicConfig()
+        logging.basicConfig()
     logging.root.detail( msg, *args, **kwargs )
 
 change_function( __normal_root, co_filename=logging._srcfile )

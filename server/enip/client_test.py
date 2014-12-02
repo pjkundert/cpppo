@@ -59,18 +59,18 @@ def test_client_api():
                 connection	= client.connector( *svraddr, timeout=5 )
             except ConnectionRefusedError:
                 time.sleep( .1 )
-
         results			= []
         failures		= 0
         transactions		= 0
-        for idx,dsc,req,rpy,sts,val in connection.pipeline( 
-                operations=client.parse_operations( client.recycle( tags, times=times )),
-                multiple=500, timeout=5, depth=3 ):
-            log.detail( "Client %3d: %s --> %r ", n, dsc, val )
-            if not val:
-                log.warning( "Client %d harvested %d/%d results", n, len( results ), times * len( tags ))
-                failures       += 1
-            results.append( (dsc,val) )
+        with connection:
+            for idx,dsc,req,rpy,sts,val in connection.pipeline( 
+                    operations=client.parse_operations( client.recycle( tags, times=times )),
+                    multiple=500, timeout=5, depth=3 ):
+                log.detail( "Client %3d: %s --> %r ", n, dsc, val )
+                if not val:
+                    log.warning( "Client %d harvested %d/%d results", n, len( results ), times * len( tags ))
+                    failures       += 1
+                results.append( (dsc,val) )
         if len( results ) != times * len( tags ):
             log.warning( "Client %d harvested %d/%d results", n, len( results ), times * len( tags ))
             failures	       += 1

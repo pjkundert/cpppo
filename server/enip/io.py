@@ -20,11 +20,11 @@ if __name__ == "__main__":
     printing			= True		# Print a summary of I/O
     tags			= ["Tag[0-9]+16=(DINT)4,5,6,7,8,9", "@0x2/1/1", "Tag[3-5]"]
     
-    connection			= client.connector( host=host, port=port, timeout=timeout )
-    operations			= client.parse_operations( tags )
-    failures,transactions	= connection.process(
-        operations=operations, depth=depth, multiple=multiple,
-        fragment=fragment, printing=printing, timeout=timeout )
+    with client.connector( host=host, port=port, timeout=timeout ) as connection:
+        operations		= client.parse_operations( tags )
+        failures,transactions	= connection.process(
+            operations=operations, depth=depth, multiple=multiple,
+            fragment=fragment, printing=printing, timeout=timeout )
     
     sys.exit( 1 if failures else 0 )
     

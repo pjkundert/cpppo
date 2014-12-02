@@ -257,7 +257,7 @@
     : @<class>/<instance>/<attribute>           # read a scalar, eg. @0x1FF/01/0x1A
     : @<class>/<instance>/<attribute>[99]=1     # write element, eg. @511/01/26=1
 
-*** EtherNet/IP Controller Client I/O Python API
+*** EtherNet/IP Controller Client API
 
     Dispatching a multitude of EtherNet/IP CIP I/O operations to a Controller
     is very simple (see =cpppo/server/enip/client/io.py=):
@@ -271,11 +271,11 @@
     printing                    = True          # Print a summary of I/O
     tags                        = ["Tag[0-9]+16=(DINT)4,5,6,7,8,9", "@0x2/1/1", "Tag[3-5]"]
     
-    connection                  = client.connector( host=host, port=port, timeout=timeout )
-    operations                  = client.parse_operations( tags )
-    failures,transactions       = connection.process(
-        operations=operations, depth=depth, multiple=multiple,
-        fragment=fragment, printing=printing, timeout=timeout )
+    with client.connector( host=host, port=port, timeout=timeout ) as connection:
+        operations              = client.parse_operations( tags )
+        failures,transactions   = connection.process(
+            operations=operations, depth=depth, multiple=multiple,
+            fragment=fragment, printing=printing, timeout=timeout )
     
     sys.exit( 1 if failures else 0 )
     #+END_EXAMPLE
@@ -283,7 +283,7 @@
     Try it out by starting up a simulated Controller:
     : $ python -m cpppo.server.enip Tag=DINT[10] &
     : $ python -m cpppo.server.enip.io
-    : 
+
 
     The API is able to "pipeline" requests -- issue multiple requests on the
     wire, while simultaneously harvesting prior requests.  This is absolutely
@@ -297,6 +297,62 @@
     using connector methods =.pipeline= or =.synchronous= (to access the details
     of the requests and the harvested replies), or =.process= to simply get a
     summary of I/O failures and total transactions.
+
+    More advance API methods allow you to access the stream of I/O in full
+    detail as responses are received (see =cpppo/server/enip/client/thruput.py=)
+    #+BEGIN_EXAMPLE python
+    ap                          = argparse.ArgumentParser()
+    ap.add_argument( '-d', '--depth',    default=0, help="Pipelining depth" )
+    ap.add_argument( '-m', '--multiple', default=0, help="Multiple Service Packet size limit" )
+    ap.add_argument( '-r', '--repeat',   default=1, help="Repeat requests this many times" )
+    ap.add_argument( '-a', '--address',  default='localhost', help="Hostname of target Controller" )
+    ap.add_argument( '-t', '--timeout',  default=None, help="I/O timeout seconds (default: None)" )
+    ap.add_argument( 'tags', nargs='+', help="Tags to read/write" )
+    args                        = ap.parse_args()
+
+    depth                       = int( args.depth )
+    multiple                    = int( args.multiple )
+    repeat                      = int( args.repeat )
+    operations                  = client.parse_operations( args.tags * repeat )
+    timeout                     = None
+    if args.timeout is not None:
+        timeout                 = float( args.timeout )
+
+    with client.connector( host=args.address, timeout=timeout ) as conn:
+        start                   = cpppo.timer()
+        num,idx                 = -1,-1
+        for num,(idx,dsc,op,rpy,sts,val) in enumerate( conn.pipeline(
+                operations=operations, depth=depth,
+                multiple=multiple, timeout=timeout )):
+            print( "%s: %3d: %s" % ( timestamp(), idx, val ))
+    
+        elapsed                 = cpppo.timer() - start
+        print( "%3d operations using %3d requests in %7.2fs at pipeline depth %2s; %5.1f TPS" % (
+            num+1, idx+1, elapsed, args.depth, num / elapsed ))
+    #+END_EXAMPLE
+
+    Fire up a simulator with a few tags, preferably on a host with a high
+    network latency relative to your current host:
+    : $ ssh <hostname>
+    : $ python -m cpppo.server.enip --print -v Volume=REAL Temperature=REAL
+
+    Then, test the thruput TPS (Transactions Per Second) with various pipeline
+    =--depth= and Multiple Service Packet size settings.
+    Try it first with the default depth of 0 (no pipelining).  This is the
+    "native" request-by-request thruput of the network route and device:
+    : $ python -m cpppo.server.enip.thruput -a <hostname> "Volume" "Temperature" \
+    :     --repeat 25
+
+    Then try it with aggressive pipelining (the longer the "ping" time between
+    the two hosts, the more =--depth= you could benefit from):
+    : ...
+    :     --repeat 25 --depth 20
+
+    Adding =--multiple <size>= allows cpppo to aggregate multiple Tag I/O
+    requests into a single Multiple Service Packet, reducing the number of
+    EtherNet/IP CIP requests:
+    : ...
+    :     --repeat 25 --depth 20 --multiple 250
 
 
 *** Web Interface

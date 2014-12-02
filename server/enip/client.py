@@ -18,6 +18,11 @@ from __future__ import absolute_import
 from __future__ import print_function
 from __future__ import division
 
+try:
+    from future_builtins import zip
+except ImportError:
+    pass # already available in Python3
+
 __author__                      = "Perry Kundert"
 __email__                       = "perry@hardconsulting.com"
 __copyright__                   = "Copyright (c) 2013 Hard Consulting Corporation"
@@ -46,6 +51,11 @@ import select
 import socket
 import sys
 import traceback
+
+try:
+    import reprlib
+except ImportError:
+    import repr as reprlib
 
 import cpppo
 from   cpppo import misc
@@ -251,6 +261,8 @@ class client( object ):
     After a session is registered, transactions may be pipelined (requests sent before
     responses to previous requests are received.)
 
+    Issue requests immediately (avoid delays due to Nagle's Algorithm) to effectively maximize
+    thruput on high-latency links.
     """
     def __init__( self, host, port=None ):
         """Connect to the EtherNet/IP client, waiting  """
@@ -263,6 +275,12 @@ class client( object ):
             log.warning( "Couldn't connect to EtherNet/IP server at %s:%s: %s",
                         self.addr[0], self.addr[1], exc )
             raise
+        try:
+            self.conn.setsockopt( socket.IPPROTO_TCP, socket.TCP_NODELAY, 1 )
+        except Exception as exc:
+            log.warning( "Couldn't set TCP_NODELAY on socket to EtherNet/IP server at %s:%s: %s",
+                         self.addr[0], self.addr[1], exc )
+            pass
         self.session		= None
         self.source		= cpppo.chainable()
         self.data		= None
@@ -272,28 +290,56 @@ class client( object ):
         self.cip		= enip.CIP( terminal=True )	# Parses a CIP   request in an EtherNet/IP frame
         self.lgx		= logix.Logix().parser		# Parses a Logix request in an EtherNet/IP CIP request
 
+    def __enter__( self ):
+        self.frame.__enter__()
+        return self
+
+    def __exit__( self, typ, val, tbk ):
+        """We are leaving exclusive access to this client w/o having raised an Exception; we
+        better be "between" frames!  If we have a partially parsed EtherNet/IP frame in
+        progress, then this client is no longer usable; raise an Exception."""
+        self.frame.__exit__( typ, val, tbk )
+        if typ is None:
+            assert self.engine is None, \
+                "Partial response parsed; client session is no longer valid: %s" % ( self.engine )
+
     def __iter__( self ):
         return self
 
     def __next__( self ):
-        """Return the next available response, or None if no complete response is available.  Raises
-        StopIteration (cease iterating) on EOF.  Any other Exception indicates a client failure,
-        and should result in the client instance being discarded.
+        """Return the next available response, or None if no complete response is available w/o
+        blocking.  Raises StopIteration (cease iterating) on EOF between frames.  Any other
+        Exception indicates a client failure, and should result in the client instance being
+        discarded.
         
-        If no input is presently available, harvest any input immediately available; terminate on EOF.
+        If no input is presently available, harvest any input immediately available; terminate on
+        EOF.
 
         The response may not actually contain a payload, eg. if the EtherNet/IP header contains a
         non-zero status.
+
         """
+        # Ensure that the caller has gained exclusive access to this client instance using:
+        # 
+        #     with <instance>:
+        # 
+        # So long as the caller retains exclusive access, they may continue to attempt to parse
+        # a response.  They may *only* safely release exclusive access between fully parsed
+        # EtherNet/IP frames (checked in __exit__, above)
+        self.frame.safe()
+
+        # Harvest any input immediately available, if we're empty.  We may be coming back
+        # here after already having issued a non-transition event from the existing EtherNet/IP
+        # framer engine -- we can't re-enter the engine w/o getting some more input.
         if self.source.peek() is None:
             rcvd		= network.recv( self.conn, timeout=0 )
-            log.info(
+            log.debug(
                 "EtherNet/IP-->%16s:%-5d rcvd %5d: %s",
-                self.addr[0], self.addr[1], len( rcvd ) if rcvd is not None else 0, repr( rcvd ))
+                self.addr[0], self.addr[1], len( rcvd ) if rcvd is not None else 0,
+                reprlib.repr( rcvd ))
             if rcvd is not None:
-                # Some input (or EOF); source is empty; if no input available, terminate
-                if not len( rcvd ):
-                    raise StopIteration
+                # Some input (or EOF); source is empty; chain the input and drop back into 
+                # the framer engine.  It will detect a no-progress condition on EOF.
                 self.source.chain( rcvd )
             else:
                 # Don't create parsing engine 'til we have some I/O to process.  This avoids the
@@ -306,37 +352,30 @@ class client( object ):
         # termination or on error (Exception).  Any exception (including cpppo.NonTerminal) will be
         # propagated.
         result			= None
-        with self.frame as machine:
-            try:
-                if self.engine is None:
-                    self.data	= cpppo.dotdict()
-                    self.engine	= machine.run( source=self.source, data=self.data )
-                    
-                for mch,sta in self.engine:
-                    if sta is None and self.source.peek() is None:
-                        # Non-transition, and no input available.  Get some.  We'll do a blocking
-                        # recv.  If it returns an EOF (b''), we'll just chain that; it'll force the 
-                        # machine to run (again) on no input, resulting in a detection of
-                        # non-progress and an Exception.
-                        rcvd	= network.recv( self.conn, timeout=0 )
-                        log.info(
-                            "EtherNet/IP-->%16s:%-5d rcvd %5d: %s",
-                            self.addr[0], self.addr[1], len( rcvd ) if rcvd is not None else 0, repr( rcvd ))
-                        if rcvd is not None:
-                            self.source.chain( rcvd )
-                                
-            except Exception as exc:
-                log.warning( "EtherNet/IP<x>%16s:%-5d err.: %s",
-                             self.addr[0], self.addr[1], str( exc ))
-                self.engine		= None
-                raise
-            if machine.terminal:
-                log.info( "EtherNet/IP   %16s:%-5d done: %s -> %10.10s; next byte %3d: %-10.10r: %r",
-                            self.addr[0], self.addr[1], machine.name_centered(), machine.current, 
-                            self.source.sent, self.source.peek(), self.data )
-                # Got an EtherNet/IP frame.  Return it (after parsing its payload.)
-                self.engine		= None
-                result			= self.data
+        try:
+            if self.engine is None:
+                self.data	= cpppo.dotdict()
+                self.engine	= self.frame.run( source=self.source, data=self.data )
+                
+            for mch,sta in self.engine:
+                if sta is None and self.source.peek() is None:
+                    # Non-transition, and no input available; go get some -- all blocking is done
+                    # externally (in the caller), to allow full operation on I/O latency.  On a
+                    # non-transition from a sub-machine, just loop if input is still available.
+                    return None
+            # Engine has terminated w/ a recognized EtherNet/IP frame.
+        except Exception as exc:
+            log.warning( "EtherNet/IP<x>%16s:%-5d err.: %s",
+                         self.addr[0], self.addr[1], str( exc ))
+            self.engine		= None
+            raise
+        if self.frame.terminal:
+            log.info( "EtherNet/IP   %16s:%-5d done: %s -> %10.10s; next byte %3d: %-10.10r: %r",
+                        self.addr[0], self.addr[1], self.frame.name_centered(), self.frame.current, 
+                        self.source.sent, self.source.peek(), self.data )
+            # Got an EtherNet/IP frame.  Return it (after parsing its payload.)
+            self.engine		= None
+            result		= self.data
 
         # Parse the EtherNet/IP encapsulated CIP frame, if any.  If the EtherNet/IP header .size was
         # zero, it's status probably indicates why.
@@ -368,11 +407,12 @@ class client( object ):
     def send( self, request, timeout=None ):
         """Send encoded request data."""
         assert self.writable( timeout=timeout ), \
-            "Failed to send to %r within %7.3fs: %r" % ( self.addr, timeout, request )
+            "Failed to send to %r within %7.3fs: %r" % (
+                self.addr, misc.inf if timeout is None else timeout, request )
         self.conn.send( request )
         log.info(
             "EtherNet/IP-->%16s:%-5d send %5d: %s",
-                    self.addr[0], self.addr[1], len( request ), repr( request ))
+                    self.addr[0], self.addr[1], len( request ), reprlib.repr( request ))
 
 
     def writable( self, timeout=None ):
@@ -529,6 +569,13 @@ def await( cli, timeout=None ):
         None      --> No timeout (wait forever for response)
         float/int --> The specified number of seconds
 
+    Assumes that the supplied iterable (a client instance) yields None on failure to parse a frame
+    with presently available input.  This is where we implement timeouts; wait up to 'timeout' for
+    the client to become readable; if not, return the None.  Otherwise, loop back and continue
+    trying to gain a response.
+
+    
+
     """
     response			= None
     begun			= cpppo.timer()
@@ -536,8 +583,12 @@ def await( cli, timeout=None ):
         if response is None:
             elapsed		= cpppo.timer() - begun
             if not timeout or elapsed <= timeout:
+                # 0 (immediate) or None (infinite), or unsatisfied timeout; input pending?
                 if cli.readable( timeout=timeout if not timeout else timeout - elapsed ):
                     continue # Client I/O pending w/in timeout; see if response complete
+            # No input available w'in timeout.  A partially parsed response may remain
+            # in 'cli', which may be continued 'til the cli is release
+                    
         break
     elapsed			= cpppo.timer() - begun
     return response,elapsed
@@ -547,17 +598,18 @@ class connector( client ):
     """Register a connection to an EtherNet/IP controller, storing the returned session_handle in
     self.session, ready for processing further requests.
 
-    Raises an Exception if no valid connection can be established within the supplied io_timeout.
+    Raises an Exception if no valid connection can be established within the supplied timeout.
 
     """
-    def __init__( self, host, port=None, timeout=1, **kwds ):
+    def __init__( self, host, port=None, timeout=None, **kwds ):
         super( connector, self ).__init__( host=host, port=port, **kwds )
 
         begun			= cpppo.timer()
         try:
-            request		= self.register( timeout=timeout )
-            elapsed_req		= cpppo.timer() - begun
-            data,elapsed_rpy	= await( self, timeout=None if timeout is None else max( 0, timeout - elapsed_req ))
+            with self:
+                request		= self.register( timeout=timeout )
+                elapsed_req	= cpppo.timer() - begun
+                data,elapsed_rpy= await( self, timeout=None if timeout is None else max( 0, timeout - elapsed_req ))
 
             assert data is not None, "Failed to receive any response"
             assert 'enip.status' in data, "Failed to receive EtherNet/IP response"
@@ -709,7 +761,8 @@ class connector( client ):
 
             # Find the replies in the response; could be single or multiple; should match requests!
             if response is None:
-                raise StopIteration( "Response Not Received w/in %7.2fs" % ( timeout ))
+                raise StopIteration( "Response Not Received w/in %7.2fs" % (
+                    misc.inf if timeout is None else timeout ))
             elif response.enip.status != 0:
                 raise Exception( "Response EtherNet/IP status: %d" % ( response.enip.status ))
             elif 'enip.CIP.send_data.CPF.item[1].unconnected_send.request.multiple.request' in response:
@@ -756,14 +809,10 @@ class connector( client ):
         pipeline).
 
         """
-        zipper			= itertools.izip if sys.version_info[0] < 3 else zip
-        for iss,col in zipper( issued, self.collect( timeout=timeout )):
-            index,req_ctx,descr,op,request \
-				= iss
-            rpy_ctx,reply,status,value \
-				= col
+        for (idx,req_ctx,dsc,op,req),(rpy_ctx,rpy,sts,val) in zip(
+                issued, self.collect( timeout=timeout )): # must be "lazy" zip!
             assert rpy_ctx == req_ctx, "Mismatched request/reply: %r vs. %r" % ( req_ctx, rpy_ctx )
-            yield index,descr,request,reply,status,value
+            yield idx,dsc,req,rpy,sts,val
 
     # 
     # synchronous
@@ -812,16 +861,19 @@ class connector( client ):
                                               multiple=multiple, timeout=timeout )
         inflight		= drainable()	# We iterate over this as we append to it...
         harvester		= self.harvest( issued=iter( inflight ), timeout=timeout )
+        requests		= 0
         complete		= 0
+
         last			= index - 1
         while issuer or inflight:
             if issuer:
                 try:
                     iss		= next( issuer )
                     curr	= iss[0]
+                    requests   += 1
                     inflight.append( iss )
-                    log.detail( "Issued    %3d/%3d; curr: %3d - last: %3d == %3d depth",
-                                complete, len( inflight ), curr, last, curr - last )
+                    log.detail( "Issuing   %3d/%3d; curr: %3d - last: %3d == %3d depth",
+                                complete, requests, curr, last, curr - last )
                 except StopIteration:
                     issuer	= None
             if curr - last > depth or not issuer:
@@ -829,13 +881,16 @@ class connector( client ):
                     col		= next( harvester )
                     last	= col[0]
                     complete   += 1
-                    log.detail( "Harvested %3d/%3d; curr: %3d - last: %3d == %3d depth",
-                                complete, len( inflight ), curr, last, curr - last )
+                    log.detail( "Completed %3d/%3d; curr: %3d - last: %3d == %3d depth",
+                                complete, requests, curr, last, curr - last )
                     yield col
                 except StopIteration:
-                    raise Exception( "Communication ceased from Controller before harvesting all pipeline responses" )
+                    break
         log.detail( "Pipelined %3d/%3d; curr: %3d - last: %3d == %3d depth",
-                    complete, len( inflight ), curr, last, curr - last )
+                    complete, requests, curr, last, curr - last )
+        assert complete == requests, \
+            "Communication ceased before harvesting all pipeline responses: %3d/%3d" % (
+                complete, requests )
 
     def validate( self, harvested, printing=False ):
         """Iterate over the harvested (<index>,<descr>,<request>,<reply>,<status>,<value>) tuples, logging
@@ -1064,19 +1119,19 @@ provided.""" )
 
     # Register and EtherNet/IP CIP connection to a Controller
     begun			= misc.timer()
-    connection			= connector( host=addr[0], port=addr[1], timeout=timeout )
-    elapsed			= misc.timer() - begun
-    log.detail( "Client Register Rcvd %7.3f/%7.3fs" % ( elapsed, timeout ))
-
-    # Issue Tag I/O operations, optionally printing a summary
-    begun			= misc.timer()
-    operations			= parse_operations( recycle( tags, times=repeat ))
-    failures,transactions	= connection.process(
-        operations=operations, depth=depth, multiple=multiple,
-        fragment=fragment, printing=printing, timeout=timeout )
-    elapsed			= misc.timer() - begun
-    log.normal( "Client Tag I/O  Average %7.3f TPS (%7.3fs ea)." % (
-        transactions / elapsed, elapsed / transactions ))
+    with connector( host=addr[0], port=addr[1], timeout=timeout ) as connection:
+        elapsed			= misc.timer() - begun
+        log.detail( "Client Register Rcvd %7.3f/%7.3fs" % ( elapsed, timeout ))
+    
+        # Issue Tag I/O operations, optionally printing a summary
+        begun			= misc.timer()
+        operations			= parse_operations( recycle( tags, times=repeat ))
+        failures,transactions	= connection.process(
+            operations=operations, depth=depth, multiple=multiple,
+            fragment=fragment, printing=printing, timeout=timeout )
+        elapsed			= misc.timer() - begun
+        log.normal( "Client Tag I/O  Average %7.3f TPS (%7.3fs ea)." % (
+            transactions / elapsed, elapsed / transactions ))
 
     return 1 if failures else 0
 
