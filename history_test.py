@@ -17,14 +17,14 @@ except ImportError:
     import repr as reprlib
 
 if __name__ == "__main__":
-        # If you run tests in-place (instead of using py.test), ensure local version is tested!
+    # If you run tests in-place (instead of using py.test), ensure local version is tested!
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     from cpppo.automata import log_cfg
     logging.basicConfig( **log_cfg )
     logging.getLogger().setLevel( logging.NORMAL )
 
 from cpppo import timer, near, log_cfg
-logging.basicConfig( **log_cfg )
+#logging.basicConfig( **log_cfg )
 #logging.getLogger().setLevel( logging.DETAIL )
 
 

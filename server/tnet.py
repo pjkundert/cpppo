@@ -108,7 +108,7 @@ def tnet_machine( name="TNET", context="tnet" ):
     immediately run."""
 
     class tnet_parser( cpppo.state_input ):
-        codes			= (b'#'[0], b'}'[0], b']'[0], b','[0],
+        TYPES			= (b'#'[0], b'}'[0], b']'[0], b','[0],
                                    b'$'[0], b'!'[0], b'~'[0], b'^'[0])
 
         def process( self, source, machine=None, path=None, data=None ):
@@ -141,7 +141,7 @@ def tnet_machine( name="TNET", context="tnet" ):
     }
 
     SIZE			= cpppo.dfa( name="SIZE", 
-                                             initial=cpppo.integer_bytes( 
+                                             initial=cpppo.integer_bytes(
                                                  name="INT", context="size", decode='ascii', terminal=True ))
     COLON			= cpppo.state_drop( name="COLON", **bytes_conf )
     DATA			= data_parser( name="DATA", context="data", repeat="..size" )
@@ -150,7 +150,7 @@ def tnet_machine( name="TNET", context="tnet" ):
 
     SIZE[b':'[0]]		= COLON
     COLON[None]			= DATA
-    for t in tnet_parser.codes:
+    for t in tnet_parser.TYPES:
         DATA[t]			= TYPE
 
     # Recognize a TNET string and then terminate, resetting to automatically

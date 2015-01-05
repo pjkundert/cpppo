@@ -26,11 +26,11 @@ if __name__ == "__main__":
 
 import cpppo
 from   cpppo import misc
-from   cpppo.server import (network, enip)
-from   cpppo.server.enip import (parser, logix)
+from   cpppo.server import network, enip
+from   cpppo.server.enip import parser, logix
 
 log				= logging.getLogger( "enip.tst" )
-log.setLevel( logging.INFO )
+#log.setLevel( logging.INFO )
 
 def test_octets():
     """Scans raw octets"""

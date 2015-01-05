@@ -23,7 +23,7 @@ logging.basicConfig( **cpppo.log_cfg )
 log				= logging.getLogger()
 log_not				= 0
 #log.setLevel( logging.INFO )
-log.setLevel( logging.DEBUG )
+#log.setLevel( logging.DEBUG )
 
 def test_logging():
     # Test lazy log message evaluation, ensuring it is at least an order of
@@ -507,7 +507,9 @@ def test_codecs():
 
     # Test parsing of greenery.fsm/lego regexes specified in Unicode.  Then,
     # generate corresponding cpppo state machines that accept Unicode input
-    # symbols, and byte input symbols.
+    # symbols, and byte input symbols.  These tests will accept as much of the
+    # input as matches the regular expression.
+
 
     texts 			= [
         'pi: π',
@@ -516,8 +518,8 @@ def test_codecs():
         'a 480Ω resistor',
         ]
     tests			= [
-        ('.*π.*',True),
-        ('[^π]*',False)
+        ('[^π]*(π[^π]*)+',	True),	# Optional non-π's, followed by at least one string of π and non-π's
+        ('[^π]*[^π]',		False) 	# Any number of non-π, ending in a non-π
         ]
 
     for text in texts:
@@ -526,14 +528,15 @@ def test_codecs():
             # the dfa and its sub-state are "terminal", will it be terminal.
             with cpppo.regex(
                     name='pies',  context="pies", initial=re, terminal=True ) as pies:
-                source			= cpppo.chainable( text )
+                original		= text
+                source			= cpppo.chainable( original )
                 data			= cpppo.dotdict()
                 try:
                     for mch, sta in pies.run( source=source, data=data ):
                         pass
                 except cpppo.NonTerminal:
                     pass
-                accepted		= pies.terminal
+                accepted		= pies.terminal and data.pies.input.tounicode() == original
                 log.info( "%s ends w/ re %s: %s: %r", pies.name_centered(), re,
                           "string accepted" if accepted else "string rejected", data )
             
@@ -541,15 +544,13 @@ def test_codecs():
                 # collect the full input string, unless they run into a non-matching input.
                 expected		= tr == ('π' in text )
                 assert accepted == expected
-                assert text.startswith( data.pies.input.tounicode() )
 
     for text in texts:
         # Then convert the unicode regex to a state machine in bytes symbols.
         # Our encoder generates 1 or more bytes for each unicode symbol.
         for re,tr in tests:
-
-        
-            source		= cpppo.chainable( text.encode( 'utf-8' ))
+            original		= text.encode( 'utf-8' ) # u'...' --> b'...'
+            source		= cpppo.chainable( original )
             data		= cpppo.dotdict()
 
             with cpppo.regex(
@@ -562,12 +563,12 @@ def test_codecs():
                         pass
                 except cpppo.NonTerminal:
                     pass
-                accepted		= pies.terminal
+                accepted		= pies.terminal and data.pies.input.tobytes() == original
                 log.detail( "%s ends w/ re: %s: %s: %r", pies.name_centered(), re,
                           "string accepted" if accepted else "string rejected", data )
                 expected		= tr == ('π' in text )
                 assert accepted == expected
-                assert text.startswith( data.pies.input.tobytes().decode('utf-8'))
+                assert original.startswith( data.pies.input.tobytes() )
 
 
 def test_decide():

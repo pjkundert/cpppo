@@ -22,7 +22,7 @@ except ImportError:
 
 import cpppo
 from   cpppo        import misc
-from   cpppo.server import (network, tnet, tnetstrings)
+from   cpppo.server import network, tnet, tnetstrings
 
 #logging.basicConfig( **cpppo.log_cfg )
 log				= logging.getLogger( "tnet.cli")
@@ -73,9 +73,7 @@ def test_tnet_string():
                       misc.centeraxis( mch, 25, clip=True ), source.sent, data )
             log.info("Parsing tnetstring:\n%s\n%s (byte %d)", repr(bytes(tns)),
                      '-' * (len(repr(bytes(tns[:source.sent])))-1) + '^', source.sent )
-            if sta is None:
-                break
-        if sta is None:
+        if sta is None or not sta.terminal:
             # Ended in a non-terminal state
             log.info( "%s byte %5d: failure: data: %r; Not terminal; unrecognized", 
                       misc.centeraxis( tnsmach, 25, clip=True ), source.sent, data )
