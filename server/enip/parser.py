@@ -103,11 +103,13 @@ def octets_encode( value ):
 
 class octets_struct( octets_base, cpppo.state_struct ):
     """Scans octets sufficient to satisfy the specified struct 'format', and then parses it according
-    to the supplied struct 'format'."""
+    to the supplied struct 'format' (default is class-level struct_format attribute)."""
     def __init__( self, name=None, format=None, **kwds ):
-        assert isinstance( format, str ), "Expected a struct 'format', found: %r" % format
-        super( octets_struct, self ).__init__( name=name, repeat=struct.calcsize( format ),
-                                               format=format, **kwds )
+        if format is not None:
+            assert isinstance( format, cpppo.type_str_base ), "Expected a struct 'format', found: %r" % format
+        super( octets_struct, self ).__init__( name=name, format=format, 
+            repeat=struct.calcsize( self.struct_format if format is None else format ),
+                                               **kwds )
 
 
 class octets_noop( octets_base, cpppo.state ):
@@ -168,13 +170,15 @@ class words( words_base, cpppo.state ):
 #     More complex data types are derived from STRUCT, are derived from cpppo.dfa, and require a
 # state machine to be constructed to parse the data.
 # 
-#     Any EtherNet/IP type based on TYPE has a .calcsize property; its size in bytes.
+#     Any EtherNet/IP type based on TYPE has class-level .struct_format and a
+# .struct_calcsize attribute; its size in bytes (we do not employ the capability
+# of octets_struct and state_struct to have a custom instance-level format).
 # 
 class TYPE( octets_struct ):
     """An EtherNet/IP data type"""
     def __init__( self, name=None, **kwds ):
         name			= name or kwds.setdefault( 'context', self.__class__.__name__ )
-        super( TYPE, self ).__init__( name=name, format=self.struct_format, **kwds )
+        super( TYPE, self ).__init__( name=name, **kwds )
 
     @classmethod
     def produce( cls, value ):
@@ -182,38 +186,45 @@ class TYPE( octets_struct ):
 
 class USINT( TYPE ):
     """An EtherNet/IP USINT; 8-bit unsigned integer"""
-    tag_type			= None
+    tag_type			= 0x00c6
     struct_format		= 'B'
+    struct_calcsize		= struct.calcsize( struct_format )
 
 class SINT( TYPE ):
     """An EtherNet/IP SINT; 8-bit signed integer"""
     tag_type			= 0x00c2
     struct_format		= 'b'
+    struct_calcsize		= struct.calcsize( struct_format )
 
 class UINT( TYPE ):
     """An EtherNet/IP UINT; 16-bit unsigned integer"""
-    tag_type			= None
+    tag_type			= 0x00c7
     struct_format		= '<H'
+    struct_calcsize		= struct.calcsize( struct_format )
 
 class INT( TYPE ):
     """An EtherNet/IP INT; 16-bit signed integer"""
     tag_type			= 0x00c3
     struct_format		= '<h'
+    struct_calcsize		= struct.calcsize( struct_format )
 
 class UDINT( TYPE ):
     """An EtherNet/IP UDINT; 32-bit unsigned integer"""
-    tag_type			= None
+    tag_type			= 0x00c8
     struct_format		= '<I'
+    struct_calcsize		= struct.calcsize( struct_format )
 
 class DINT( TYPE ):
     """An EtherNet/IP DINT; 32-bit signed integer"""
     tag_type			= 0x00c4
     struct_format		= '<i'
+    struct_calcsize		= struct.calcsize( struct_format )
 
 class REAL( TYPE ):
     """An EtherNet/IP INT; 32-bit float"""
     tag_type			= 0x00ca
     struct_format		= '<f'
+    struct_calcsize		= struct.calcsize( struct_format )
 
 
 class STRUCT( cpppo.dfa, cpppo.state ):
@@ -410,16 +421,79 @@ class EPATH( cpppo.dfa ):
          .EPATH.segment__... temp 
 
     Also works as a Route Path (which has a pad after size), by setting padsize=True.
-    """
-    padsize			= False
 
+    The path logical segments are encoded as follows (from Volume 1: CIP Common Specification,
+    C=1.4.2 Logical Segment):
+
+
+    Segment Type    Logical Type    Logical Format
+    +---+---+---+   +---+---+---+   +---+---+
+    | 0 | 0 | 1 |   |   |   |   |   |   |   |
+    +---+---+---+   +---+---+---+   +---+---+
+
+    Class ID          0   0   0       0   0   8-bit logical address
+    Instance ID       0   0   1       0   1  16-bit logical address
+    Element/Member ID 0   1   0       1   0  32-bit logical address (element Id's only?)
+    Connection Point  0   1   1       1   1  (reserved for future use)
+    Attribute ID      1   0   0
+    Special*          1   0   1
+    Service ID*       1   1   0
+    Reserved          1   1   1
+
+    *The Special and Service ID Logical Types do not use the logical addressing definition for the Logical Format
+
+    The 8-bit logical address format is allowed for use with all Logical Types.
+
+    The 16-bit logical address format is only allowed for use with Logical Types Class ID,
+    Instance ID, Member ID, and Connection Point.
+
+    The 32-bit logical address format is not allowed (reserved for future use).
+
+    The Connection Point Logical Type provides additional addressing capabilities beyond the
+    standard Class ID/Instance ID/Attribute ID/Member ID Object Address. Object Classes shall
+    define when and how this addressing component is utilized.
+
+    The Service ID Logical Type has the following definition for the Logical Format:
+        0 0 8-Bit Service ID Segment (0x38)
+        0 1 Reserved for future use (0x39)
+        1 0 Reserved for future use (0x3A)
+        1 1 Reserved for future use (0x3B)
+
+    The Special Logical Type has the following definition for the Logical Format:
+        0 0 Electronic Key Segment (0x34)
+        0 1 Reserved for future use (0x35)
+        1 0 Reserved for future use (0x36)
+        1 1 Reserved for future use (0x37)
+
+    The Electronic Key segment shall be used to verify/identify a device. Possible uses include
+    verification during connection establishment and identification within an EDS file. This segment
+    has the format as shown in the table below.
+
+
+    From Volume 1, Common Industrial Protocol Specification, 5-5.5.3:
+
+    Connection Points within the Assembly Object are identical to Instances. For example, Connection
+    Point 4 of the Assembly Object is the same as Instance 4. Specifying a path of "20 04 24 VV 30
+    03" is the same as "20 04 2C VV 30 03".
+
+    """
+    PADSIZE			= False
+    SEGMENTS			= {
+        'symbolic':	0x91,
+        'class':	0x20,
+        'instance':	0x24,
+        'connection':	0x2c, # In Assembly Class 0x0004, is like instance
+        'attribute':	0x30,
+        'element':	0x28,
+        'port':		0x00,
+    }
     def __init__( self, name=None, **kwds ):
         name 			= name or kwds.setdefault( 'context', self.__class__.__name__ )
 
         # Get the size, and chain remaining machine onto rest.  When used as a Route Path, the size
         # is padded, so insert a state to drop the pad, and chain rest to that instead.
         size		= rest	= USINT(			context='size' )
-        if self.padsize:
+        if self.PADSIZE:
             size[True]	= rest	= octets_drop( 	'pad', 		repeat=1 )
 
         # After capturing each segment__ (pseg), move it onto the path segment list, and loop
@@ -430,6 +504,10 @@ class EPATH( cpppo.dfa ):
                                                 state=pseg )
 
         # Wire each different segment type parser between pseg and pmov
+        
+        # 0x28 == 001 010 00 Class ID,  8-bit
+        # 0x29 == 001 010 01 Class ID, 16-bit
+        # 0x2A == 001 010 11 Class ID, 32-bit
         pseg[b'\x28'[0]]= e_8t	= octets_drop(	'type',		repeat=1 )
         e_8t[True]	= e_8v	= USINT( 	'elem_8bit',	context='element')
         e_8v[None]		= pmov
@@ -442,7 +520,8 @@ class EPATH( cpppo.dfa ):
         e32t[True]	= e32v	= UDINT(	'elem32bit',	context='element')
         e32v[None]		= pmov
 
-
+        # 0x20 == 001 000 00 Class ID,  8-bit
+        # 0x21 == 001 000 01 Class ID, 16-bit
         pseg[b'\x20'[0]]= c_8t	= octets_drop(	'type',		repeat=1 )
         c_8t[True]	= c_8v	= USINT(	'clas_8bit',	context='class')
         c_8v[None]		= pmov
@@ -451,7 +530,8 @@ class EPATH( cpppo.dfa ):
         c16t[True]	= c16v	= UINT(		'clas16bit',	context='class')
         c16v[None]		= pmov
 
-
+        # 0x24 == 001 001 00 Instance ID,  8-bit
+        # 0x25 == 001 001 01 Instance ID, 16-bit
         pseg[b'\x24'[0]]= i_8t	= octets_drop(	'type',		repeat=1 )
         i_8t[True]	= i_8v	= USINT(	'inst_8bit',	context='instance')
         i_8v[None]		= pmov
@@ -460,7 +540,18 @@ class EPATH( cpppo.dfa ):
         i16t[True]	= i16v	= UINT(		'inst16bit',	context='instance')
         i16v[None]		= pmov
 
+        # 0x2C == 001 011 00 Connection Point,  8-bit
+        # 0x2D == 001 011 01 Connection Point, 16-bit
+        pseg[b'\x2c'[0]]= p_8t	= octets_drop(	'type',		repeat=1 )
+        p_8t[True]	= p_8v	= USINT(	'cnpt_8bit',	context='connection')
+        p_8v[None]		= pmov
 
+        pseg[b'\x2d'[0]]= p16t	= octets_drop(	'type',		repeat=2 )
+        p16t[True]	= p16v	= UINT(		'cnpt16bit',	context='connection')
+        p16v[None]		= pmov
+
+        # 0x30 == 001 100 00 Attribute ID,  8-bit
+        # 0x31 == 001 100 01 Attribute ID, 16-bit
         pseg[b'\x30'[0]]= a_8t	= octets_drop(	'type',		repeat=1 )
         a_8t[True]	= a_8v	= USINT(	'attr_8bit',	context='attribute')
         a_8v[None]		= pmov
@@ -469,7 +560,7 @@ class EPATH( cpppo.dfa ):
         a16t[True]	= a16v	= UINT(		'attr16bit',	context='attribute')
         a16v[None]		= pmov
 
-
+        # 0x90 == 100 100 01 Symbolic
         pseg[b'\x91'[0]]= symt	= octets_drop(	'type',		repeat=1 )
         symt[True]	= syml	= USINT(	'sym_len',	context='symbolic.length' )
         syml[None]	= symv	= cpppo.string_bytes(
@@ -600,13 +691,7 @@ class EPATH( cpppo.dfa ):
         result			= b''
         for seg in data.segment:
             found			= False
-            for segnam, segtyp in {
-                    'symbolic':		0x91,
-                    'class':		0x20,
-                    'instance':		0x24,
-                    'attribute':	0x30,
-                    'element':		0x28,
-                    'port':		0x00, }.items():
+            for segnam, segtyp in cls.SEGMENTS.items():
                 if segnam not in seg:
                     continue
                 found		= True
@@ -647,7 +732,7 @@ class EPATH( cpppo.dfa ):
                             result += b'\00'
                     break
 
-                # A numeric path segment; class, instance, attribute, element:
+                # A numeric path segment; class, instance/connection, attribute, element:
                 if segval <= 0xff:
                     result     += USINT.produce( segtyp )
                     result     += USINT.produce( segval )
@@ -668,7 +753,7 @@ class EPATH( cpppo.dfa ):
             assert len( result ) % 2 == 0, \
                 "Failed to retain even EPATH word length after %r in %r" % ( segnam, data )
     
-        return USINT.produce( len( result ) // 2 ) + ( b'\x00' if cls.padsize else b'' ) + result
+        return USINT.produce( len( result ) // 2 ) + ( b'\x00' if cls.PADSIZE else b'' ) + result
 
 
 class route_path( EPATH ):
@@ -679,7 +764,7 @@ class route_path( EPATH ):
         .route_path.segment 		...
 
     """
-    padsize			= True
+    PADSIZE			= True
 
 
 class unconnected_send( cpppo.dfa ):
@@ -1002,7 +1087,7 @@ class CIP( cpppo.dfa ):
 
 class typed_data( cpppo.dfa ):
     """Parses CIP typed data, of the form specified by the datatype (must be a relative path within
-    the data artifact).  Data elements are parsed 'til exhaustion of input, so the caller should
+    the data artifact, or an integer data type).  Data elements are parsed 'til exhaustion of input, so the caller should
     use limit= to define the limits of the data in the source symbol input stream; only complete
     data items must be parsed, so this must be exact, and match the specified data type.
 
@@ -1015,13 +1100,26 @@ class typed_data( cpppo.dfa ):
     INT		yes		= 0x00c3	# 2 bytes
     DINT	yes		= 0x00c4	# 4 bytes
     REAL	yes		= 0x00ca	# 4 bytes
+    USINT	yes		= 0x00c6	# 1 byte
+    UINT	yes		= 0x00c7	# 2 bytes
+    UDINT	yes		= 0x00c8	# 4 bytes
     DWORD			= 0x00d3	# 4 byte (32-bit boolean array)
     LINT			= 0x00c5	# 8 byte
 
     """
-    def __init__( self, name=None, datatype=None, **kwds ):
+    SUPPORTED			= {
+        SINT.tag_type:	SINT,
+        USINT.tag_type:	USINT,
+        INT.tag_type:	INT,
+        UINT.tag_type:	UINT,
+        DINT.tag_type:	DINT,
+        UDINT.tag_type:	UDINT,
+        REAL.tag_type:	REAL,
+    }
+
+    def __init__( self, name=None, tag_type=None, **kwds ):
         name 			= name or kwds.setdefault( 'context', self.__class__.__name__ )
-        assert datatype, "Must specify a relative path to the CIP data type; found: %r" % datatype
+        assert tag_type, "Must specify a numeric (or relative path to) the CIP data type; found: %r" % tag_type
 
         slct			= octets_noop(	'select' )
         
@@ -1032,6 +1130,13 @@ class typed_data( cpppo.dfa ):
                                            destination='.data',	initializer=lambda **kwds: [],
                                                 state=i_8d )
 
+        u_8d			= octets_noop(	'end_8bitu',
+                                                terminal=True )
+        u_8d[True]	= u_8p	= USINT()
+        u_8p[None]		= move_if( 	'mov_8bitu',	source='.USINT', 
+                                           destination='.data',	initializer=lambda **kwds: [],
+                                                state=u_8d )
+
         i16d			= octets_noop(	'end16bit',
                                                 terminal=True )
         i16d[True]	= i16p	= INT()
@@ -1039,12 +1144,26 @@ class typed_data( cpppo.dfa ):
                                            destination='.data',	initializer=lambda **kwds: [],
                                                 state=i16d )
 
+        u16d			= octets_noop(	'end16bitu',
+                                                terminal=True )
+        u16d[True]	= u16p	= UINT()
+        u16p[None]		= move_if( 	'mov16bitu',	source='.UINT', 
+                                           destination='.data',	initializer=lambda **kwds: [],
+                                                state=u16d )
+
         i32d			= octets_noop(	'end32bit',
                                                 terminal=True )
         i32d[True]	= i32p	= DINT()
         i32p[None]		= move_if( 	'mov32bit',	source='.DINT', 
                                            destination='.data',	initializer=lambda **kwds: [],
                                                 state=i32d )
+
+        u32d			= octets_noop(	'end32bitu',
+                                                terminal=True )
+        u32d[True]	= u32p	= UDINT()
+        u32p[None]		= move_if( 	'mov32bitu',	source='.UDINT', 
+                                           destination='.data',	initializer=lambda **kwds: [],
+                                                state=u32d )
 
         fltd			= octets_noop(	'endfloat',
                                                 terminal=True )
@@ -1054,41 +1173,45 @@ class typed_data( cpppo.dfa ):
                                                 state=fltd )
 
         slct[None]		= cpppo.decide(	'SINT',	state=i_8p,
-            predicate=lambda path=None, data=None, **kwds: data[path+datatype] == SINT.tag_type )
+            predicate=lambda path=None, data=None, **kwds: \
+                SINT.tag_type == ( data[path+tag_type] if isinstance( tag_type, cpppo.type_str_base ) else tag_type ))
+        slct[None]		= cpppo.decide(	'USINT',state=u_8p,
+            predicate=lambda path=None, data=None, **kwds: \
+                USINT.tag_type == ( data[path+tag_type] if isinstance( tag_type, cpppo.type_str_base ) else tag_type ))
         slct[None]		= cpppo.decide(	'INT',	state=i16p,
-            predicate=lambda path=None, data=None, **kwds: data[path+datatype] == INT.tag_type )
+            predicate=lambda path=None, data=None, **kwds: \
+                INT.tag_type == ( data[path+tag_type] if isinstance( tag_type, cpppo.type_str_base ) else tag_type ))
+        slct[None]		= cpppo.decide(	'UINT',	state=u16p,
+            predicate=lambda path=None, data=None, **kwds: \
+                UINT.tag_type == ( data[path+tag_type] if isinstance( tag_type, cpppo.type_str_base ) else tag_type ))
         slct[None]		= cpppo.decide(	'DINT',	state=i32p,
-            predicate=lambda path=None, data=None, **kwds: data[path+datatype] == DINT.tag_type )
+            predicate=lambda path=None, data=None, **kwds: \
+                DINT.tag_type == ( data[path+tag_type] if isinstance( tag_type, cpppo.type_str_base ) else tag_type ))
+        slct[None]		= cpppo.decide(	'UDINT',state=u32p,
+            predicate=lambda path=None, data=None, **kwds: \
+                UDINT.tag_type == ( data[path+tag_type] if isinstance( tag_type, cpppo.type_str_base ) else tag_type ))
         slct[None]		= cpppo.decide(	'REAL',	state=fltp,
-            predicate=lambda path=None, data=None, **kwds: data[path+datatype] == REAL.tag_type )
+            predicate=lambda path=None, data=None, **kwds: \
+                REAL.tag_type == ( data[path+tag_type] if isinstance( tag_type, cpppo.type_str_base ) else tag_type ))
         
         super( typed_data, self ).__init__( name=name, initial=slct, **kwds )
 
     @staticmethod
-    def produce( data ):
-        """Expects to find .type and .data.list, and produces the data encoded to bytes."""
-        assert 'type' in data and data.type in ( SINT.tag_type, INT.tag_type, DINT.tag_type, REAL.tag_type ), \
-            "Unknown (or no) .type found: %r" % data
-        if data.type ==   SINT.tag_type:
-            return b''.join(  SINT.produce( v ) for v in data.data )
-        elif data.type ==  INT.tag_type:
-            return b''.join(   INT.produce( v ) for v in data.data )
-        elif data.type == DINT.tag_type:
-            return b''.join(  DINT.produce( v ) for v in data.data )
-        elif data.type == REAL.tag_type:
-            return b''.join(  REAL.produce( v ) for v in data.data )
+    def produce( data, tag_type=None ):
+        """Expects to find .type (if tag_type is None) and .data list, and produces the data encoded to bytes."""
+        if tag_type is None:
+            tag_type		= data.get( 'type' )
+        assert hasattr( data, '__iter__' ) and 'data' in data and tag_type in typed_data.SUPPORTED, \
+            "Unknown (or no) typed data found for tag_type %r: %r" % ( tag_type, data )
+        produce			= typed_data.SUPPORTED[tag_type].produce
+        return b''.join( produce( v ) for v in data.data )
 
     @staticmethod
-    def estimate( tag_type, size ):
-        """Compute the encoded data size for the specified type and amount of data."""
-        if tag_type ==   SINT.tag_type:
-            return 1 * size
-        elif tag_type ==  INT.tag_type:
-            return 2 * size
-        elif tag_type == DINT.tag_type:
-            return 4 * size
-        elif tag_type == REAL.tag_type:
-            return 4 * size
+    def datasize( tag_type, size=1 ):
+        """Compute the encoded data size for the specified tag_type and amount of data."""
+        assert tag_type in typed_data.SUPPORTED, \
+            "Unknown tag_type %r" % ( tag_type )
+        return typed_data.SUPPORTED[tag_type].struct_calcsize * size
         
 
 class status( cpppo.dfa ):

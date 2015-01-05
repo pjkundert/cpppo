@@ -82,7 +82,7 @@ def __directory_path( class_id, instance_id=0, attribute_id=None ):
         + '.' + ( str( attribute_id if attribute_id else 0 ))
 
 def lookup( class_id, instance_id=0, attribute_id=None ):
-    """Lookup by path ("#.#.#" string type), or class/instance/attribute ID, or """
+    """Lookup by path ("#.#.#" string type), or numeric class/instance/attribute ID"""
     exception			= None
     try:
         key			= class_id
@@ -235,12 +235,16 @@ class Attribute( object ):
     the underlying 'default' value with a new instance of the same type).
 
     """
-    def __init__( self, name, type_cls, default=0, error=0x00 ):
+    MASK_GA_SNG			= 1 << 0
+    MASK_GA_ALL			= 1 << 1
+
+    def __init__( self, name, type_cls, default=0, error=0x00, mask=0 ):
         self.name		= name
         self.default	       	= default
         self.scalar		= isinstance( default, cpppo.type_str_base ) or not hasattr( default, '__len__' )
         self.parser		= type_cls()
         self.error		= error		# If an error code is desired on access
+        self.mask		= mask		# May be hidden from Get Attribute(s) All/SIngle
 
     @property
     def value( self ):
@@ -252,7 +256,8 @@ class Attribute( object ):
 
     def __str__( self ):
         return "%-12s %5s[%4d] == %s" % (
-            self.name, self.parser.__class__.__name__, len( self ), reprlib.repr( self.value ))
+            self.name, self.parser.__class__.__name__, len( self ),
+            repr( self.value )  if not log.isEnabledFor( logging.INFO ) else reprlib.repr( self.value ))
     __repr__ 			= __str__
 
     def __len__( self ):
@@ -263,16 +268,19 @@ class Attribute( object ):
     # Indexing.  This allows us to get/set individual values in the Attribute's underlying data
     # repository.  Simple, linear slices are supported.
     def _validate_key( self, key ):
-        """Support simple, linear beg:end slices within Attribute len with no truncation; even on scalars,
-        allows [0:1].  Returns type of index, which must be slice or int.
+        """Support simple, linear beg:end slices within Attribute len with no truncation (accepts
+        slices like [:], with a slice.stop of None); even on scalars, allows [0:1].  Returns type of
+        index, which must be slice or int.  We do not validate that the length of the assignment
+        equals the length of the slice!  The caller must ensure this is the same, or truncation /
+        extension of the underlying datastore would occur.
 
         """
         if isinstance( key, slice ):
-            idx			= key.indices( len( self ))
-            if idx[2] == 1 and idx[0] < idx[1] and idx[1] <= len( self ) and idx[1] == key.stop:
+            start,stop,stride	= key.indices( len( self ))
+            if stride == 1 and start < stop and stop <= len( self ) and key.stop in (stop,None):
                 return slice
             raise KeyError( "%r indices %r too complex, empty, or beyond Attribute length %d" % (
-                key, idx, len( self )))
+                key, (start,stop,stride), len( self )))
         if not isinstance( key, int ) or key >= len( self ):
             raise KeyError( "Attempt to access item at key %r beyond Attribute length %d" % ( key, len( self )))
         return int
@@ -285,7 +293,7 @@ class Attribute( object ):
         return self.value if self.scalar else self.value[key]
 
     def __setitem__( self, key, value ):
-        """Allow setting a scalar or indexable array item.  We will not confirm length of supplied value for 
+        """Allow setting a scalar or indexable array item.  We will not confirm length of supplied value for
         slices, to allow iterators/generators to be supplied."""
         if self._validate_key( key ) is slice:
             # Setting a slice of elements; always supplied an iterable; must confirm size
@@ -486,9 +494,11 @@ class Object( object ):
     GA_ALL_REQ			= 0x01
     GA_ALL_RPY			= GA_ALL_REQ | 0x80
     GA_SNG_NAM			= "Get Attribute Single"
+    GA_SNG_CTX			= "get_attribute_single"
     GA_SNG_REQ			= 0x0e
     GA_SNG_RPY			= GA_SNG_REQ | 0x80
     SA_SNG_NAM			= "Set Attribute Single"
+    SA_SNG_CTX			= "set_attribute_single"
     SA_SNG_REQ			= 0x10
     SA_SNG_RPY			= SA_SNG_REQ | 0x80
 
@@ -506,7 +516,7 @@ class Object( object ):
             self.__class__.max_instance = instance_id
         self.instance_id	= instance_id
 
-        ( log.detail if self.instance_id else log.info )( 
+        ( log.detail if self.instance_id else log.info )(
             "%24s, Class ID 0x%04x, Instance ID %3d created",
             self, self.class_id, self.instance_id )
 
@@ -567,36 +577,72 @@ class Object( object ):
             # Validate the request.  As we process, ensure that .status is set to reflect the
             # failure mode, should an exception be raised.  Return True iff the communications
             # channel should continue.
-            data.status		= 0x08		# Service not supported, if not recognized
+            data.status		= 0x08		# Service not supported, if not recognized or fail to access
             data.pop( 'status_ext', None )
 
-            if ( data.get( 'service' ) == self.GA_ALL_REQ
-                 or 'get_attributes_all' in data and data.setdefault( 'service', self.GA_ALL_REQ ) == self.GA_ALL_REQ ):
+            if ( data.get( 'service' ) == self.GA_SNG_REQ
+                 or self.GA_SNG_CTX in data and data.setdefault( 'service', self.GA_SNG_REQ ) == self.GA_SNG_REQ ):
+                pass
+            elif ( data.get( 'service' ) == self.GA_ALL_REQ
+                 or self.GA_ALL_CTX in data and data.setdefault( 'service', self.GA_ALL_REQ ) == self.GA_ALL_REQ ):
+                pass
+            elif ( data.get( 'service' ) == self.SA_SNG_REQ
+                 or self.SA_SNG_CTX in data and data.setdefault( 'service', self.SA_SNG_REQ ) == self.SA_SNG_REQ ):
                 pass
             else:
                 raise AssertionError( "Unrecognized Service Request" )
 
-            # A recognized request; process the request data artifact, converting it into a reply.
-            data.service           |= 0x80
-                
+            # A recognized Set/Get Attribute[s] {Single/All} request; process the request data
+            # artifact, converting it into a reply.  All of these requests produce/consume a
+            # sequence of unsigned bytes.
+            data.service       |= 0x80
+            result		= b''
             if data.service == self.GA_ALL_RPY:
                 # Get Attributes All.  Collect up the bytes representing the attributes.  Replace
                 # the place-holder .get_attribute_all=True with a real dotdict.
-                data.status	= 0x08 # Service not supported, if we fail to access an Attribute
-                result		= b''
                 a_id		= 1
                 while str(a_id) in self.attribute:
-                    result     += self.attribute[str(a_id)].produce()
+                    if not ( self.attribute[str(a_id)].mask & Attribute.MASK_GA_ALL ):
+                        result += self.attribute[str(a_id)].produce()
                     a_id       += 1
+                assert len( result ), "No Attributes available for Get Attributes All request"
                 data.get_attributes_all = cpppo.dotdict()
-                data.get_attributes_all.data = bytearray( result )
-
-                data.status	= 0x00
-                data.pop( 'status_ext', None )
-
-                # TODO: Other request processing here... 
+                data.get_attributes_all.data = [
+                    b if type( b ) is int else ord( b ) for b in result ]
+            elif data.service in ( self.GA_SNG_RPY, self.SA_SNG_RPY ):
+                # Get/Set Attribute Single.  Collect up the bytes representing the attribute.
+                nam		= self.GA_SNG_NAM if data.service == self.GA_SNG_RPY else self.SA_SNG_NAM
+                assert 'attribute' in data.path['segment'][-1], \
+                    "%s path must identify Attribute" % ( nam )
+                a_id		= data.path['segment'][-1]['attribute']
+                assert str(a_id) in self.attribute, \
+                    "%s specified non-existent Attribute" % ( nam )
+                assert not ( self.attribute[str(a_id)].mask & Attribute.MASK_GA_SNG ),\
+                    "Attribute not available for %s request" % ( nam )
+                if data.service == self.GA_SNG_RPY:
+                    # Get Attribute Single.  Render bytes as unsigned ints.
+                    result     += self.attribute[str(a_id)].produce()
+                    data.get_attribute_single = cpppo.dotdict()
+                    data.get_attribute_single.data = [
+                        b if type( b ) is int else ord( b ) for b in result ]
+                else:
+                    # Set Attribute Single.  Convert unsigned ints to bytes, parse appropriate
+                    # elements using the Attribute's .parser, and assign.  Must produce exactly the
+                    # correct number of elements to fully populate the Attribute.
+                    att		= self.attribute[str(a_id)]
+                    siz		= att.parser.struct_calcsize
+                    assert 'set_attribute_single.data' in data and len( data.set_attribute_single.data ) == siz * len( att ), \
+                        "Expected %d bytes in .set_attribute_single.data to satisfy %d x %d-byte %s values" % (
+                            siz * len( att ), len( att ), siz, att.parser.__class__.__name__ )
+                    fmt		= att.parser.struct_format
+                    buf		= bytearray( data.set_attribute_single.data )
+                    val		= [ struct.unpack( fmt, buf[i:i+siz] )[0]
+                                    for i in range( 0, len(buf), siz ) ]
+                    att[:]	= val
             else:
                 raise AssertionError( "Unrecognized Service Reply" )
+            data.status		= 0x00
+            data.pop( 'status_ext', None )
         except Exception as exc:
             log.warning( "%r Service 0x%02x %s failed with Exception: %s\nRequest: %s\n%s\nStack %s", self,
                          data.service if 'service' in data else 0,
@@ -612,24 +658,51 @@ class Object( object ):
 
         # Always produce a response payload; if a failure occurred, will contain an error status.
         # If this fails, we'll raise an exception for higher level encapsulation to handle.
-        data.input		= bytearray( self.produce( data ))
         log.detail( "%s Response: %s: %s", self, self.service[data.service], enip_format( data ))
+        data.input		= bytearray( self.produce( data ))
         return True # We shouldn't be able to terminate a connection at this level
 
     @classmethod
     def produce( cls, data ):
         result			= b''
-        if ( data.get( 'service' ) == cls.GA_ALL_REQ 
-             or 'get_attributes_all' in data and data.setdefault( 'service', cls.GA_ALL_REQ ) == cls.GA_ALL_REQ ):
+        if ( data.get( 'service' ) == cls.GA_ALL_REQ
+             or cls.GA_ALL_CTX in data and data.setdefault( 'service', cls.GA_ALL_REQ ) == cls.GA_ALL_REQ ):
             # Get Attributes All
             result	       += USINT.produce(	data.service )
             result	       += EPATH.produce(	data.path )
+        elif ( data.get( 'service' ) == cls.GA_SNG_REQ
+               or cls.GA_SNG_CTX in data and data.setdefault( 'service', cls.GA_SNG_REQ ) == cls.GA_SNG_REQ ):
+            # Get Attribute Single
+            result	       += USINT.produce(	data.service )
+            result	       += EPATH.produce(	data.path )
+        elif ( data.get( 'service' ) == cls.SA_SNG_REQ
+               or cls.SA_SNG_CTX in data and data.setdefault( 'service', cls.SA_SNG_REQ ) == cls.SA_SNG_REQ ):
+            # Set Attribute Single
+            result	       += USINT.produce(	data.service )
+            result	       += EPATH.produce(	data.path )
+            result	       += typed_data.produce(	data.set_attribute_single,
+                                                        tag_type=USINT.tag_type )
         elif data.get( 'service' ) == cls.GA_ALL_RPY:
             # Get Attributes All Reply
             result	       += USINT.produce(	data.service )
             result	       += b'\x00' # reserved
             result	       += status.produce( 	data )
-            result	       += octets_encode( 	data.get_attributes_all.data )
+            if data.status == 0x00:
+                result	       += typed_data.produce( 	data.get_attributes_all,
+                                                        tag_type=USINT.tag_type )
+        elif data.get( 'service' ) == cls.GA_SNG_RPY:
+            # Get Attribute Single Reply
+            result	       += USINT.produce(	data.service )
+            result	       += b'\x00' # reserved
+            result	       += status.produce( 	data )
+            if data.status == 0x00:
+                result	       += typed_data.produce(	data.get_attribute_single,
+                                                        tag_type=USINT.tag_type )
+        elif data.get( 'service' ) == cls.SA_SNG_RPY:
+            # Set Attribute Single Reply
+            result	       += USINT.produce(	data.service )
+            result	       += b'\x00' # reserved
+            result	       += status.produce( 	data )
         else:
             assert False, "%s doesn't recognize request/reply format: %r" % ( cls.__name__, data )
         return result
@@ -638,7 +711,7 @@ class Object( object ):
 def __get_attributes_all():
     srvc			= USINT(		 	context='service' )
     srvc[True]		= path	= EPATH(			context='path')
-    path[None]		= mark	= octets_noop(			context='get_attributes_all',
+    path[None]		= mark	= octets_noop(			context=Object.GA_ALL_CTX,
                                                 terminal=True )
     mark.initial[None]		= move_if( 	'mark',		initializer=True )
     return srvc
@@ -650,16 +723,58 @@ def __get_attributes_all_reply():
     srvc			= USINT(		 	context='service' )
     srvc[True]	 	= rsvd	= octets_drop(	'reserved',	repeat=1 )
     rsvd[True]		= stts	= status()
-    stts[None]		= data	= octets(			context='get_attributes_all',
-                                                octets_extension='.data',
-                                            	terminal=True )
-    data[True]		= data	# Soak up all remaining data
-
+    stts[True]			= typed_data( 			context=Object.GA_ALL_CTX,
+                                                tag_type=USINT.tag_type,
+                                                terminal=True )
     return srvc
 
 Object.register_service_parser( number=Object.GA_ALL_RPY, name=Object.GA_ALL_NAM + " Reply", 
                                 short=Object.GA_ALL_CTX, machine=__get_attributes_all_reply() )
 
+def __get_attribute_single():
+    srvc			= USINT(		 	context='service' )
+    srvc[True]		= path	= EPATH(			context='path')
+    path[None]		= mark	= octets_noop(			context=Object.GA_SNG_CTX,
+                                                terminal=True )
+    mark.initial[None]		= move_if( 	'mark',		initializer=True )
+    return srvc
+
+Object.register_service_parser( number=Object.GA_SNG_REQ, name=Object.GA_SNG_NAM, 
+                                short=Object.GA_SNG_CTX, machine=__get_attribute_single() )
+def __get_attribute_single_reply():
+    srvc			= USINT(		 	context='service' )
+    srvc[True]	 	= rsvd	= octets_drop(	'reserved',	repeat=1 )
+    rsvd[True]		= stts	= status()
+    stts[True]			= typed_data( 			context=Object.GA_SNG_CTX,
+                                                tag_type=USINT.tag_type,
+                                                terminal=True )
+    return srvc
+
+Object.register_service_parser( number=Object.GA_SNG_RPY, name=Object.GA_SNG_NAM + " Reply", 
+                                short=Object.GA_SNG_CTX, machine=__get_attribute_single_reply() )
+
+def __set_attribute_single():
+    srvc			= USINT(		 	context='service' )
+    srvc[True]		= path	= EPATH(			context='path')
+    path[True]			= typed_data( 			context=Object.SA_SNG_CTX,
+                                                tag_type=USINT.tag_type,
+                                                terminal=True )
+    return srvc
+
+Object.register_service_parser( number=Object.SA_SNG_REQ, name=Object.SA_SNG_NAM, 
+                                short=Object.SA_SNG_CTX, machine=__set_attribute_single() )
+
+def __set_attribute_single_reply():
+    srvc			= USINT(		 	context='service' )
+    srvc[True]	 	= rsvd	= octets_drop(	'reserved',	repeat=1 )
+    rsvd[True]		= stts	= status()
+    stts[None]		= mark	= octets_noop(			context=Object.SA_SNG_CTX,
+                                                terminal=True )
+    mark.initial[None]		= move_if( 	'mark',		initializer=True )
+    return srvc
+
+Object.register_service_parser( number=Object.SA_SNG_RPY, name=Object.SA_SNG_NAM + " Reply", 
+                                short=Object.SA_SNG_CTX, machine=__set_attribute_single_reply() )
 
 
 class Identity( Object ):

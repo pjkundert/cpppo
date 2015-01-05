@@ -1035,24 +1035,33 @@ class state_drop( state_input ):
 
 class state_struct( state ):
     """A NULL (no-input) state that interprets the preceding states' saved ....input data as the
-    specified struct format (default is to one unsigned byte).  The unpacking is starting at an
-    offset (default: None) from the start of the collected ....input data, and then at index
-    (default: 0, based on the size of the struct format).  For example, to get the 3rd 32-bit
-    little-endian UINT16, beginning at offset 1 into the buffer, use format='<H', offset=1, index=2.
+    specified struct format (default is one unsigned byte).  The unpacking is starting at an offset
+    (default: None) from the start of the collected ....input data, and then at index (default: 0,
+    based on the size of the struct format).  For example, to get the 3rd 16-bit little-endian
+    UINT16, beginning at offset 1 into the buffer, use format='<H', offset=1, index=2.
     
     The raw data is assumed to be at <path>[.<context>]<input_extension> (default: '.input', same as
     state_input).  Has a .calcsize property (like struct.Struct) which returns the struct format
     size in bytes, as well as .offset and .index properties.
 
+    The default 'struct' format and size is specified by the class-level attribute struct_format and
+    struct_calcsize.  If a 'format' keyword is provided to the constructor, then new instance-level
+    attributes are specified.  Thus, any method that accesses self.struct_{format,calcsize} will
+    obtain either the class-level or instance-level attributes, as appropriate.
+
     """
+    struct_format		= 'B'	# default: unsigned byte
+    struct_calcsize		= struct.calcsize( struct_format )
+
     def __init__( self, name, format=None, offset=0, index=0, input_extension=None, **kwds ):
         super( state_struct, self ).__init__( name, **kwds )
-        format			= 'B' if format is None else format
+        if format is not None:
+            self.struct_format	= format
+            self.struct_calcsize= struct.calcsize( self.struct_format )
         self.offset		= offset
         self.index		= index
-        self.calcsize		= struct.calcsize( format )
-        assert self.calcsize, "Cannot calculate size of format %r" % format
-        self._struct		= struct.Struct( format ) # eg '<H' (little-endian uint16)
+        assert self.struct_calcsize, "Cannot calculate size of format %r" % self.struct_format
+        self._struct		= struct.Struct( self.struct_format )# eg '<H' (little-endian uint16)
         self._input		= input_extension if input_extension is not None else path_ext_input
 
     def terminate( self, exception, machine=None, path=None, data=None ):
@@ -1068,7 +1077,7 @@ class state_struct( state ):
                       exception )
             return
 
-        siz			= self.calcsize
+        siz			= self.struct_calcsize
         beg			= self.offset + self.index * siz
         end			= beg + siz
         buf			= data[ours+self._input][beg:end]

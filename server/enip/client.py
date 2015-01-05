@@ -28,7 +28,7 @@ __email__                       = "perry@hardconsulting.com"
 __copyright__                   = "Copyright (c) 2013 Hard Consulting Corporation"
 __license__                     = "Dual License: GPLv3 (or later) and Commercial (see LICENSE)"
 
-__all__				= ['parse_int', 'parse_path', 'format_path',
+__all__				= ['parse_int', 'parse_path', 'parse_path_elements', 'format_path',
                                    'format_context', 'parse_context', 'parse_operations',
                                    'client', 'await', 'connector', 'recycle', 'main']
 
@@ -46,6 +46,7 @@ import argparse
 import array
 import collections
 import itertools
+import json
 import logging
 import select
 import socket
@@ -79,10 +80,11 @@ def parse_int( x, base=10 ):
         return int( x, base=0 )
 
 
-def parse_path( path, element=None ):
-    """Convert a "Tag" or "@<class>/<instance>/<attribute>" to a list of EtherNet/IP path segments (if
-    a string is supplied).  If element is not None, also appends an 'element' segment.  Numeric form
-    allows <class>, <class>/<instance> or <class>/<instance>/<attribute>.
+def parse_path( path ):
+    """Convert a "Tag" or "@<class>/<instance>/<attribute>" to a list of EtherNet/IP path segments (if a
+    string is supplied). Numeric form allows <class>[/<instance>[/<attribute>[/<element>]]] by
+    default, or any segment type at all by providing it in JSON form, eg. .../{"connection":100}.
+    Any numeric path elements not in the recognized default order will be encoded as JSON.
 
     Resultant path will be a list of the form [{'symbolic': "Tag"}, {'element': 3}], or [{'class':
     511}, {'instance': 1}, {'attribute': 2}].
@@ -91,32 +93,70 @@ def parse_path( path, element=None ):
     element numbers) default to integer (eg. 26), but may be escaped with the normal base indicators
     (eg. 0x1A, 0o49, 0b100110).  Leading zeros do NOT imply octal.
 
+    Also supported is the manual assembly of the segments of a path.  If the segment doesn't match
+    the expected default
+
+    @{"class":0x04}/instance=5/{"connection":100}
+
     """
     if isinstance( path, cpppo.type_str_base ):
         if path.startswith( '@' ):
+            segments		= []
             try:
-                segments	= [dict( [t] )
-                                   for t in zip( ('class','instance','attribute'),
-                                                 ( parse_int( i ) for i in path[1:].split('/') ))]
+                defaults	= ('class','instance','attribute','element')
+                for i,seg in enumerate( path[1:].split( '/' )):
+                    if seg.startswith( '{' ):
+                        trm	= json.loads( seg )
+                    else:
+                        assert i < len( defaults ), "No default segment type beyond %r" % ( defaults )
+                        trm	= {defaults[i]: parse_int( seg )}
+                    segments.append( trm )
             except Exception as exc:
-                raise Exception( "Invalid Numeric @<class>/<inst>/<attr>; 1-3 (default decimal) terms, eg. 26, 0x1A, 0o46, 0b100110: %s" % exc )
+                raise Exception( "Invalid @%s; 1-4 (default decimal) terms, eg. 26, 0x1A, {\"connection\":100}, 0o46, 0b100110: %s" % (
+                    '/'.join( '<%s>' % d for d in defaults ), exc ))
         else:
             segments		= [{'symbolic': path}]
     else:
+        # Already better be a list-like path...
         segments		= path
-    if element is not None:
-        if isinstance( element, cpppo.type_str_base ):
-            element		= parse_int( element )
-        segments	       += [{'element': element}]
     return segments
 
 
-def format_path( segments ):
+def parse_path_elements( path ):
+    """Returns (<path>,<element>,<count>).  If an element is specified (eg. Tag[#]), then it will be
+    added to the path (or replace any existing element segment at the end of the path) and returned,
+    otherwise None will be returned.  If a count is specified (eg. Tag[#-#]), then it will be
+    returned; otherwise a None will be returned.
+
+    """
+    cnt,elm			= None,None
+    if isinstance( path, cpppo.type_str_base ):
+        if '[' in path:
+            path,elm		= path.split( '[', 1 )
+            elm,_		= elm.split( ']' )
+            lst			= None
+            if '-' in elm:
+                elm,lst		= elm.split( '-' )
+                lst		= int( lst )
+            elm			= int( elm )
+            if lst is not None:
+                cnt		= lst + 1 - elm
+                assert cnt > 0, "Invalid element range %d-%d" % ( elm, lst )
+    path			= parse_path( path )
+    if elm is not None:
+        if not path or 'element' not in path[-1]:
+            path.append( {} )
+        path[-1]['element']	= elm
+    return parse_path( path ),elm,cnt
+
+
+def format_path( segments, count=None ):
     """Format some simple path segment lists in a human-readable form.  Raises an Exception if
     unrecognized (only [{'symbolic': <tag>},...] or [{'class': ...}, {'instance': ...},
     {'attribute': ...}, ...] paths are handled.
 
-    Any 'elements' segment is ignored (left to the caller to format appropriately).
+    If an 'element' segment is provided, we'll append a [#] element index; if count is also provided
+    we'll append a [#-#] element range.
 
     """
     if isinstance( segments, cpppo.type_str_base ):
@@ -124,26 +164,31 @@ def format_path( segments ):
     else:
         symbolic		= ''
         numeric			= []
+        element			= None
         for seg in segments:
             if 'symbolic' in seg:
                 symbolic	= seg['symbolic']
                 break
-            elif 'class' in seg:
-                assert len( numeric ) == 0, "Unformattable path; the class segment must be first"
-                numeric.append( "@0x%04X" % seg['class'] )
-            elif 'instance' in seg:
-                assert len( numeric ) == 1, "Unformattable path; the instance segment must follow"
+            elif 'class' in seg and len( numeric ) == 0:
+                numeric.append( "0x%04X" % seg['class'] )
+            elif 'instance' in seg and len( numeric ) == 1:
                 numeric.append( "%d" % seg['instance'] )
-            elif 'attribute' in seg:
-                assert len( numeric ) == 2, "Unformattable path; the attribute segment must follow class and instance"
+            elif 'attribute' in seg and len( numeric ) == 2:
                 numeric.append( "%d" % seg['attribute'] )
             elif 'element' in seg:
-                pass
+                element		= seg['element']
             else:
-                symbolic 	= numeric = None
+                numeric.append( json.dumps( seg, separators=(',',':')))
             assert bool( symbolic ) ^ bool( numeric ), \
                 "Unformattable path segment: %r" % seg
-        path			= symbolic if symbolic else '/'.join( numeric )
+        path			= symbolic if symbolic else ('@' + '/'.join( numeric ))
+
+        if element is not None:
+            if count is not None:
+                path	       += "[%d-%d]" % ( element, element + count - 1 )
+            else:
+                path	       += "[%d]" % ( element )
+    logging.detail( "Formatted %32s from: %s", path, segments )
     return path
 
 
@@ -165,10 +210,11 @@ def parse_context( sender_context ):
 def parse_operations( tags, fragment=False ):
     """Given a sequence of tags, deduce the set of I/O desired operations, yielding each one.
 
-    Parse each EtherNet/IP Tag Read or Write; only write operations will have 'data':
+    Parse each EtherNet/IP Tag Read or Write; only write operations will have 'data'; default
+    'method' is considered 'read':
 
         TAG	 		read 1 value (no element index)
-        TAG[0] 		read 1 value from element index 0
+        TAG[0]	 		read 1 value from element index 0
         TAG[1-5]		read 5 values from element indices 1 to 5
         TAG[1-5]+4		read 5 values from element indices 1 to 5, beginning at byte offset 4
         TAG[4-7]=1,2,3,4	write 4 values from indices 4 to 7
@@ -178,42 +224,39 @@ def parse_operations( tags, fragment=False ):
     supply an element index of 0; default is no element in path, and a data value count of 1.  If a
     byte offset is specified, the request is forced to use Read/Write Tag Fragmented.
 
+    Default
+
     """
     for tag in tags:
-        # Compute tag, elm, end and cnt (default elm is None (no element index), cnt is 1)
+        # Compute tag (stripping val and off)
         val			= ''
-        off			= None
-        elm,lst			= None,None
-        cnt			= 1
+        opr			= {}
         if '=' in tag:
             # A write; strip off the values into 'val'
             tag,val		= tag.split( '=', 1 )
+            opr['method']	= 'write'
+
         if '+' in tag:
             # A byte offset (valid for Fragmented)
             tag,off		= tag.split( '+', 1 )
-        if '[' in tag:
-            tag,elm		= tag.split( '[', 1 )
-            elm,_		= elm.split( ']' )
-            lst			= elm
-            if '-' in elm:
-                elm,lst		= elm.split( '-' )
-            elm,lst		= int( elm ),int( lst )
-            cnt			= lst + 1 - elm
+            if off:
+                opr['offset']	= int( off )
 
-        opr			= {}
-        opr['path']		= parse_path( tag, element=elm )
-        opr['elements']		= cnt
-        if off:
-            opr['offset']	= int( off )
+        # If a count of elements is defined, save it; Otherwise, deduce it from values (write_tag),
+        # or leave it unset and use the method default (usually 1) if necessary (read_tag/frag)
+        seg,elm,cnt		= parse_path_elements( tag )
+        opr['path']		= seg
+        if cnt is not None:
+            opr['elements']	= cnt
 
         if val:
             if '.' in val:
                 opr['tag_type']	= enip.REAL.tag_type
-                size		= enip.REAL().calcsize
+                size		= enip.REAL.struct_calcsize
                 cast		= lambda x: float( x )
             else:
                 opr['tag_type']	= enip.INT.tag_type
-                size		= enip.INT().calcsize
+                size		= enip.INT.struct_calcsize
                 cast		= lambda x: int( x )
             # Allow an optional (TYPE)value,value,...
             if ')' in val:
@@ -224,35 +267,41 @@ def parse_operations( tags, fragment=False ):
                 typ,val		= val.split( ')' )
                 _,typ		= typ.split( '(' )
                 opr['tag_type'],size,cast = {
-                    'REAL': 	(enip.REAL.tag_type,	enip.REAL().calcsize,	lambda x: float( x )),
-                    'DINT':	(enip.DINT.tag_type,	enip.DINT().calcsize,	lambda x: int_validate( x, -2**31, 2**31-1 )),
-                    'INT':	(enip.INT.tag_type,	enip.INT().calcsize,	lambda x: int_validate( x, -2**15, 2**15-1 )),
-                    'SINT':	(enip.SINT.tag_type,	enip.SINT().calcsize,	lambda x: int_validate( x, -2**7,  2**7-1 )),
+                    'REAL': 	(enip.REAL.tag_type, enip.REAL.struct_calcsize, lambda x: float( x )),
+                    'DINT':	(enip.DINT.tag_type, enip.DINT.struct_calcsize, lambda x: int_validate( x, -2**31, 2**31-1 )),
+                    'INT':	(enip.INT.tag_type,  enip.INT.struct_calcsize,  lambda x: int_validate( x, -2**15, 2**15-1 )),
+                    'SINT':	(enip.SINT.tag_type, enip.SINT.struct_calcsize, lambda x: int_validate( x, -2**7,  2**7-1 )),
                 }[typ.upper()]
             opr['data']		= list( map( cast, val.split( ',' )))
 
             if 'offset' not in opr and not fragment:
-                # Non-fragment write.  The exact correct number of data elements must be provided
-                assert len( opr['data'] ) == cnt, \
+                # Non-fragment write.  The exact correct number of data elements must be
+                # provided. If not specified, deduce it.
+                if 'elements' not in opr:
+                    opr['elements'] = len( opr['data'] )
+                assert len( opr['data'] ) == opr['elements'], \
                     "Number of data values (%d) doesn't match element count (%d): %s=%s" % (
-                        len( opr['data'] ), cnt, tag, val )
-            elif elm != lst:
-                # Fragmented write, to an identified range of indices, hence we can check length.
-                # If the byte offset + data provided doesn't match the number of elements, then a
-                # subsequent Write Tag Fragmented command will be required to write the balance.
+                        len( opr['data'] ), opr['elements'], tag, val )
+            else:
+                # Fragmented write, to an identified range of indices optionally w/offset into a
+                # buffer of known type, hence we can check length.  If the byte offset + data
+                # provided doesn't match the number of elements, then a subsequent Write Tag
+                # Fragmented command will be required to write the balance.  We can't deduce the
+                # final total number of elements from the data provided, b/c it may be partial.
+                assert 'elements' in opr, \
+                    "Fragmented write must specify exact destination element range"
                 byte		= opr.get( 'offset' ) or 0
                 assert byte % size == 0, \
                     "Invalid byte offset %d for elements of size %d bytes" % ( byte, size )
                 beg		= byte // size
                 end		= beg + len( opr['data'] )
-                assert end <= cnt, \
+                assert end <= opr['elements'], \
                     "Number of elements (%d) provided and byte offset %d / %d-byte elements exceeds element count %d: " % (
-                        len( opr['data'] ), byte, size, cnt )
-                if beg != 0 or end != cnt:
-                    log.detail( "Partial Write Tag Fragmented; elements %d-%d of %d", beg, end-1, cnt )
+                        len( opr['data'] ), byte, size, opr['elements'] )
+                if beg != 0 or end != opr['elements']:
+                    log.detail( "Partial Write Tag Fragmented; elements %d-%d of %d", beg, end-1, opr['elements'] )
         log.detail("Tag: %r yields Operation: %r", tag, opr )
         yield opr
-
 
 
 class client( object ):
@@ -335,8 +384,7 @@ class client( object ):
             rcvd		= network.recv( self.conn, timeout=0 )
             log.debug(
                 "EtherNet/IP-->%16s:%-5d rcvd %5d: %s",
-                self.addr[0], self.addr[1], len( rcvd ) if rcvd is not None else 0,
-                reprlib.repr( rcvd ))
+                self.addr[0], self.addr[1], len( rcvd ) if rcvd is not None else 0, rcvd )
             if rcvd is not None:
                 # Some input (or EOF); source is empty; chain the input and drop back into 
                 # the framer engine.  It will detect a no-progress condition on EOF.
@@ -409,10 +457,11 @@ class client( object ):
         assert self.writable( timeout=timeout ), \
             "Failed to send to %r within %7.3fs: %r" % (
                 self.addr, misc.inf if timeout is None else timeout, request )
-        self.conn.send( request )
+        sent		= bytes( request )
+        self.conn.send( sent )
         log.info(
             "EtherNet/IP-->%16s:%-5d send %5d: %s",
-                    self.addr[0], self.addr[1], len( request ), reprlib.repr( request ))
+                    self.addr[0], self.addr[1], len( request ), sent )
 
 
     def writable( self, timeout=None ):
@@ -443,11 +492,40 @@ class client( object ):
         self.send( data.input, timeout=timeout )
         return data
 
-    def read( self, path, elements=1, offset=0,
+    def get_attributes_all( self, path,
               route_path=None, send_path=None, timeout=None, send=True,
               sender_context=b'' ):
         req			= cpppo.dotdict()
         req.path		= { 'segment': [ cpppo.dotdict( d ) for d in parse_path( path ) ]}
+        req.get_attributes_all	= True
+        if send:
+            self.unconnected_send(
+                request=req, route_path=route_path, send_path=send_path, timeout=timeout,
+                sender_context=sender_context )
+        return req
+
+    def get_attribute_single( self, path,
+              route_path=None, send_path=None, timeout=None, send=True,
+              sender_context=b'' ):
+        req			= cpppo.dotdict()
+        req.path		= { 'segment': [ cpppo.dotdict( d ) for d in parse_path( path ) ]}
+        req.get_attribute_single= True
+        if send:
+            self.unconnected_send(
+                request=req, route_path=route_path, send_path=send_path, timeout=timeout,
+                sender_context=sender_context )
+        return req
+
+    def read( self, path, elements=1, offset=0,
+              route_path=None, send_path=None, timeout=None, send=True,
+              sender_context=b'' ):
+        """Issue a Read Tag Fragmented request for the specified path.  If no specific number of elements is specified,
+        get it from the path (if it is unparsed, eg Tag[0-9] or @0x04/5/connection=100)"""
+        req			= cpppo.dotdict()
+        seg,elm,cnt		= parse_path_elements( path )
+        if cnt is not None:
+            elements		= cnt
+        req.path		= { 'segment': [ cpppo.dotdict( s ) for s in seg ]}
         if offset is None:
             req.read_tag	= {
                 'elements':	elements
@@ -467,7 +545,10 @@ class client( object ):
                route_path=None, send_path=None, timeout=None, send=True,
                sender_context=b'' ):
         req			= cpppo.dotdict()
-        req.path		= { 'segment': [ cpppo.dotdict( d ) for d in parse_path( path )]}
+        seg,elm,cnt		= parse_path_elements( path )
+        if cnt is not None:
+            elements		= cnt
+        req.path		= { 'segment': [ cpppo.dotdict( s ) for s in seg ]}
         if offset is None:
             req.write_tag	= {
                 'elements':	elements,
@@ -494,7 +575,7 @@ class client( object ):
             "A Multiple Service Packet requires a request list"
         req			= cpppo.dotdict()
         if path:
-            req.path		= { 'segment': [ cpppo.dotdict( d ) for d in parse_path( path )]}
+            req.path		= { 'segment': [ cpppo.dotdict( s ) for s in parse_path( path )]}
         req.multiple		= {
             'request':		request,
         }
@@ -538,8 +619,8 @@ class client( object ):
         us.status		= 0
         us.priority		= 5
         us.timeout_ticks	= 157
-        us.path			= { 'segment': [ cpppo.dotdict( d ) for d in parse_path( send_path ) ]}
-        us.route_path		= { 'segment': [ cpppo.dotdict( d ) for d in route_path ]} # must be {link/port}
+        us.path			= { 'segment': [ cpppo.dotdict( s ) for s in parse_path( send_path ) ]}
+        us.route_path		= { 'segment': [ cpppo.dotdict( s ) for s in route_path ]} # must be {link/port}
 
         us.request		= request
 
@@ -573,8 +654,6 @@ def await( cli, timeout=None ):
     with presently available input.  This is where we implement timeouts; wait up to 'timeout' for
     the client to become readable; if not, return the None.  Otherwise, loop back and continue
     trying to gain a response.
-
-    
 
     """
     response			= None
@@ -633,8 +712,8 @@ class connector( client ):
 
     def issue( self, operations, index=0, fragment=False, multiple=0, timeout=None ):
         """Issue a sequence of I/O operations, returning the corresponding sequence of:
-        (<index>,<context>,<descr>,<op>,<request>).  If a non-zero 'multiple' is provided, bundle requests
-        'til we exceed the specified multiple service packet request size limit. 
+        (<index>,<context>,<descr>,<op>,<request>).  If a non-zero 'multiple' is provided, bundle
+        requests 'til we exceed the specified multiple service packet request size limit.
 
         Each op is instrumented with a sender_context based on the provided 'index', indicating the
         actual EtherNet/IP CIP request it is part of.  This can be used to detect how many actual
@@ -663,31 +742,47 @@ class connector( client ):
         rpysiz = rpymin		= 68
         requests		= []	# If we're collecting for a Multiple Service Packet
         for op in operations:
-            # Chunk up requests if using Multiple Service Request, otherwise send immediately
+            # Chunk up requests if using Multiple Service Request, otherwise send immediately.  Also
+            # handle Get Attribute(s) Single/All, but don't include in Multiple Service Packet.
             descr		= "Multi. " if multiple else "Single "
             op['sender_context']= sender_context
-            if 'offset' not in op:
-                op['offset']	= 0 if fragment else None # Force Read/Write Tag Fragmented
             begun		= cpppo.timer()
-            if 'data' in op:
+            method		= op.pop( 'method', 'write' if 'data' in op else 'read' )
+            if method == 'write':
                 descr	       += "Write "
+                if 'offset' not in op:
+                    op['offset']= 0 if fragment else None # Force Write Tag Fragmented
                 req		= self.write( timeout=timeout, send=not multiple, **op )
-                reqest		= 24 + parser.typed_data.estimate(
+                reqest		= 24 + parser.typed_data.datasize(
                     tag_type=op.get( 'tag_type', enip.INT.tag_type ), size=len( op['data'] ))
                 rpyest		= 4
-            else:
+            elif method == 'read':
                 descr	       += "Read  "
+                if 'offset' not in op:
+                    op['offset']= 0 if fragment else None # Force Read  Tag Fragmented
                 req		= self.read( timeout=timeout, send=not multiple, **op )
                 reqest		= 22
-                rpyest		= 4 + parser.typed_data.estimate(
-                    tag_type=enip.DINT.tag_type, size=op['elements'] )
+                rpyest		= 4 + parser.typed_data.datasize(
+                    tag_type=enip.DINT.tag_type, size=op.get( 'elements', 1 ))
+            elif method == 'get_attribute_single':
+                descr	       += "G_A_S "
+                req		= self.get_attribute_single( timeout=timeout, send=not multiple, **op )
+                reqest		= 8
+                rpyest		= multiple # Completely unknown; prevent merging...
+            elif method == 'get_attributes_all':
+                descr	       += "G_A_A "
+                req		= self.get_attributes_all( timeout=timeout, send=not multiple, **op )
+                reqest		= 8
+                rpyest		= multiple # Completely unknown; prevent merging...
+            else:
+                log.detail( "Unrecognized operation method %s: %r", method, op )
             elapsed		= cpppo.timer() - begun
-            descr	       += 'Frag' if op['offset'] is not None else 'Tag '
-            descr	       += ' ' + format_path( op['path'] )
+            descr	       += '    ' if 'offset' not in op else 'Frag' if op['offset'] is not None else 'Tag '
+            descr	       += ' ' + format_path( op['path'], count=op.get( 'elements' ))
 
             if multiple:
                 if max( reqsiz + reqest, rpysiz + rpyest ) < multiple or not requests:
-                    # Multiple Service Packet siz OK; keep collecting (at least one!)
+                    # Multiple Service Packet req/rpy est. size OK; keep collecting (at least one!)
                     reqsiz     += reqest
                     rpysiz     += rpyest
                 else:
@@ -711,7 +806,7 @@ class connector( client ):
                 if log.isEnabledFor( logging.DETAIL ):
                     log.detail( "Que. %7.3f/%7.3fs: %s %s", 0, 0, descr, enip.enip_format( req ))
             else:
-                # Single request issued
+                # Single requests already issued
                 if log.isEnabledFor( logging.DETAIL ):
                     log.detail( "Sent %7.3f/%7.3fs: %s %s", elapsed,
                                 misc.inf if timeout is None else timeout, descr,
@@ -781,6 +876,10 @@ class connector( client ):
                         val	= reply.read_frag.data
                     elif 'read_tag' in reply:
                         val	= reply.read_tag.data
+                    elif 'get_attribute_single' in reply:
+                        val	= reply.get_attribute_single.data
+                    elif 'get_attributes_all' in reply:
+                        val	= reply.get_attributes_all.data
                     elif 'write_frag' in reply:
                         val	= True
                     elif 'write_tag' in reply:
@@ -931,19 +1030,19 @@ class connector( client ):
                         # Success (may be partial data); we can compute actual element offset
                         # and count of elements actually included in reply.
                         off	= request.read_frag.get( 'offset', 0 ) \
-                                      // enip.parser.typed_data.estimate( reply.read_frag['type'], 1 )
+                                      // enip.parser.typed_data.datasize( tag_type=reply.read_frag['type'] )
                         cnt	= len( val )
                     else:
                         # Failure; no way to compute element offset requested, use count from request
-                        cnt	= request.read_frag.get( 'elements' )
+                        cnt	= request.read_frag.get( 'elements', 0 )
                 elif 'read_tag' in reply:
                     act		= "=="
                     off		= 0
-                    cnt		= request.read_tag.get( 'elements' )
+                    cnt		= request.read_tag.get( 'elements', 0 )
                 elif 'write_frag' in reply:
                     act		= "<="
                     off		= request.write_frag.get( 'offset', 0 ) \
-                                  // enip.parser.typed_data.estimate( request.write_frag['type'], 1 )
+                                  // enip.parser.typed_data.datasize( tag_type=request.write_frag['type'] )
                     val		= request.write_frag.data
                     cnt		= request.write_frag.elements - off
                 elif 'write_tag' in reply:
@@ -980,21 +1079,20 @@ class connector( client ):
             yield index,descr,request,reply,status,val
 
     # 
+    # results
     # process
     # 
     #     Simple, high-level API entry point that eliminates the need to process any yielded
     # sequences, and simply returns the number of (<failures>,<transactions>), optionally printing a
     # summary of I/O performed.
     # 
-    def process( self, operations, depth=0, multiple=0, fragment=False, printing=False, timeout=None ):
-        """Process a sequence of I/O operations.  If a non-zero 'depth' is specified, then pipeline the
-        requests allowing 'depth' outstanding transactions to be in-flight; otherwise, we just issue
-        the transactions synchronously.  Returns the a tuple (<failures>,<transactions>).  Raises
-        Exception on catastrophic failure of the connection.
+    def results( self, operations, depth=0, multiple=0, fragment=False, printing=False, timeout=None ):
+        """Process a sequence of I/O operations, yielding the results.  If a non-zero 'depth' is
+        specified, then pipeline the requests allowing 'depth' outstanding transactions to be
+        in-flight; otherwise, we just issue the transactions synchronously.  Raises Exception on
+        catastrophic failure of the connection.
 
         """
-        failures		= 0
-        transactions		= 0
         if depth:
             harvested		= self.pipeline(
                 operations=operations, multiple=multiple, fragment=fragment, timeout=timeout,
@@ -1002,11 +1100,18 @@ class connector( client ):
         else:
             harvested		= self.synchronous(
                 operations=operations, multiple=multiple, fragment=fragment, timeout=timeout )
-        validated		= self.validate( harvested=harvested, printing=printing )
-        for idx,dsc,req,rpy,sts,val in validated:
-            transactions       += 1
-            if val is None:
-                failures       += 1
+        if printing:
+            harvested		= self.validate( harvested=harvested, printing=printing )
+        for idx,dsc,req,rpy,sts,val in harvested:
+            yield val
+
+    def process( self, operations, **kwds ):
+        """Process a sequence of I/O operations, returning the a tuple (<failures>,[<result>,...]).
+        Raises Exception on catastrophic failure of the connection.
+
+        """
+        transactions		= list( self.results( operations=operations, **kwds ))
+        failures		= sum( 1 if t is None else 0 for t in transactions )
         return failures,transactions
 
 

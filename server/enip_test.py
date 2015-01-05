@@ -30,7 +30,7 @@ from   cpppo.server import (network, enip)
 from   cpppo.server.enip import logix
 
 log				= logging.getLogger( "enip.tst" )
-
+log.setLevel( logging.INFO )
 
 def test_octets():
     """Scans raw octets"""
@@ -587,7 +587,14 @@ extpath_8_prod		= bytes(bytearray([		# The produced path is shorter (uses 8-bit 
           0x24,       0x02,
           0x30, 0x03,#0x00,  < errata (deleted)
 ]))
-
+extpath_9		= bytes(bytearray([
+    # From LEC-GEN1_v1 EDS
+    0x04,		# 4 words
+    0x20, 0x04,		# Class ID 0x04 -- Assembly
+    0x24, 0x05,		# Instance 5
+    0x2C, 0x03,		# Connection Point 3
+    0x2C, 0x64,		# Connection Point 100
+]))
 # The byte order of EtherNet/IP CIP data is little-endian; the lowest-order byte
 # of the value arrives first.
 extpath_tests			= [
@@ -647,6 +654,15 @@ extpath_tests			= [
                     {'attribute': 	3},
                 ],
             } ), 
+            ( extpath_9, enip.EPATH, {
+                'request.EPATH.size': 4,
+                'request.EPATH.segment': [
+                    {'class':		4 },
+                    {'instance':	5 },
+                    {'connection':	3 },
+                    {'connection':    100 },
+                ],
+            } ), 
 ]
 
 def test_enip_EPATH():
@@ -658,6 +674,7 @@ def test_enip_EPATH():
 
         data			= cpppo.dotdict()
         source			= cpppo.chainable( pkt )
+        log.info( "Testing %s against %r", cls.__name__, pkt )
         with cls() as machine:
             for i,(m,s) in enumerate( machine.run( source=source, path='request', data=data )):
                 log.detail( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r",
@@ -940,7 +957,7 @@ def test_enip_CPF():
             data.input		= bytearray( enip.CPF.produce( data.CPF )) 
             assert data.input == pkt
         except:
-            log.warning ( "Invalid packet produced from CPF data: %r", data )
+            log.warning ( "Invalid packet produced from EtherNet/IP CPF data: %r", data )
             raise
 
 

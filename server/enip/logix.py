@@ -192,7 +192,7 @@ class Logix( Message_Router ):
         index			= resolve_element( data.path )	
         assert type( index ) is tuple and len( index ) == 1, \
             "Unsupported/Multi-dimensional index: %s" % index
-        siz			= attribute.parser.calcsize
+        siz			= attribute.parser.struct_calcsize
         off			= 0
         if data.service in (self.RD_FRG_RPY, self.WR_FRG_RPY):
             off			= data[context].get( 'offset' ) or 0 # nonexistent/None/0 --> 0
@@ -475,7 +475,7 @@ def __read_tag_reply():
 
     dtyp			= UINT( 	'type',   	context='read_tag',  extension='.type' )
     dtyp[True]			= typed_data( 	'data',   	context='read_tag',
-                                        datatype='.type',
+                                        tag_type='.type',
                                         terminal=True )
     # For status 0x00 (Success), type/data follows.
     schk[None]			= cpppo.decide(	'ok',		state=dtyp,
@@ -509,7 +509,7 @@ def __read_frag_reply():
 
     dtyp			= UINT( 	'type',   	context='read_frag',  extension='.type' )
     dtyp[True]			= typed_data( 	'data',   	context='read_frag',
-                                        datatype='.type',
+                                        tag_type='.type',
                                         terminal=True )
     # For status 0x00 (Success) and 0x06 (Not all data returned), type/data follows.
     schk[None]			= cpppo.decide(	'ok',		state=dtyp,
@@ -528,7 +528,7 @@ def __write_tag():
     path[True]		= dtyp	= UINT(		'type',   	context='write_tag', extension='.type' )
     dtyp[True]		= delm	= UINT(		'elements', 	context='write_tag', extension='.elements' )
     delm[True]			= typed_data( 	'data',		context='write_tag' ,
-                                        datatype='.type',
+                                        tag_type='.type',
                                         terminal=True )
     return srvc
 Logix.register_service_parser( number=Logix.WR_TAG_REQ, name=Logix.WR_TAG_NAM,
@@ -558,7 +558,7 @@ def __write_frag():
     dtyp[True]		= delm	= UINT(		'elements', 	context='write_frag', extension='.elements' )
     delm[True]		= doff	= UDINT( 	'offset',   	context='write_frag', extension='.offset' )
     doff[True]			= typed_data( 	'data',  	context='write_frag',
-                                        datatype='.type',
+                                        tag_type='.type',
                                         terminal=True )
     return srvc
 Logix.register_service_parser( number=Logix.WR_FRG_REQ, name=Logix.WR_FRG_NAM,

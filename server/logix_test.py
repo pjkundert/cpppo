@@ -23,26 +23,121 @@ if __name__ == "__main__":
 
 import cpppo
 from   cpppo.server import network, enip
-from   cpppo.server.enip import logix, client, device
+from   cpppo.server.enip import logix, client
 
 log				= logging.getLogger( "lgx.prof" )
 
+# Get Attribute[s] All/Single tests: description, original, produced, parsed, processed, response.
+# Ensure we can produce the encoded version from the original, and then check what we can parse from
+# the encoded, and finally what the result is.
+GA_tests			= [
+            (
+                "Get Attribute Single 0x02/1/4",
+                {
+                    'get_attribute_single': True,
+                    'path': {
+                        'segment': [ cpppo.dotdict( s ) for s in [
+                                { 'class': 0x02 },
+                                { 'instance': 1},
+                                { 'attribute': 4 }]]},
+                },
+                b'\x0e\x03 \x02$\x010\x04',
+                {
+                    "service": 0x0e,
+                },
+                {
+                    "service": 0x8e,
+                    "get_attribute_single.data": [
+                        0,
+                        0,
+                        128,
+                        63
+                    ],
+                },
+                b'\x8e\x00\x00\x00\x00\x00\x80?',
+            ), (
+                "Get Attributes All 0x02/1",
+                {
+                    'get_attributes_all': True,
+                    'path': {
+                        'segment': [ cpppo.dotdict( s ) for s in [
+                            { 'class': 0x02 },
+                            { 'instance': 1 }]]},
+                },
+                b'\x01\x02 \x02$\x01',
+                {
+                    "service": 0x01,
+                },
+                {
+                    "service": 0x81,
+                    "get_attributes_all.data": [
+                        220,
+                        1,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        128,
+                        63
+                    ],
+                },
+                b'\x81\x00\x00\x00\xdc\x01\x00\x00\x00\x00\x00\x00\x00\x00\x80?',
+            ), (
+                "Set Attribute Single 0x02/1/4",
+                {
+                    'set_attribute_single': {
+                        'data': [ 0, 0, 128, 63 ]
+                    },
+                    'path': {
+                        'segment': [ cpppo.dotdict( s ) for s in [
+                            { 'class': 0x02 },
+                            { 'instance': 1 },
+                            { 'attribute': 4 }]]},
+                },
+                b'\x10\x03 \x02$\x010\x04\x00\x00\x80?',
+                {
+                    "service": 0x10,
+                    "set_attribute_single.data": [
+                        0,
+                        0,
+                        128,
+                        63
+                    ],
+                },
+                {
+                    "service": 0x90,
+                    "status": 0,
+                },
+                b'\x90\x00\x00\x00',
+            )
+]
 
 def test_logix_multiple():
     """Test the Multiple Request Service.  Ensure multiple requests can be successfully handled, and
     invalid tags are correctly rejected.
 
-    """
-    size			= 1000
-    Obj				= logix.Logix()
-    Obj_a1 = Obj.attribute['1']	= enip.device.Attribute( 'parts',       enip.parser.DINT, default=[n for n in range( size )])
-    Obj_a2 = Obj.attribute['2']	= enip.device.Attribute( 'ControlWord', enip.parser.DINT, default=[n for n in range( size )])
-    Obj_a3 = Obj.attribute['3']	= enip.device.Attribute( 'SCADA_40001', enip.parser.INT,  default=[n for n in range( size )])
+    The Logix is a Message_Router instance, and is expected to be at Class 2, Instance 1.  Eject any
+    non-Logix Message_Router that presently exist.
 
-    assert len( Obj_a1 ) == size
-    assert len( Obj_a2 ) == size
-    Obj_a1[0]			= 42
-    Obj_a2[0]			= 476
+    """
+    Obj				= enip.device.lookup( enip.device.Message_Router.class_id, instance_id=1 )
+    if not isinstance( Obj, logix.Logix ):
+        if Obj is not None:
+            del enip.device.directory['2']['1']
+        Obj			= logix.Logix( instance_id=1 )
+
+    # Create some Attributes to test, but mask the big ones from Get Attributes All.
+    size			= 1000
+    Obj_a1 = Obj.attribute['1']	= enip.device.Attribute( 'parts',       enip.parser.DINT, default=[n for n in range( size )],
+                                                         mask=enip.device.Attribute.MASK_GA_ALL )
+    Obj_a2 = Obj.attribute['2']	= enip.device.Attribute( 'ControlWord', enip.parser.DINT, default=[0,0])
+    Obj_a3 = Obj.attribute['3']	= enip.device.Attribute( 'SCADA_40001', enip.parser.INT,  default=[n for n in range( size )],
+                                                         mask=enip.device.Attribute.MASK_GA_ALL )
+    Obj_a4 = Obj.attribute['4']	= enip.device.Attribute( 'number',      enip.parser.REAL, default=0.0)
 
     # Set up a symbolic tag referencing the Logix Object's Attribute
     enip.device.symbol['parts']	= {'class': Obj.class_id, 'instance': Obj.instance_id, 'attribute':1 }
@@ -50,6 +145,49 @@ def test_logix_multiple():
 				= {'class': Obj.class_id, 'instance': Obj.instance_id, 'attribute':2 }
     enip.device.symbol['SCADA_40001'] \
 				= {'class': Obj.class_id, 'instance': Obj.instance_id, 'attribute':3 }
+    enip.device.symbol['number'] \
+				= {'class': Obj.class_id, 'instance': Obj.instance_id, 'attribute':4 }
+
+
+    assert len( Obj_a1 ) == size
+    assert len( Obj_a3 ) == size
+    Obj_a1[0]			= 42
+    Obj_a2[0]			= 476
+    Obj_a4[0]			= 1.0
+    # Ensure that the basic CIP Object requests work on a derived Class.
+    for description,original,produced,parsed,result,response in GA_tests:
+        request			= cpppo.dotdict( original )
+
+        log.warning( "%s; request: %s", description, enip.enip_format( request ))
+        encoded			= Obj.produce( request )
+        assert encoded == produced, "%s: Didn't produce correct encoded request: %r != %r" % (
+            description, encoded, produced )
+
+        # Now, use the Message_Router's parser to decode the encoded bytes
+        source			= cpppo.rememberable( encoded )
+        decoded			= cpppo.dotdict()
+        with Obj.parser as machine:
+            for m,s in enumerate( machine.run( source=source, data=decoded )):
+                pass
+        for k,v in cpppo.dotdict( parsed ).items():
+            assert decoded[k] == v, "%s: Didn't parse expected value: %s != %r in %s" % (
+                description, k, v, enip.enip_format( decoded ))
+
+        # Process the request into a reply, and ensure we get the expected result (some Attributes
+        # are filtered from Get Attributes All; only a 2-element DINT array and a single REAL should
+        # be produced)
+        Obj.request( request )
+        logging.warning("%s: reply:   %s", description, enip.enip_format( request ))
+        for k,v in cpppo.dotdict( result ).items():
+            assert k in request and request[k] == v, \
+                "%s: Didn't result in expected response: %s != %r; got %r" % (
+                    description, k, v, request[k] if k in request else "(not found)" )
+
+        # Finally, produce the encoded response
+        encoded			= Obj.produce( request )
+        assert encoded == response, "%s: Didn't produce correct encoded response: %r != %r" % (
+            description, encoded, response )
+
 
     # Test that we correctly compute beg,end,endactual for various Read Tag Fragmented scenarios,
     # with 2-byte and 4-byte types.  For the purposes of this test, we only look at path...elements.
@@ -247,7 +385,7 @@ def test_logix_multiple():
     log.normal( "Multiple Request: %s", enip.enip_format( data ))
     assert 'multiple' in data, \
         "No parsed multiple found in data: %s" % enip.enip_format( data )
-    assert data.service == device.Message_Router.MULTIPLE_REQ, \
+    assert data.service == enip.device.Message_Router.MULTIPLE_REQ, \
         "Expected a Multiple Request Service request: %s" % enip.enip_format( data )
     assert data.multiple.number == 2, \
         "Expected 2 requests in request.multiple: %s" % enip.enip_format( data )
@@ -258,7 +396,7 @@ def test_logix_multiple():
     # Process the request into a reply.
     Obj.request( data )
     log.normal( "Multiple Response: %s", enip.enip_format( data ))
-    assert data.service == device.Message_Router.MULTIPLE_RPY, \
+    assert data.service == enip.device.Message_Router.MULTIPLE_RPY, \
         "Expected a Multiple Request Service reply: %s" % enip.enip_format( data )
 
     rpy_1			= bytearray([
@@ -399,8 +537,13 @@ def test_logix_multiple():
 
 def logix_performance( repeat=1000 ):
     """Characterize the performance of the logix module."""
+    Obj				= enip.device.lookup( enip.device.Message_Router.class_id, instance_id=1 )
+    if not isinstance( Obj, logix.Logix ):
+        if Obj is not None:
+            del enip.device.directory['2']['1']
+        Obj			= logix.Logix( instance_id=1 )
+
     size			= 1000
-    Obj				= logix.Logix()
     Obj_a1 = Obj.attribute['1']	= enip.device.Attribute( 'Something', enip.parser.INT, default=[n for n in range( size )])
 
     assert len( Obj_a1 ) == size
