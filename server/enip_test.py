@@ -26,11 +26,11 @@ if __name__ == "__main__":
 
 import cpppo
 from   cpppo import misc
-from   cpppo.server import (network, enip)
-from   cpppo.server.enip import logix
+from   cpppo.server import network, enip
+from   cpppo.server.enip import parser, logix
 
 log				= logging.getLogger( "enip.tst" )
-log.setLevel( logging.INFO )
+#log.setLevel( logging.DEBUG )
 
 def test_octets():
     """Scans raw octets"""
@@ -695,7 +695,53 @@ def test_enip_EPATH():
             "Invalid EPATH data: %r\nexpect: %r\nactual: %r" % ( data, prod, out )
 
 
+commserv_1			= bytes(bytearray([
+    0x01, 0x00, 0x20, 0x00, b'C'[0], b'o'[0], b'm'[0], b'm'[0],
+     b'u'[0], b'n'[0], b'i'[0], b'c'[0], b'a'[0], b't'[0], b'i'[0], b'o'[0],
+     b'n'[0], b's'[0], 0x00,
+    ]))
 
+def test_enip_listservices():
+    # The CPF item produced by the ListServices command is the "Communications"
+    # item (type_id = 0x0100).
+    
+    data			= cpppo.dotdict()
+    data.type_id		= 0x0100
+    data.length			= 0
+    data.version		= 1
+    data.capability		= 0x0001 << 5 # CIP encapsulation only
+    data.service_name		= 'Communications'
+
+    result			= parser.communications_service.produce( data )
+    
+    assert result == commserv_1
+
+
+    data			= cpppo.dotdict()
+    source			= cpppo.chainable( commserv_1 )
+
+    with parser.communications_service( terminal=True ) as machine:
+        for i,(m,s) in enumerate( machine.run( source=source, data=data )):
+            log.info( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r", m.name_centered(),
+                      i, s, source.sent, source.peek(), data )
+        assert machine.terminal, "%s: Should have reached terminal state" % machine.name_centered()
+        assert i == 24
+    assert source.peek() is None
+    assert 'communications_service' in data
+    assert data.communications_service.version == 1
+    assert data.communications_service.service_name == 'Communications'
+
+    # Minimal ListServices request is empty
+    data			= cpppo.dotdict()
+    source			= cpppo.chainable( b'\x04\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00Funstuff\x00\x00\x00\x00' )
+    with enip.enip_machine( context='enip' ) as machine:
+        for i,(m,s) in enumerate( machine.run( source=source, data=data )):
+            log.detail( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r",
+                          machine.name_centered(), i, s, source.sent, source.peek(), data )
+    assert source.peek() is None
+    assert data.enip.command == 0x0004
+    assert data.enip.length  == 0
+    
 
 # "17","0.423597000","192.168.222.128","10.220.104.180","CIP CM","124","Unconnected Send: Unknown Service (0x52)"
 readfrag_1_req 			= bytes(bytearray([
@@ -811,6 +857,27 @@ cpf_2_rpy	 		= bytes(bytearray([ # gaa_011_rpy
 ]))
 CPF_tests			= [
     (
+        b'',
+        {
+            "CPF": {},
+        }
+    ), (
+        b'\x01\x00\x00\x01\x08\x00\x03\x00\x04\x00abc\0',
+        # ^^^^^^^^ count == 1
+        #         ^^^^^^^^ type_id == 0x0100
+        #                 ^^^^^^^^ length == 8
+        #                         ^^^^^^^^ version == 3
+        #                                  ^^^^^^^^ capability == 4
+        #                                          ^^^^^ service_name == abc\0
+        {
+            "CPF.count": 1,
+            "CPF.item[0].length": 8,
+            "CPF.item[0].type_id": 0x0100,
+            "CPF.item[0].communications_service.version": 3,
+            "CPF.item[0].communications_service.capability": 4,
+            "CPF.item[0].communications_service.service_name": "abc",
+        }
+    ), (
         cpf_1,
         {
             "CPF.count": 2, 
@@ -918,14 +985,14 @@ def test_enip_CPF():
                           machine.name_centered(), i, s, source.sent, source.peek(), data )
 
         # Now, parse the encapsulated message(s).  We'll assume it is destined for a Logix Object.
-        Lx			= logix.Logix()
         assert 'CPF' in data
-        for item in data.CPF.item:
+        if 'item' in data.CPF:
+          for item in data.CPF.item:
             if 'unconnected_send' in item:
                 assert 'request' in item.unconnected_send # the encapsulated request
-                with Lx.parser as machine:
+                with logix.Logix.parser as machine:
                     log.normal( "Parsing %3d bytes using %s.parser, from %s", len( item.unconnected_send.request.input ),
-                                Lx, enip.enip_format( item ))
+                                logix.Logix.__name__, enip.enip_format( item ))
                     # Parse the unconnected_send.request.input octets, putting parsed items into the
                     # same request context
                     for i,(m,s) in enumerate( machine.run( source=cpppo.peekable( item.unconnected_send.request.input ),
@@ -933,7 +1000,7 @@ def test_enip_CPF():
                         log.detail( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r",
                                     machine.name_centered(), i, s, source.sent, source.peek(), data )
                     log.normal( "Parsed  %3d bytes using %s.parser, into %s", len( item.unconnected_send.request.input ),
-                                Lx, enip.enip_format( data ))
+                                logix.Logix.__name__, enip.enip_format( data ))
 
         try:
             for k,v in tst.items():
@@ -949,9 +1016,10 @@ def test_enip_CPF():
                 log.detail( "del data[%r]", k )
                 del data[k]
         try:
-            for item in data.CPF.item:
+            if 'item' in data.CPF:
+              for item in data.CPF.item:
                 if 'unconnected_send' in item:
-                    item.unconnected_send.request.input	= bytearray( Lx.produce( item.unconnected_send.request ))
+                    item.unconnected_send.request.input	= bytearray( logix.Logix.produce( item.unconnected_send.request ))
                     log.normal("Produce Logix message from: %r", item.unconnected_send.request )
             log.normal( "Produce CPF message from: %r", data.CPF )
             data.input		= bytearray( enip.CPF.produce( data.CPF )) 
@@ -965,7 +1033,19 @@ def test_enip_CPF():
  
 CIP_tests			= [
             ( 
+                # An empty
                 b'', {}
+            ), (
+                # ListServices also has a CIP payload (may be empty)
+                b'\x04\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00Funstuff\x00\x00\x00\x00',
+                {
+                    "enip.command": 4,
+                    "enip.length": 0,
+                    "enip.options": 0, 
+                    "enip.session_handle": 0, 
+                    "enip.status": 0,
+                    "enip.CIP.list_services.CPF": {}, 
+                }
             ), (
                 rss_004_request,
                 { 
@@ -1260,8 +1340,7 @@ CIP_tests			= [
                     "enip.session_handle": 285351425, 
                     "enip.status": 0
                 }
-            ),
-
+          ),
 ]
   
 
@@ -1287,7 +1366,7 @@ def test_enip_CIP():
         data.enip.encapsulated	= cpppo.dotdict()
         
         with enip.CIP() as machine:
-            for i,(m,s) in enumerate( machine.run( path='enip', source=cpppo.peekable( data.enip.input ), data=data )):
+            for i,(m,s) in enumerate( machine.run( path='enip', source=cpppo.peekable( data.enip.get( 'input', b'' )), data=data )):
                 log.detail( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r",
                           machine.name_centered(), i, s, source.sent, source.peek(), data )
 
@@ -1339,12 +1418,13 @@ def test_enip_CIP():
                         log.normal("Produce Logix message from: %r", item.unconnected_send.request )
                 log.normal( "Produce CPF message from: %r", cpf.CPF )
                 cpf.input		= bytearray( enip.CPF.produce( cpf.CPF )) 
-            # Next, reconstruct the CIP Register, SendRRData.  The CIP.produce must be provided the
-            # EtherNet/IP header, because it contains data (such as .command) relevant to
-            # interpreting the .CIP... contents.
+            # Next, reconstruct the CIP Register, SendRRData or ListServices.  The CIP.produce must
+            # be provided the EtherNet/IP header, because it contains data (such as .command)
+            # relevant to interpreting the .CIP... contents.
             data.enip.input		= bytearray( enip.CIP.produce( data.enip ))
             # And finally the EtherNet/IP encapsulation itself
             data.input			= bytearray( enip.enip_encode( data.enip ))
+            log.detail( "EtherNet/IP CIP Request produced payload: %r", bytes( data.input ))
             assert data.input == pkt
         except:
             log.warning ( "Invalid packet produced from EtherNet/IP CIP data: %r", data )

@@ -253,9 +253,11 @@ class decide( object ):
 
     If the predicate evaluates to not True, or the result of execute is None, the transition
     is deemed to *not* have been taken, and the next state/decide (if any) is used."""
-    def __init__( self, name, state=None, predicate=lambda machine,source,path,data: True ):
+    def __init__( self, name, state=None, predicate=None ):
         self.name		= name
         self.state		= state
+        if predicate is None:
+            predicate		= lambda machine=None, source=None, path=None, data=None: True 
         self.predicate		= predicate
 
     def __str__( self ):
@@ -766,7 +768,7 @@ class state( dict ):
                     log.debug( "%s -- stopped due to reaching symbol limit %d", self.name_centered(), ending )
                 elif inp is None and not limited and (
                         self.recognizers or not all( k is None for k in self.keys() )):
-                    log.info( "%s <non  trans>", self.name_centered() )
+                    #log.info( "%s <non  trans>", self.name_centered() )
                     yield machine,None			# 0+ non-transitions...
                     continue
                 break					# No other transition possible; done
@@ -889,11 +891,11 @@ class state( dict ):
         # Accept any of regex/lego/fsm, and build the missing ones.
         regexstr, regex		= None, None
         if isinstance( machine, type_str_base ):
-            #log.debug( "Converting Regex to greenery.lego: %r", machine )
+            log.debug( "Converting Regex to greenery.lego: %r", machine )
             regexstr		= machine
             machine		= greenery.lego.parse( regexstr )
         if isinstance( machine, greenery.lego.lego ):
-            #log.debug( "Converting greenery.lego to   fsm: %r", machine )
+            log.debug( "Converting greenery.lego to   fsm: %r", machine )
             regex		= machine
             machine		= regex.fsm()
         if not isinstance( machine, greenery.fsm.fsm ):
@@ -906,8 +908,13 @@ class state( dict ):
 
         # Create a state machine identical to the greenery.fsm 'machine'.  There are no "no-input"
         # (NULL) transitions in a greenery.fsm; the None (./anychar) transition is equivalent to the
-        # default "True" transition.
-        #log.debug( "greenery.fsm:\n%s", machine )
+        # default "True" transition.  Detect "dead" states; non-terminal states where all outgoing
+        # edges loop back onto itself.  This is used by the greenery state machine to absorb
+        # sequences of input that are impossible in the regular expression's grammar, and remain in
+        # a non-terminal state.  We want our machine to fail (yield a non-transition) on that input,
+        # instead.  So, below, we'll explicitly store a transition to None (a non-transition) for
+        # any transition into a dead state.
+        log.debug( "greenery.fsm:\n%s", machine )
         states			= {}
         for pre,tab in machine.map.items():
             terminal		= pre in machine.finals
@@ -916,7 +923,7 @@ class state( dict ):
             dead		= loopback and not terminal and not initial
 
             node		= cls( str( pre ), terminal=terminal, **kwds )
-            #log.debug( "%s --> %r %-10s, %-10s, %-10s %s", node.name_centered(), tab.values(), 
+            #log.debug( "%s --> %r %-10s, %-10s, %-10s", node.name_centered(), tab.values(), 
             #          "initial" if initial else "", "terminal" if terminal else "", "dead" if dead else "" )
             if not dead:
                 states[pre]	= node    # must check for dead states in mapping below...
@@ -929,12 +936,14 @@ class state( dict ):
         # transitions, or one "None" (anychar) transition.  We ensure we process the None transition
         # first, so its there in states[pre][True] before processing encoder.
         for pre,tab in machine.map.items():
+            if pre not in states:
+                # These are transitions out of a dead (non-terminal, loopback) state.  Skip them; any
+                # symbol after this point is NOT in the grammar defined by the regular expression;
+                # yield a non-transition.
+                #log.debug( "dead state %s; ignoring", pre )
+                continue
             for sym in sorted( tab, key=lambda k: [] if k is None else [k] ):
                 nxt		= tab[sym]
-                if nxt not in states:
-                    #log.debug( "dead trans %s <- %-10.10r --> %s", pre, sym, nxt )
-                    continue
-                
                 if sym is None:
                     sym		= True
                 elif encoder:
@@ -944,8 +953,7 @@ class state( dict ):
                     # increasing integers)
                     xformed	= list( enumerate( encoder( sym )))
                     assert len( xformed ) > 0
-                    #if len(logging.root.handlers):
-                    #    log.debug( "%s <- %-10.10r: Encoded to %r", states[pre].name_centered(), sym, xformed )
+                    #log.debug( "%s <- %-10.10r: Encoded to %r", states[pre].name_centered(), sym, xformed )
                     if len( xformed ) > 1:
                         assert ( 1 <= len( machine.map[pre] ) <= 2 ), \
                             "Can only expand 1 (symbol) or 2 (symbol/anychar) transitions: %r" % (
@@ -981,8 +989,20 @@ class state( dict ):
                     if len( xformed ):
                         pre	= lst
                     sym		= enc
-                #log.debug( "%s <- %-10.10r --> %s", states[pre].name_centered(), sym, states[nxt] )
-                states[pre][sym]=states[nxt]
+                # If this is a transition into a "dead" state, we'll make it an explicit transition
+                # to None (a non-transition), forcing the regular expression dfa to cease, rejecting
+                # the rest of the symbols.  The dfa will be terminal, iff A) it was marked terminal
+                # itself, and B) if the final sub-state was a terminal state.  If there is already a
+                # wildcard ('True') transition to None, then we can skip 
+                dst		= states.get( nxt ) # will be None if 'nxt' is a "dead" state 
+                redundant	= dst is None and states[pre].get( True, True ) is None
+                #log.debug( "%s <- %-10.10r --> %s %s", states[pre].name_centered(), sym, dst,
+                #           "redundant; skipping" if redundant else "" )
+                if redundant:
+                    # This symbol targets a dead state (results in a non-Transition), and there is
+                    # already a wild-card (True) to a non-transition (None).  Skip it.
+                    continue
+                states[pre][sym]= dst
 
         # We create a non-input state copying the initial state's transitions, so we don't consume
         # the first symbol of input before it is accepted by the regex.

@@ -691,7 +691,9 @@ def process( addr, data, **kwds ):
         data['request.addr']	= addr	  		# data.request may not exist, or be empty
 
         if 'enip' in data.request:
-            source.chain( data.request.enip.input )
+            # Some requests have no encapsulated CIP payload (eg. empty ListServices requests)
+            if 'input' in data.request.enip:
+                source.chain( data.request.enip.input )
             with ucmm.parser as machine:
                 for i,(m,s) in enumerate( machine.run( path='request.enip', source=source, data=data )):
                     #log.detail( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %s",

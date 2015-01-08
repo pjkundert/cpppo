@@ -945,16 +945,16 @@ class UCMM( Object ):
                     and data.enip.CIP.send_data.CPF.count == 2 \
                     and data.enip.CIP.send_data.CPF.item[0].length == 0, \
                     "EtherNet/IP UCMM remote routed requests unimplemented"
-                unc_send		= data.enip.CIP.send_data.CPF.item[1].unconnected_send
+                unc_send	= data.enip.CIP.send_data.CPF.item[1].unconnected_send
                 if 'path' in unc_send:
-                    ids			= resolve( unc_send.path )
+                    ids		= resolve( unc_send.path )
                     assert ids[0] == 0x06 and ids[1] == 1, \
                         "Unconnected Send targeted Object other than Connection Manager: 0x%04x/%d" % ( ids[0], ids[1] )
                 if 'route_path.segment' in unc_send:
                     assert len( unc_send.route_path.segment ) == 1 \
                         and unc_send.route_path.segment[0] == {'link': 0, 'port':1}, \
                         "Unconnected Send routed to link other than backplane link 1, port 0: %r" % unc_send.route_path
-                CM			= lookup( class_id=0x06, instance_id=1 )
+                CM		= lookup( class_id=0x06, instance_id=1 )
                 CM.request( unc_send )
                 
                 # After successful processing of the Unconnected Send on the target node, we
@@ -975,11 +975,25 @@ class UCMM( Object ):
                 # Unconnected Send request response payload.
                 if log.isEnabledFor( logging.DEBUG ):
                     log.debug( "%s Regenerating: %s", self, enip_format( data ))
-                data.enip.input		= bytearray( self.parser.produce( data.enip ))
-                
+                data.enip.input	= bytearray( self.parser.produce( data.enip ))
+            else:
+                # See if we can identify the method to invoke based on the contents of the CIP
+                # request.  The data.enip.CIP better have a single dict key (its probably a
+                # cpppo.dotdict, derived from dict; we want to get just one layer of keys...).
+                if log.isEnabledFor( logging.DEBUG ):
+                    log.debug( "%s CIP Request: %s", self, enip_format( data ))
+                cip		= data.get( 'enip.CIP' )
+                assert isinstance( cip, dict ) and len( cip ) == 1, "Indeterminate CIP request: %r" % ( cip )
+                key		= next( iter( dict.keys( cip )))
+                method		= getattr( self, key, None )
+                assert method, "CIP request %r unsupported: %r" % ( key, cip )
+
+                # Finally, use the method to 
+                proceed		= method( data )
+
         except Exception as exc:
             # On Exception, if we haven't specified a more detailed error code, return Service not
-            # supported.  This 
+            # supported.
             log.warning( "%r Command 0x%04x %s failed with Exception: %s\nRequest: %s\n%s", self,
                          data.enip.command if 'enip.command' in data else 0,
                          ( self.command[data.enip.command]
@@ -987,7 +1001,7 @@ class UCMM( Object ):
                            else "(Unknown)"), exc, enip_format( data ),
                          ''.join( traceback.format_exception( *sys.exc_info() )))
             if 'enip.status' not in data or data.enip.status == 0x00:
-                data['enip.status']	= 0x08 # Service not supported
+                data['enip.status']= 0x08 # Service not supported
             pass
 
 
@@ -996,7 +1010,22 @@ class UCMM( Object ):
         if log.isEnabledFor( logging.INFO ):
             log.info( "%s Response: %s", self, enip_format( data ))
         return proceed
-            
+
+    LISTSVCS_CIP_ENCAP		= 1 << 5
+    LISTSVCS_CIP_UDP		= 1 << 8
+    def list_services( self, data ):
+        cpf			= data.enip.CIP.list_services.CPF
+        cpf.item		= [ cpppo.dotdict() ]
+        cpf.item[0].type_id	= 0x0100
+        cpf.item[0].communications_service \
+            		= c_s	= cpppo.dotdict()
+        c_s.version		= 1
+        c_s.capability		= self.LISTSVCS_CIP_ENCAP
+        c_s.service_name	= 'Communications'
+
+        data.enip.input		= bytearray( self.parser.produce( data.enip ))
+
+        return True
 
 class Message_Router( Object ):
     """Processes incoming requests.  Normally a derived class would expand the normal set of Services
