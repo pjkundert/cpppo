@@ -1045,7 +1045,7 @@ class unregister( octets_noop ):
     def terminate( self, exception, machine=None, path=None, data=None ):
         """Just create an empty value to indicate the command was received."""
         # Only operate if we have completed without exception.
-        super( state_struct, self ).terminate(
+        super( unregister, self ).terminate(
             exception=exception, machine=machine, path=path, data=data )
         if exception is not None:
             return
