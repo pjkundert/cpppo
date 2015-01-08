@@ -253,9 +253,11 @@ class decide( object ):
 
     If the predicate evaluates to not True, or the result of execute is None, the transition
     is deemed to *not* have been taken, and the next state/decide (if any) is used."""
-    def __init__( self, name, state=None, predicate=lambda machine,source,path,data: True ):
+    def __init__( self, name, state=None, predicate=None ):
         self.name		= name
         self.state		= state
+        if predicate is None:
+            predicate		= lambda machine=None, source=None, path=None, data=None: True 
         self.predicate		= predicate
 
     def __str__( self ):

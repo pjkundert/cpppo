@@ -69,6 +69,10 @@ class dotdict( dict ):
     """
     __slots__ = ()
 
+    #def __repr__( self ):
+    #    """To be consistent, we should identify ourself as a dotdict({...}), but this is cluttered."""
+    #    return self.__class__.__name__ + '(' + super( dotdict, self ).__repr__() + ')'
+
     def __init__( self, *args, **kwds ):
         """Load from args, update from kwds"""
         dict.__init__( self )
@@ -278,14 +282,14 @@ class dotdict( dict ):
         indexing (we'll arbitrarily limit it to just one layer deep)."""
         items			= dict.iteritems if sys.version_info[0] < 3 else dict.items
         for key,val in items( self ):
-            if isinstance( val, dotdict ):
+            if isinstance( val, dotdict ) and val: # a non-empty sub-dotdict layer
                 for subkey,subval in val.iteritems():
                     yield key+'.'+subkey, subval
             elif isinstance( val, list ) and all( isinstance( subelm, dotdict ) for subelm in val ):
                 for subidx,subelm in enumerate( val ):
                     for subkey,subval in subelm.iteritems():
                         yield key+'['+str(subidx)+'].'+subkey, subval
-            else:
+            else: # non-list elements, empty dotdict layers
                 yield key, val
 
     def itervalues( self ):

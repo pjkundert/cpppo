@@ -95,10 +95,10 @@ def test_dotdict():
     except KeyError as e:
         assert "(partial key)" in str( e ) 
     del d["a.b.c.d"]
-    # key iteration (ignores empty key layers)
-    assert list( sorted( k for k in d )) == ['a.x']
+    # key iteration (does not ignore empty key layers)
+    assert list( sorted( k for k in d )) == ['a.b.c', 'a.x']
     del d["a.b.c"]
-    assert list( sorted( k for k in d )) == ['a.x']
+    assert list( sorted( k for k in d )) == ['a.b', 'a.x']
     # We can dig down using attribute access
     assert d.a.x == 3
     try:
@@ -106,12 +106,13 @@ def test_dotdict():
     except AttributeError as e:
         assert "x" in str( e )
     del d.a["x"]
-    assert list( sorted( k for k in d )) == []
+    assert list( sorted( k for k in d )) == ['a.b']
     assert "a" in d
     assert "b" in d.a
     assert "c" not in d.a.b
     del d["a.b"]
     del d["a"]
+    assert list( sorted( k for k in d )) == []
 
     # pop has no such restrictions; it will happily pop and return a value or non-empty dotdict
     d["a.b.c.d"] = 2

@@ -388,20 +388,20 @@ class move_if( cpppo.decide ):
                                     if not hasattr( self.ini, '__call__' )
                                     else self.ini(
                                             machine=machine, source=source, path=path, data=data ))
-                log.debug( "%s -- init. data[%r] to %r in data: %s", self, pathdst, ini, data )
-                data[pathdst]	= ini
+                try:
+                    data[pathdst]= ini
+                finally:
+                    log.debug( "%s -- init. data[%r] to %r in data: %s", self, pathdst, ini, data )
             if self.src is not None:
                 pathsrc		= path + self.src
                 assert pathsrc in data, \
                     "Could not find %r to move to %r in %r" % ( pathsrc, pathdst, data )
                 if hasattr( data[pathdst], 'append' ):
-                    log.debug( "%s -- append data[%r] == %r to data[%r]", self,
-                               pathsrc, data[pathsrc], pathdst )
+                    log.debug( "%s -- append data[%r] == %r to data[%r]", self, pathsrc, data[pathsrc], pathdst )
                     data[pathdst].append( data.pop( pathsrc ))
                 else:
-                    log.debug( "%s -- assign data[%r] == %r to data[%r]", self,
-                               pathsrc, data[pathsrc], pathdst )
-                    data[pathdst]	= data.pop( pathsrc )
+                    log.debug( "%s -- assign data[%r] == %r to data[%r]", self, pathsrc, data[pathsrc], pathdst )
+                    data[pathdst] = data.pop( pathsrc )
 
         return target
 
@@ -923,17 +923,22 @@ class CPF( cpppo.dfa ):
         0x0100:		ListServices response
 
     
-    Presently we only handle NULL Address and Unconnected Messages.
+    Presently we only handle NULL Address and Unconnected Messages, and ListServices.
 
     """
-    item_parsers		= {
-            0x00b2: 	unconnected_send,	# used in SendRRData request/response
-            #0x0100:	communications_service, # used in ListServices response
-    } 
+    ITEM_PARSERS		= {
+            0x00b2:	unconnected_send,	# used in SendRRData request/response
+            0x0100:	communications_service, # used in ListServices response
+    }
 
     def __init__( self, name=None, **kwds ):
         """Parse CPF list items 'til .count reached, which should be simultaneous with symbol exhaustion, if
         caller specified a symbol limit.
+
+        A CPF list may be completely empty (ie. not even a 0 count), for certain use-cases.  For
+        example, a EtherNet/IP CIP ListServices request consists solely of a CIP frame consisting of
+        a CPF list containing a Communications Service item.  However, the request is simply missing
+        the CPF list -- completely.  So, make the initial state produce an empty CPF dotdict.
 
         """
         name 			= name or kwds.setdefault( 'context', self.__class__.__name__ )
@@ -947,10 +952,11 @@ class CPF( cpppo.dfa ):
 
         # Prepare a parser for each recognized CPF item type.  It must establish one level of
         # context, because we need to pass it a limit='..length' denoting the length we just parsed.
-
-        for typ,cls in ( self.item_parsers or {} ).items():
+        # Note that we must capture the value of 'typ' in the lambda definition as a keyword
+        # parameter (which is evaluated at once), or it will take the final value of outer 'typ'
+        for typ,cls in self.ITEM_PARSERS.items():
             ilen[None]		= cpppo.decide( cls.__name__, state=cls( terminal=True, limit='..length' ),
-                        predicate=lambda path=None, data=None, **kwds: data[path].type_id == typ )
+                        predicate=lambda path=None, data=None, typ=typ, **kwds: data[path].type_id == typ )
 
         # If we don't recognize the CPF item type, just parse remainder into .input (so we could re-generate)
         ilen[None]	= urec	= octets( 	'unrecognized',	context=None,
@@ -965,23 +971,27 @@ class CPF( cpppo.dfa ):
                                            destination='.item', initializer=lambda **kwds: [] )
         item[None]		= cpppo.state( 	'done', terminal=True )
 
-        # Parse count, and then exactly .count CPF items.
-        loop			= UINT( 			context='count' )
+        # Parse count, and then exactly .count CPF items (or just an empty dict, if nothing)
+        emty			= octets_noop(	'empty',	terminal=True )
+        emty.initial[None]	= move_if( 	'mark',		initializer={} )
+        emty[True]	= loop	= UINT( 			context='count' )
         loop[None]		= cpppo.dfa( 	'all', 	
                                                 initial=item,	repeat='.count',
                                                 terminal=True )
 
-        super( CPF, self ).__init__( name=name, initial=loop, **kwds )
+        super( CPF, self ).__init__( name=name, initial=emty, **kwds )
 
     @classmethod
     def produce( cls, data ):
         """Regenerate a CPF message structure.   """
         result			= b''
+        if not data:
+            return result # An empty CPF -- indicates no CPF segment present at all
         result		       += UINT.produce( len( data.item ))
         for item in data.item:
             result	       += UINT.produce( item.type_id )
-            if item.type_id in cls.item_parsers:
-                itmprs		= cls.item_parsers[item.type_id] # eg 'unconnected_send', 'communications_service'
+            if item.type_id in cls.ITEM_PARSERS:
+                itmprs		= cls.ITEM_PARSERS[item.type_id] # eg 'unconnected_send', 'communications_service'
                 item.input	= bytearray( itmprs.produce( item[itmprs.__name__] ))
             if 'input' in item:
                 result	       += UINT.produce( len( item.input ))
@@ -1048,6 +1058,7 @@ class list_services( cpppo.dfa ):
     we are parsing a request or a reply.  The request will have a 0 length; the reply (which must
     contain a CPF with at least an item count) will have a non-zero length.
 
+    Even if the request is empty, we want to produce 'CIP.list_services.CPF'.
     """
     def __init__( self, name=None, **kwds ):
         name 			= name or kwds.setdefault( 'context', self.__class__.__name__ )
@@ -1059,7 +1070,9 @@ class list_services( cpppo.dfa ):
     @staticmethod
     def produce( data ):
         result			= b''
-        result		       += CPF.produce( data.CPF )
+        if 'CPF' in data:
+            result	       += CPF.produce( data.CPF )
+        return result
 
 
 class CIP( cpppo.dfa ):
@@ -1107,27 +1120,24 @@ class CIP( cpppo.dfa ):
         .CIP.send_data.CPF...
 
     """
+    COMMAND_PARSERS		= {
+        (0x006f,0x0070):	send_data,	# 0x006f (SendRRData) is default if CIP.send_data seen
+        (0x0065,):		register,
+        (0x0066,):		unregister,
+        (0x0004,):		list_services,
+    }
     def __init__( self, name=None, **kwds ):
         name 			= name or kwds.setdefault( 'context', self.__class__.__name__ )
 
         slct			= octets_noop(	'select' )
-        slct[None]		= cpppo.decide( 'SendData',
-            predicate=lambda path=None, data=None, **kwds: data[path+'..command'] in (0x006f,0x0070),
-                                            state=send_data(	limit='...length', terminal=True ))
-        slct[None]		= cpppo.decide( 'Register', 
-            predicate=lambda path=None, data=None, **kwds: data[path+'..command'] == 0x0065,
-                                            state=register(	limit='...length', terminal=True ))
-        slct[None]		= cpppo.decide( 'Unregister',
-            predicate=lambda path=None, data=None, **kwds: data[path+'..command'] == 0x0066,
-                                            state=unregister(	limit='...length', terminal=True ))
-        slct[None]		= cpppo.decide( 'ListServices',
-            predicate=lambda path=None, data=None, **kwds: data[path+'..command'] == 0x0004,
-                                            state=list_services(limit='...length', terminal=True ))
-
+        for cmd,cls in self.COMMAND_PARSERS.items():
+            slct[None]		= cpppo.decide( cls.__name__,
+                    state=cls( limit='...length', terminal=True ),
+                    predicate=lambda path=None, data=None, cmd=cmd, **kwds: data[path+'..command'] in cmd )
         super( CIP, self ).__init__( name=name, initial=slct, **kwds )
 
-    @staticmethod
-    def produce( data ):
+    @classmethod
+    def produce( cls, data ):
         """Expects to find a recognized .command value and/or and parsed .CIP.register,
         .CIP.unregister, .etc. in the provided data artifact as produced by our parser.  Produces
         the bytes string encoding the command.  There is little difference between a request and a
@@ -1135,19 +1145,12 @@ class CIP( cpppo.dfa ):
         response it may indicate an error.
 
         """
-        result			= b''
-        
-        # TODO: handle remaining requests; unregister, ...
-        if ( data.get( 'command' ) == 0x0065
-             or 'CIP.register' in data and data.setdefault( 'command', 0x0065 ) == 0x0065 ):
-            result	       += register.produce( data.CIP.register )
-        elif ( data.get( 'command' ) == 0x006f
-               or 'CIP.send_data' in data and  data.setdefault( 'command', 0x006f ) == 0x006f ):
-            result	       += send_data.produce( data.CIP.send_data )
-        else:
-            assert False, "Invalid CIP request/reply format: %r" % data
-
-        return result
+        for cmd,cmdcls in cls.COMMAND_PARSERS.items():
+            if ( data.get( 'command' ) in cmd
+                 or ( 'CIP.' + cmdcls.__name__  in data
+                      and data.setdefault( 'command', cmd[0] ) in cmd )):
+                return cmdcls.produce( data['CIP.' + cmdcls.__name__] )
+        raise Exception( "Invalid CIP request/reply format: %r" % data )
 
 class typed_data( cpppo.dfa ):
     """Parses CIP typed data, of the form specified by the datatype (must be a relative path within
@@ -1171,7 +1174,7 @@ class typed_data( cpppo.dfa ):
     LINT			= 0x00c5	# 8 byte
 
     """
-    SUPPORTED			= {
+    TYPES_SUPPORTED		= {
         SINT.tag_type:	SINT,
         USINT.tag_type:	USINT,
         INT.tag_type:	INT,
@@ -1260,23 +1263,23 @@ class typed_data( cpppo.dfa ):
         
         super( typed_data, self ).__init__( name=name, initial=slct, **kwds )
 
-    @staticmethod
-    def produce( data, tag_type=None ):
+    @classmethod
+    def produce( cls, data, tag_type=None ):
         """Expects to find .type (if tag_type is None) and .data list, and produces the data encoded to bytes."""
         if tag_type is None:
             tag_type		= data.get( 'type' )
-        assert hasattr( data, '__iter__' ) and 'data' in data and tag_type in typed_data.SUPPORTED, \
+        assert hasattr( data, '__iter__' ) and 'data' in data and tag_type in cls.TYPES_SUPPORTED, \
             "Unknown (or no) typed data found for tag_type %r: %r" % ( tag_type, data )
-        produce			= typed_data.SUPPORTED[tag_type].produce
+        produce			= cls.TYPES_SUPPORTED[tag_type].produce
         return b''.join( produce( v ) for v in data.data )
 
-    @staticmethod
-    def datasize( tag_type, size=1 ):
+    @classmethod
+    def datasize( cls, tag_type, size=1 ):
         """Compute the encoded data size for the specified tag_type and amount of data."""
-        assert tag_type in typed_data.SUPPORTED, \
+        assert tag_type in cls.TYPES_SUPPORTED, \
             "Unknown tag_type %r" % ( tag_type )
-        return typed_data.SUPPORTED[tag_type].struct_calcsize * size
-        
+        return cls.TYPES_SUPPORTED[tag_type].struct_calcsize * size
+
 
 class status( cpppo.dfa ):
     """Parses CIP status, and status_ext.size/.data:
