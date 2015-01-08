@@ -923,8 +923,8 @@ class state( dict ):
             dead		= loopback and not terminal and not initial
 
             node		= cls( str( pre ), terminal=terminal, **kwds )
-            log.debug( "%s --> %r %-10s, %-10s, %-10s", node.name_centered(), tab.values(), 
-                      "initial" if initial else "", "terminal" if terminal else "", "dead" if dead else "" )
+            #log.debug( "%s --> %r %-10s, %-10s, %-10s", node.name_centered(), tab.values(), 
+            #          "initial" if initial else "", "terminal" if terminal else "", "dead" if dead else "" )
             if not dead:
                 states[pre]	= node    # must check for dead states in mapping below...
 
@@ -940,7 +940,7 @@ class state( dict ):
                 # These are transitions out of a dead (non-terminal, loopback) state.  Skip them; any
                 # symbol after this point is NOT in the grammar defined by the regular expression;
                 # yield a non-transition.
-                log.debug( "dead state %s; ignoring", pre )
+                #log.debug( "dead state %s; ignoring", pre )
                 continue
             for sym in sorted( tab, key=lambda k: [] if k is None else [k] ):
                 nxt		= tab[sym]
@@ -953,7 +953,7 @@ class state( dict ):
                     # increasing integers)
                     xformed	= list( enumerate( encoder( sym )))
                     assert len( xformed ) > 0
-                    log.debug( "%s <- %-10.10r: Encoded to %r", states[pre].name_centered(), sym, xformed )
+                    #log.debug( "%s <- %-10.10r: Encoded to %r", states[pre].name_centered(), sym, xformed )
                     if len( xformed ) > 1:
                         assert ( 1 <= len( machine.map[pre] ) <= 2 ), \
                             "Can only expand 1 (symbol) or 2 (symbol/anychar) transitions: %r" % (
@@ -974,13 +974,13 @@ class state( dict ):
                             	= cls( name=str( pre ) + '_' + str( num ), terminal=False, **kwds )
                         states[lst][enc] \
                             	= states[add]
-                        log.debug( "%s <- %-10.10r --> %s (extra state)", states[lst].name_centered(),
-                                   enc, states[add] )
+                        #log.debug( "%s <- %-10.10r --> %s (extra state)", states[lst].name_centered(),
+                        #           enc, states[add] )
                         if True in states[pre]:
                             states[add][True] \
                                 = states[pre][True]
-                            log.debug( "%s <- %-10.10r --> %s (dup wild)", states[add].name_centered(),
-                                       True, states[pre][True] )
+                            #log.debug( "%s <- %-10.10r --> %s (dup wild)", states[add].name_centered(),
+                            #           True, states[pre][True] )
                         lst	= add
 
                     # If we added extra states, fall thru and link the last added one (as 'pre') up
@@ -996,8 +996,8 @@ class state( dict ):
                 # wildcard ('True') transition to None, then we can skip 
                 dst		= states.get( nxt ) # will be None if 'nxt' is a "dead" state 
                 redundant	= dst is None and states[pre].get( True, True ) is None
-                log.debug( "%s <- %-10.10r --> %s %s", states[pre].name_centered(), sym, dst,
-                           "redundant; skipping" if redundant else "" )
+                #log.debug( "%s <- %-10.10r --> %s %s", states[pre].name_centered(), sym, dst,
+                #           "redundant; skipping" if redundant else "" )
                 if redundant:
                     # This symbol targets a dead state (results in a non-Transition), and there is
                     # already a wild-card (True) to a non-transition (None).  Skip it.
