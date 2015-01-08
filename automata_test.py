@@ -486,6 +486,31 @@ def test_regex():
         else:
             assert data.input.input.tounicode() == 'aaab1230xoxx'
 
+def test_regex_demo():
+    regex			= str( '(ab+)((,[ ]*)(ab+))*' )
+    machine			= cpppo.regex( name=str( 'demo' ), initial=regex )
+    data			= cpppo.dotdict()
+    with machine:
+        source			= cpppo.chainable( str( 'abbb, abb, ab' ))
+        for i,(m,s) in enumerate( machine.run( source=source, data=data )):
+            log.info( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r", m.name_centered(),
+                      i, s, source.sent, source.peek(), data )
+        assert i == 14
+        assert source.sent == 13
+
+    regexstr, lego, machine, initial = cpppo.state_input.from_regex(
+            regex, alphabet=cpppo.type_str_iter, encoder=None, 
+            typecode=cpppo.type_str_array_symbol, context=None )
+    assert str( lego ) == "ab+(, *ab+)*"
+    assert str( machine ) == """\
+  name final?   , None a b 
+---------------------------
+* 0    False  1 1 1    2 1 
+  1    False  1 1 1    1 1 
+  2    False  1 1 1    1 3 
+  3    True   1 4 1    1 3 
+  4    False  4 1 1    2 1 
+"""
 
 import binascii
 import codecs
