@@ -17,5 +17,5 @@
 FROM		cpppo/base
 MAINTAINER	Perry Kundert "perry@hardconsulting.com"
 RUN		apt-get -y install python python-pip			\
-		    && apt-get clean			# 2014-04-13
+		    && apt-get clean			# 2015-01-26
 RUN		pip install cpppo
