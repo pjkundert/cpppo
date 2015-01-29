@@ -16,8 +16,8 @@ Vagrant.configure("2") do |config|
   config.vm.provision "shell" do |s|
     # The kernel may be different than the running kernel after the upgrade!  Ubuntu Raring requires
     # software-properties-common, Precise python-software-properties to supply apt-add-repository,
-    # but these have a docker dpkg; Jessie now has a docker.io package; symlink docker ->docker.io.
-    # The initiating Vagrantfile's ../ directory is mounted on /home/vagrant/src_host/.
+    # but these have a docker dpkg; Jessie now has a docker.io package (but executable is still
+    # docker) The initiating Vagrantfile's ../ directory is mounted on /home/vagrant/src_host/.
     s.inline 				= '			\
 	DEBIAN_FRONTEND=noninteractive				\
         && echo -e					       "\
@@ -40,7 +40,6 @@ deb	http://security.debian.org/		jessie/updates	main contrib non-free\n"\
         && addgroup vagrant staff				\
         && echo "Installing docker utilities..."		\
         && addgroup vagrant docker				\
-        && ln -fs $( which docker.io ) /usr/local/bin/docker	\
         && sudo -u vagrant wget -q --output-document=/usr/local/bin/pipework \
                 https://raw.github.com/pjkundert/pipework/master/pipework \
         && chmod 0775 /usr/local/bin/pipework			\

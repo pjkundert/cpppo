@@ -27,10 +27,9 @@ deb	http://security.debian.org/		jessie/updates	main contrib non-free\n"\
         && sudo addgroup $SUDO_USER staff			\
         && echo "Installing docker and utilities..."		\
         && addgroup $SUDO_USER docker				\
-        && ln -fs $( which docker.io ) /usr/local/bin/docker	\
         && sudo -u $SUDO_USER wget -q --output-document=/usr/local/bin/pipework \
                 https://raw.github.com/pjkundert/pipework/master/pipework \
-        && chmod a+x /usr/local/bin/pipework			\
+        && chmod 0775 /usr/local/bin/pipework			\
         && echo "Enabling IPv4 forwarding..."			\
         && sed -i -e "s/#\(net.ipv4.ip_forward\)=.*/\1=1/" /etc/sysctl.conf \
         && sudo sysctl -w net.ipv4.ip_forward=1		        \
