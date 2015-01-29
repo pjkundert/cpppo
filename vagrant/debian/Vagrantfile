@@ -43,7 +43,7 @@ deb	http://security.debian.org/		jessie/updates	main contrib non-free\n"\
         && ln -fs $( which docker.io ) /usr/local/bin/docker	\
         && sudo -u vagrant wget -q --output-document=/usr/local/bin/pipework \
                 https://raw.github.com/pjkundert/pipework/master/pipework \
-        && chmod a+x /usr/local/bin/pipework			\
+        && chmod 0775 /usr/local/bin/pipework			\
         && echo "Enabling IPv4 forwarding..."			\
         && sed -i -e "s/#\(net.ipv4.ip_forward\)=.*/\1=1/" /etc/sysctl.conf \
         && sysctl -w net.ipv4.ip_forward=1		        \
@@ -52,13 +52,8 @@ deb	http://security.debian.org/		jessie/updates	main contrib non-free\n"\
   end
   #config.vm.network "forwarded_port", guest: 8080, host: 8080, auto_correct: true
   #config.vm.network "forwarded_port", guest: 8600, host: 8600, auto_correct: true
-  config.vm.network "public_network", :bridge => 'en5: Thunderbolt Ethernet', :auto_config => false
-  # Mount the directory containing the cpppo image on ~/src/ WARNING: VMWare Tools doesn't yet work
-  # natively on Debian Jessie (kernel 3.12+).  The vmhgfs module doesn't build (uname kernel version
-  # number X.Y.Z vs. X.Y, uid_t --> kuid_t transitaion).  So, we presently download a patched
-  # vmhgfs.tar before vmware tools builds.  Even if we use 'type: "nfs"', Vagrant still demands
-  # vmhgfs be loaded, even if we aren't going to use it (it mounts the source Vagrantfile dir on
-  # /vagrant).  So, mount ../../../ on ~/src_host; use it sparingly, and in a read-only fashion...
+  config.vm.network "public_network", :bridge => 'en3: Display Ethernet', :auto_config => false
+  # Mount the directory containing the cpppo image on ~/src/ 
   config.vm.synced_folder		   "../../..", "/home/vagrant/src_host", type: "nfs"
   config.vm.provider "vmware_desktop" do |v|
     v.gui 				= true

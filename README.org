@@ -869,6 +869,82 @@
    platform, depending on what version of VMware or Virtualbox you are running;
    see the GNUmakefile for details.
 
+*** VMware Fusion 7
+
+    The provided Vagrant box requires VMware Fusion 7.  You can get this from
+    [[http://www.vmware.com/ca/en/products/fusion/fusion-evaluation][http://www.vmware.com...fusion-evaluation]].  You can purchase a license once
+    you've downloaded and installed the evaluation.
+
+*** Vagrant Failure due to VMware Networking Problems
+
+    If you have trouble starting your Vagrant box due to networking issues, you
+    may need to clean up your VMware network configuration:
+    : $ make vmware-debian-up
+    : cd vagrant/debian; vagrant up  --provider=vmware_fusion
+    : Bringing machine 'default' up with 'vmware_fusion' provider...
+    : ==> default: Cloning VMware VM: 'jessie64'. This can take some time...
+    : ==> default: Verifying vmnet devices are healthy...
+    : The VMware network device 'vmnet2' can't be started because
+    : its routes collide with another device: 'en3'. Please
+    : either fix the settings of the VMware network device or stop the
+    : colliding device. Your machine can't be started while VMware
+    : networking is broken.
+    : 
+    : Routing to the IP '10.0.1.0' should route through 'vmnet2', but
+    : instead routes through 'en3'.
+
+    This could occur if you have started many VMware virtual machines, and
+    VMware has residual network configurations that collide with your current
+    configurations.
+
+    Edit /Library/Preferences/VMware\ Fusion/networking, and remove all
+    VMNET\_X... lines, EXCEPT VMNET\_1... and VMNET\_8... (these are the lines
+    that are configured with stock VMware Fusion).  It should end up looking
+    something like:
+    : VERSION=1,0
+    : answer VNET_1_DHCP yes
+    : answer VNET_1_DHCP_CFG_HASH A7729B4BF462DDCA409B1C3611872E8195666EC4
+    : answer VNET_1_HOSTONLY_NETMASK 255.255.255.0
+    : answer VNET_1_HOSTONLY_SUBNET 172.16.134.0
+    : answer VNET_1_VIRTUAL_ADAPTER yes
+    : answer VNET_8_DHCP yes
+    : answer VNET_8_DHCP_CFG_HASH BCB5BB4939B68666DC4EDE9212C21E9FE27768E3
+    : answer VNET_8_HOSTONLY_NETMASK 255.255.255.0
+    : answer VNET_8_HOSTONLY_SUBNET 192.168.222.0
+    : answer VNET_8_NAT yes
+    : answer VNET_8_VIRTUAL_ADAPTER yes
+
+    Restart the VMware networking:
+    : $ sudo /Applications/VMware\ Fusion.app/Contents/Library/vmnet-cli --stop
+    : $ sudo /Applications/VMware\ Fusion.app/Contents/Library/vmnet-cli --configure
+    : $ sudo /Applications/VMware\ Fusion.app/Contents/Library/vmnet-cli --start
+
+    Finally, check the status:
+    : $ sudo /Applications/VMware\ Fusion.app/Contents/Library/vmnet-cli --status
+
+    You should see something like:
+    : DHCP service on vmnet1 is not running
+    : Hostonly virtual adapter on vmnet1 is disabled
+    : DHCP service on vmnet8 is not running
+    : NAT service on vmnet8 is not running
+    : Hostonly virtual adapter on vmnet8 is disabled
+    : Some/All of the configured services are not running
+
+
+*** Vagrant's VMware Fusion/Workstation Provider Plugin
+
+    To use VMware Fusion 7 with Vagrant, you'll need to purchase a license from
+    HashiCorp (who make Vagrant) for their =vagrant-vmware-fusion= plugin.  Go
+    to [[https://www.vagrantup.com/vmware]], and follow the "Buy Now" button.
+
+    Once you've downloaded the license.lic file, run:
+    : $ vagrant plugin install vagrant-vmware-fusion
+    : $ vagrant plugin license vagrant-vmware-fusion license.lic
+    
+    I recommend saving the license.lic file somewhere you'll be able to 
+    find it (eg. ~/Documents/Licenses/vagrant-vmware-fusion-v7.lic), in case you
+    need to repeat this in the future.
+
 *** Building a Vagrant Image
 
     The Debian Jessie + Docker VirtuaBox and VMware images used by the
@@ -876,11 +952,14 @@
     cpppo/GNUmakefile targets to bring up a Vagrant box (eg. 'make
     virtualbox-debian-up'), the appropriate box is downloaded using 'vagrant box
     add ...'.  If you don't trust these boxes (the safest position), you can
-    rebuild them yourself.
+    rebuild them yourself, using [[https://packer.io/downloads.html][packer.io]].
 
-**** Packer.io    
+**** Packer
 
-    Using the packer tool, build a VirtualBox (or VMware) image.  This downloads
+    To install, =packer=, download the installer, and unzip it somewhere in your
+    =$PATH= (eg. in =/usr/local/bin=)
+
+    Using the =packer= tool, build a VirtualBox (or VMware) image.  This downloads
     the bootable Debian installer ISO image and VirtualBox Guest Additions, runs
     it (you may need to watch the VirtualBox or VMware GUI, and help it complete the final
     Grub installation on /dev/sda), and then packages up the VM as a Vagrant
