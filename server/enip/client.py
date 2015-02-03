@@ -383,7 +383,7 @@ class client( object ):
         if self.source.peek() is None:
             rcvd		= network.recv( self.conn, timeout=0 )
             log.debug(
-                "EtherNet/IP-->%16s:%-5d rcvd %5d: %s",
+                "EtherNet/IP-->%16s:%-5d rcvd %5d: %r",
                 self.addr[0], self.addr[1], len( rcvd ) if rcvd is not None else 0, rcvd )
             if rcvd is not None:
                 # Some input (or EOF); source is empty; chain the input and drop back into 
@@ -460,7 +460,7 @@ class client( object ):
         sent		= bytes( request )
         self.conn.send( sent )
         log.info(
-            "EtherNet/IP-->%16s:%-5d send %5d: %s",
+            "EtherNet/IP-->%16s:%-5d send %5d: %r",
                     self.addr[0], self.addr[1], len( request ), sent )
 
 
