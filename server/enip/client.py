@@ -1230,13 +1230,13 @@ provided.""" )
     
         # Issue Tag I/O operations, optionally printing a summary
         begun			= misc.timer()
-        operations			= parse_operations( recycle( tags, times=repeat ))
+        operations		= parse_operations( recycle( tags, times=repeat ))
         failures,transactions	= connection.process(
             operations=operations, depth=depth, multiple=multiple,
             fragment=fragment, printing=printing, timeout=timeout )
         elapsed			= misc.timer() - begun
         log.normal( "Client Tag I/O  Average %7.3f TPS (%7.3fs ea)." % (
-            transactions / elapsed, elapsed / transactions ))
+            len( transactions ) / elapsed, elapsed / len( transactions )))
 
     return 1 if failures else 0
 
