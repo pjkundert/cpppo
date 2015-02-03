@@ -366,7 +366,7 @@ class Logix( Message_Router ):
             # On Exception, if we haven't specified a more detailed error code, return General
             # Error.  Remember: 0x06 (Insufficent Packet Space) is a NORMAL response to a successful
             # Read Tag Fragmented that returns a subset of the requested data.
-            log.warning( "%r Service 0x%02x %s failed with Exception: %s\nRequest: %s\n%s", self,
+            log.normal( "%r Service 0x%02x %s failed with Exception: %s\nRequest: %s\n%s", self,
                          data.service if 'service' in data else 0,
                          ( self.service[data.service]
                            if 'service' in data and data.service in self.service

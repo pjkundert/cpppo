@@ -644,7 +644,7 @@ class Object( object ):
             data.status		= 0x00
             data.pop( 'status_ext', None )
         except Exception as exc:
-            log.warning( "%r Service 0x%02x %s failed with Exception: %s\nRequest: %s\n%s\nStack %s", self,
+            log.normal( "%r Service 0x%02x %s failed with Exception: %s\nRequest: %s\n%s\nStack %s", self,
                          data.service if 'service' in data else 0,
                          ( self.service[data.service]
                            if 'service' in data and data.service in self.service
@@ -998,7 +998,7 @@ class UCMM( Object ):
         except Exception as exc:
             # On Exception, if we haven't specified a more detailed error code, return Service not
             # supported.
-            log.warning( "%r Command 0x%04x %s failed with Exception: %s\nRequest: %s\n%s", self,
+            log.normal( "%r Command 0x%04x %s failed with Exception: %s\nRequest: %s\n%s", self,
                          data.enip.command if 'enip.command' in data else 0,
                          ( self.command[data.enip.command]
                            if 'enip.command' in data and data.enip.command in self.command
@@ -1129,7 +1129,7 @@ class Message_Router( Object ):
             # On Exception, if we haven't specified a more detailed error code, return General
             # Error.  Remember: 0x06 (Insufficent Packet Space) is a NORMAL response to a successful
             # Read Tag Fragmented that returns a subset of the requested data.
-            log.warning( "%r Service 0x%02x %s failed with Exception: %s\nRequest: %s\n%s", self,
+            log.normal( "%r Service 0x%02x %s failed with Exception: %s\nRequest: %s\n%s", self,
                          data.service if 'service' in data else 0,
                          ( self.service[data.service]
                            if 'service' in data and data.service in self.service
