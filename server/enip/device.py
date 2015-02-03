@@ -726,6 +726,8 @@ def __get_attributes_all_reply():
     stts[True]			= typed_data( 			context=Object.GA_ALL_CTX,
                                                 tag_type=USINT.tag_type,
                                                 terminal=True )
+    stts[None]			= octets_noop(	'nodata',
+                                                terminal=True )
     return srvc
 
 Object.register_service_parser( number=Object.GA_ALL_RPY, name=Object.GA_ALL_NAM + " Reply", 
@@ -747,6 +749,8 @@ def __get_attribute_single_reply():
     rsvd[True]		= stts	= status()
     stts[True]			= typed_data( 			context=Object.GA_SNG_CTX,
                                                 tag_type=USINT.tag_type,
+                                                terminal=True )
+    stts[None]			= octets_noop(	'nodata',
                                                 terminal=True )
     return srvc
 

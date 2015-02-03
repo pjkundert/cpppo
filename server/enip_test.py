@@ -30,7 +30,7 @@ from   cpppo.server import network, enip
 from   cpppo.server.enip import parser, logix
 
 log				= logging.getLogger( "enip.tst" )
-#log.setLevel( logging.DEBUG )
+log.setLevel( logging.DEBUG )
 
 def test_octets():
     """Scans raw octets"""
@@ -410,7 +410,6 @@ rfg_002_reply			= bytes(bytearray([
     0x00,0x00,0x05,0x00,0x02,0x00,0x00,0x00, 0x00,0x00,0xb2,0x00,0x06,0x00,0xd2,0x00,  #........ ........
     0x04,0x01,0x00,0x00                                                                #....             
 ]))
-
 
 eip_tests			= [
             ( b'', {} ),        # test that parsers handle/reject empty/EOF
@@ -855,6 +854,26 @@ cpf_2_rpy	 		= bytes(bytearray([ # gaa_011_rpy
     0x31, 0x2f, 0x42, 0x20, 0x4c, 0x4f, 0x47, 0x49, #/* 1/B LOGI */
     0x58, 0x35, 0x35, 0x36, 0x31                    #/* X5561 */
 ]))
+
+
+mlx_0_request			= bytes(bytearray([ # MicroLogix request
+                            0x02, 0x00, 0x00, 0x00, #/* ........ */
+    0x00, 0x00, 0xb2, 0x00, 0x2E, 0x00,             #/* ......   */ length: 46 (0x2E)
+
+     'T', 0x02,  ' ', 0x06,  '$', 0x01, '\n', 0x0e,
+    # ^ 0x54 Forward Open
+    # (wrong...  See Vol 1, Table 3-5.16 for request format)
+    #     ^^^^- 2 word request path
+    #            ^^^^^^^^^- Class 0x06
+    #                       ^^^^^^^^^- Instance 0x0e (14)
+     'O', 0xaf, 0x87, 0xf4, 0x06, 0xaf, 0x87, 0xf4,
+    0xb2,  'U', 0x01, 0x00, 0xc4, 0x8b,  'O',  '@',
+    0x02, 0x00, 0x00, 0x00, 0xc0, 0xc6,  '-', 0x00,
+    0x02,  'C', 0xc0, 0xc6,  '-', 0x00, 0x02,  'C',
+    0xa3, 0x02,  ' ', 0x02,  '$', 0x01,
+]))
+
+
 CPF_tests			= [
     (
         b'',
@@ -971,6 +990,15 @@ CPF_tests			= [
             "CPF.item[1].unconnected_send.request.service": 129, 
             "CPF.item[1].unconnected_send.request.status": 0, 
             "CPF.item[1].unconnected_send.request.status_ext.size": 0
+        }
+    ), (
+        mlx_0_request,
+        {
+            "CPF.count": 2, 
+            "CPF.item[0].length": 0, 
+            "CPF.item[0].type_id": 0, 
+            "CPF.item[1].length": 20, 
+            "CPF.item[1].type_id": 178, 
         }
     )
 ]
