@@ -799,6 +799,10 @@ class Identity( Object ):
             self.attribute['5']	= Attribute( 'Status Word', 		INT,	default=0x3160 )
             self.attribute['6']	= Attribute( 'Serial Number', 		DINT,	default=0x006c061a )
             self.attribute['7']	= Attribute( 'Product Name', 		SSTRING,default='1756-L61/B LOGIX5561' )
+            self.attribute['8']	= Attribute( 'State',			USINT,	default=0xff )
+            self.attribute['9']	= Attribute( 'Configuration Consistency Value',
+									UINT,	default=0 )
+            self.attribute['10']= Attribute( 'Heartbeat Interval',	USINT,	default=0 )
 
 
 class UCMM( Object ):

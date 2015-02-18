@@ -1527,7 +1527,7 @@ def test_enip_device():
     request			= cpppo.dotdict({'service': 0x01, 'path':{'segment':[{'class':Ix.class_id},{'instance':Ix.instance_id}]}})
     gaa				= Ix.request( request )
     log.normal( "Identity Get Attributes All: %r, data: %s", gaa, enip.enip_format( request ))
-    assert request.input == b'\x81\x00\x00\x00\x01\x00\x0e\x006\x00\x14\x0b`1\x1a\x06l\x00\x141756-L61/B LOGIX5561'
+    assert request.input == b'\x81\x00\x00\x00\x01\x00\x0e\x006\x00\x14\x0b`1\x1a\x06l\x00\x141756-L61/B LOGIX5561\xff\x00\x00\x00'
 
     # Look up Objects/Attribute by resolving a path
     assert enip.device.lookup( *enip.device.resolve( {'segment':[{'class':class_num}, {'instance':1}]} )) is O

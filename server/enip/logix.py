@@ -663,7 +663,7 @@ def process( addr, data, **kwds ):
     # add it.  If it's error code doesn't match, change it.
     if 'tags' in kwds:
         for key,val in dict( kwds['tags'] ).items():
-            log.detail( "EtherNet/IP CIP Request  (Client %16s): setup tag: %r", addr, (key, val) )
+            log.info( "EtherNet/IP CIP Request  (Client %16s): setup tag: %r", addr, (key, val) )
             if not resolve_tag( key ):
                 # A new tag!  Allocate a new attribute ID in the Logix (Message Router).
                 cls, ins	= 0x02, 1 # The Logix Message Router

@@ -85,7 +85,7 @@ if __name__ == "__main__":
         idx			= -1
         start			= cpppo.timer()
         for idx,dsc,op,rpy,sts,val in conn.pipeline(
-                operations=attribute_operations( args.tags ), depth=depth,
+                operations=attribute_operations( tags ), depth=depth,
                 multiple=False, timeout=timeout ):
             print( "%s: %3d: %s == %s" % ( timestamp(), idx, dsc, val ))
         elapsed			= cpppo.timer() - start
