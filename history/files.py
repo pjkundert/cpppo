@@ -205,8 +205,10 @@ class logger( object ):
     def close( self ):
         if self.f:
             log.info( "Closing history file: %s", self.path )
-            self.f.close()
-            self.f		= None
+            try:
+                self.f.close()			# May raise if file system full
+            finally:
+                self.f		= None		# maintain integrity by clearing self.f
 
     def _append( self, msg, encoding=None ):
         """Appends the raw msg str (which should contain a newline) to the file (open if
