@@ -171,7 +171,10 @@ class logger( object ):
         return self
 
     def __exit__( self, typ, val, tbk ):
-        self.close()
+        try:
+            self.close()
+        except Exception as exc:
+            log.warning( "Suppressed close failure on logger.__exit__: %s", exc )
         return False # suppress no exceptions
 
     def buffering( self, bufsize=None ):
