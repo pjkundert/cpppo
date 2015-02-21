@@ -32,6 +32,7 @@ setup(
         "cpppo/server/enip",
         "cpppo/remote",
         "cpppo/history",
+        "cpppo/tools",
         "cpppo/bin",
     ],
     package_dir			= {
@@ -40,6 +41,7 @@ setup(
         "cpppo/server/enip":	"./server/enip",
         "cpppo/remote":		"./remote",
         "cpppo/history":	"./history",
+        "cpppo/tools":		"./tools",
         "cpppo/bin":		"./bin",
     },
     entry_points		= {
@@ -59,17 +61,16 @@ languages, including binary computer protocols.
 
 An example included with cpppo is an implementation of a subset of the
 EtherNet/IP CIP language used by some industrial control equipment, such as
-Rockwell's Logix Controllers.  The cpppo.server.enip package can be used to
-create Python programs which can parse requests in this protocol (eg. as a
+Rockwell's ControlLogix Controllers.  The cpppo.server.enip package can be used
+to create Python programs which can parse requests in this protocol (eg. as a
 server, to implement something like a simulated Controller) or originate
-requests in this protocol (eg. as a client, sending commands to a
-Controller).
+requests in this protocol (eg. as a client, sending commands to a Controller).
 
 In addition, the ability to read, write and poll remote PLCs of
 various types including Modbus/TCP is provided.
 """,
     license			= "Dual License; GPLv3 and Proprietary",
-    keywords			= "cpppo protocol parser DFA EtherNet/IP",
+    keywords			= "cpppo protocol parser DFA EtherNet/IP CIP",
     url				= "https://github.com/pjkundert/cpppo",
     classifiers			= [
         "License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)",
