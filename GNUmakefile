@@ -86,8 +86,7 @@ upload:
 	python setup.py sdist upload
 
 clean:
-	rm -f MANIFEST *.png $(shell find . -name '*.pyc' )
-	rm -rf build dist auto __pycache__ *.egg-info
+	@rm -rf MANIFEST *.png build dist auto *.egg-info $(shell find . -name '*.pyc' -o -name '__pycache__' )
 
 # Virtualization management, eg:
 #     make {vmware,vagrant}-up/halt/ssh/destroy
