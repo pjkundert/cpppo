@@ -19,7 +19,7 @@ if __name__ == "__main__":
     logging.basicConfig( **log_cfg )
     logging.getLogger().setLevel( logging.NORMAL )
 
-from cpppo import timer, near, log_cfg
+from cpppo import timer, near, log_cfg, reprlib
 #logging.basicConfig( **log_cfg )
 #logging.getLogger().setLevel( logging.DETAIL )
 
@@ -64,7 +64,7 @@ def test_history_timestamp_abbreviations():
                  'America/Bahia_Banderas', 'America/Cancun', 'America/Chihuahua', 'America/Havana',
                  'America/Santa_Isabel', 'America/Grand_Turk'] )
     #print( sorted( abbrev ))
-    #print( cpppo.reprlib.repr( timestamp._tzabbrev ))
+    #print( reprlib.repr( timestamp._tzabbrev ))
     assert sorted( abbrev ) == ['ACT', 'AKDT', 'AKST', 'AMST', 'AMT', 'ART', 'BOT', 'BRST', 'BRT', 'CLST', 'CLT',
                                 'COT', 'ECT', 'EGST', 'EGT', 'FNT', 'GFT', 'GMT', 'GYT', 'HADT', 'HAST',
                                 'PET', 'PMDT', 'PMST', 'PYST', 'PYT', 'SRT', 'UYST', 'UYT', 'VET', 'WGST', 'WGT']
@@ -584,7 +584,7 @@ def test_history_unparsable():
             count      += len( events )
             logging.normal( "%s loaded up to %s; %d future, %d values: %d events: %s",
                             ld, cur, len( ld.future ), len( ld.values ), len( events ), 
-                            repr( events ) if logging.root.isEnabledFor( logging.DEBUG ) else cpppo.reprlib.repr( events ))
+                            repr( events ) if logging.root.isEnabledFor( logging.DEBUG ) else reprlib.repr( events ))
             time.sleep( random.uniform( 0.0, maxlatency ))
 
         if on_bad_data == ld.FAIL or on_bad_iframe == ld.FAIL:
