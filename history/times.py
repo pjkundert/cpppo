@@ -219,7 +219,7 @@ class timestamp( object ):
         abbrev			= cls._tzabbrev.copy()
         incompatible		= []
         exclusions		= set( zone_names( exclude ))
-        logging.info( "Excluding: %r", exclusions )
+        log.info( "Excluding: %r", exclusions )
         for tz in zone_names( region ): # eg 'America/Vancouver', 'America/Dawson_Creek', ...
             if tz in exclusions:
                 log.detail( "%-30s: Ignoring; excluded", tz )
@@ -334,7 +334,7 @@ class timestamp( object ):
                         desc	= " vs. ".join( "on %s, offset %s, dst %s" % ( dt, format_offset( timedelta_total_seconds( off ), ms=False ),
                                                                                format_offset( timedelta_total_seconds( dst ), ms=False ))
                                                 for dt,(off,dst,_) in ( difs[0][0], difs[0][1] ))
-                        logging.warning( "%-30s: %s; %d differences: %s", tzinfo, msg, len( difs ), desc )
+                        log.warning( "%-30s: %s; %d differences: %s", tzinfo, msg, len( difs ), desc )
                         continue
                 ( log.detail if dup else log.normal )( "%-30s: %-5s %s %s at %s UTC%s",
                     tzinfo, abb, format_offset( timedelta_total_seconds( off ), ms=False ), format_dst( dst ),

@@ -28,4 +28,4 @@ RUN		echo 'Dir::Cache { srcpkgcache ""; pkgcache ""; }'	\
                   ) > /etc/dpkg/dpkg.cfg.d/01nodoc
 RUN		apt-get update						\
                     && apt-get -yu dist-upgrade				\
-                    && apt-get clean			# 2015-01-26
+                    && apt-get clean			# 2015-02-20

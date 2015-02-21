@@ -171,7 +171,10 @@ class logger( object ):
         return self
 
     def __exit__( self, typ, val, tbk ):
-        self.close()
+        try:
+            self.close()
+        except Exception as exc:
+            log.warning( "Suppressed close failure on logger.__exit__: %s", exc )
         return False # suppress no exceptions
 
     def buffering( self, bufsize=None ):
@@ -205,8 +208,10 @@ class logger( object ):
     def close( self ):
         if self.f:
             log.info( "Closing history file: %s", self.path )
-            self.f.close()
-            self.f		= None
+            try:
+                self.f.close()			# May raise if file system full
+            finally:
+                self.f		= None		# maintain integrity by clearing self.f
 
     def _append( self, msg, encoding=None ):
         """Appends the raw msg str (which should contain a newline) to the file (open if

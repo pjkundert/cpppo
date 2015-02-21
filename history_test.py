@@ -11,10 +11,6 @@ import string
 import sys
 import time
 
-try:
-    import reprlib
-except ImportError:
-    import repr as reprlib
 
 if __name__ == "__main__":
     # If you run tests in-place (instead of using py.test), ensure local version is tested!
@@ -23,7 +19,7 @@ if __name__ == "__main__":
     logging.basicConfig( **log_cfg )
     logging.getLogger().setLevel( logging.NORMAL )
 
-from cpppo import timer, near, log_cfg
+from cpppo import timer, near, log_cfg, reprlib
 #logging.basicConfig( **log_cfg )
 #logging.getLogger().setLevel( logging.DETAIL )
 
