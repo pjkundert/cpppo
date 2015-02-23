@@ -940,6 +940,7 @@ def main( argv=None, attribute_class=device.Attribute, identity_class=None, idle
         tag_type		= str( tag_type ).upper()
         typenames		= {"INT": parser.INT, "DINT": parser.DINT, "SINT": parser.SINT, "REAL": parser.REAL }
         assert tag_type in typenames, "Invalid tag type; must be one of %r" % list( typenames.keys() )
+        tag_default		= 0.0 if tag_type == "REAL" else 0
         try:
             tag_size		= int( tag_size )
         except:
@@ -950,7 +951,7 @@ def main( argv=None, attribute_class=device.Attribute, identity_class=None, idle
         log.normal( "Creating tag: %s=%s[%d]", tag_name, tag_type, tag_size )
         tags[tag_name]		= cpppo.dotdict()
         tags[tag_name].attribute= ( Attribute_print if args.print else attribute_class )(
-            tag_name, typenames[tag_type], default=( 0 if tag_size == 1 else [0] * tag_size ))
+            tag_name, typenames[tag_type], default=( tag_default if tag_size == 1 else [tag_default] * tag_size ))
         tags[tag_name].error	= 0x00
 
     # Use the Logix simulator by default (unless some other one was supplied as a keyword options to

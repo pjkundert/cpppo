@@ -234,6 +234,9 @@ class Attribute( object ):
     'default' value is a simple scalar type, we'll support simple value assignment (it will replace
     the underlying 'default' value with a new instance of the same type).
 
+    Therefore, for scalar types, it is important to ensure that the original default=... value supplied is
+    of the correct type; eg. 'float' for REAL, 'int', for SINT/INT/DINT types, etc.
+
     """
     MASK_GA_SNG			= 1 << 0
     MASK_GA_ALL			= 1 << 1
@@ -295,6 +298,7 @@ class Attribute( object ):
     def __setitem__( self, key, value ):
         """Allow setting a scalar or indexable array item.  We will not confirm length of supplied value for
         slices, to allow iterators/generators to be supplied."""
+        log.normal( "Setting %s %s %r to %r", "scalar" if self.scalar else "vector", type( self.value ), self.value, value )
         if self._validate_key( key ) is slice:
             # Setting a slice of elements; always supplied an iterable; must confirm size
             if self.scalar:

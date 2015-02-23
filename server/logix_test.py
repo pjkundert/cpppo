@@ -151,6 +151,7 @@ def test_logix_multiple():
 
     assert len( Obj_a1 ) == size
     assert len( Obj_a3 ) == size
+    assert len( Obj_a4 ) == 1
     Obj_a1[0]			= 42
     Obj_a2[0]			= 476
     Obj_a4[0]			= 1.0
@@ -336,7 +337,8 @@ def test_logix_multiple():
     # Test an example valid multiple request
     data			= cpppo.dotdict()
     data.multiple		= {}
-    data.multiple.request	= [ cpppo.dotdict(), cpppo.dotdict() ]
+    data.multiple.request	= [
+        cpppo.dotdict(), cpppo.dotdict(), cpppo.dotdict(), cpppo.dotdict(), cpppo.dotdict() ] 
     req				= data.multiple.request
 
     req[0].path			= { 'segment': [ cpppo.dotdict( d )
@@ -349,6 +351,24 @@ def test_logix_multiple():
     req[1].read_tag		= {}
     req[1].read_tag.elements	= 1
 
+    req[2].path			= { 'segment': [ cpppo.dotdict( d )
+                                                 for d in [{'symbolic': 'number'}]] }
+    req[2].read_tag		= {}
+    req[2].read_tag.elements	= 1
+
+    req[3].path			= { 'segment': [ cpppo.dotdict( d )
+                                                 for d in [{'symbolic': 'number'}]] }
+    req[3].write_tag		= {}
+    req[3].write_tag.elements	= 1
+    req[3].write_tag.type	= 0x00ca
+    req[3].write_tag.data	= [1.25]
+
+    req[4].path			= { 'segment': [ cpppo.dotdict( d )
+                                                 for d in [{'symbolic': 'number'}]] }
+    req[4].read_tag		= {}
+    req[4].read_tag.elements	= 1
+
+
     request			= Obj.produce( data )
 
     req_1			= bytes(bytearray([
@@ -356,10 +376,13 @@ def test_logix_multiple():
         0x02,
         0x20, 0x02, 0x24, 0x01,
         
-        0x02, 0x00,
+        0x05, 0x00,
         
-        0x06, 0x00,
-        0x12, 0x00,
+        0x0c, 0x00,
+        0x18, 0x00,
+        0x2a, 0x00,
+        0x36, 0x00,
+        0x48, 0x00,
         
         0x4C,
         0x04, 0x91, 0x05, 0x70, 0x61,
@@ -370,6 +393,18 @@ def test_logix_multiple():
         0x07, 0x91, 0x0B, 0x43, 0x6F,
         0x6E, 0x74, 0x72, 0x6F, 0x6C,
         0x57, 0x6F, 0x72, 0x64, 0x00,
+        0x01, 0x00,
+
+        b'L'[0],
+        0x04, 0x91, 0x06, b'n'[0], b'u'[0], b'm'[0], b'b'[0], b'e'[0], b'r'[0],
+        0x01, 0x00,
+
+        b'M'[0],
+        0x04, 0x91, 0x06, b'n'[0], b'u'[0], b'm'[0], b'b'[0], b'e'[0], b'r'[0],
+        0xca, 0x00, 0x01, 0x00, 0x00, 0x00, 0xa0, 0x3f,
+
+        b'L'[0],
+        0x04, 0x91, 0x06, b'n'[0], b'u'[0], b'm'[0], b'b'[0], b'e'[0], b'r'[0],
         0x01, 0x00,
     ]))
                        
@@ -387,8 +422,8 @@ def test_logix_multiple():
         "No parsed multiple found in data: %s" % enip.enip_format( data )
     assert data.service == enip.device.Message_Router.MULTIPLE_REQ, \
         "Expected a Multiple Request Service request: %s" % enip.enip_format( data )
-    assert data.multiple.number == 2, \
-        "Expected 2 requests in request.multiple: %s" % enip.enip_format( data )
+    assert data.multiple.number == 5, \
+        "Expected 5 requests in request.multiple: %s" % enip.enip_format( data )
 
     # And ensure if we re-encode the parsed result, we get the original encoded request back
     assert Obj.produce( data ) == req_1
@@ -405,10 +440,13 @@ def test_logix_multiple():
         0x00,
         0x00,
 
-        0x02, 0x00,
+        0x05, 0x00,
 
-        0x06, 0x00,
-        0x10, 0x00,
+        0x0c, 0x00,
+        0x16, 0x00,
+        0x20, 0x00,
+        0x2a, 0x00,
+        0x2e, 0x00,
 
         0xCC, 0x00, 0x00, 0x00,
         0xC4, 0x00,
@@ -417,6 +455,14 @@ def test_logix_multiple():
         0xCC, 0x00, 0x00, 0x00,
         0xC4, 0x00,
         0xDC, 0x01, 0x00, 0x00,
+
+        0xCC, 0x00, 0x00, 0x00,
+        0xCA, 0x00, 0x00, 0x00, 0x80, 0x3F,
+
+        0xcd, 0x00, 0x00, 0x00,
+
+        0xcc, 0x00, 0x00, 0x00,
+        0xca, 0x00, 0x00, 0x00, 0xa0, 0x3f,
     ])
 
     assert data.input == rpy_1, \
