@@ -688,7 +688,7 @@
    reg = p.read( 40001 ) # Will eventually be 123, after next poll
    #+END_SRC
 
-*** Modbus/TCP =cpppo.remote.plc_modbus.poller_modbus= API
+*** =cpppo.remote.plc_modbus.poller_modbus= API
 
     Implements background polling and synchronous writing of a Modbus/TCP
     connected PLC.  The following Modbus register ranges are supported:
@@ -728,7 +728,7 @@
      At the earliest opportunity (as soon as the current poll is complete and
      the lock can be acqurired), will issue the write request.  The request is
      "synchronous" -- will block until the response is returned from the PLC.
-
+     
 * Deterministic Finite Automata
 
   A cpppo.dfa will consume symbols from its source iterable, and yield
