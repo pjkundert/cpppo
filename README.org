@@ -647,6 +647,88 @@
      }
      #+END_EXAMPLE
 
+* Remote PLC I/O
+
+  Access to remote PLCs is also supported.  A simple "poller" metaphor is
+  implemented by =cpppo.remote.plc=.  Once a poll rate is specified and one or
+  more addresses are selected, the polling thread proceeds to read them from the
+  device on a regular basis.  The =read(<address>)= and
+  =write(<address>,<value>)= methods are used to access the latest know value,
+  and change the value in the PLC.
+
+** Modbus/TCP Simulator and Client
+
+   We use the =pymodbus= module to implement Modbus/TCP protocol.
+   : $ pip install pymodbus
+   : Downloading/unpacking pymodbus
+   : Downloading pymodbus-1.2.0.tar.gz (75kB): 75kB downloaded
+   : Running setup.py (path:/tmp/pip-build-UoAlQK/pymodbus/setup.py) egg_info for package pymodbus
+   : ...
+
+   If you don't have a Modbus/TCP PLC around, start a simulated one:
+   : $ modbus_sim -a :1502 40001-40100=99
+   : Success; Started Modbus/TCP Simulator; PID = 29854; address = :1502
+
+   Then, you can use the Modbus/TCP implementation of =cpppo.remote.plc=
+   =poller= class to access the device:
+
+   #+BEGIN_SRC python
+   from cpppo.remote import plc_modbus
+
+   # Connect to a PLC: site TW's PLC 3, at IP address 10.0.111.123, port 502.
+   # If using modbus_sim, use: ( 'fake', host="localhost", port=1502, rate=.5 )
+   p = plc_modbus.poller_modbus( 'twplc3', host="10.0.111.123", rate=.5 )
+
+   p.poll( 40001 )       # Begin polling address(es) in background Thread
+
+   # ... later ...
+
+   reg = p.read( 40001 ) # Will be None, 'til poll succeeds
+   p.write( 40001, 123 ) # Change the value in the PLC synchronously
+   reg = p.read( 40001 ) # Will eventually be 123, after next poll
+   #+END_SRC
+
+*** Modbus/TCP =cpppo.remote.plc_modbus.poller_modbus= API
+
+    Implements background polling and synchronous writing of a Modbus/TCP
+    connected PLC.  The following Modbus register ranges are supported:
+
+    |   From |     To | Read | Write | Description       |
+    |--------+--------+------+-------+-------------------|
+    |      1 |   9999 | yes  | yes   | Coils             |
+    |--------+--------+------+-------+-------------------|
+    |  10001 |  19999 | yes  | no    | Discrete Input    |
+    | 100001 | 165536 |      |       |                   |
+    |--------+--------+------+-------+-------------------|
+    |  30001 |  39999 | yes  | no    | Input Registers   |
+    | 300001 | 365536 |      |       |                   |
+    |--------+--------+------+-------+-------------------|
+    |  40001 |  99999 | yes  | yes   | Holding Registers |
+    | 400001 | 465536 |      |       |                   |
+
+**** =.load=
+
+     Returns a tuple (<1-minute>,<5-minute>,<15-minute>) I/O load for the PLC
+     being polled.  Each one is a fraction in the range [0.0,1.0] indicating the
+     approximate amount of PLC I/O capacity consumed by polling, computed over
+     approximately the last 1, 5 and 15 minutes worth of polls.  The load is the
+     proportion of the current poll rate that is consumed by poll activity.
+     Even if the load < 1.0, polls may "slip" due to other (eg. write) activity
+     using PLC I/O capacity.
+
+**** =.poll=, =.read=
+
+     Initiates polling of the given address.  =.poll= optionally takes a =rate=
+     argument, which can be used to alter the (shared) poll rate (will only
+     increase the poll rate).  =.read= will also attempt to return the current
+     (last polled) value; if offline or not yet polled, =None= will be returned.
+
+**** =.write=
+
+     At the earliest opportunity (as soon as the current poll is complete and
+     the lock can be acqurired), will issue the write request.  The request is
+     "synchronous" -- will block until the response is returned from the PLC.
+
 * Deterministic Finite Automata
 
   A cpppo.dfa will consume symbols from its source iterable, and yield
