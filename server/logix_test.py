@@ -2,16 +2,11 @@ from __future__ import absolute_import
 from __future__ import print_function
 from __future__ import division
 
-import json
 import logging
-import multiprocessing
 import os
-import random
-import socket
 import sys
 import threading
 import time
-import traceback
 
 if __name__ == "__main__":
     # Allow relative imports when executing within package directory, for
@@ -22,7 +17,7 @@ if __name__ == "__main__":
     #logging.getLogger().setLevel( logging.INFO )
 
 import cpppo
-from   cpppo.server import network, enip
+from   cpppo.server import enip
 from   cpppo.server.enip import logix, client
 
 log				= logging.getLogger( "lgx.prof" )
@@ -732,7 +727,7 @@ def logix_remote( count, svraddr, kwargs ):
 
     begun			= cpppo.timer()
     with cli:
-        request			= cli.register( timeout=timeout )
+        cli.register( timeout=timeout )
         data,elapsed		= client.await( cli, timeout=timeout )
     log.normal( "Client Register Rcvd %7.3f/%7.3fs: %r", elapsed, timeout, data )
     assert data is not None and 'enip.CIP.register' in data, "Failed to receive Register response"
@@ -745,8 +740,8 @@ def logix_remote( count, svraddr, kwargs ):
     with cli:
         for _ in range( count ):
             begun		= cpppo.timer()
-            request		= cli.read( path=[{'symbolic': 'SCADA'}, {'element': 12}],
-                                                    elements=1, offset=0, timeout=timeout )
+            cli.read( path=[{'symbolic': 'SCADA'}, {'element': 12}],
+                      elements=1, offset=0, timeout=timeout )
             data,elapsed	= client.await( cli, timeout=timeout )
             log.normal( "Client ReadFrg. Rcvd %7.3f/%7.3fs: %r", elapsed, timeout, data )
 

@@ -2,22 +2,12 @@ from __future__ import absolute_import
 from __future__ import print_function
 from __future__ import division
 
-import array
-import json
 import logging
-import multiprocessing
 import os
 import random
 import socket
 import sys
-import threading
-import time
 import traceback
-
-try:
-    import reprlib
-except ImportError:
-    import repr as reprlib
 
 if __name__ == "__main__":
     # Allow relative imports when executing within package directory, for
@@ -25,7 +15,6 @@ if __name__ == "__main__":
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 import cpppo
-from   cpppo import misc
 from   cpppo.server import network, enip
 from   cpppo.server.enip import parser, logix
 
@@ -1498,7 +1487,7 @@ def test_enip_device():
     O				= Test_Device( 'Test Class', instance_id=1 )
 
     # Confirm the new entries in the enip.device.directory
-    assert sorted( enip.device.directory[str(O.class_id)].keys(), key=misc.natural ) == [
+    assert sorted( enip.device.directory[str(O.class_id)].keys(), key=cpppo.natural ) == [
         '0.0',				# the class-level instance
         '0.1', 				# ... and class-level attributes
         '0.2',
@@ -1515,7 +1504,7 @@ def test_enip_device():
     assert enip.device.directory[str(O.class_id)+'.0.3'].value == 2 # Number of Instances
     log.normal( "device.directory: %s", '\n'.join(
         "%16s: %s" % ( k, enip.device.directory[k] )
-        for k in sorted( enip.device.directory.keys(), key=misc.natural)))
+        for k in sorted( enip.device.directory.keys(), key=cpppo.natural)))
 
 
 
@@ -1573,7 +1562,7 @@ def test_enip_logix():
 
     # If we ask a Logix Object to process the request, it should respond.
     proceed			= Obj.request( data )
-    log.normal("Logix Request processed: %s", enip.enip_format( data ))
+    log.normal("Logix Request processed: %s (proceed == %s)", enip.enip_format( data ), proceed )
 
 
 # Run the bench-test.  Sends some request from a bunch of clients to a server, testing responses
@@ -1636,7 +1625,7 @@ def enip_cli( number, tests=None ):
                             log.warning(
                                 "EtherNet/IP Client %3d reply complete, before full request sent!" % (
                                     number ))
-                            error += 1
+                            errors += 1
                         out	= min( len( req ), random.randrange( *charrange ))
                         log.detail( "EtherNet/IP Client %3d send: %5d/%5d: %s", number, out, len( req ),
                                     repr( req[:out] ))
@@ -1665,7 +1654,7 @@ def enip_cli( number, tests=None ):
                         source.chain( rcvd )
                         for mch,sta in engine:
                             log.detail("EtherNet/IP Client %3d rpy.: %s -> %10.10s; next byte %3d: %-10.10r: %s",
-                                       number, machine.name_centered(), sta, source.sent, source.peek(), reprlib.repr( data ))
+                                       number, machine.name_centered(), sta, source.sent, source.peek(), cpppo.reprlib.repr( data ))
 
                 # Parsed response should be in data.
                 assert machine.terminal, \

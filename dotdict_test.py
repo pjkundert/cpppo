@@ -2,16 +2,13 @@ from __future__ import absolute_import
 from __future__ import print_function
 from __future__ import division
 
-import logging
-import os
+#import logging
 import sys
+import threading
 import time
 
 from . import misc
-
-from .dotdict import *
-
-#logging.getLogger().setLevel( logging.INFO )
+from .dotdict import dotdict, apidict
 
 def test_dotdict():
     # Like dict, construct from mapping, iterable and/or keywords

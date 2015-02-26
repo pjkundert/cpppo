@@ -241,7 +241,7 @@ class device( object ):
 
     def __str__( self ):
         attrs		= [ a for a in dir( self ) if not a.startswith('_') and a != "events" ]
-        pairs		= dict( ( (a,getattr( self, a )) for a in attrs ) )
+        pairs		= { a: getattr( self, a ) for a in attrs }
         return json.dumps( pairs, sort_keys=True, indent=4 )
 
     __repr__ 		= __str__
@@ -383,7 +383,7 @@ class motor( device ):
         return None if value is None else bool( value )
     @reset.setter
     def reset( self, value ):
-        if isinstance( value,  cpppo.type_str_base ):
+        if isinstance( value,  basestring if sys.version_info.major < 3 else str ):
             value	= json.loads( value.lower() )
         self._reset.value = bool( value )
 
@@ -393,7 +393,7 @@ class motor( device ):
         return None if value is None else bool( value )
     @start.setter
     def start( self, value ):
-        if isinstance( value,  cpppo.type_str_base ):
+        if isinstance( value,  basestring if sys.version_info.major < 3 else str ):
             value	= json.loads( value.lower() )
         self._start.value = bool( value )
 

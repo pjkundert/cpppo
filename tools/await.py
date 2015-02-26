@@ -25,7 +25,6 @@ __license__                     = "Dual License: GPLv3 (or later) and Commercial
 
 import errno
 import logging
-import os
 import re
 import time
 

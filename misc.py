@@ -19,19 +19,9 @@ from __future__ import absolute_import
 from __future__ import print_function
 from __future__ import division
 
-__author__                      = "Perry Kundert"
-__email__                       = "perry@hardconsulting.com"
-__copyright__                   = "Copyright (c) 2013 Hard Consulting Corporation"
-__license__                     = "Dual License: GPLv3 (or later) and Commercial (see LICENSE)"
-
-"""
-Miscellaneous functionality used by various other modules.
-"""
-
 import functools
 import logging
 import math
-import os
 import sys
 import time
 import types
@@ -41,6 +31,14 @@ try:
 except ImportError:
     import repr as reprlib
 
+__author__                      = "Perry Kundert"
+__email__                       = "perry@hardconsulting.com"
+__copyright__                   = "Copyright (c) 2013 Hard Consulting Corporation"
+__license__                     = "Dual License: GPLv3 (or later) and Commercial (see LICENSE)"
+
+"""
+Miscellaneous functionality used by various other modules.
+"""
 
 # 
 # misc.mutexmethod -- apply a synchronization mutex around a method invocation

@@ -711,10 +711,9 @@
      Returns a tuple (<1-minute>,<5-minute>,<15-minute>) I/O load for the PLC
      being polled.  Each one is a fraction in the range [0.0,1.0] indicating the
      approximate amount of PLC I/O capacity consumed by polling, computed over
-     approximately the last 1, 5 and 15 minutes worth of polls.  The load is the
-     proportion of the current poll rate that is consumed by poll activity.
-     Even if the load < 1.0, polls may "slip" due to other (eg. write) activity
-     using PLC I/O capacity.
+     approximately the last 1, 5 and 15 minutes worth of polls.  Even if the
+     load < 1.0, polls may "slip" due to other (eg. write) activity using PLC
+     I/O capacity.
 
 **** =.poll=, =.read=
 
@@ -722,6 +721,8 @@
      argument, which can be used to alter the (shared) poll rate (will only
      increase the poll rate).  =.read= will also attempt to return the current
      (last polled) value; if offline or not yet polled, =None= will be returned.
+     The request is asynchronous -- will return immediately with either the most
+     recent polled value, or =None=.
 
 **** =.write=
 
@@ -734,7 +735,7 @@
   A cpppo.dfa will consume symbols from its source iterable, and yield
   (machine,state) transitions 'til a terminal state is reached.  If 'greedy',
   it will transition 'til we reach a terminal state and the next symbol does
-  not product a transition.
+  not produce a transition.
 
   For example, if 'abbb,ab' is presented to the following machine with a
   no-input state E, and input processing states A and (terminal) B, it will

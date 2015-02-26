@@ -35,7 +35,7 @@ PY3=python3
 # 
 
 # To see all pytest output, uncomment --capture=no
-PYTESTOPTS=-v #--capture=no
+PYTESTOPTS=-v # --capture=no
 
 # Preferred timezone for tests.  If you change this, then you will probably have
 # to augment history_test.py to include checking for timestamp.local output in
@@ -79,6 +79,10 @@ install:
 	$(PY2) setup.py install
 	$(PY3) setup.py install
 
+analyze:
+	flake8 -j 1 --max-line-length=110					\
+	  --ignore=E221,E201,E202,E203,E223,E225,E226,E231,E241,E242,E261,E272,E302,W503,E701,E702,E,W	\
+	  .
 # Support uploading a new version of cpppo to pypi.  Must:
 #   o advance __version__ number in cpppo/misc.py
 #   o log in to your pypi account (ie. for package maintainer only)

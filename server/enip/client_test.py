@@ -7,16 +7,11 @@ try:
 except ImportError:
     pass
 
-import json
 import logging
-import multiprocessing
 import os
 import random
-import socket
 import sys
-import threading
 import time
-import traceback
 
 if __name__ == "__main__":
     # Allow relative imports when executing within package directory, for

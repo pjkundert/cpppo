@@ -1,58 +1,44 @@
 
-# 
+#
 # Cpppo -- Communication Protocol Python Parser and Originator
-# 
+#
 # Copyright (c) 2013, Hard Consulting Corporation.
-# 
+#
 # Cpppo is free software: you can redistribute it and/or modify it under the
 # terms of the GNU General Public License as published by the Free Software
 # Foundation, either version 3 of the License, or (at your option) any later
 # version.  See the LICENSE file at the top of the source tree.
-# 
+#
 # Cpppo is distributed in the hope that it will be useful, but WITHOUT ANY
 # WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
 # A PARTICULAR PURPOSE.  See the GNU General Public License for more details.
-# 
+#
 
 from __future__ import absolute_import
 from __future__ import print_function
 from __future__ import division
 
-__author__                      = "Perry Kundert"
-__email__                       = "perry@hardconsulting.com"
-__copyright__                   = "Copyright (c) 2013 Hard Consulting Corporation"
-__license__                     = "Dual License: GPLv3 (or later) and Commercial (see LICENSE)"
-
 import array
-try:
-    import exceptions
-except ImportError:
-    pass # No exceptions module for python3
 import logging
 import struct
 import sys
 import threading
 import traceback
 
-try:
-    import reprlib
-except ImportError:
-    import repr as reprlib
-
 import greenery.lego
 import greenery.fsm
 
 from . import misc
-from .dotdict import *
+
+__author__                      = "Perry Kundert"
+__email__                       = "perry@hardconsulting.com"
+__copyright__                   = "Copyright (c) 2013 Hard Consulting Corporation"
+__license__                     = "Dual License: GPLv3 (or later) and Commercial (see LICENSE)"
 
 
 log				= logging.getLogger( __package__ )
 log_cfg				= {
     "level":	logging.WARNING,
-#    "level":	logging.NORMAL,
-#    "level":	logging.DETAIL,
-#    "level":	logging.INFO,
-#    "level":	logging.DEBUG,
     "datefmt":	'%m-%d %H:%M:%S',
     "format":	'%(asctime)s.%(msecs).03d %(thread)16x %(name)-8.8s %(levelname)-8.8s %(funcName)-10.10s %(message)s',
 }
@@ -83,7 +69,7 @@ path_ext_input			= '.input'	# default destination input
 type_unicode_encoder		= lambda s: ( b for b in s.encode( 'utf-8' ))
 type_str_encoder		= None if sys.version_info[0] < 3 else type_unicode_encoder
 
-# 
+#
 # peekable/peeking
 # chainable/chaining
 # 
@@ -399,8 +385,8 @@ class state( dict ):
         return self._name_centered
 
     def __str__( self ):
-        return ( '(' + ( '(' if self.terminal else ' ' ) 
-                     + self.name 
+        return ( '(' + ( '(' if self.terminal else ' ' )
+                     + self.name
                      + ( ')' if self.terminal else ' ' ) + ')' )
 
     def __repr__( self ):
@@ -1222,7 +1208,7 @@ class dfa_base( object ):
                 log.debug( "%s -- repeat=%r == %r", self.name_centered(), final_src, self.final )
             assert isinstance( self.final, int ), \
                 "Supplied repeat=%r (== %r) must be (or reference) an int, not a %r" % (
-                    self.repeat, final_src, final )
+                    self.repeat, final_src, self.final )
 
         # Loop through all required cycles of the sub-machine, unless stasis (no progress) occurs.
         # Unless a cycle of the sub-machine completes, with it reaching a terminal state, we will

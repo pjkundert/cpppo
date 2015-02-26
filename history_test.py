@@ -19,9 +19,7 @@ if __name__ == "__main__":
     logging.basicConfig( **log_cfg )
     logging.getLogger().setLevel( logging.NORMAL )
 
-from cpppo import timer, near, log_cfg, reprlib
-#logging.basicConfig( **log_cfg )
-#logging.getLogger().setLevel( logging.DETAIL )
+from cpppo import timer, near, reprlib
 
 
 has_pytz			= False

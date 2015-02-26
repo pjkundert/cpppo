@@ -28,7 +28,6 @@ __all__				= ["timestamp", "get_localzone", "zone_names", "timedelta_total_secon
 
 import bisect
 import calendar
-import collections
 import datetime
 import logging
 import os

@@ -53,15 +53,9 @@ import socket
 import sys
 import traceback
 
-try:
-    import reprlib
-except ImportError:
-    import repr as reprlib
-
 import cpppo
-from   cpppo import misc
-from   cpppo.server import (network, enip)
-from   cpppo.server.enip import (parser, logix)
+from   cpppo.server import network, enip
+from   cpppo.server.enip import parser, logix
 
 log				= logging.getLogger( "enip.cli" )
 
@@ -456,7 +450,7 @@ class client( object ):
         """Send encoded request data."""
         assert self.writable( timeout=timeout ), \
             "Failed to send to %r within %7.3fs: %r" % (
-                self.addr, misc.inf if timeout is None else timeout, request )
+                self.addr, cpppo.inf if timeout is None else timeout, request )
         sent		= bytes( request )
         self.conn.send( sent )
         log.info(
@@ -686,7 +680,7 @@ class connector( client ):
         begun			= cpppo.timer()
         try:
             with self:
-                request		= self.register( timeout=timeout )
+                self.register( timeout=timeout )
                 elapsed_req	= cpppo.timer() - begun
                 data,elapsed_rpy= await( self, timeout=None if timeout is None else max( 0, timeout - elapsed_req ))
 
@@ -698,11 +692,11 @@ class connector( client ):
             self.session	= data.enip.session_handle
         except Exception as exc:
             logging.warning( "Connect:  Failure in %7.3fs/%7.3fs: %s", cpppo.timer() - begun,
-                             misc.inf if timeout is None else timeout, exc )
+                             cpppo.inf if timeout is None else timeout, exc )
             raise
 
         logging.detail( "Connect:  Success in %7.3fs/%7.3fs", elapsed_req + elapsed_rpy,
-                        misc.inf if timeout is None else timeout )
+                        cpppo.inf if timeout is None else timeout )
 
     def close( self ):
         self.conn.close()
@@ -793,7 +787,7 @@ class connector( client ):
                     elapsed	= cpppo.timer() - begun
                     if log.isEnabledFor( logging.DETAIL ):
                         log.detail( "Sent %7.3f/%7.3fs: %s (req: %d + %d or rpy: %d + %d >= %d): %s", elapsed,
-                                    misc.inf if timeout is None else timeout, "Multiple Service Packet",
+                                    cpppo.inf if timeout is None else timeout, "Multiple Service Packet",
                                     reqsiz, reqest, rpysiz, rpyest, multiple,
                                     enip.enip_format( mul ))
                     for d,o,r in requests:
@@ -809,7 +803,7 @@ class connector( client ):
                 # Single requests already issued
                 if log.isEnabledFor( logging.DETAIL ):
                     log.detail( "Sent %7.3f/%7.3fs: %s %s", elapsed,
-                                misc.inf if timeout is None else timeout, descr,
+                                cpppo.inf if timeout is None else timeout, descr,
                                 enip.enip_format( req ))
                 yield index,sender_context,descr,op,req
                 index	       += 1
@@ -824,7 +818,7 @@ class connector( client ):
             elapsed		= cpppo.timer() - begun
             if log.isEnabledFor( logging.DETAIL ):
                 log.detail( "Sent %7.3f/%7.3fs: %s %s", elapsed,
-                            misc.inf if timeout is None else timeout, "Multiple Service Packet",
+                            cpppo.inf if timeout is None else timeout, "Multiple Service Packet",
                             enip.enip_format( req ))
             for d,o,r in requests:
                 yield index,sender_context,d,o,r
@@ -851,13 +845,13 @@ class connector( client ):
             response,elapsed	= await( self, timeout=timeout )
             if log.isEnabledFor( logging.DETAIL ):
                 log.detail( "Rcvd %7.3f/%7.3fs %s", elapsed,
-                            misc.inf if timeout is None else timeout,
+                            cpppo.inf if timeout is None else timeout,
                             enip.enip_format( response ))
 
             # Find the replies in the response; could be single or multiple; should match requests!
             if response is None:
                 raise StopIteration( "Response Not Received w/in %7.2fs" % (
-                    misc.inf if timeout is None else timeout ))
+                    cpppo.inf if timeout is None else timeout ))
             elif response.enip.status != 0:
                 raise Exception( "Response EtherNet/IP status: %d" % ( response.enip.status ))
             elif 'enip.CIP.send_data.CPF.item[1].unconnected_send.request.multiple.request' in response:
@@ -1223,18 +1217,18 @@ provided.""" )
         tags			= args.tags
 
     # Register and EtherNet/IP CIP connection to a Controller
-    begun			= misc.timer()
+    begun			= cpppo.timer()
     with connector( host=addr[0], port=addr[1], timeout=timeout ) as connection:
-        elapsed			= misc.timer() - begun
+        elapsed			= cpppo.timer() - begun
         log.detail( "Client Register Rcvd %7.3f/%7.3fs" % ( elapsed, timeout ))
     
         # Issue Tag I/O operations, optionally printing a summary
-        begun			= misc.timer()
+        begun			= cpppo.timer()
         operations		= parse_operations( recycle( tags, times=repeat ))
         failures,transactions	= connection.process(
             operations=operations, depth=depth, multiple=multiple,
             fragment=fragment, printing=printing, timeout=timeout )
-        elapsed			= misc.timer() - begun
+        elapsed			= cpppo.timer() - begun
         log.normal( "Client Tag I/O  Average %7.3f TPS (%7.3fs ea)." % (
             len( transactions ) / elapsed, elapsed / len( transactions )))
 

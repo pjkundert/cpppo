@@ -31,28 +31,13 @@ enip/parser.py	-- The EtherNet/IP CIP protocol parsers
 """
 
 import array
-import codecs
-import errno
 import json
 import logging
-import os
 import struct
 import sys
-import threading
-import time
-import traceback
-try:
-    import reprlib
-except ImportError:
-    import repr as reprlib
 
 import cpppo
-from   cpppo import misc
 import cpppo.server
-from   cpppo.server import network 
-
-if __name__ == "__main__":
-    logging.basicConfig( **cpppo.log_cfg )
 
 log				= logging.getLogger( "enip.srv" )
 
@@ -310,7 +295,7 @@ class enip_header( cpppo.dfa ):
         sess[True] = stat	= UDINT(	"status",	context="status" )
         stat[True] = ctxt	= octets(	"sndr_ctx",	context="sender_context",
                                     repeat=8 )
-        ctxt[True] = opts	= UDINT( 	"options",	context="options", terminal=True )
+        ctxt[True] 		= UDINT( 	"options",	context="options", terminal=True )
 
         super( enip_header, self ).__init__( name=name, initial=init, **kwds )
 
@@ -330,7 +315,7 @@ class enip_machine( cpppo.dfa ):
     def __init__( self, name=None, **kwds ):
         name 			= name or kwds.setdefault( 'context', 'enip' )
         hedr			= enip_header(	'header' ) # NOT in a separate context!
-        hedr[None] = encp	= octets(	'payload',
+        hedr[None]		= octets(	'payload',
                                                 repeat=".length",
                                                 terminal=True )
 

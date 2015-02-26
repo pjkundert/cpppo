@@ -37,13 +37,9 @@ USAGE
 __all__				= ['main', 'address', 'timeout', 'latency']
 
 import argparse
-import array
-import codecs
-import errno
 import fnmatch
 import json
 import logging
-import os
 import random
 import signal
 import sys
@@ -51,10 +47,6 @@ import socket
 import threading
 import time
 import traceback
-try:
-    import reprlib
-except ImportError:
-    import repr as reprlib
 
 import cpppo
 from   cpppo.server import network
@@ -178,7 +170,7 @@ def http_exception( framework, status, message ):
                     self.message = '; '.join( [self.message, message] )
                     framework.NotAcceptable.__init__(self)
             return NotAcceptable( message )
-
+    '''
     elif framework and framework.__name__ == "itty":
         if status == 404:
             return framework.NotFound( message )
@@ -187,7 +179,7 @@ def http_exception( framework, status, message ):
             class NotAcceptable( itty.RequestError ):
                 status  = 406
             return NotAcceptable( message )
-
+    '''
     return Exception( "%d %s" % ( status, message ))
 
 
@@ -303,7 +295,6 @@ def api_request( group, match, command, value,
 
     # Collect up all the matching objects, execute any command, and then get
     # their attributes, adding any command { success: ..., message: ... }
-    now			= cpppo.timer()
     content		= {
         "alarm":	[],
         "command":	None,
@@ -639,7 +630,7 @@ def enip_srv( conn, addr, enip_process=None, delay=None, **kwds ):
                                 stats['received']+= len( msg )
                                 stats['eof']	= stats['eof'] or not len( msg )
                                 log.detail( "%s recv: %5d: %s", enip_mesg.name_centered(),
-                                            len( msg ) if msg is not None else 0, reprlib.repr( msg ))
+                                            len( msg ) if msg is not None else 0, cpppo.reprlib.repr( msg ))
                                 source.chain( msg )
                             else:
                                 # No input.  If we have symbols available, no problem; continue.
@@ -674,7 +665,7 @@ def enip_srv( conn, addr, enip_process=None, delay=None, **kwds ):
 
                         rpy	= parser.enip_encode( data.response.enip )
                         log.detail( "%s send: %5d: %s %s", enip_mesg.name_centered(),
-                                    len( rpy ), reprlib.repr( rpy ),
+                                    len( rpy ), cpppo.reprlib.repr( rpy ),
                                     ("delay: %r" % delay) if delay else "" )
                         if delay:
                             # A delay (anything with a delay.value attribute) == #[.#] (converible

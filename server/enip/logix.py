@@ -30,27 +30,19 @@ enip.logix	-- Implements a Logix-like PLC subset
 
 """
 
-import array
-import codecs
-import errno
 import logging
-import os
 import sys
 import threading
-import time
 import traceback
-try:
-    import reprlib
-except ImportError:
-    import repr as reprlib
 
 import cpppo
-from   cpppo import misc
 import cpppo.server
-from   cpppo.server import network
 
-from .device import *
-from .parser import *
+from .device import ( Object, Attribute, Message_Router, Connection_Manager, UCMM, Identity,
+                      resolve_element, resolve_tag, resolve, redirect_tag, lookup )
+from .parser import ( UDINT, DINT, UINT, INT, USINT, SINT, REAL, EPATH, typed_data,
+                      move_if, octets_drop, octets_noop, 
+                      enip_format, status )
 
 log				= logging.getLogger( "enip.lgx" )
 
@@ -459,7 +451,7 @@ def __read_tag():
     # Read Tag Service
     srvc			= USINT(	 	  	context='service' )
     srvc[True]		= path	= EPATH(			context='path' )
-    path[True]		= elem	= UINT(		'elements', 	context='read_tag',   extension='.elements',
+    path[True]			= UINT(		'elements', 	context='read_tag',   extension='.elements',
                                         terminal=True )
     return srvc
 Logix.register_service_parser( number=Logix.RD_TAG_REQ, name=Logix.RD_TAG_NAM,
@@ -698,7 +690,7 @@ def process( addr, data, **kwds ):
                 for i,(m,s) in enumerate( machine.run( path='request.enip', source=source, data=data )):
                     #log.detail( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %s",
                     #            machine.name_centered(), i, s, source.sent, source.peek(),
-                    #            repr( data ) if log.getEffectiveLevel() < logging.DETAIL else reprlib.repr( data ))
+                    #            repr( data ) if log.getEffectiveLevel() < logging.DETAIL else cpppo.reprlib.repr( data ))
                     pass
         if log.isEnabledFor( logging.DETAIL ):
             log.detail( "EtherNet/IP CIP Request  (Client %16s): %s", addr, enip_format( data.request ))

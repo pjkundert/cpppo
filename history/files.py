@@ -33,20 +33,11 @@ import gzip
 import json
 import logging
 import os
-import re
-import string
 import subprocess
-import sys
-import time
 import traceback
 
-try:
-    import repr as reprlib
-except ImportError:
-    import reprlib as reprlib
-
 from .times		import timestamp, format_offset
-from ..misc		import timer, natural
+from ..misc		import timer, natural, reprlib
 from ..automata		import type_str_base
 
 log				= logging.getLogger( __package__ )
@@ -451,7 +442,7 @@ class reader( object ):
                     # errors at the beginning of a file, because this is where the "iframe" of all
                     # current register values must be.
                     fd		= opener( self.path + f )
-                    l,n		= None,-1
+                    n		= -1
                     n,(ts,sn,js)= parse_record( fd, encoding=encoding )
                 except Exception as exc:
                     log.warning( "%s Ignoring history file %s: %s", self, self.name+f, exc )

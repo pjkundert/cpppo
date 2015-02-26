@@ -357,5 +357,3 @@ class apidict( dotdict ):
                 return super( apidict, self ).__getattr__( key )
             finally:
                 self._cnd.notify_all()
-
-        

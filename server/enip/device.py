@@ -34,26 +34,18 @@ __all__				= ['lookup', 'resolve', 'resolve_element',
                                    'Object', 'Attribute',
                                    'UCMM', 'Connection_Manager', 'Message_Router', 'Identity']
 
-import array
-import codecs
-import errno
 import logging
-import os
 import random
 import sys
 import threading
-import time
 import traceback
-try:
-    import reprlib
-except ImportError:
-    import repr as reprlib
 
 import cpppo
 import cpppo.server
-from   cpppo.server import network
 
-from .parser import *
+from .parser import ( DINT, INT, UINT, USINT, EPATH, SSTRING, CIP, typed_data,
+                      octets, octets_noop, octets_drop, move_if,
+                      struct, enip_format, status  )
 
 log				= logging.getLogger( "enip.dev" )
 
@@ -260,7 +252,7 @@ class Attribute( object ):
     def __str__( self ):
         return "%-12s %5s[%4d] == %s" % (
             self.name, self.parser.__class__.__name__, len( self ),
-            repr( self.value )  if not log.isEnabledFor( logging.INFO ) else reprlib.repr( self.value ))
+            repr( self.value )  if not log.isEnabledFor( logging.INFO ) else cpppo.reprlib.repr( self.value ))
     __repr__ 			= __str__
 
     def __len__( self ):
@@ -1067,7 +1059,7 @@ class Message_Router( Object ):
             if ( ids[0] == self.class_id and ids[1] == self.instance_id ):
                 return None
             target		= lookup( *ids )
-        except Exception as exc:
+        except Exception:
             # The resolution/lookup fails (eg. bad symbolic Tag); Either ignore it (return False)
             # and continue processing, so we can return a proper .status error code from the actual
             # request processing code, or raise an Exception.
@@ -1455,7 +1447,7 @@ class Connection_Manager( Object ):
                     pass
                     #log.detail( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %s",
                     #            machine.name_centered(), i, s, source.sent, source.peek(),
-                    #            repr( data ) if log.getEffectiveLevel() < logging.DETAIL else reprlib.repr( data ))
+                    #            repr( data ) if log.getEffectiveLevel() < logging.DETAIL else cpppo.reprlib.repr( data ))
 
             #log.info( "%s Executing: %s", self, enip_format( data.request ))
             MR.request( data.request )
