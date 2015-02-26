@@ -35,9 +35,8 @@ import sys
 import threading
 import traceback
 
-import cpppo
-import cpppo.server
-
+from ...dotdict import dotdict
+from ... import automata
 from .device import ( Object, Attribute, Message_Router, Connection_Manager, UCMM, Identity,
                       resolve_element, resolve_tag, resolve, redirect_tag, lookup )
 from .parser import ( UDINT, DINT, UINT, INT, USINT, SINT, REAL, EPATH, typed_data,
@@ -470,7 +469,7 @@ def __read_tag_reply():
                                         tag_type='.type',
                                         terminal=True )
     # For status 0x00 (Success), type/data follows.
-    schk[None]			= cpppo.decide(	'ok',		state=dtyp,
+    schk[None]			= automata.decide( 'ok',	state=dtyp,
         predicate=lambda path=None, data=None, **kwds: data[path+'.status' if path else 'status']== 0x00 )
     schk[None]			= move_if(	'mark',		initializer=True,
                                                 destination='read_tag' )
@@ -504,7 +503,7 @@ def __read_frag_reply():
                                         tag_type='.type',
                                         terminal=True )
     # For status 0x00 (Success) and 0x06 (Not all data returned), type/data follows.
-    schk[None]			= cpppo.decide(	'ok',		state=dtyp,
+    schk[None]			= automata.decide( 'ok',	state=dtyp,
         predicate=lambda path=None, data=None, **kwds: data[path+'.status' if path else 'status'] in (0x00, 0x06) )
     schk[None]			= move_if(	'mark',		initializer=True,
                                                 destination='read_frag' )
@@ -674,7 +673,7 @@ def process( addr, data, **kwds ):
                 attribute.error	= val.error
 
 
-    source			= cpppo.rememberable()
+    source			= automata.rememberable()
     try:
         # Find the Connection Manager, and use it to parse the encapsulated EtherNet/IP request.  We
         # pass an additional request.addr, to allow the Connection Manager to identify the
@@ -690,7 +689,7 @@ def process( addr, data, **kwds ):
                 for i,(m,s) in enumerate( machine.run( path='request.enip', source=source, data=data )):
                     #log.detail( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %s",
                     #            machine.name_centered(), i, s, source.sent, source.peek(),
-                    #            repr( data ) if log.getEffectiveLevel() < logging.DETAIL else cpppo.reprlib.repr( data ))
+                    #            repr( data ) if log.getEffectiveLevel() < logging.DETAIL else misc.reprlib.repr( data ))
                     pass
         if log.isEnabledFor( logging.DETAIL ):
             log.detail( "EtherNet/IP CIP Request  (Client %16s): %s", addr, enip_format( data.request ))
@@ -699,9 +698,9 @@ def process( addr, data, **kwds ):
         # the dictionary structure is new (we won't alter the request.enip... when we add entries in
         # the resonse...), but the actual mutable values (eg. bytearray ) are shared.  If we need to
         # change any values, replace them with new values instead of altering them!
-        data.response		= cpppo.dotdict( data.request )
+        data.response		= dotdict( data.request )
         if 'enip' in data.request:
-            data.response.enip	= cpppo.dotdict( data.request.enip )
+            data.response.enip	= dotdict( data.request.enip )
 
         # Get rid of our raw request encapsulated enip.input; we'll generate a new one for the
         # response, and we don't want to ever be accidentally returning our request as our response

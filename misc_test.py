@@ -4,7 +4,7 @@ from __future__ import division
 
 import threading
 
-from .misc import *
+from .misc import ( near, scale, magnitude, centeraxis, natural, change_function, mutexmethod )
 
 def test_scale():
     assert near( scale(   0., ( 0., 100. ), ( 32., 212. )),  32. )

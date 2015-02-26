@@ -39,14 +39,14 @@ import traceback
 
 from SocketServer import _eintr_retry
 
-import cpppo
+from .. import misc
 
 # We need to monkeypatch pymodbus' ModbusTcpServer's SocketServer.serve_forever
 # to be Python3 socketserver interface-compatible.  When pymodbus is ported to
 # Python3, this will not be necessary in the Python3 implementation.
 assert sys.version_info.major < 3, "pymodbus is not yet Python3 compatible"
+from pymodbus import __version__ as pymodbus_version
 from pymodbus.server.sync import ModbusTcpServer, ModbusSerialServer, ModbusSingleRequestHandler
-
 from pymodbus.transaction import ModbusSocketFramer, ModbusRtuFramer
 from pymodbus.constants import Defaults
 from pymodbus.client.sync import ModbusTcpClient, ModbusSerialClient
@@ -215,11 +215,19 @@ class modbus_server_tcp( ModbusTcpServer ):
     which is basically an enhancement of Python2 SocketServer.
 
     """
+    def __init__( self, *args, **kwds ):
+        if kwds.get( 'ignore_missing_slaves' ):
+            assert list( map( int, pymodbus_version.split( '.' ))) >= [1,3,0], \
+                "The pymodbus version %s installed lacks the ignore_missing_slaves; requires 1.3.0 or better" % (
+                    pymodbus_version )
+        # NOT a new-style class (due to SocketServer.ThreadingTCPServer); no super(...)
+        ModbusTcpServer.__init__( self, *args, **kwds )
+
     def serve_forever( self, poll_interval=.5 ):
         self._BaseServer__is_shut_down.clear()
         try:
             while not self._BaseServer__shutdown_request:
-                r,w,e 		= _eintr_retry( select.select, [self], [], [], poll_interval )
+                r,w,e		= _eintr_retry( select.select, [self], [], [], poll_interval )
                 if self in r:
                     self._handle_request_noblock()
 
@@ -241,9 +249,9 @@ def modbus_rtu_read( fd, decoder, size=1024, timeout=None ):
 
     """
     incoming			= b''
-    begun			= cpppo.timer()
+    begun			= misc.timer()
     logging.debug( "Modbus/RTU %s Receive begins  in %7.3f/%7.3fs", decoder.__class__.__name__,
-                   cpppo.timer() - begun, timeout if timeout is not None else cpppo.inf )
+                   misc.timer() - begun, timeout if timeout is not None else misc.inf )
     complete			= False
     rejected			= 1 # known *not* to be a valid request <function code> ... <crc>
     # Wait up to 'timeout' for an initial request character, then 1/10th second.
@@ -264,7 +272,7 @@ def modbus_rtu_read( fd, decoder, size=1024, timeout=None ):
             raise serial.SerialException('device reports readiness to read but returned no data (device disconnected or multiple access on port?)')
         incoming	       += c
         logging.debug( "Modbus/RTU %s Receive reading in %7.3f/%7.3fs; %d bytes", decoder.__class__.__name__,
-                       cpppo.timer() - begun, timeout if timeout is not None else cpppo.inf,
+                       misc.timer() - begun, timeout if timeout is not None else misc.inf,
                        len( incoming ))
         for i in range( rejected, max( rejected, len( incoming ) - 2 )):
             # in a buffer N long, the function code could be anywhere from index 1, to within 3
@@ -278,7 +286,7 @@ def modbus_rtu_read( fd, decoder, size=1024, timeout=None ):
             if pdu_class is ExceptionResponse: # Returned for every unrecognized function...
                 rejected	= i
                 logging.debug( "Modbus/RTU %s Receive rejects in %7.3f/%7.3fs; %d bytes: no frame at offset %d", decoder.__class__.__name__,
-                               cpppo.timer() - begun, timeout if timeout is not None else cpppo.inf,
+                               misc.timer() - begun, timeout if timeout is not None else misc.inf,
                                len( incoming ), rejected )
                 continue
             # Might be a function code!  How big?  Raises Exception if data not yet available.
@@ -289,7 +297,7 @@ def modbus_rtu_read( fd, decoder, size=1024, timeout=None ):
                 crc_val		= (ord(crc[0]) << 8) + ord(crc[1])
                 if checkCRC( data, crc_val ):
                     logging.debug( "Modbus/RTU %s Receive framing in %7.3f/%7.3fs; %d bytes: %s of %d bytes", decoder.__class__.__name__,
-                       cpppo.timer() - begun, timeout if timeout is not None else cpppo.inf,
+                       misc.timer() - begun, timeout if timeout is not None else misc.inf,
                        len( incoming ), pdu_class.__name__, frame_size )
                     complete	= True
                     break
@@ -298,12 +306,19 @@ def modbus_rtu_read( fd, decoder, size=1024, timeout=None ):
                 break
 
     logging.debug( "Modbus/RTU %s Receive success in %7.3f/%7.3fs; %d bytes", decoder.__class__.__name__,
-                   cpppo.timer() - begun, timeout if timeout is not None else cpppo.inf,
+                   misc.timer() - begun, timeout if timeout is not None else misc.inf,
                    len( incoming ))
     return incoming
 
 
 class modbus_server_rtu( ModbusSerialServer ):
+    def __init__( self, *args, **kwds ):
+        if kwds.get( 'ignore_missing_slaves' ):
+            assert list( map( int, pymodbus_version.split( '.' ))) >= [1,3,0], \
+                "The pymodbus version %s installed lacks the ignore_missing_slaves; requires 1.3.0 or better" % (
+                    pymodbus_version )
+        super( modbus_server_rtu, self ).__init__( *args, **kwds ) # IS a new style class
+        
     def _build_handler( self ):
         request			= self.socket
         request.send		= request.write
@@ -346,7 +361,7 @@ class modbus_client_timeout( object ):
         if self._timeout in (None, True):
             logging.debug( "Transaction timeout default: %.3fs" % ( Defaults.Timeout ))
             return Defaults.Timeout
-        now		= cpppo.timer()
+        now		= misc.timer()
         eta		= self._started + self._timeout
         if eta > now:
             logging.debug( "Transaction timeout remaining: %.3fs" % ( eta - now ))
@@ -365,7 +380,7 @@ class modbus_client_timeout( object ):
             self._started = None
             self._timeout = None
         else:
-            self._started = cpppo.timer()
+            self._started = misc.timer()
             self._timeout = ( Defaults.Timeout
                               if ( timeout is True or timeout == 0 )
                               else timeout )
@@ -390,7 +405,7 @@ class modbus_client_tcp( modbus_client_timeout, ModbusTcpClient ):
         """
         if self.socket: return True
         logging.debug( "Connecting to (%s, %s)", getattr( self, 'host', '(serial)' ), self.port )
-        begun			= cpppo.timer()
+        begun			= misc.timer()
         timeout			= self.timeout # This computes the remaining timeout available
         try:
             self.socket		= socket.create_connection( (self.host, self.port),
@@ -400,7 +415,7 @@ class modbus_client_tcp( modbus_client_timeout, ModbusTcpClient ):
                 self.host, self.port, exc ))
             self.close()
         finally:
-            logging.debug( "Connect completed in %.3fs" % ( cpppo.timer() - begun ))
+            logging.debug( "Connect completed in %.3fs" % ( misc.timer() - begun ))
 
         return self.socket != None
 
@@ -409,18 +424,18 @@ class modbus_client_tcp( modbus_client_timeout, ModbusTcpClient ):
         returns the available input."""
         if not self.socket:
             raise ConnectionException( self.__str__() )
-        begun			= cpppo.timer()
+        begun			= misc.timer()
         timeout			= self.timeout # This computes the remaining timeout available
-        logging.debug( "Receive begins  in %7.3f/%7.3fs", cpppo.timer() - begun, timeout )
+        logging.debug( "Receive begins  in %7.3f/%7.3fs", misc.timer() - begun, timeout )
         r,w,e			= select.select( [self.socket], [], [], timeout )
         if r:
-            logging.debug( "Receive reading in %7.3f/%7.3fs", cpppo.timer() - begun, timeout )
+            logging.debug( "Receive reading in %7.3f/%7.3fs", misc.timer() - begun, timeout )
             result		= super( modbus_client_timeout, self )._recv( size )
-            logging.debug( "Receive success in %7.3f/%7.3fs", cpppo.timer() - begun, timeout )
+            logging.debug( "Receive success in %7.3f/%7.3fs", misc.timer() - begun, timeout )
             return result
 
         self.close()
-        logging.debug( "Receive failure in %7.3f/%7.3fs", cpppo.timer() - begun, timeout )
+        logging.debug( "Receive failure in %7.3f/%7.3fs", misc.timer() - begun, timeout )
         raise ConnectionException("Receive from (%s, %s) failed: Timeout" % (
                 getattr( self, 'host', '(serial)' ), self.port ))
 
@@ -483,7 +498,7 @@ class modbus_client_rtu( modbus_client_timeout, ModbusSerialClient ):
         """
         if not self.socket:
             raise ConnectionException( self.__str__() )
-        begun			= cpppo.timer()
+        begun			= misc.timer()
         request			= None
         try:
             request		= modbus_rtu_read( fd=self.socket.fd, decoder=self.framer.decoder,
@@ -496,6 +511,6 @@ class modbus_client_rtu( modbus_client_timeout, ModbusSerialClient ):
 
         # Nothing within timeout; potential client failure, disconnected hardware?  Force a re-open
         self.close()
-        logging.debug( "Receive failure in %7.3f/%7.3fs", cpppo.timer() - begun, self.timeout )
+        logging.debug( "Receive failure in %7.3f/%7.3fs", misc.timer() - begun, self.timeout )
         raise ConnectionException("Receive from (%s, %s) failed: Timeout" % (
             getattr( self, 'host', '(serial)' ), self.port ))

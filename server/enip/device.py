@@ -40,9 +40,8 @@ import sys
 import threading
 import traceback
 
-import cpppo
-import cpppo.server
-
+from ...dotdict import dotdict
+from ... import automata, misc
 from .parser import ( DINT, INT, UINT, USINT, EPATH, SSTRING, CIP, typed_data,
                       octets, octets_noop, octets_drop, move_if,
                       struct, enip_format, status  )
@@ -61,7 +60,7 @@ log				= logging.getLogger( "enip.dev" )
 #         directory.6.1.0	Class 6, Instance 1: device.Object (python instance)
 #         directory.6.1.1	Class 6, Instance 1, Attribute 1 device.Attribute (python instance)
 # 
-directory			= cpppo.dotdict()
+directory			= dotdict()
 
 def __directory_path( class_id, instance_id=0, attribute_id=None ):
     """It is not possible to in produce a path with an attribute_id=0; this is
@@ -78,7 +77,7 @@ def lookup( class_id, instance_id=0, attribute_id=None ):
     exception			= None
     try:
         key			= class_id
-        if not isinstance( class_id, cpppo.type_str_base ):
+        if not isinstance( class_id, automata.type_str_base ):
             assert type( class_id ) is int
             key			= __directory_path(
                 class_id=class_id, instance_id=instance_id, attribute_id=attribute_id )
@@ -236,7 +235,7 @@ class Attribute( object ):
     def __init__( self, name, type_cls, default=0, error=0x00, mask=0 ):
         self.name		= name
         self.default	       	= default
-        self.scalar		= isinstance( default, cpppo.type_str_base ) or not hasattr( default, '__len__' )
+        self.scalar		= isinstance( default, automata.type_str_base ) or not hasattr( default, '__len__' )
         self.parser		= type_cls()
         self.error		= error		# If an error code is desired on access
         self.mask		= mask		# May be hidden from Get Attribute(s) All/SIngle
@@ -252,7 +251,7 @@ class Attribute( object ):
     def __str__( self ):
         return "%-12s %5s[%4d] == %s" % (
             self.name, self.parser.__class__.__name__, len( self ),
-            repr( self.value )  if not log.isEnabledFor( logging.INFO ) else cpppo.reprlib.repr( self.value ))
+            repr( self.value )  if not log.isEnabledFor( logging.INFO ) else misc.reprlib.repr( self.value ))
     __repr__ 			= __str__
 
     def __len__( self ):
@@ -413,7 +412,7 @@ class Object( object ):
 
     then we could run the parser:
 
-        data = cpppo.dotdict()
+        data = dotdict()
         with Obj.parse as machine:
             for m,w in machine.run( source=source, data=data ):
                 pass
@@ -468,7 +467,7 @@ class Object( object ):
     transit			= {} # Symbol to transition to service parser on
 
     # The parser doesn't add a layer of context; run it with a path= keyword to add a layer
-    parser			= cpppo.dfa_post( service, initial=cpppo.state( 'select' ),
+    parser			= automata.dfa_post( service, initial=automata.state( 'select' ),
                                                   terminal=True )
 
     @classmethod
@@ -482,7 +481,7 @@ class Object( object ):
         cls.service[name]	= number
         cls.transit[number]	= chr( number ) if sys.version_info[0] < 3 else number
         cls.parser.initial[cls.transit[number]] \
-				= cpppo.dfa( name=short, initial=machine, terminal=True )
+				= automata.dfa( name=short, initial=machine, terminal=True )
 
     
     GA_ALL_NAM			= "Get Attributes All"
@@ -525,7 +524,7 @@ class Object( object ):
         # self.attribute 	== directory.1.2 (a dotdict), for direct access of our attributes
         # 
         self.attribute		= directory.setdefault( str( self.class_id )+'.'+str( instance_id ),
-                                                        cpppo.dotdict() )
+                                                        dotdict() )
         self.attribute['0']	= self
 
         # Check that the class-level instance (0) has been created; if not, we'll create one using
@@ -602,7 +601,7 @@ class Object( object ):
                         result += self.attribute[str(a_id)].produce()
                     a_id       += 1
                 assert len( result ), "No Attributes available for Get Attributes All request"
-                data.get_attributes_all = cpppo.dotdict()
+                data.get_attributes_all = dotdict()
                 data.get_attributes_all.data = [
                     b if type( b ) is int else ord( b ) for b in result ]
             elif data.service in ( self.GA_SNG_RPY, self.SA_SNG_RPY ):
@@ -618,7 +617,7 @@ class Object( object ):
                 if data.service == self.GA_SNG_RPY:
                     # Get Attribute Single.  Render bytes as unsigned ints.
                     result     += self.attribute[str(a_id)].produce()
-                    data.get_attribute_single = cpppo.dotdict()
+                    data.get_attribute_single = dotdict()
                     data.get_attribute_single.data = [
                         b if type( b ) is int else ord( b ) for b in result ]
                 else:
@@ -972,7 +971,7 @@ class UCMM( Object ):
                 if log.isEnabledFor( logging.DEBUG ):
                     log.debug( "%s Repackaged: %s", self, enip_format( data ))
                 
-                data.enip.CIP.send_data.CPF.item[1].unconnected_send  = cpppo.dotdict()
+                data.enip.CIP.send_data.CPF.item[1].unconnected_send  = dotdict()
                 data.enip.CIP.send_data.CPF.item[1].unconnected_send.request = unc_send.request
 
                 # And finally, re-encapsulate the CIP SendRRData, with its (now unwrapped)
@@ -983,7 +982,7 @@ class UCMM( Object ):
             else:
                 # See if we can identify the method to invoke based on the contents of the CIP
                 # request.  The data.enip.CIP better have a single dict key (its probably a
-                # cpppo.dotdict, derived from dict; we want to get just one layer of keys...).
+                # dotdict, derived from dict; we want to get just one layer of keys...).
                 if log.isEnabledFor( logging.DEBUG ):
                     log.debug( "%s CIP Request: %s", self, enip_format( data ))
                 cip		= data.get( 'enip.CIP' )
@@ -1019,10 +1018,10 @@ class UCMM( Object ):
     LISTSVCS_CIP_UDP		= 1 << 8
     def list_services( self, data ):
         cpf			= data.enip.CIP.list_services.CPF
-        cpf.item		= [ cpppo.dotdict() ]
+        cpf.item		= [ dotdict() ]
         cpf.item[0].type_id	= 0x0100
         cpf.item[0].communications_service \
-            		= c_s	= cpppo.dotdict()
+            		= c_s	= dotdict()
         c_s.version		= 1
         c_s.capability		= self.LISTSVCS_CIP_ENCAP
         c_s.service_name	= 'Communications'
@@ -1226,7 +1225,7 @@ class Message_Router( Object ):
 
             result	       += USINT.produce(        data.service )
             result	       += EPATH.produce(        data.path if 'path' in data
-                                    else cpppo.dotdict( segment=[{ 'class': cls.class_id }, { 'instance': 1 }] ))
+                                    else dotdict( segment=[{ 'class': cls.class_id }, { 'instance': 1 }] ))
             result	       += UINT.produce( 	len( offsets ))
             for o in offsets:
                 result	       += UINT.produce( 	2 + 2 * len( offsets ) + o )
@@ -1252,7 +1251,7 @@ class Message_Router( Object ):
 
         return result
 
-class state_multiple_service( cpppo.state ):
+class state_multiple_service( automata.state ):
     def terminate( self, exception, machine, path, data ):
         super( state_multiple_service, self ).terminate( exception, machine, path, data )
 
@@ -1298,9 +1297,9 @@ class state_multiple_service( cpppo.state ):
                     end		= len( reqdata )
                 if log.isEnabledFor( logging.DETAIL ):
                     log.detail( "%s Parsing: %3d-%3d of %r", target, beg, end, reqdata )
-                req		= cpppo.dotdict()
+                req		= dotdict()
                 with target.parser as machine:
-                    for m,s in machine.run( source=cpppo.peekable( reqdata[beg:end] ), data=req ):
+                    for m,s in machine.run( source=automata.peekable( reqdata[beg:end] ), data=req ):
                         pass
                 request.append( req )
 
@@ -1330,11 +1329,11 @@ def __multiple():
     off_			= UINT(		'offset',	context='multiple', extension='.UINT' )
     off_[None]			= move_if( 	'offset',	source='.multiple.UINT',
                                         destination='.multiple.offsets', initializer=lambda **kwds: [] )
-    off_[None]			= cpppo.state( 	'offset',
+    off_[None]			= automata.state( 	'offset',
                                                 terminal=True )
 
     # Parse each of the .offset__ --> .offsets[...] values in a sub-dfa, repeating .number times
-    numr[None]		= offs	= cpppo.dfa(    'offsets',
+    numr[None]		= offs	= automata.dfa(    'offsets',
                                                 initial=off_,	repeat='.multiple.number' )
     # And finally, absorb all remaining data as the request data.
     offs[None]		= reqd	= octets(	'requests',	context='multiple',
@@ -1366,10 +1365,10 @@ def __multiple_reply():
     off_			= UINT(		'offset',	context='multiple', extension='.UINT' )
     off_[None]			= move_if( 	'offset',	source='.multiple.UINT',
                                         destination='.multiple.offsets', initializer=lambda **kwds: [] )
-    off_[None]			= cpppo.state( 	'offset',
+    off_[None]			= automata.state( 	'offset',
                                              terminal=True )
     # Parse each of the .offset__ --> .offsets[...] values in a sub-dfa, repeating .number times
-    numr[None]		= offs	= cpppo.dfa(    'offsets',
+    numr[None]		= offs	= automata.dfa(    'offsets',
                                              initial=off_,	repeat='.multiple.number' )
     # And finally, absorb all remaining data as the request data.
     offs[None]		= reqd	= octets(	'requests',	context='multiple',
@@ -1440,14 +1439,14 @@ class Connection_Manager( Object ):
         # Get the Message Router to parse and process the request into a response, producing a
         # data.request.input encoded response, which we will pass back as our own encoded response.
         MR			= lookup( class_id=0x02, instance_id=1 )
-        source			= cpppo.rememberable( data.request.input )
+        source			= automata.rememberable( data.request.input )
         try: 
             with MR.parser as machine:
                 for i,(m,s) in enumerate( machine.run( path='request', source=source, data=data )):
                     pass
                     #log.detail( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %s",
                     #            machine.name_centered(), i, s, source.sent, source.peek(),
-                    #            repr( data ) if log.getEffectiveLevel() < logging.DETAIL else cpppo.reprlib.repr( data ))
+                    #            repr( data ) if log.getEffectiveLevel() < logging.DETAIL else misc.reprlib.repr( data ))
 
             #log.info( "%s Executing: %s", self, enip_format( data.request ))
             MR.request( data.request )

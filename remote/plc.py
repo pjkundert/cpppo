@@ -31,7 +31,7 @@ __all__				= ['PlcOffline', 'poller', 'poller_simulator']
 import collections
 import logging
 
-import cpppo
+from .. import misc
 
 log				= logging.getLogger( __package__ )
 
@@ -79,13 +79,13 @@ class poller( object ):
         value			= self._data[address] if self.online else None
         if log.isEnabledFor( logging.DEBUG ):
             log.debug( "%s/%6d %s> %s", self.description, address, "-x" if not self.online else "--",
-                       cpppo.reprlib.repr( value ))
+                       misc.reprlib.repr( value ))
         return value
 
     def write( self, address, value, **kwargs ):
         """ Writes the value; if the PLC is online, logs at a relatively aggressive level."""
         ( log.detail if self.online else log.normal )( "%s/%6d <%s %s" % (
-                self.description, address, "x=" if not self.online else "==", cpppo.reprlib.repr( value )))
+                self.description, address, "x=" if not self.online else "==", misc.reprlib.repr( value )))
         if not self.online:
             raise PlcOffline( "Write to PLC %s/%6dd failed: Offline" % ( self.description, address ))
         self._write( address, value, **kwargs )
@@ -111,7 +111,7 @@ class poller( object ):
 
         """
         log.detail( "%s/%6d %s> %s",
-                self.description, address, "-x" if not self.online else "--", cpppo.reprlib.repr( value ))
+                self.description, address, "-x" if not self.online else "--", misc.reprlib.repr( value ))
         if self.online:
             if isinstance( value, (list,tuple) ):
                 for offset in range( len( value )):
@@ -139,7 +139,7 @@ class poller_simulator( poller ):
     def __init__( self, description, **kwargs ):
         super( poller_simulator, self ).__init__( description=description, **kwargs )
         self._cache		= {}		# times/values stored to simulated PLC
-        self._polled		= cpppo.timer()	#   scheduled to be polled
+        self._polled		= misc.timer()	#   scheduled to be polled
 
     def _poll( self, address ):
         """ Simulates an initial value of 0 for every new address """
@@ -149,12 +149,12 @@ class poller_simulator( poller ):
 
     def _write( self, address, value ):
         """ Remember a data value, with a timer to simulate delayed polling """
-        self._cache.setdefault( address, collections.deque() ).append( (cpppo.timer(), value) )
+        self._cache.setdefault( address, collections.deque() ).append( (misc.timer(), value) )
 
     def _receive( self ):
         """ Receive any previously cached data, with a latency of roughly 1/2
         the specified polling rate"""
-        now			= cpppo.timer()
+        now			= misc.timer()
         if self._polled + self.rate > now:
             return
         log.debug( "%s polled" % ( self.description ))

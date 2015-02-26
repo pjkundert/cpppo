@@ -13,13 +13,15 @@ if __name__ == "__main__":
     # Allow relative imports when executing within package directory, for
     # running tests directly
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+    from cpppo.automata import log_cfg
+    logging.basicConfig( **log_cfg )
+    #logging.getLogger().setLevel( logging.INFO )
 
 import cpppo
 from   cpppo.server import network, enip
 from   cpppo.server.enip import parser, logix
 
-log				= logging.getLogger( "enip.tst" )
-#log.setLevel( logging.DEBUG )
+log				= logging.getLogger( "enip" )
 
 def test_octets():
     """Scans raw octets"""

@@ -25,143 +25,32 @@ __license__                     = "Dual License: GPLv3 (or later) and Commercial
 
 import errno
 import logging
-import os
 import random
-import re
-import signal
 import socket
-import subprocess
 import threading
 import time
 import traceback
 
-has_o_nonblock			= False
-try:
-    import fcntl
-    has_o_nonblock		= True
-except Exception:
-    logging.warning( "Failed to import fcntl; skipping simulated Modbus/TCP PLC tests" )
-
 import pytest
 
-import cpppo
-from   cpppo.remote.plc import poller_simulator, PlcOffline
-from   cpppo.remote.io	import motor
+from . import misc
+from .modbus_test import start_modbus_simulator, has_o_nonblock
+from .remote.plc import poller_simulator, PlcOffline
+from .remote.io	import motor
 
 log				= logging.getLogger(__name__)
 
 has_pymodbus			= False
 try:
-    import pymodbus
+    from pymodbus import __version__ as pymodbus_version
     from pymodbus.constants import Defaults
     from pymodbus.exceptions import ModbusException
-    from remote.plc_modbus import poller_modbus, merge, shatter
-    from remote.pymodbus_fixes import modbus_client_tcp, modbus_server_tcp
+    from .remote.plc_modbus import poller_modbus, merge, shatter
+    from .remote.pymodbus_fixes import modbus_client_tcp, modbus_server_tcp
     has_pymodbus		= True
-except Exception as exc:
+except Exception:
     logging.warning( "Failed to import pymodbus module; skipping Modbus/TCP related tests; run 'pip install pymodbus'; %s",
                     traceback.format_exc() )
-
-RTU_WAIT			= 2.0  # How long to wait for the simulator
-RTU_LATENCY			= 0.05 # poll for command-line I/O response 
-
-
-class nonblocking_command( object ):
-    """Set up a non-blocking command producing output.  Read the output using:
-
-        collect 		= ''
-        while True:
-            if command is None:
-                # Restarts command on failure, for example
-                command 	= nonblocking_command( ... )
-
-            try:
-                data 		= command.stdout.read()
-                logging.debug( "Received %d bytes from command, len( data ))
-                collect        += data
-            except IOError as exc:
-                if exc.errno != errno.EAGAIN:
-                    logging.warning( "I/O Error reading data: %s" % traceback.format_exc() )
-                    command	= None
-                # Data not presently available; ignore
-            except:
-                logging.warning( "Exception reading data: %s", traceback.format_exc() )
-                command		= None
-
-            # do other stuff in loop...
-
-    The command is killed when it goes out of scope.
-    """
-    def __init__( self, command ):
-        shell			= type( command ) is not list
-        self.command		= ' '.join( command ) if not shell else command
-        logging.info( "Starting command: %s", self.command )
-        self.process		= subprocess.Popen(
-            command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-            preexec_fn=os.setsid, shell=shell )
-
-        fd 			= self.process.stdout.fileno()
-        fl			= fcntl.fcntl( fd, fcntl.F_GETFL )
-        fcntl.fcntl( fd, fcntl.F_SETFL, fl | os.O_NONBLOCK )
-
-    @property
-    def stdout( self ):
-        return self.process.stdout
-
-    def kill( self ):
-        logging.info( 'Sending SIGTERM to PID [%d]: %s', self.process.pid, self.command )
-        try:
-            os.killpg( self.process.pid, signal.SIGTERM )
-        except OSError as exc:
-            logging.info( 'Failed to send SIGTERM to PID [%d]: %s', self.process.pid, exc )
-        else:
-            logging.info( "Waiting for command (PID [%d]) to terminate", self.process.pid )
-            self.process.wait()
-
-        logging.info("Command (PID [%d]) finished with status [%d]: %s", self.process.pid, self.process.returncode, self.command )
-
-    __del__			= kill
-
-
-def start_modbus_simulator( options ):
-    command			= nonblocking_command( [
-        os.path.join( '.', 'bin', 'modbus_sim.py' ), 
-    ] + list( options ))
-
-    begun			= cpppo.timer()
-    address			= None
-    data			= ''
-    while address is None and cpppo.timer() - begun < RTU_WAIT:
-        # On Python2, socket will raise IOError/EAGAIN; on Python3 may return None 'til command started.
-        try:
-            raw			= command.stdout.read()
-            logging.debug( "Socket received: %r", raw)
-            if raw:
-                data  	       += raw.decode( 'utf-8' )
-        except IOError as exc:
-            logging.debug( "Socket blocking...")
-            assert exc.errno == errno.EAGAIN, "Expected only Non-blocking IOError"
-        except Exception as exc:
-            logging.warning("Socket read return Exception: %s", exc)
-        if not data:
-            time.sleep( RTU_LATENCY )
-        while data.find( '\n' ) >= 0:
-            line,data		= data.split('\n', 1)
-            logging.info( "%s", line )
-            m			= re.search( "address = (.*)", line )
-            if m:
-                try:
-                    host,port	= m.group(1).split(':')
-                    address	= host,int(port)
-                    logging.normal( "Modbus/TCP Simulator started after %7.3fs on %s:%d",
-                                    cpppo.timer() - begun, address[0], address[1] )
-                except:
-                    assert m.group(1).startswith( '/' )
-                    address	= m.group(1)
-                    logging.normal( "Modbus/RTU Simulator started after %7.3fs on %s",
-                                    cpppo.timer() - begun, address )
-                break
-    return command,address
 
 
 
@@ -178,21 +67,23 @@ def simulated_modbus_tcp():
     ] )
 
 
+@pytest.mark.skipif( not has_pymodbus, reason="Needs pymodbus" )
 def test_pymodbus_version():
-    if not has_pymodbus:
-        return
-    version			= tuple( int( i ) for i in pymodbus.__version__.split( '.' ))
-    expects			= (1,2,0)
+    """The remote_tests.py can handle pymodbus >= 1.2, because we patch it for what we need, and don't
+    use ignore_missing_slaves.
+
+    """
+    version			= list( map( int, pymodbus_version.split( '.' )))
+    expects			= [1,2,0]
     assert version >= expects, "Version of pymodbus is too old: %r; expected %r or newer" % (
         version, expects )
 
 
+@pytest.mark.skipif( not has_pymodbus, reason="Needs pymodbus" )
 def test_pymodbus_service_actions():
-    if not has_pymodbus:
-        return
     address			= ("localhost", 11502)
 
-    class modbus_actions( modbus_server_tcp ):
+    class modbus_actions( modbus_server_tcp ): # NOT a new-style class (due to SocketServer.ThreadingTCPServer)
 
         counter			= 0
 
@@ -235,14 +126,14 @@ def test_pymodbus_service_actions():
 
 def await( pred, what="predicate", delay=1.0, intervals=10 ):
     """Await the given predicate, returning: (success,elapsed)"""
-    begun			= cpppo.timer()
+    begun			= misc.timer()
     truth			= False
     for _ in range( intervals ):
         truth			= pred()
         if truth:
             break
         time.sleep( delay/intervals )
-    now				= cpppo.timer()
+    now				= misc.timer()
     elapsed			= now - begun
     log.info( "After %7.3f/%7.3f %s %s" % (
         elapsed, delay, "detected" if truth else "missed  ", what ))
@@ -284,9 +175,8 @@ def test_plc_merge():
         == [(1,130), (140,4), (232,170), (40001,100)]
 
 
+@pytest.mark.skipif( not has_pymodbus or not has_o_nonblock, reason="Needs pymodbus and fcntl/O_NONBLOCK" )
 def test_plc_modbus_basic( simulated_modbus_tcp ):
-    if not has_pymodbus or not has_o_nonblock:
-        return
     command,(iface,port)	= simulated_modbus_tcp
     Defaults.Timeout		= 1.0
     try:
@@ -302,9 +192,8 @@ def test_plc_modbus_basic( simulated_modbus_tcp ):
             await( lambda: not plc.is_alive(), "Motor PLC poller done" )
 
 
+@pytest.mark.skipif( not has_pymodbus or not has_o_nonblock, reason="Needs pymodbus and fcntl/O_NONBLOCK" )
 def test_plc_modbus_timeouts( simulated_modbus_tcp ):
-    if not has_pymodbus or not has_o_nonblock:
-        return
     # Now, try one that will fail due to PLC I/O response timeout.  The PLC
     # should be configured to time out around 0.25s.
     command,(iface,port)	= simulated_modbus_tcp
@@ -341,9 +230,8 @@ def test_plc_modbus_timeouts( simulated_modbus_tcp ):
         await( lambda: not plc.is_alive(), "Motor PLC poller done" )
 
 
+@pytest.mark.skipif( not has_pymodbus or not has_o_nonblock, reason="Needs pymodbus and fcntl/O_NONBLOCK" )
 def test_plc_modbus_nonexistent( simulated_modbus_tcp ):
-    if not has_pymodbus or not has_o_nonblock:
-        return
     Defaults.Timeout		= 1.5
     command,(iface,port)	= simulated_modbus_tcp
     client			= modbus_client_tcp( host=iface, port=port+1 )
@@ -365,9 +253,8 @@ def test_plc_modbus_nonexistent( simulated_modbus_tcp ):
         await( lambda: not plc_bad.is_alive(), "Motor PLC poller done" )
 
 
+@pytest.mark.skipif( not has_pymodbus or not has_o_nonblock, reason="Needs pymodbus and fcntl/O_NONBLOCK" )
 def test_plc_modbus_polls( simulated_modbus_tcp ):
-    if not has_pymodbus or not has_o_nonblock:
-        return
     Defaults.Timeout		= 1.0 # PLC simulator has .25s delay
     # Set a default poll rate of 1.0s for new registers, and a reach of 10.
     command,(iface,port)	= simulated_modbus_tcp
@@ -446,11 +333,11 @@ def test_plc_modbus_polls( simulated_modbus_tcp ):
                                          delay=5.0, intervals=5*10 )
                 assert success
 
-                rolling		= cpppo.exponential_moving_average( rolling, elapsed, rolling_factor )
+                rolling		= misc.exponential_moving_average( rolling, elapsed, rolling_factor )
 
             log.normal( "%3d/%3d regs: polled %3d ranges w/in %7.3fs. Polled %5d == %5d w/in %7.3fs: avg. %7.3fs (load %3.2f, %3.2f, %3.2f)",
                              len( regs ), probes, len( plc.polling ), plc.duration,
-                             r, regs[r], elapsed or 0.0, rolling or 0.0, *[cpppo.nan if load is None else load for load in plc.load] )
+                             r, regs[r], elapsed or 0.0, rolling or 0.0, *[misc.nan if load is None else load for load in plc.load] )
 
         assert rolling < plc.rate, \
             "Rolling average poll cycle %7.3fs should have fallen below target poll rate %7.3fs" % ( rolling, plc.rate )

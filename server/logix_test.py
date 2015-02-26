@@ -20,7 +20,7 @@ import cpppo
 from   cpppo.server import enip
 from   cpppo.server.enip import logix, client
 
-log				= logging.getLogger( "lgx.prof" )
+log				= logging.getLogger( "enip.lgx" )
 
 # Get Attribute[s] All/Single tests: description, original, produced, parsed, processed, response.
 # Ensure we can produce the encoded version from the original, and then check what we can parse from

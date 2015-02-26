@@ -23,20 +23,22 @@ __email__                       = "perry@hardconsulting.com"
 __copyright__                   = "Copyright (c) 2015 Hard Consulting Corporation"
 __license__                     = "Dual License: GPLv3 (or later) and Commercial (see LICENSE)"
 
+__all__				= ["existence", "duration"]
+
 import errno
 import logging
 import re
 import time
 
-from ..misc import timer
+from .. import misc
 
 log				= logging.getLogger( __package__ )
 
 class existence( object ):
     """Await zero or more numeric <timeout> and/or <filename> (existence) [and %<regex> (content)]
-    events, yielding a sequence of True/False indicators as terms are processed.  Unless a
-    floating-point numeric timeout is specified, the default timeout waits forever, sampling from
-    time to time.
+    and/or predicate truth events, yielding a sequence of True/False indicators as terms are
+    processed.  Unless a floating-point numeric timeout is specified, the default timeout waits
+    forever, sampling from time to time.
 
     Assuming args.wait is a list of 0 or more #[.#] numeric or 'filename[%regex]' terms, to process
     the condition terms 'til the first failure, and then raise an Exception:
@@ -66,7 +68,8 @@ class existence( object ):
     (eg. './') before names which might possibly also be interpreted as numbers.
 
     """
-    def __init__( self, terms=None, delay_min=0.1, delay_max=30.0, regex_sep='%', presence=True, idle_service=None ):
+    def __init__( self, terms=None, delay_min=0.1, delay_max=30.0, regex_sep='%', presence=True,
+                  timeout=None, idle_service=None ):
         self.terms		= list( terms ) if terms else []
 
         self.delay_min		= delay_min
@@ -75,8 +78,8 @@ class existence( object ):
         self.presence		= presence
         self.idle_service	= idle_service
 
-        self.timeout		= None		# None (default) ==> no timeout; wait forever
-        self.started		= timer()
+        self.timeout		= timeout	# None (default) ==> no timeout; wait forever
+        self.started		= misc.timer()
         self.awaited		= False
 
         self.last		= None
@@ -110,11 +113,11 @@ class existence( object ):
             # awaited.  +inf ==> None (no timeout).
             try:
                 self.timeout	= float( self.last )
-                if self.timeout == float( 'inf' ):
+                if misc.isinf( self.timeout ):
                     self.timeout= None
                 else:
                     assert self.timeout >= 0, "await timeout must be a +'ve value"
-                self.started	= timer()
+                self.started	= misc.timer()
                 self.awaited	= False
                 self.last	= "(timeout %s)" % ( "%.3fs" % self.timeout if self.timeout is not None else self.timeout )
                 log.debug( "await timeout: %s",
@@ -135,7 +138,7 @@ class existence( object ):
         # subsequent awaited filename.
         self.last		= None
         if self.timeout and not self.awaited: # Non-zero timeout, bare
-            now			= timer()
+            now			= misc.timer()
             remains		= self.started + self.timeout - now
             if remains > 0:
                 log.debug( "await terminal timeout: %.3fs", self.timeout )
@@ -170,7 +173,7 @@ class existence( object ):
         timeouts		= [ self.delay_max, self.delay_min if target < self.delay_min else target ]
         if self.timeout is not None: # A finite timeout
             if now is None:
-                now		= timer()
+                now		= misc.timer()
             # target 1/2 of remaining timeout, but at most delay_min, and at least 0
             rem			= self.started + self.timeout - now
             timeouts.append( max( rem / 2, min( self.delay_min, rem ), 0 ))
@@ -190,7 +193,7 @@ class existence( object ):
         while found != self.presence:
             found		= bool(predicate())
             if found != self.presence:
-                now		= timer()
+                now		= misc.timer()
                 if self.timeout is not None: # A finite timeout
                     if now >= self.started + self.timeout:
                         log.info( "await truth: %r; timeout of %s exceeded" % (
@@ -241,7 +244,7 @@ class existence( object ):
                     log.debug( "await filename:?%r, regex: %r; indeterminate file state: %s", 
                                     filename, regex, error )
             if found != self.presence:
-                now		= timer()
+                now		= misc.timer()
                 if self.timeout is not None: # A finite timeout
                     if now >= self.started + self.timeout:
                         log.info( "await filename: %r, regex: %r; timeout of %s exceeded" % (
@@ -260,7 +263,27 @@ class existence( object ):
         log.info( "await filename:%s%r, regex:%s%r, in  %.3fs of %s; successful",
                        ( "?" if opened is None else ">" if opened else " " ), filename, 
                        ( ">" if matched else " " ), regex,
-                       timer() - self.started,
+                       misc.timer() - self.started,
                        None if self.timeout is None else "%.3fs" % self.timeout )
         return True
 
+
+def duration( events, what="predicate" ):
+    """Yields a sequence (..., (<event>,<elapsed>), ...) for the provided sequence of events.  Iterators
+    that have a .timeout attribute (None --> no timeout) will display that in the logging message.
+
+    If you have a predicate, timeout, and description, you can test and time it using something like:
+    
+        truth,timing = next( await.duration( await.existence( [ predicate ], timeout=timeout ),
+					    what=description ))
+
+    """
+    begun		= misc.timer()
+    for truth in events:
+        elapsed		= misc.timer() - begun
+        timeout		= getattr( events, 'timeout', None )
+        if timeout is None:
+            timeout	= misc.inf
+        logging.info( "After %7.3f/%7.3f %s %s", elapsed, timeout,
+                      "detected" if truth else "missed  ", what )
+        yield truth,elapsed

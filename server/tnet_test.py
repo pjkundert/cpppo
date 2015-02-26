@@ -6,19 +6,10 @@ from __future__ import division
 
 import json
 import logging
-import multiprocessing
 import os
 import random
 import socket
-import sys
-import threading
-import time
 import traceback
-
-try:
-    import reprlib
-except ImportError:
-    import repr as reprlib
 
 import cpppo
 from   cpppo        import misc
@@ -115,7 +106,7 @@ def tnet_cli( number, tests=None ):
         for t in tests:
             msg			= tnetstrings.dump( t )
             log.normal( "Tnet Client %3d send: %5d: %s (from data: %s)", number, len( msg ),
-                      reprlib.repr( msg ), reprlib.repr( t ))
+                      cpppo.reprlib.repr( msg ), cpppo.reprlib.repr( t ))
 
             while len( msg ) and not eof:
                 out		= min( len( msg ), random.randrange( *charrange ))
@@ -131,7 +122,7 @@ def tnet_cli( number, tests=None ):
                 if rpy is not None:
                     eof		= not len( rpy )
                     log.info( "Tnet Client %3d recv: %5d: %s", number, len( rpy ),
-                              "EOF" if eof else reprlib.repr( rpy ))
+                              "EOF" if eof else cpppo.reprlib.repr( rpy ))
                     rcvd       += rpy.decode( "utf-8" )
             if eof:
                 break
@@ -146,7 +137,7 @@ def tnet_cli( number, tests=None ):
         # One or more packets may be in flight; wait 'til we timeout/EOF
         rpy			= network.drain( conn, timeout=draindelay )
         log.info( "Tnet Client %3d drain %5d: %s", number, len( rpy ) if rpy is not None else 0,
-                  reprlib.repr( rpy ))
+                  cpppo.reprlib.repr( rpy ))
         if rpy is not None:
             rcvd   	       += rpy.decode( "utf-8" )
 
@@ -155,11 +146,11 @@ def tnet_cli( number, tests=None ):
     i 				= 0
     for i, (t, r) in enumerate( zip( tests, rcvd.split( '\n\n' ))):
         e			= json.dumps( t )
-        log.info( "%3d test #%3d: %32s --> %s", number, i, reprlib.repr( t ), reprlib.repr( e ))
+        log.info( "%3d test #%3d: %32s --> %s", number, i, cpppo.reprlib.repr( t ), cpppo.reprlib.repr( e ))
         if r == e:
             successes	       += 1
         else:
-            log.warning( "%3d test #%3d: %32s got %s", number, i, reprlib.repr( t ), reprlib.repr( e ))
+            log.warning( "%3d test #%3d: %32s got %s", number, i, cpppo.reprlib.repr( t ), cpppo.reprlib.repr( e ))
         
     failed			= successes != len( tests )
     if failed:

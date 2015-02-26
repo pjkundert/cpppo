@@ -37,7 +37,6 @@ import struct
 import sys
 
 import cpppo
-import cpppo.server
 
 log				= logging.getLogger( "enip.srv" )
 

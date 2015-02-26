@@ -33,9 +33,9 @@ import threading
 import time
 import traceback
 
-import cpppo
-from   cpppo.remote.pymodbus_fixes import modbus_client_timeout, modbus_client_tcp
-from   cpppo.remote.plc import poller, PlcOffline
+from .. import misc
+from .pymodbus_fixes import modbus_client_timeout, modbus_client_tcp
+from .plc import poller, PlcOffline
 
 from pymodbus.constants import Defaults
 from pymodbus.exceptions import ModbusException, ParameterException
@@ -161,7 +161,7 @@ class poller_modbus( poller, threading.Thread ):
         We'll log whenever we begin/cease polling any given range of registers.
         """
         log.info( "Poller starts: %r, %r ", args, kwargs )
-        target			= cpppo.timer()
+        target			= misc.timer()
         while not self.done and logging:	# Module may be gone in shutting down
             # Poller is dormant 'til a non-None/zero rate and data specified
             if not self.rate or not self._data:
@@ -169,10 +169,10 @@ class poller_modbus( poller, threading.Thread ):
                 continue
 
             # Delay 'til poll target
-            now			= cpppo.timer()
+            now			= misc.timer()
             if now < target:
                 time.sleep( target - now )
-                now		= cpppo.timer()
+                now		= misc.timer()
 
             # Ready for another poll.  Check if we've slipped (missed cycle(s)), and then compute
             # the next poll cycle target; this attempts to retain cadence.
@@ -200,7 +200,7 @@ class poller_modbus( poller, threading.Thread ):
             busy		= 0.0
             for address, count in rngs:
                 with self.client: # block 'til we can begin a transaction
-                    begin	= cpppo.timer()
+                    begin	= misc.timer()
                     try:
                         # Read values; on success (no exception, something other
                         # than None returned), immediately take online;
@@ -209,7 +209,7 @@ class poller_modbus( poller, threading.Thread ):
                         if not self.online:
                             self.online = True
                             log.critical( "Polling: PLC %s online; success polling %s: %s",
-                                    self.description, address, cpppo.reprlib.repr( value ))
+                                    self.description, address, misc.reprlib.repr( value ))
                         if (address,count) not in self.polling:
                             log.detail( "Polling: PLC %s %6d-%-6d (%5d)", self.description,
                                         address, address+count-1, count )
@@ -227,7 +227,7 @@ class poller_modbus( poller, threading.Thread ):
                         fail.add( (address, count) )
                         log.warning( "Failing: PLC %s %6d-%-6d (%5d): %s", self.description,
                                 address, address+count-1, count, traceback.format_exc() )
-                    busy       += cpppo.timer() - begin
+                    busy       += misc.timer() - begin
 
                 # Prioritize other lockers (ie. write).  Contrary to popular opinion, sleep(0) does
                 # *not* effectively yield the current Thread's quanta, at least on Python 2.7.6!
@@ -253,7 +253,7 @@ class poller_modbus( poller, threading.Thread ):
             load		= ( busy / self.rate ) if self.rate > 0 else 1.0
             ppm			= ( 60.0 / self.rate ) if self.rate > 0 else 1.0
             self.load		= tuple(
-                cpppo.exponential_moving_average( cur, load, 1.0 / ( minutes * ppm ))
+                misc.exponential_moving_average( cur, load, 1.0 / ( minutes * ppm ))
                 for minutes,cur in zip((1, 5, 15), self.load ))
 
             # Finally, if we've got stuff to poll and we aren't polling anything successfully, and

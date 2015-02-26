@@ -26,7 +26,7 @@ __all__                         = ["automata", "dotdict", "misc"]
 
 # These modules form the public interface of cpppo; always load them into the
 # main cpppo namespace
-from .version  import __version__
+from .version  import __version__, __version_info__
 from .automata import *
 from .dotdict  import *
 from .misc     import *
