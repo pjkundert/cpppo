@@ -2,6 +2,7 @@
 import errno
 import logging
 import os
+import random
 import re
 import signal
 import subprocess
@@ -15,6 +16,7 @@ except Exception:
     logging.warning( "Failed to import fcntl; skipping simulated Modbus/TCP PLC tests" )
 
 from . import misc
+from .tools.await import waitfor
 
 RTU_WAIT			= 2.0  # How long to wait for the simulator
 RTU_LATENCY			= 0.05 # poll for command-line I/O response 
@@ -115,3 +117,104 @@ def start_modbus_simulator( options ):
                                     misc.timer() - begun, address )
                 break
     return command,address
+
+
+def run_plc_modbus_polls( plc ):
+    # Initial conditions (in case PLC is persistent between tests)
+    plc.write(     1, 0 )
+    plc.write( 40001, 0 )
+
+    rate			= 1.0
+    timeout			= 2 * rate 	# Nyquist
+    intervals			= timeout / .05	#  w/ fixed .05s intervals
+    wfkw			= dict( timeout=timeout, intervals=intervals )
+
+    plc.poll( 40001, rate=rate )
+    
+    success,elapsed		= waitfor( lambda: plc.read( 40001 ) is not None, "40001 polled", **wfkw )
+    assert success
+    assert elapsed < 1.0
+    assert plc.read( 40001 ) == 0
+    
+    assert plc.read(     1 ) == None
+    assert plc.read( 40002 ) == None
+    success,elapsed		= waitfor( lambda: plc.read( 40002 ) is not None, "40002 polled", **wfkw )
+    assert success
+    assert elapsed < 1.0
+    assert plc.read( 40002 ) == 0
+    success,elapsed		= waitfor( lambda: plc.read(     1 ) is not None, "00001 polled", **wfkw )
+    assert success
+    assert elapsed < 1.0
+    assert plc.read(     1 ) == 0
+
+    # Now add a bunch of new stuff to poll, and ensure polling occurs.  As we add registers the
+    # number of distinct poll ranges will increase, and then decrease as we in-fill and the
+    # inter-register range drops below the merge reach 10, allowing the polling to merge ranges.
+    # Thus, keep track of the number of registers added, and allow
+    # 
+    # avg. 
+    # poll
+    # time
+    #  
+    #   |
+    #   |
+    # 4s|         ..
+    # 3s|        .  .
+    # 2s|     ...    ...
+    # 1s|.....          .......
+    #  -+----------------------------------
+    #   |  10  20  30  40   regs
+
+    # We'll be overwhelming the poller, so it won't be able to poll w/in the target rate, so we'll
+    # need to more than double the Nyquist-rate timeout
+    wfkw['timeout']	       *= 2.5
+    wfkw['intervals']	       *= 2.5
+    
+    regs			= {}
+    extent			= 100 # how many each of coil/holding registers
+    total			= extent*2 # total registers in play
+    elapsed			= None
+    rolling			= None
+    rolling_factor		= 1.0/5	# Rolling exponential moving average over last ~8 samples
+
+    # Keep increasing the number of registers polled, up to 1/2 of all registers
+    while len( regs ) < total * 50 // 100:
+        # Always select a previously unpolled register; however, it might
+        # have already been in a merge range; if so, get its current value
+        # so we mutate it (forcing it to be re-polled)
+        base			= 40001 if random.randint( 0, 1 ) else 1
+        r			= None
+        while r is None or r in regs:
+            r			= random.randint( base, base + extent )
+        v			= plc.read( r )
+        if v is not None:
+            logging.detail( "New reg %5d was already polled due to reach=%d", r, plc.reach )
+            regs[r]		= v
+        regs[r]			= ( regs[r] ^ 1 if r in regs
+                                else random.randint( 0, 65535 ) if base > 40000
+                                else random.randint( 0, 1 ) )
+
+        plc.write( r, regs[r] )
+        plc.poll( r )
+        if len( regs ) > total * 10 // 100:
+            # skip to the good parts...  After 10% of all registers are being polled, start
+            # calculating.  See how long it takes, on average, to get the newly written register
+            # value polled back.
+            success,elapsed	= waitfor( lambda: plc.read( r ) == regs[r], "polled %5d == %5d" % ( r, regs[r] ), **wfkw )
+            assert success
+            rolling		= misc.exponential_moving_average( rolling, elapsed, rolling_factor )
+
+        logging.normal( "%3d/%3d regs: polled %3d ranges w/in %7.3fs. Polled %5d == %5d w/in %7.3fs: avg. %7.3fs (load %3.2f, %3.2f, %3.2f)",
+                         len( regs ), total, len( plc.polling ), plc.duration,
+                         r, regs[r], elapsed or 0.0, rolling or 0.0, *[misc.nan if load is None else load for load in plc.load] )
+
+        if len( regs ) > total * 20 // 100:
+            # after 20%, start looking for the exit (ranges should merge, poll rate fall )
+            if rolling < plc.rate:
+                break
+
+    assert rolling < plc.rate, \
+        "Rolling average poll cycle %7.3fs should have fallen below target poll rate %7.3fs" % ( rolling, plc.rate )
+
+    for r,v in regs.items():
+        assert plc.read( r ) == v

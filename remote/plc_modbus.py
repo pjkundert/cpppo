@@ -197,7 +197,7 @@ class poller_modbus( poller, threading.Thread ):
             rngs		= set( merge( ( (a,1) for a in self._data ), reach=self.reach ))
             succ		= set()
             fail		= set()
-            busy		= 0.0
+            busy		= 0.0 # time spent polling (excluding time blocked, ie. writes)
             for address, count in rngs:
                 with self.client: # block 'til we can begin a transaction
                     begin	= misc.timer()
@@ -257,7 +257,7 @@ class poller_modbus( poller, threading.Thread ):
                 for minutes,cur in zip((1, 5, 15), self.load ))
 
             # Finally, if we've got stuff to poll and we aren't polling anything successfully, and
-            # we're not yet offline, warn and take offline, and then eport the completion of another
+            # we're not yet offline, warn and take offline, and then report the completion of another
             # poll cycle.
             if self._data and not succ and self.online:
                 log.critical( "Polling: PLC %s offline", self.description )

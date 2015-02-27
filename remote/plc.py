@@ -84,8 +84,10 @@ class poller( object ):
 
     def write( self, address, value, **kwargs ):
         """ Writes the value; if the PLC is online, logs at a relatively aggressive level."""
-        ( log.detail if self.online else log.normal )( "%s/%6d <%s %s" % (
-                self.description, address, "x=" if not self.online else "==", misc.reprlib.repr( value )))
+        count			= 1 if not hasattr( value, '__len__' ) else len( value )
+        ( log.detail if self.online else log.normal )( "%s/%6d <%s (%3d) %s" % (
+            self.description, address, "x=" if not self.online else "==",
+            count, misc.reprlib.repr( value )))
         if not self.online:
             raise PlcOffline( "Write to PLC %s/%6dd failed: Offline" % ( self.description, address ))
         self._write( address, value, **kwargs )
@@ -110,16 +112,15 @@ class poller( object ):
         may return more data than you requested, causing an expansion in the subsequent polls.
 
         """
-        log.detail( "%s/%6d %s> %s",
-                self.description, address, "-x" if not self.online else "--", misc.reprlib.repr( value ))
+        if not hasattr( value, '__getitem__' ):
+            value		= [ value ]
+        log.detail( "%s/%6d %s> (%3d) %s",
+                self.description, address, "-x" if not self.online else "--",
+                    len( value ), misc.reprlib.repr( value ))
         if self.online:
-            if isinstance( value, (list,tuple) ):
-                for offset in range( len( value )):
-                    if create or address+offset in self._data:
-                        self._data[address+offset] = value[offset]
-            else:
-                if create or address in self._data:
-                    self._data[address] = value
+            for offset in range( len( value )):
+                if create or address+offset in self._data:
+                    self._data[address+offset] = value[offset]
 
     def _receive( self ):
         """ Receive incoming data. """

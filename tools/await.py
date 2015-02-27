@@ -202,7 +202,7 @@ class existence( object ):
                 if self.idle_service:
                     self.idle_service()
                 delay		= self.delay( target=delay*2, now=now )
-                log.info( "await truth: %r", predicate )
+                log.info( "await truth for %7.3fs: %r", delay, predicate )
                 time.sleep( delay )
         return True
 
@@ -272,18 +272,28 @@ def duration( events, what="predicate" ):
     """Yields a sequence (..., (<event>,<elapsed>), ...) for the provided sequence of events.  Iterators
     that have a .timeout attribute (None --> no timeout) will display that in the logging message.
 
-    If you have a predicate, timeout, and description, you can test and time it using something like:
+    If you have a single predicate, timeout, and description, test and time it using something like:
     
-        truth,timing = next( await.duration( await.existence( [ predicate ], timeout=timeout ),
-					    what=description ))
+        truth,timing = next( duration( existence( [ predicate ], timeout=timeout ), what=description ))
 
     """
-    begun		= misc.timer()
+    begun			= misc.timer()
     for truth in events:
-        elapsed		= misc.timer() - begun
-        timeout		= getattr( events, 'timeout', None )
+        elapsed			= misc.timer() - begun
+        timeout			= getattr( events, 'timeout', None )
         if timeout is None:
-            timeout	= misc.inf
-        logging.info( "After %7.3f/%7.3f %s %s", elapsed, timeout,
-                      "detected" if truth else "missed  ", what )
+            timeout		= misc.inf
+        logging.info( "After %7.3f/%7.3f %s %s", elapsed, timeout, "detected" if truth else "missed  ", what )
         yield truth,elapsed
+
+
+def waitfor( predicate, what="predicate", timeout=None, intervals=None ):
+    """Wait for the given predicate, returning: (success,elapsed).  If a specific number of intervals is
+    desired, then doesn't use the automatic exponential back-off algorithm for testing intervals.
+
+    """
+    kwds		= dict( timeout=timeout )
+    if timeout and intervals:
+        kwds.update( delay_min=timeout/intervals, delay_max=timeout/intervals )
+    return next( duration( existence( [ predicate ], **kwds ), what=what ))
+

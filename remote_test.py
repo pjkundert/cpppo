@@ -25,7 +25,6 @@ __license__                     = "Dual License: GPLv3 (or later) and Commercial
 
 import errno
 import logging
-import random
 import socket
 import threading
 import time
@@ -33,8 +32,8 @@ import traceback
 
 import pytest
 
-from . import misc
-from .modbus_test import start_modbus_simulator, has_o_nonblock
+from .tools.await import waitfor
+from .modbus_test import start_modbus_simulator, has_o_nonblock, run_plc_modbus_polls
 from .remote.plc import poller_simulator, PlcOffline
 from .remote.io	import motor
 
@@ -53,13 +52,12 @@ except Exception:
                     traceback.format_exc() )
 
 
-
-@pytest.fixture(scope="module")
+@pytest.fixture( scope="module" )
 def simulated_modbus_tcp():
     """Start a simulator over a range of ports; parse the port successfully bound."""
     return start_modbus_simulator( options=[
         '-vv', '--log', 'remote_test.modbus_sim.log.localhost:11502',
-        '--evil', 'delay:.25', 
+        '--evil', 'delay:.25',
         '--address', 'localhost:11502',
         '--range', '10',
         '    1 -  1000 = 0',
@@ -124,35 +122,20 @@ def test_pymodbus_service_actions():
         killer.join()
 
 
-def await( pred, what="predicate", delay=1.0, intervals=10 ):
-    """Await the given predicate, returning: (success,elapsed)"""
-    begun			= misc.timer()
-    truth			= False
-    for _ in range( intervals ):
-        truth			= pred()
-        if truth:
-            break
-        time.sleep( delay/intervals )
-    now				= misc.timer()
-    elapsed			= now - begun
-    log.info( "After %7.3f/%7.3f %s %s" % (
-        elapsed, delay, "detected" if truth else "missed  ", what ))
-    return truth,elapsed
-
 def test_device():
     p				= poller_simulator( "PLC 1", rate=.5 )
     m				= motor( "chest", "M1", "Pressure Motor 1",
                                          plc=p, auto=100001, running=100002, start=1, 
                                          fault=100003, reset=100004, estop=100005 )
-    await( lambda: m.auto == 0, "m.auto polled")
+    waitfor( lambda: m.auto == 0, "m.auto polled" )
     assert m.auto == 0
     assert m.start == 0
     m.start = True
-    await( lambda: m.start == 1, "m.start = True" )
+    waitfor( lambda: m.start == 1, "m.start = True" )
     assert m.start
     assert p.read( 1 ) == 1
     p.write( 100002, 1 )
-    await( lambda: m.running == 1, "10002 <== 1" )
+    waitfor( lambda: m.running == 1, "10002 <== 1" )
     assert m.running
 
 
@@ -189,7 +172,7 @@ def test_plc_modbus_basic( simulated_modbus_tcp ):
         log.info( "Stopping plc polling" )
         if plc:
             plc.done		= True
-            await( lambda: not plc.is_alive(), "Motor PLC poller done" )
+            waitfor( lambda: not plc.is_alive(), "Motor PLC poller done" )
 
 
 @pytest.mark.skipif( not has_pymodbus or not has_o_nonblock, reason="Needs pymodbus and fcntl/O_NONBLOCK" )
@@ -227,7 +210,7 @@ def test_plc_modbus_timeouts( simulated_modbus_tcp ):
     finally:
         log.info( "Stopping plc polling" )
         plc.done		= True
-        await( lambda: not plc.is_alive(), "Motor PLC poller done" )
+        waitfor( lambda: not plc.is_alive(), "Motor PLC poller done" )
 
 
 @pytest.mark.skipif( not has_pymodbus or not has_o_nonblock, reason="Needs pymodbus and fcntl/O_NONBLOCK" )
@@ -250,7 +233,7 @@ def test_plc_modbus_nonexistent( simulated_modbus_tcp ):
     finally:
         log.info( "Stopping plc polling" )
         plc_bad.done		= True
-        await( lambda: not plc_bad.is_alive(), "Motor PLC poller done" )
+        waitfor( lambda: not plc_bad.is_alive(), "Motor PLC poller done" )
 
 
 @pytest.mark.skipif( not has_pymodbus or not has_o_nonblock, reason="Needs pymodbus and fcntl/O_NONBLOCK" )
@@ -260,91 +243,9 @@ def test_plc_modbus_polls( simulated_modbus_tcp ):
     command,(iface,port)	= simulated_modbus_tcp
     client			= modbus_client_tcp( host=iface, port=port )
     plc				= poller_modbus( "Motor PLC", client=client, reach=10, rate=1.0 )
-    # Initial conditions (in case PLC is persistent between tests)
-    plc.write(     1, 0 )
-    plc.write( 40001, 0 )
-
     try:
-        plc.poll( 40001, rate=1.0 )
-    
-        success,elapsed		= await( lambda: plc.read( 40001 ) is not None, "40001 polled" )
-        assert success
-        assert elapsed < 1.0
-        assert plc.read( 40001 ) == 0
-    
-        assert plc.read(     1 ) == None
-        assert plc.read( 40002 ) == None
-        success, elapsed	= await( lambda: plc.read( 40002 ) is not None, "40002 polled" )
-        assert success
-        assert elapsed < 1.0
-        assert plc.read( 40002 ) == 0
-        success,elapsed		= await( lambda: plc.read(     1 ) is not None, "00001 polled" )
-        assert success
-        assert elapsed < 1.0
-        assert plc.read(     1 ) == 0
-
-        # Now add a bunch of new stuff to poll, and ensure polling occurs.  As
-        # we add registers the number of distinct poll ranges will increase, and
-        # then decrease as we in-fill and the inter-register range drops below
-        # the merge reach 10, allowing the polling to merge ranges.  Thus, keep
-        # track of the number of registers added, and allow
-        # 
-        # avg. 
-        # poll
-        # time
-        #  
-        #   |
-        #   |
-        # 4s|         ..
-        # 3s|        .  .
-        # 2s|     ...    ...
-        # 1s|.....          .......
-        #  -+----------------------------------
-        #   |  10  20  30  40   regs
-        
-        regs			= {}
-        extent			= 100
-        probes			= extent * 5 // plc.reach
-        elapsed			= None
-        rolling			= None
-        rolling_factor		= 1.0/5	# Rolling average over last ~8 samples
-        while len( regs ) <= probes:
-            # Always select a previously unpolled register; however, it might
-            # have already been in a merge range; if so, get its current value
-            # so we mutate it (forcing it to be re-polled)
-            base		= 40001 if random.randint( 0, 1 ) else 1
-            r			= None
-            while r is None or r in regs:
-                r		= random.randint( base, base + extent )
-            v			= plc.read( r )
-            if v is not None:
-                log.detail( "New reg %5d was polled due to reach=%d", r, plc.reach )
-                regs[r]		= v
-            regs[r]		= ( regs[r] ^ 1 if r in regs
-                                    else random.randint( 0, 65535 ) if base > 40000
-                                    else random.randint( 0, 1 ) )
-
-            plc.write( r, regs[r] )
-            plc.poll( r )
-            if len( regs ) > probes/2:
-                # skip to the good parts...
-
-                success,elapsed	= await( lambda: plc.read( r ) == regs[r], "polled %5d == %5d" % ( r, regs[r] ),
-                                         delay=5.0, intervals=5*10 )
-                assert success
-
-                rolling		= misc.exponential_moving_average( rolling, elapsed, rolling_factor )
-
-            log.normal( "%3d/%3d regs: polled %3d ranges w/in %7.3fs. Polled %5d == %5d w/in %7.3fs: avg. %7.3fs (load %3.2f, %3.2f, %3.2f)",
-                             len( regs ), probes, len( plc.polling ), plc.duration,
-                             r, regs[r], elapsed or 0.0, rolling or 0.0, *[misc.nan if load is None else load for load in plc.load] )
-
-        assert rolling < plc.rate, \
-            "Rolling average poll cycle %7.3fs should have fallen below target poll rate %7.3fs" % ( rolling, plc.rate )
-
-        for r,v in regs.items():
-            assert plc.read( r ) == v
+        run_plc_modbus_polls( plc )
     finally:
         log.info( "Stopping plc polling" )
         plc.done		= True
-        await( lambda: not plc.is_alive(), "Motor PLC poller done" )
+        waitfor( lambda: not plc.is_alive(), "Motor PLC poller done", timeout=1.0 )

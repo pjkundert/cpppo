@@ -91,7 +91,7 @@ except Exception:
     logging.warning( "Failed to import pymodbus module; skipping Modbus/TCP related tests; run 'pip install pymodbus'; %s",
                     traceback.format_exc() )
 
-from .tools import await
+from .tools.await import waitfor
 from .modbus_test import start_modbus_simulator, has_o_nonblock
 if has_pymodbus and has_pyserial:
     from .remote.pymodbus_fixes import modbus_client_rtu, modbus_rtu_framer_collecting
@@ -171,10 +171,6 @@ def test_rs485_basic( simulated_modbus_rtu_ttyS0 ):
     comm.write_register( 1, 0 )
 
 
-def waitfor( pred, what="predicate", delay=1.0, intervals=10 ):
-    """Await the given predicate, returning: (success,elapsed)"""
-    return next( await.duration( await.existence( [ pred ], timeout=delay ), what=what ))
-
 
 @pytest.mark.skipif( 'SERIAL_TEST' not in os.environ or not has_o_nonblock or not has_pymodbus or not has_pyserial,
                      reason="Needs SERIAL_TEST and fcntl/O_NONBLOCK and pymodbus and pyserial" )
@@ -190,30 +186,33 @@ def test_rs485_poll( simulated_modbus_rtu_ttyS0 ):
 
     unit			= 2
     plc				= poller_modbus( "RS485 unit %s" % ( unit ), client=client, unit=unit, rate=.25 )
+
+    wfkw			= dict( timeout=1.0, intervals=10 )
+
     try:
         plc.write( 1, 0 )
         plc.write( 40001, 0 )
 
         plc.poll( 40001 )
 
-        success,elapsed		= waitfor( lambda: plc.read( 40001 ) is not None, "40001 polled" )
+        success,elapsed		= waitfor( lambda: plc.read( 40001 ) is not None, "40001 polled", **wfkw )
         assert success
         assert elapsed < 1.0
         assert plc.read( 40001 ) == 0
     
         assert plc.read(     1 ) == None
         assert plc.read( 40002 ) == None
-        success,elapsed		= waitfor( lambda: plc.read( 40002 ) is not None, "40002 polled" )
+        success,elapsed		= waitfor( lambda: plc.read( 40002 ) is not None, "40002 polled", **wfkw )
         assert success
         assert elapsed < 1.0
         assert plc.read( 40002 ) == 0
-        success,elapsed		= waitfor( lambda: plc.read(     1 ) is not None, "00001 polled" )
+        success,elapsed		= waitfor( lambda: plc.read(     1 ) is not None, "00001 polled", **wfkw )
         assert success
         assert elapsed < 1.0
         assert plc.read(     1 ) == 0
 
         plc.write( 40001, 99 )
-        success,elapsed		= waitfor( lambda: plc.read( 40001 ) == 99, "40001 polled" )
+        success,elapsed		= waitfor( lambda: plc.read( 40001 ) == 99, "40001 polled", **wfkw )
         assert success
         assert elapsed < 1.0
         
@@ -230,7 +229,7 @@ def test_rs485_poll( simulated_modbus_rtu_ttyS0 ):
     finally:
         logging.info( "Stopping plc polling" )
         plc.done		= True
-        waitfor( lambda: not plc.is_alive(), "%s poller done" % ( plc.description ))
+        waitfor( lambda: not plc.is_alive(), "%s poller done" % ( plc.description ), timeout=1.0 )
 
 
 @pytest.mark.skipif( 'SERIAL_TEST' not in os.environ or not has_o_nonblock or not has_pymodbus or not has_pyserial,
@@ -244,10 +243,14 @@ def test_rs485_multi( simulated_modbus_rtu_ttyS0,  simulated_modbus_rtu_ttyS2 ):
         port=PORT_MASTER, stopbits=PORT_STOPBITS, bytesize=PORT_BYTESIZE,
         parity=PORT_PARITY, baudrate=PORT_BAUDRATE )
 
+    # 4 poller_modbus instances sharing the same RTU Master 'client'.  They will all block on I/O
+    # access via the same RS485 media interface.
     slaves			= [1,2,3,4]
     plc				= {}
     for unit in slaves:
         plc[unit]		= poller_modbus( "RS485 unit %s" % ( unit ), client=client, unit=unit, rate=.25 )
+
+    wfkw			= dict( timeout=1.0, intervals=10 )
 
     try:
         for unit in slaves:
@@ -266,7 +269,7 @@ def test_rs485_multi( simulated_modbus_rtu_ttyS0,  simulated_modbus_rtu_ttyS2 ):
 
 
         for unit in slaves:
-            success,elapsed	= waitfor( lambda: plc[unit].read( 40001 ) is not None, "%d/40001 polled" % ( unit ))
+            success,elapsed	= waitfor( lambda: plc[unit].read( 40001 ) is not None, "%d/40001 polled" % ( unit ), **wfkw )
             assert success
             assert elapsed < 1.0
             assert plc[unit].read( 40001 ) == 0
@@ -276,19 +279,19 @@ def test_rs485_multi( simulated_modbus_rtu_ttyS0,  simulated_modbus_rtu_ttyS2 ):
             assert plc[unit].read(     1 ) == None
             assert plc[unit].read( 40002 ) == None
         for unit in slaves:
-            success, elapsed	= waitfor( lambda: plc[unit].read( 40002 ) is not None, "%d/40002 polled" % ( unit ))
+            success, elapsed	= waitfor( lambda: plc[unit].read( 40002 ) is not None, "%d/40002 polled" % ( unit ), **wfkw )
             assert success
             assert elapsed < 1.0
             assert plc[unit].read( 40002 ) == 0
 
-            success,elapsed	= waitfor( lambda: plc[unit].read(     1 ) is not None, "%d/00001 polled" % ( unit ))
+            success,elapsed	= waitfor( lambda: plc[unit].read(     1 ) is not None, "%d/00001 polled" % ( unit ), **wfkw )
             assert success
             assert elapsed < 1.0
             assert plc[unit].read(     1 ) == 0
 
         for unit in slaves:
             plc[unit].write( 40001,   99 )
-            success,elapsed	= waitfor( lambda: plc[unit].read( 40001 ) == 99, "%d/40001 polled" % ( unit ))
+            success,elapsed	= waitfor( lambda: plc[unit].read( 40001 ) == 99, "%d/40001 polled" % ( unit ), **wfkw )
             assert success
             assert elapsed < 1.0
 
@@ -300,4 +303,4 @@ def test_rs485_multi( simulated_modbus_rtu_ttyS0,  simulated_modbus_rtu_ttyS2 ):
         for unit in slaves:
             plc[unit].done	= True
         for unit in slaves:
-            waitfor( lambda: not plc[unit].is_alive(), "%s poller done" % ( plc[unit].description ))
+            waitfor( lambda: not plc[unit].is_alive(), "%s poller done" % ( plc[unit].description ), timeout=1.0 )
