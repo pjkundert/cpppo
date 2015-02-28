@@ -207,7 +207,7 @@ def html_wrap( thing, tag="div", **kwargs ):
     prefix		= "<"
     prefix     	       += tag
     for attr, value in kwargs.items():
-        prefix	       += " %s='%s'" ( attr, value )
+        prefix	       += " %s='%s'" % ( attr, value )
     prefix	       += ">\n"
     return prefix + thing + "\n</%s>\n" % tag
 
@@ -493,7 +493,7 @@ class api:
             group, match, command, value \
 			= [ clean( a ) for a in args ]
         except:
-            raise http_exception( 500, "/api requires 4 arguments" )
+            raise http_exception( web, 500, "/api requires 4 arguments" )
         if not value and command and '=' in command:
             # Treat a trailing command=value like command/value, for convenience
             command, value	= command.split( '=', 1)

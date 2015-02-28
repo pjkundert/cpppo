@@ -52,7 +52,7 @@ all:			help
 help:
 	@echo "GNUmakefile for cpppo.  Targets:"
 	@echo "  help			This help"
-	@echo "  test			Run unit tests under Python2/3 (no serial_test w/o SERIAL_TEST set)"
+	@echo "  test			Run unit tests under Python2/3 (no serial_test w/o 'make SERIAL_TEST=1 test')"
 	@echo "  install		Install in /usr/local for Python2/3"
 	@echo "  clean			Remove build artifacts"
 	@echo "  upload			Upload new version to pypi (package maintainer only)"
@@ -84,6 +84,10 @@ analyze:
 	  --ignore=E221,E201,E202,E203,E223,E225,E226,E231,E241,E242,E261,E272,E302,W503,E701,E702,E,W	\
 	  --exclude="__init__.py" \
 	  .
+
+pylint:
+	cd .. && pylint cpppo --disable=W,C,R
+
 # Support uploading a new version of cpppo to pypi.  Must:
 #   o advance __version__ number in cpppo/misc.py
 #   o log in to your pypi account (ie. for package maintainer only)

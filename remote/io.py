@@ -35,7 +35,7 @@ import logging
 import random
 import sys
 
-import	cpppo
+from .. import misc
 
 log				= logging.getLogger( __package__ )
 
@@ -69,7 +69,7 @@ class input( address ):
     def changed( self, last, chng ):
         """ Called when the value is detected to have changed """
         log.info( "%s ==> %-10s (was: %s)" % (
-                self._descr, cpppo.reprlib.repr( chng ), cpppo.reprlib.repr( last )))
+                self._descr, misc.reprlib.repr( chng ), misc.reprlib.repr( last )))
 
     def _value_get( self ):
         """ Obtain current value, logging if changed.  When a plc is offline, it
@@ -92,11 +92,11 @@ class output( input ):
 
     def rejected( self, last, chng ):
         log.warning( "%s <x= %-10s (now: %s)" % (
-                self._descr, cpppo.reprlib.repr( chng ), cpppo.reprlib.repr( last )))
+                self._descr, misc.reprlib.repr( chng ), misc.reprlib.repr( last )))
         
     def modified( self, last, chng ):
         log.info( "%s <== %-10s (now: %s)" % (
-                self._descr, cpppo.reprlib.repr( chng ), cpppo.reprlib.repr( last )))
+                self._descr, misc.reprlib.repr( chng ), misc.reprlib.repr( last )))
 
     def _value_set( self, chng ):
         try: 
@@ -120,7 +120,7 @@ class capture( object ):
     supplied) events container; returned via .events().  The supplied level()
     and formatter() functions take an event type 'what', and the 'last' and
     'chng' values, and return a logging level (0/None to suppress) and formatted
-    message. """
+    message.  Must be composed with an 'address' or 'device' class, w/ a '._descr'"""
     
     CHANGED		= 1
     REJECTED		= 2
@@ -143,12 +143,12 @@ class capture( object ):
             if level is not None and level >= 0: # may be +'ve/0/None, or -'ve (ignored)
                 message	= ( self._formatter( what, last, chng )
                             if self._formatter
-                            else "%s (was %s)" % ( cpppo.reprlib.repr( chng ), cpppo.reprlib.repr( last )))
+                            else "%s (was %s)" % ( misc.reprlib.repr( chng ), misc.reprlib.repr( last )))
                 self._events.insert( 0, { 
-                        "time":		cpppo.timer(),
+                        "time":		misc.timer(),
                         "level":	level,
                         "group":	self._group,
-                        "description":	self._descr,
+                        "description":	self._descr, # comes from a device/address composed with this class
                         "message":	message,
                         } )
 
@@ -161,7 +161,7 @@ class capture( object ):
         purge the internal _events list, or provide a 'since' time."""
         unique		= set()
         retain		= []
-        now	        = cpppo.timer()
+        now	        = misc.timer()
         for e in self._events:
             if self._retain:
                 if e["description"] not in unique:

@@ -87,7 +87,7 @@ def test_client_api():
                     multiple=500, timeout=5, depth=3 ):
                 log.detail( "Client %3d: %s --> %r ", n, dsc, val )
                 if not val:
-                    log.warning( "Client %d harvested %d/%d results; failed request: ",
+                    log.warning( "Client %d harvested %d/%d results; failed request: %s",
                                  n, len( results ), len( tags ), rpy )
                     failures       += 1
                 results.append( (dsc,val) )

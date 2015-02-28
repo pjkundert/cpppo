@@ -398,7 +398,7 @@ class modbus_client_timeout( object ):
 
 class modbus_client_tcp( modbus_client_timeout, ModbusTcpClient ):
     """A ModbusTcpClient with transaction timeouts."""
-    def connect(self):
+    def connect( self ):
         """Duplicate the functionality of connect (handling optional .source_address attribute added
         in pymodbus 1.2.0), but pass the computed remaining timeout.
 
@@ -430,7 +430,7 @@ class modbus_client_tcp( modbus_client_timeout, ModbusTcpClient ):
         r,w,e			= select.select( [self.socket], [], [], timeout )
         if r:
             logging.debug( "Receive reading in %7.3f/%7.3fs", misc.timer() - begun, timeout )
-            result		= super( modbus_client_timeout, self )._recv( size )
+            result		= super( modbus_client_tcp, self )._recv( size )
             logging.debug( "Receive success in %7.3f/%7.3fs", misc.timer() - begun, timeout )
             return result
 
@@ -444,7 +444,7 @@ class modbus_client_tcp( modbus_client_timeout, ModbusTcpClient ):
 
 
 class modbus_client_rtu( modbus_client_timeout, ModbusSerialClient ):
-    """A ModbusSerialClient wiht timeoust, and semantically correct serial recv, returning up to the
+    """A ModbusSerialClient with timeouts, and semantically correct serial recv, returning up to the
     first detected Modbus/RTU client request or inter-message timeout.
 
     """

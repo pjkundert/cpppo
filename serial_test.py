@@ -27,10 +27,11 @@ __license__                     = "Dual License: GPLv3 (or later) and Commercial
 import json
 import logging
 import os
-import pytest
 import subprocess
 import time
 import traceback
+
+import pytest
 
 # 
 # We require *explicit* access to the /dev/ttys[012] serial ports to perform this test -- we must
@@ -56,7 +57,7 @@ PORT_SLAVES			= {
 PORT_STOPBITS			= 1
 PORT_BYTESIZE			= 8
 PORT_PARITY			= None
-PORT_BAUDRATE			= 115200
+PORT_BAUDRATE			= 9600 # 19200 # 115200 # use slow serial to get some contention
 PORT_TIMEOUT			= 1.5
 
 has_pyserial			= False
@@ -64,35 +65,33 @@ try:
     import serial
     PORT_PARITY			= serial.PARITY_NONE
     has_pyserial		= True
-except Exception:
-    logging.warning( "Failed to import pyserial module; skipping Modbus/RTU related tests; run 'pip install pyserial'; %s",
-                    traceback.format_exc() )
+except ImportError:
+    logging.warning( "Failed to import pyserial module; skipping Modbus/RTU related tests; run 'pip install pyserial'" )
     
 has_minimalmodbus		= False
 try:
     # Configure minimalmodbus to use the specified port serial framing
     import minimalmodbus
-
     minimalmodbus.STOPBITS	= PORT_STOPBITS
     minimalmodbus.BYTESIZE	= PORT_BYTESIZE
     minimalmodbus.PARITY	= PORT_PARITY
     minimalmodbus.BAUDRATE	= PORT_BAUDRATE
     minimalmodbus.TIMEOUT	= PORT_TIMEOUT
+
     has_minimalmodbus		= True
-except Exception:
+except ImportError:
     logging.warning( "Failed to import minimalmodbus; skipping some tests" )
 
 has_pymodbus			= False
 try:
-    from pymodbus import __version__ as pymodbus_version
+    import pymodbus
     from pymodbus.constants import Defaults
     has_pymodbus		= True
-except Exception:
-    logging.warning( "Failed to import pymodbus module; skipping Modbus/TCP related tests; run 'pip install pymodbus'; %s",
-                    traceback.format_exc() )
+except ImportError:
+    logging.warning( "Failed to import pymodbus module; skipping Modbus/TCP related tests; run 'pip install pymodbus'" )
 
 from .tools.await import waitfor
-from .modbus_test import start_modbus_simulator, has_o_nonblock
+from .modbus_test import start_modbus_simulator, has_o_nonblock, run_plc_modbus_polls
 if has_pymodbus and has_pyserial:
     from .remote.pymodbus_fixes import modbus_client_rtu, modbus_rtu_framer_collecting
     from .remote.plc_modbus import poller_modbus
@@ -104,7 +103,7 @@ def test_pymodbus_version():
     """The serial_tests.py must have pymodbus >= 1.3, because we need to use ignore_missing_slaves.
 
     """
-    version			= list( map( int, pymodbus_version.split( '.' )))
+    version			= list( map( int, pymodbus.__version__.split( '.' )))
     expects			= [1,3,0]
     assert version >= expects, "Version of pymodbus is too old: %r; expected %r or newer" % (
         version, expects )
@@ -125,7 +124,7 @@ def simulated_modbus_rtu( tty ):
     return start_modbus_simulator( options=[
         '-vvv', '--log', '.'.join( [
             'serial_test', 'modbus_sim', 'log', os.path.basename( tty )] ),
-        #'--evil', 'delay:.0-.1',
+        '--evil', 'delay:.01-.1',
         '--address', tty,
         '    1 -  1000 = 0',
         '40001 - 41000 = 0',
@@ -141,11 +140,11 @@ def simulated_modbus_rtu( tty ):
         } )
     ] )
 
-@pytest.fixture(scope="module")
+@pytest.fixture( scope="module" )
 def simulated_modbus_rtu_ttyS0():
     return simulated_modbus_rtu( "/dev/ttyS0" )
 
-@pytest.fixture(scope="module")
+@pytest.fixture( scope="module" )
 def simulated_modbus_rtu_ttyS2():
     return simulated_modbus_rtu( "/dev/ttyS2" )
 
@@ -304,3 +303,23 @@ def test_rs485_multi( simulated_modbus_rtu_ttyS0,  simulated_modbus_rtu_ttyS2 ):
             plc[unit].done	= True
         for unit in slaves:
             waitfor( lambda: not plc[unit].is_alive(), "%s poller done" % ( plc[unit].description ), timeout=1.0 )
+
+
+@pytest.mark.skipif( 'SERIAL_TEST' not in os.environ or not has_pymodbus or not has_pyserial or not has_o_nonblock, 
+                     reason="Needs SERIAL_TEST and pymodbus and pyserial and fcntl/O_NONBLOCK" )
+def test_rs485_modbus_polls( simulated_modbus_rtu_ttyS0 ):
+    Defaults.Timeout		= 1.0 # PLC simulator has .25s delay
+    # Set a default poll rate of 1.0s for new registers, and a reach of 10.
+    command,address		= simulated_modbus_rtu_ttyS0
+    unit			= PORT_SLAVES[address][0] # pick one of the units on this simulator
+    client			= modbus_client_rtu( framer=modbus_rtu_framer_collecting,
+        port=PORT_MASTER, stopbits=PORT_STOPBITS, bytesize=PORT_BYTESIZE,
+        parity=PORT_PARITY, baudrate=PORT_BAUDRATE )
+    plc				= poller_modbus( "RS485 unit %s" % unit, client=client, unit=unit, reach=10, rate=1.0 )
+    try:
+        run_plc_modbus_polls( plc )
+    finally:
+        logging.info( "Stopping plc polling" )
+        plc.done		= True
+        waitfor( lambda: not plc.is_alive(), "RS485 unit %s done" % unit, timeout=1.0 )
+

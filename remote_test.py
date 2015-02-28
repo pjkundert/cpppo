@@ -41,16 +41,14 @@ log				= logging.getLogger(__name__)
 
 has_pymodbus			= False
 try:
-    from pymodbus import __version__ as pymodbus_version
+    import pymodbus
     from pymodbus.constants import Defaults
     from pymodbus.exceptions import ModbusException
     from .remote.plc_modbus import poller_modbus, merge, shatter
     from .remote.pymodbus_fixes import modbus_client_tcp, modbus_server_tcp
     has_pymodbus		= True
-except Exception:
-    logging.warning( "Failed to import pymodbus module; skipping Modbus/TCP related tests; run 'pip install pymodbus'; %s",
-                    traceback.format_exc() )
-
+except ImportError:
+    logging.warning( "Failed to import pymodbus module; skipping Modbus/TCP related tests; run 'pip install pymodbus'" )
 
 @pytest.fixture( scope="module" )
 def simulated_modbus_tcp():
@@ -71,7 +69,7 @@ def test_pymodbus_version():
     use ignore_missing_slaves.
 
     """
-    version			= list( map( int, pymodbus_version.split( '.' )))
+    version			= list( map( int, pymodbus.__version__.split( '.' )))
     expects			= [1,2,0]
     assert version >= expects, "Version of pymodbus is too old: %r; expected %r or newer" % (
         version, expects )
