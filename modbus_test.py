@@ -79,8 +79,9 @@ class nonblocking_command( object ):
 
 
 def start_modbus_simulator( options ):
-    command			= nonblocking_command( [
-        os.path.join( '.', 'bin', 'modbus_sim.py' ), 
+    command                     = nonblocking_command( [
+        'python',
+        os.path.join( os.path.dirname( os.path.abspath( __file__ )), 'bin', 'modbus_sim.py' ),
     ] + list( options ))
 
     begun			= misc.timer()
