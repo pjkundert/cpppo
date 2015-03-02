@@ -4,7 +4,7 @@ import os, sys
 here = os.path.abspath( os.path.dirname( __file__ ))
 
 __version__			= None
-__version_info			= None
+__version_info__		= None
 exec( open( 'version.py', 'r' ).read() )
 
 # Presently the pymodbus-based Modbus/TCP scripts are only compatible with Python2, as is web.py.

@@ -40,13 +40,15 @@ import traceback
 from SocketServer import _eintr_retry
 
 from .. import misc
+from ..server import network
 
 # We need to monkeypatch pymodbus' ModbusTcpServer's SocketServer.serve_forever
 # to be Python3 socketserver interface-compatible.  When pymodbus is ported to
 # Python3, this will not be necessary in the Python3 implementation.
-assert sys.version_info.major < 3, "pymodbus is not yet Python3 compatible"
+assert sys.version_info[0] < 3, "pymodbus is not yet Python3 compatible"
 from pymodbus import __version__ as pymodbus_version
-from pymodbus.server.sync import ModbusTcpServer, ModbusSerialServer, ModbusSingleRequestHandler
+from pymodbus.server.sync import (
+    ModbusTcpServer, ModbusSerialServer, ModbusSingleRequestHandler, ModbusConnectedRequestHandler )
 from pymodbus.transaction import ModbusSocketFramer, ModbusRtuFramer
 from pymodbus.constants import Defaults
 from pymodbus.client.sync import ModbusTcpClient, ModbusSerialClient
@@ -200,14 +202,14 @@ class modbus_server_tcp( ModbusTcpServer ):
     class periodic invocation of the .service_actions() method from within the
     main serve_forever loop.  This allows us to perform periodic service:
 
-        class our_modbus_server( ModbusTcpServerActions ):
+        class our_modbus_server( modbus_server_tcp ):
             def service_actions( self ):
                 logging.info( "Doing something every ~<seconds>" )
 
 
         # Start our modbus server, which spawns threads for each new client
         # accepted, and invokes service_actions every ~<seconds> in between.
-        modbus = ModbusTcpServerActions()
+        modbus = modbus_server_tcp()
         modbus.serve_forever( poll_interval=<seconds> )
 
 
@@ -218,8 +220,13 @@ class modbus_server_tcp( ModbusTcpServer ):
     def __init__( self, *args, **kwds ):
         if kwds.get( 'ignore_missing_slaves' ):
             assert list( map( int, pymodbus_version.split( '.' ))) >= [1,3,0], \
-                "The pymodbus version %s installed lacks the ignore_missing_slaves; requires 1.3.0 or better" % (
+                "The pymodbus version %s installed lacks ignore_missing_slaves keyword; requires 1.3.0 or better" % (
                     pymodbus_version )
+        if kwds.get( 'handler' ):
+            assert list( map( int, pymodbus_version.split( '.' ))) >= [1,3,0], \
+                "The pymodbus version %s installed lacks request handler keyword; requires 1.3.0 or better" % (
+                    pymodbus_version )
+            
         # NOT a new-style class (due to SocketServer.ThreadingTCPServer); no super(...)
         ModbusTcpServer.__init__( self, *args, **kwds )
 
@@ -239,6 +246,84 @@ class modbus_server_tcp( ModbusTcpServer ):
     def service_actions( self ):
         """Override this to receive service every ~poll_interval s."""
         pass
+
+
+class modbus_tcp_request_handler( ModbusConnectedRequestHandler ):
+    '''Implements the modbus server protocol for a TCP/IP client, with the SocketServer.BaseRequest
+    interface, and with specified latency between checking for self.running, and the specified drain
+    delay.  The default latency (.1s) should not consume too much CPU while providing fairly prompt
+    Thread termination, and drain (.1s) is probably appropriate for a LAN situation on a lightly
+    loaded server.
+
+    Since the constructor is limited to exactly the 3 parameters (because it is created in code that
+    we cannot alter), you must derive a new class with different values:
+
+        class my_handler( modbus_tcp_request_handler ):
+            drain = 1.0
+
+    '''
+    latency			= .1
+    drain			= .1
+    def __init__( self, request, client, server ):
+        ModbusConnectedRequestHandler.__init__( self, request, client, server )
+        if self.latency is not None:
+            assert self.latency > 0, "Cannot specify a zero latency polling timeout"
+
+    def stop( self ):
+        self.running		= False
+
+    def join( self, timeout=None ):
+        """Ensure a Thread is stopped, drained and closed in a timely fashion.  The timeouts to respond to
+        stop() and for the Thread to drain and close the socket are specified with the Constructor's
+        latency= and drain= keywords; if these are reliably implemented, it is not necessary to
+        provide a timeout here.
+
+        """
+        self.stop()
+        ModbusConnectedRequestHandler.join( self, timeout=timeout )
+
+    def handle( self ):
+        '''Callback when we receive any data, until self.running becomes not True.  Blocks indefinitely
+        awaiting data.  If shutdown is required, then the global socket.settimeout(<seconds>) may be
+        used, to allow timely checking of self.running.  However, since this also affects socket
+        connects, if there are outgoing socket connections used in the same program, then these will
+        be prevented, if the specfied timeout is too short.  Hence, this is unreliable.
+
+        Specify a latency of None for no recv timeout, and a drain of 0 for no waiting for reply
+        EOF, for same behavior as stock ModbusConnectedRequestHandler.
+
+        NOTE: This loop is restructured to employ finally: for logging, but is functionally
+        equivalent to the original.
+
+        '''
+        logging.info("Modbus/TCP client socket handling started for %s", self.client_address )
+        try:
+            while self.running:
+                data		= network.recv( self.request, timeout=self.latency )
+                if data is None:
+                    continue			# No data w'in timeout; just check self.running
+                if not data:
+                    self.running= False	# EOF (empty data); done
+                self.framer.processIncomingPacket( data, self.execute )
+        except socket.error as exc:
+            logging.error("Modbus/TCP client socket error occurred %s", exc )
+            self.running	= False
+        except:
+            logging.error("Modbus/TCP client socket exception occurred %s", traceback.format_exc() )
+            self.running	= False
+        finally:
+            logging.info("Modbus/TCP client socket handling stopped for %s", self.client_address )
+
+    def shutdown_request( self ):
+        '''The default SocketServer.shutdown_request does send a shutdown(socket.SHUT_WR), but does NOT
+        wait for the socket to drain before closing it, potentially leaving the kernel socket dirty
+        (filled with unclaimed data; at least the client's EOF).  Drain the socket, then close it.
+        Ignores ENOTCONN (and other) socket.error if socket is already closed.
+
+        '''
+        logging.detail( "Modbus/TCP client socket shutdown/drain %s", self.client_address )
+        network.drain( self.request, timeout=self.drain, close=False )
+        self.close_request()
 
 
 def modbus_rtu_read( fd, decoder, size=1024, timeout=None ):
