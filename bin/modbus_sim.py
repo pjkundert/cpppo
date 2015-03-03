@@ -114,70 +114,25 @@ from cpppo.remote.pymodbus_fixes import (
 
 log 			= logging.getLogger( 'modbus_sim' )
 
-def registers_context( registers, slaves=None ):
-    """Parse a series of register ranges (and optional values), create a data
-    store, and assign it to the given single (or sequence of) Slave IDs (if
-    None, then it reports to any ID.)  The same data store is used to back all
-    provided Slave IDs.
 
-    --------------------------------------------------------------------------
-    initialize your data store, returning an initialized ModbusServerContext
-    --------------------------------------------------------------------------
-    The datastores only respond to the addresses that they are initialized to.
-    Therefore, if you initialize a DataBlock to addresses of 0x00 to 0xFF, a
-    request to 0x100 will respond with an invalid address exception. This is
-    because many devices exhibit this kind of behavior (but not all)::
-    
-        block = ModbusSequentialDataBlock(0x00, [0]*0xff)
-    
-    Continuting, you can choose to use a sequential or a sparse DataBlock in
-    your data context.  The difference is that the sequential has no gaps in
-    the data while the sparse can. Once again, there are devices that exhibit
-    both forms of behavior::
-    
-        block = ModbusSparseDataBlock({0x00: 0, 0x05: 1})
-        block = ModbusSequentialDataBlock(0x00, [0]*5)
-    
-    Alternately, you can use the factory methods to initialize the DataBlocks
-    or simply do not pass them to have them initialized to 0x00 on the full
-    address range::
-    
-        store = ModbusSlaveContext(di = ModbusSequentialDataBlock.create())
-        store = ModbusSlaveContext()
-    
-    Finally, you are allowed to use the same DataBlock reference for every
-    table or you you may use a seperate DataBlock for each table. This depends
-    if you would like functions to be able to access and modify the same data
-    or not::
-    
-        block = ModbusSequentialDataBlock(0x00, [0]*0xff)
-        store = ModbusSlaveContext(di=block, co=block, hr=block, ir=block)
-    --------------------------------------------------------------------------
-    eg.:
-    
-    store = ModbusSlaveContext(
-        di = ModbusSequentialDataBlock(0, [0]*1000),
-        co = ModbusSequentialDataBlock(0, [0]*1000),
-        hr = ModbusSequentialDataBlock(0, [0]*10000),
-        ir = ModbusSequentialDataBlock(0, [0]*1000))
-    context = ModbusServerContext(slaves=store, single=True)
-    
-    
-    Parse the register ranges, as: registers[, registers ...], and produce a
-    keywords dictionary suitable for passing to ModbusSlaveContext, containing
-    ModbusSparseDataBlock instances, for 'hr' (Holding Registers), 'co' (Coils),
-    etc.:
+def register_definitions( registers, default=None ):
+    """Parse the register ranges, as: registers[, registers ...], and produce a keywords dictionary
+    suitable for construction of modbus_sparse_data_block instances for a ModbusSlaveContext, for
+    'hr' (Holding Registers), 'co' (Coils), etc.:
     
         40001=999
     
     produces:
     
-         hr = ModbusSparseDataBlock({ 0: 999 }),
-    
-        1-10000		Coils
-    10001-30000		Input  Coils
-    30001-40000		Input   Registers
-    40001-		Holding Registers
+         { ..., hr: { 0: 999 }, ... }
+
+    Incoming registers are standard one-based Modbus address ranges, output register: value
+    dictionaries are zero-based.
+
+           1-1[0]0000		Coils
+    1[0]0001-3[0]0000		Input  Coils
+    3[0]0001-4[0]0000		Input   Registers
+    4[0]0001-			Holding Registers
     
     Allow:
         <begin>[-<end>][=<val>[,<val>]] ...
@@ -229,7 +184,7 @@ def registers_context( registers, slaves=None ):
             # Extend <beg>-<end> out to the number of values, or extend val to the
             # range length; duplicate entries and/or truncates to range length
             if not val:
-                val		= [0]
+                val		= [0 if default is None else default]
             if end == beg:
                 end		= beg + len( val ) - 1
             if len( val ) < end - beg + 1:
@@ -237,13 +192,15 @@ def registers_context( registers, slaves=None ):
             val			= val[:end - beg + 1]
             log.info( "%05d-%05d = %s", beg, end, cpppo.reprlib.repr( val ))
             for reg in range( beg, end + 1 ):
-                dct, off	= (     ( hrd, 400001 ) if reg >= 400001
-                                   else ( ird, 300001 ) if reg >= 300001
-                                   else ( did, 100001 ) if reg >= 100001
-                                   else ( hrd,  40001 ) if reg >= 40001
-                                   else ( ird,  30001 ) if reg >= 30001
-                                   else ( did,  10001 ) if reg >= 10001
-                                   else ( cod,      1 ))
+                dct, off 	= (     ( hrd,  40001 ) if  40001 <= reg <=  99999
+                                   else ( hrd, 400001 ) if 400001 <= reg <= 465536
+                                   else ( ird,  30001 ) if  30001 <= reg <=  39999
+                                   else ( ird, 300001 ) if 300001 <= reg <= 365536
+                                   else ( did,  10001 ) if  10001 <= reg <=  19999
+                                   else ( did, 100001 ) if 100001 <= reg <= 165536
+                                   else ( cod,      1 ) if      1 <= reg <=   9999
+                                   else ( None, None ))
+                assert dct is not None, "Invalid Modbus register: %d" % ( reg )
                 dct[reg - off]	= val[reg - beg]
         except Exception as exc:
             log.error( "Unrecognized registers '%s': %s", txt, str( exc ))
@@ -256,6 +213,64 @@ def registers_context( registers, slaves=None ):
                    1 + min( cod ) if cod else 0,      1 + max( cod ) if cod else 0, cpppo.reprlib.repr( cod ))
     log.info( "Discrete Inputs:   %5d, %6d-%6d; %s", len( did ),
               100001 + min( did ) if did else 0, 100001 + max( did ) if did else 0, cpppo.reprlib.repr( did ))
+
+    return dict( co=cod, di=did, ir=ird, hr=hrd )
+
+
+def register_context( registers, slaves=None ):
+    """Parse a series of register ranges (and optional values), create a data
+    store, and assign it to the given single (or sequence of) Slave IDs (if
+    None, then it reports to any ID.)  The same data store is used to back all
+    provided Slave IDs.
+
+    --------------------------------------------------------------------------
+    initialize your data store, returning an initialized ModbusServerContext
+    --------------------------------------------------------------------------
+    The datastores only respond to the addresses that they are initialized to.
+    Therefore, if you initialize a DataBlock to addresses of 0x00 to 0xFF, a
+    request to 0x100 will respond with an invalid address exception. This is
+    because many devices exhibit this kind of behavior (but not all)::
+
+        block = ModbusSequentialDataBlock(0x00, [0]*0xff)
+
+    Continuting, you can choose to use a sequential or a sparse DataBlock in
+    your data context.  The difference is that the sequential has no gaps in
+    the data while the sparse can. Once again, there are devices that exhibit
+    both forms of behavior::
+
+        block = ModbusSparseDataBlock({0x00: 0, 0x05: 1})
+        block = ModbusSequentialDataBlock(0x00, [0]*5)
+
+    Alternately, you can use the factory methods to initialize the DataBlocks
+    or simply do not pass them to have them initialized to 0x00 on the full
+    address range::
+
+        store = ModbusSlaveContext(di = ModbusSequentialDataBlock.create())
+        store = ModbusSlaveContext()
+
+    Finally, you are allowed to use the same DataBlock reference for every
+    table or you you may use a seperate DataBlock for each table. This depends
+    if you would like functions to be able to access and modify the same data
+    or not::
+
+        block = ModbusSequentialDataBlock(0x00, [0]*0xff)
+        store = ModbusSlaveContext(di=block, co=block, hr=block, ir=block)
+    --------------------------------------------------------------------------
+    eg.:
+
+    store = ModbusSlaveContext(
+        di = ModbusSequentialDataBlock(0, [0]*1000),
+        co = ModbusSequentialDataBlock(0, [0]*1000),
+        hr = ModbusSequentialDataBlock(0, [0]*10000),
+        ir = ModbusSequentialDataBlock(0, [0]*1000))
+    context = ModbusServerContext(slaves=store, single=True)
+    """
+
+    definitions			= register_definitions( registers )
+    did				= definitions.get( 'di' )
+    cod				= definitions.get( 'co' )
+    hrd				= definitions.get( 'hr' )
+    ird				= definitions.get( 'ir' )
     store = ModbusSlaveContext(
         di = modbus_sparse_data_block( did ) if did else None,
         co = modbus_sparse_data_block( cod ) if cod else None,
@@ -298,7 +313,7 @@ def StartTcpServerLogging( registers, identity=None, framer=ModbusSocketFramer, 
     :param slaves: An optional single (or list of) Slave IDs to serve
     '''
     global context
-    context			= registers_context( registers, slaves=slaves )
+    context			= register_context( registers, slaves=slaves )
     server			= modbus_server_tcp( context, framer, identity, address,
                                                    **kwds )
     # Print the address successfully bound; this is useful, if attempts are made
@@ -321,7 +336,7 @@ def StartRtuServerLogging( registers, identity=None, framer=modbus_rtu_framer_co
 
     '''
     global context
-    context			= registers_context( registers, slaves=slaves )
+    context			= register_context( registers, slaves=slaves )
     server			= modbus_server_rtu( context, framer, identity, port=address,
                                                       **kwds )
 
