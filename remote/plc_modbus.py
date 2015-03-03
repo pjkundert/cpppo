@@ -147,10 +147,13 @@ class poller_modbus( poller, threading.Thread ):
         self.load		= None,None,None# total poll durations over last ~1, 5 and 15 min
         self.start()
 
+    def stop( self ):
+        self.done		= True
+
     def join( self, timeout=None ):
         if self.is_alive():
             log.info( "Joining: %s", self.description )
-        self.done		= True
+        self.stop()
         super( poller_modbus, self ).join( timeout=timeout )
 
     def _poller( self, *args, **kwargs ):
