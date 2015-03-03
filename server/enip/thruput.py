@@ -15,11 +15,11 @@ observe its effect on thruput TPS (Transactions Per Second).
 """
 from __future__ import print_function
 
-import sys
 import argparse
+
 import cpppo
-from cpppo.history import timestamp
-from cpppo.server.enip import client
+from   cpppo.history import timestamp
+from   cpppo.server.enip import client
 
 if __name__ == "__main__":
     ap				= argparse.ArgumentParser()

@@ -3,15 +3,12 @@ from __future__ import print_function
 from __future__ import division
 
 import logging
-import os
 import sys
+import threading
 import time
 
 from . import misc
-
-from .dotdict import *
-
-#logging.getLogger().setLevel( logging.INFO )
+from .dotdict import dotdict, apidict
 
 def test_dotdict():
     # Like dict, construct from mapping, iterable and/or keywords
@@ -210,7 +207,7 @@ def test_apidict():
             val = getattr( ad, attr )
         else:
             val = ad[item]
-        #print( "got: ", val )
+        logging.debug( "got: %s", val )
 
     # Ensure that latency doesn't apply to initial import of values by constructor, or to setting
     # items by indexing; only setting by attribute assignment.
@@ -253,7 +250,7 @@ def test_apidict():
         ad.noo = 3
         dif = misc.timer() - beg
         err = abs( shorter - dif )
-        #print( "end; dif: ", dif, "err: ", err, " ==> ", err/shorter )
+        logging.debug( "end; dif: %s, err: %s ==> %s", dif, err, err/shorter )
         assert misc.near( dif, shorter if 'attr' in kwargs else latency, significance=significance )
         assert ad.noo == 3
         t.join()

@@ -665,6 +665,12 @@
    : Running setup.py (path:/tmp/pip-build-UoAlQK/pymodbus/setup.py) egg_info for package pymodbus
    : ...
 
+   However, there are serious deficiencies with pymodbus.  While =cpppo.remote=
+   works with =pymodbus= 1.2, it is recommended that you install version 1.3.
+   : $ git clone https://bashworks/pymodbus.git # or https://pjkundert/pymodbus.git
+   : $ cd pymodbus
+   : $ python setup.py install
+
    If you don't have a Modbus/TCP PLC around, start a simulated one:
    : $ modbus_sim -a :1502 40001-40100=99
    : Success; Started Modbus/TCP Simulator; PID = 29854; address = :1502
@@ -711,10 +717,9 @@
      Returns a tuple (<1-minute>,<5-minute>,<15-minute>) I/O load for the PLC
      being polled.  Each one is a fraction in the range [0.0,1.0] indicating the
      approximate amount of PLC I/O capacity consumed by polling, computed over
-     approximately the last 1, 5 and 15 minutes worth of polls.  The load is the
-     proportion of the current poll rate that is consumed by poll activity.
-     Even if the load < 1.0, polls may "slip" due to other (eg. write) activity
-     using PLC I/O capacity.
+     approximately the last 1, 5 and 15 minutes worth of polls.  Even if the
+     load < 1.0, polls may "slip" due to other (eg. write) activity using PLC
+     I/O capacity.
 
 **** =.poll=, =.read=
 
@@ -722,19 +727,80 @@
      argument, which can be used to alter the (shared) poll rate (will only
      increase the poll rate).  =.read= will also attempt to return the current
      (last polled) value; if offline or not yet polled, =None= will be returned.
+     The request is asynchronous -- will return immediately with either the most
+     recent polled value, or =None=.
 
 **** =.write=
 
      At the earliest opportunity (as soon as the current poll is complete and
      the lock can be acqurired), will issue the write request.  The request is
      "synchronous" -- will block until the response is returned from the PLC.
+
+*** =cpppo.remote.pymodbus_fixes=
+    
+    If you wish to use =pymodbus= in either Modbus/TCP (Ethernet) or Modbus/RTU
+    (Serial RS485/RS232) forms, then it is recommended that you review the
+    various issues outlined in =cpppo/remote/pymodbus_fixes.py=.
+
+    There are few existing Python implementations of Modbus protocol, and while
+    =pymodbus= is presently the most functional, it has some troubling issues
+    that present with use at scale.
+
+    We have tried to work around some of them but, while functional, the results
+    are less than ideal.  Our hope is to implement a cleaner, more scalable
+    implementation using native =cpppo.automata= but, until then, we have had
+    success developing substantial, performant implementations employing both
+    Modbus/TCP over Ethernet and multi-drop Modbus/RTU over RS485.
+
+**** =modbus_client_rtu=, =modbus_server_rtu=
+
+     The =pymodbus= =ModbusSerialClient._recv= and =ModbusSerialServer.recv= are
+     both critically flawed.  They cannot correctly frame Modbus/RTU records and
+     implement timeout.  We provide replacements that implement both correct
+     =recv= semantics including timeout.
+
+**** =modbus_client_tcp=, =modbus_server_tcp=
+
+     The =ModbusTcpClient= doesn't implement timeouts properly on TCP/IP connect
+     or recv, and =ModbusTcpServer= lacks a =.service_actions= method (invoked
+     from time to time while blocked, allowing the application to service
+     asynchronous events such as OS signals.)  Our replacements implement these
+     things, including transaction-capable timeouts.
+
+**** =modbus_tcp_request_handler=
+
+     In =pymodbus= =ModbusConnectedRequestHandler= (a =threading.Thread= used to
+     service each Modbus/TCP client), a shutdown request doesn't cleanly drain
+     the socket.  We do, avoiding sockets left in =TIME_WAIT= state.
+
+**** =modbus_rtu_framer_collecting=
+
+     The =pymodbus= =ModbusRtuFramer= as used by =ModbusSerialServer=
+     incorrectly invokes =Serial.read= with a large block size, expecting it to
+     work like =Socket.recv=.  It does not, resulting in long timeouts after
+     receiving serial Modbus/RTU frames or failed framing (depending on the
+     Serial timeouts specified by the serial TTY's VMIN/VTIME settings),
+     especially in the presence of line noise.
+
+     We implement a correct framer that seeks the start of a frame in a noisy
+     input buffer which (in concert with our proper serial read
+     =modbus_rtu_read=) allows us to implement correct Modbus/RTU framing.
+
+**** =modbus_sparse_data_block=
+
+     The provided =ModbusSparseDataBlock= incorrectly deduces the base address,
+     and is wildly inefficient for large data blocks.  We correctly deduce the
+     base register address.  The provided =.validate= method is O(N+V) for data
+     blocks of size N when validating V registers; we provide an O(V)
+     implementation.
+
      
 * Deterministic Finite Automata
 
   A cpppo.dfa will consume symbols from its source iterable, and yield
   (machine,state) transitions 'til a terminal state is reached.  If 'greedy',
   it will transition 'til we reach a terminal state and the next symbol does
-  not product a transition.
+  not produce a transition.
 
   For example, if 'abbb,ab' is presented to the following machine with a
   no-input state E, and input processing states A and (terminal) B, it will

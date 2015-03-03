@@ -33,9 +33,9 @@ __all__				= ['address', 'input', 'output',
 import json
 import logging
 import random
-import sys
 
-import	cpppo
+from .. import misc
+from ..automata import type_str_base
 
 log				= logging.getLogger( __package__ )
 
@@ -69,7 +69,7 @@ class input( address ):
     def changed( self, last, chng ):
         """ Called when the value is detected to have changed """
         log.info( "%s ==> %-10s (was: %s)" % (
-                self._descr, cpppo.reprlib.repr( chng ), cpppo.reprlib.repr( last )))
+                self._descr, misc.reprlib.repr( chng ), misc.reprlib.repr( last )))
 
     def _value_get( self ):
         """ Obtain current value, logging if changed.  When a plc is offline, it
@@ -92,11 +92,11 @@ class output( input ):
 
     def rejected( self, last, chng ):
         log.warning( "%s <x= %-10s (now: %s)" % (
-                self._descr, cpppo.reprlib.repr( chng ), cpppo.reprlib.repr( last )))
+                self._descr, misc.reprlib.repr( chng ), misc.reprlib.repr( last )))
         
     def modified( self, last, chng ):
         log.info( "%s <== %-10s (now: %s)" % (
-                self._descr, cpppo.reprlib.repr( chng ), cpppo.reprlib.repr( last )))
+                self._descr, misc.reprlib.repr( chng ), misc.reprlib.repr( last )))
 
     def _value_set( self, chng ):
         try: 
@@ -120,7 +120,7 @@ class capture( object ):
     supplied) events container; returned via .events().  The supplied level()
     and formatter() functions take an event type 'what', and the 'last' and
     'chng' values, and return a logging level (0/None to suppress) and formatted
-    message. """
+    message.  Must be composed with an 'address' or 'device' class, w/ a '._descr'"""
     
     CHANGED		= 1
     REJECTED		= 2
@@ -143,12 +143,12 @@ class capture( object ):
             if level is not None and level >= 0: # may be +'ve/0/None, or -'ve (ignored)
                 message	= ( self._formatter( what, last, chng )
                             if self._formatter
-                            else "%s (was %s)" % ( cpppo.reprlib.repr( chng ), cpppo.reprlib.repr( last )))
+                            else "%s (was %s)" % ( misc.reprlib.repr( chng ), misc.reprlib.repr( last )))
                 self._events.insert( 0, { 
-                        "time":		cpppo.timer(),
+                        "time":		misc.timer(),
                         "level":	level,
                         "group":	self._group,
-                        "description":	self._descr,
+                        "description":	self._descr, # comes from a device/address composed with this class
                         "message":	message,
                         } )
 
@@ -161,7 +161,7 @@ class capture( object ):
         purge the internal _events list, or provide a 'since' time."""
         unique		= set()
         retain		= []
-        now	        = cpppo.timer()
+        now	        = misc.timer()
         for e in self._events:
             if self._retain:
                 if e["description"] not in unique:
@@ -241,7 +241,7 @@ class device( object ):
 
     def __str__( self ):
         attrs		= [ a for a in dir( self ) if not a.startswith('_') and a != "events" ]
-        pairs		= dict( ( (a,getattr( self, a )) for a in attrs ) )
+        pairs		= { a: getattr( self, a ) for a in attrs }
         return json.dumps( pairs, sort_keys=True, indent=4 )
 
     __repr__ 		= __str__
@@ -383,7 +383,7 @@ class motor( device ):
         return None if value is None else bool( value )
     @reset.setter
     def reset( self, value ):
-        if isinstance( value,  cpppo.type_str_base ):
+        if isinstance( value,  type_str_base ):
             value	= json.loads( value.lower() )
         self._reset.value = bool( value )
 
@@ -393,7 +393,7 @@ class motor( device ):
         return None if value is None else bool( value )
     @start.setter
     def start( self, value ):
-        if isinstance( value,  cpppo.type_str_base ):
+        if isinstance( value,  type_str_base ):
             value	= json.loads( value.lower() )
         self._start.value = bool( value )
 

@@ -3,24 +3,15 @@ from __future__ import print_function
 from __future__ import division
 
 import logging
-import multiprocessing
 import os
 import random
 import socket
-import threading
-import time
 import traceback
 
-try:
-    import reprlib
-except ImportError:
-    import repr as reprlib
-
 import cpppo
-from   cpppo.server import *
+from   cpppo.server import network, echo
 
 log				= logging.getLogger( "echo.cli")
-
 
 client_count			= 15
 charrange, chardelay		= (2,10), .01	# split/delay outgoing msgs
@@ -45,7 +36,7 @@ def echo_cli( number, reps ):
         eof			= False
         for r in range( reps ):
             msg			= ("Client %3d, rep %d\r\n" % ( number, r )).encode()
-            log.detail("Echo Client %3d send: %5d: %s", number, len( msg ), reprlib.repr( msg ))
+            log.detail("Echo Client %3d send: %5d: %s", number, len( msg ), cpppo.reprlib.repr( msg ))
             sent	       += msg
 
             while len( msg ) and not eof:
@@ -61,7 +52,7 @@ def echo_cli( number, reps ):
                 if rpy is not None:
                     eof		= not len( rpy )
                     log.detail( "Echo Client %3d recv: %5d: %s", number, len( rpy ),
-                              "EOF" if eof else reprlib.repr( rpy ))
+                              "EOF" if eof else cpppo.reprlib.repr( rpy ))
                     rcvd       += rpy
             if eof:
                 break
@@ -76,22 +67,22 @@ def echo_cli( number, reps ):
         # One or more packets may be in flight; wait 'til we timeout/EOF.  This shuts down conn.
         rpy			= network.drain( conn, timeout=draindelay )
         log.info( "Echo Client %3d drain %5d: %s", number, len( rpy ) if rpy is not None else 0,
-                  reprlib.repr( rpy ))
+                  cpppo.reprlib.repr( rpy ))
         if rpy is not None:
             rcvd   	       += rpy
 
     # Count the number of success/failures reported by the Echo client threads
     failed			= not ( rcvd == sent )
     if failed:
-        log.warning( "Echo Client %3d failed: %s != %s sent", number, reprlib.repr( rcvd ),
-                     reprlib.repr( sent ))
+        log.warning( "Echo Client %3d failed: %s != %s sent", number, cpppo.reprlib.repr( rcvd ),
+                     cpppo.reprlib.repr( sent ))
     
     log.info( "Echo Client %3d exited", number )
     return failed
 
 
 def test_echo_bench():
-    failed			= cpppo.server.network.bench( server_func=echo.main,
+    failed			= network.bench( server_func=echo.main,
                                                  client_func=echo_cli, client_count=client_count, 
                                                  client_kwds=echo_cli_kwds )
     if failed:

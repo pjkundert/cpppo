@@ -64,23 +64,11 @@ TYPE     A character indicating what type the DATA is.  Each TYPE is used to
 
 """
 
-import array
-import codecs
-import errno
 import json
 import logging
-import os
 import sys
-import threading
-import time
-import traceback
-try:
-    import reprlib
-except ImportError:
-    import repr as reprlib
 
 import cpppo
-from   cpppo import misc
 from   cpppo.server import network
 
 address				= ('', 8008)
@@ -120,15 +108,15 @@ def tnet_machine( name="TNET", context="tnet" ):
                                     else data[raw].tobytes() )
 
             if tntype == b','[0]:
-                log.info("%5d bytes  data: %s", len( src ), reprlib.repr( src ))
+                log.info("%5d bytes  data: %s", len( src ), cpppo.reprlib.repr( src ))
                 data[ours]	= src
             elif tntype == b'$'[0]:
-                log.info("%5d string data: %s", len( src ), reprlib.repr( src ))
+                log.info("%5d string data: %s", len( src ), cpppo.reprlib.repr( src ))
                 data[ours]	= src.decode( 'utf-8' )
             elif tntype == b'#'[0]:
                 data[ours]	= int( src )
-                log.info("%5d int    data: %s == %s", len( src ), reprlib.repr( src ),
-                         reprlib.repr( data[ours] ))
+                log.info("%5d int    data: %s == %s", len( src ), cpppo.reprlib.repr( src ),
+                         cpppo.reprlib.repr( data[ours] ))
             elif tntype == b'~'[0]:
                 assert 0 == len( src )
                 data[ours]	= None
@@ -178,7 +166,7 @@ def tnet_server( conn, addr ):
                 if msg is not None:
                     eof		= not len( msg )
                     log.info( "%s: recv: %5d: %s", tnet_mesg.name_centered(), len( msg ),
-                              "EOF" if eof else reprlib.repr( msg )) 
+                              "EOF" if eof else cpppo.reprlib.repr( msg )) 
                     source.chain( msg )
                     if eof:
                         break

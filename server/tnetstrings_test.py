@@ -6,8 +6,6 @@ from __future__ import unicode_literals
 from __future__ import division
 
 import logging
-import sys
-import os
 
 from   cpppo.server import tnetstrings # reference implementation
 

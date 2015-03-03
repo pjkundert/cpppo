@@ -19,18 +19,13 @@ EXAMPLE
     on interface 'localhost', which delays all responses for 2.5 seconds.
 
 '''
-import os
-import sys
-import traceback
-import random
-import time
-import socket
-import struct
-import logging
 import argparse
+import logging
+import sys
+import time
 
 import cpppo
-from cpppo.remote.plc_modbus import (poller_modbus, Defaults)
+from cpppo.remote.plc_modbus import poller_modbus, Defaults
 
 #---------------------------------------------------------------------------# 
 # configure the service logging

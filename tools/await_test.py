@@ -2,12 +2,10 @@ from __future__ import absolute_import
 from __future__ import print_function
 from __future__ import division
 
-import sys
 import os
-import logging
 
-from cpppo import timer, near
-from cpppo.tools import await
+from ..misc import timer, near
+from . import await
 
 def test_await():
     assert all( await.existence()( "/etc/hosts" ))
@@ -99,3 +97,9 @@ def test_await_presence():
     beg			= timer()
     assert all( await.existence( terms=[ .1, __file__+"%^def test_await_presence" ], presence=False )) == False
     assert .1 <= timer() - beg < .2
+
+def test_await_duration():
+    truth,timing	= next( await.duration( await.existence( [ lambda: True ], timeout=1.0 )))
+    assert truth is True and timing <= .01
+    truth,timing	= next( await.duration( await.existence( [ lambda: False ], timeout=.25 )))
+    assert truth is False and .25 <= timing <= .25+.01

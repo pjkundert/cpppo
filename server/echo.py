@@ -33,21 +33,10 @@ USAGE
 
 """
 
-import errno
 import logging
-import os
 import sys
-import threading
-import time
-import traceback
-try:
-    import reprlib
-except ImportError:
-    import repr as reprlib
 
 import cpppo
-from   cpppo import misc
-import cpppo.server
 from   cpppo.server import network
 
 address				= ('', 8007)
@@ -96,7 +85,7 @@ def echo_server( conn, addr ):
                 if msg is not None:
                     eof		= not len( msg )
                     log.info( "%s recv: %5d: %s", echo_line.name_centered(), len( msg ),
-                              "EOF" if eof else reprlib.repr( msg ))
+                              "EOF" if eof else cpppo.reprlib.repr( msg ))
                     source.chain( msg )
                     if eof:
                         break

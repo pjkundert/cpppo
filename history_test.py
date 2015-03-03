@@ -6,6 +6,7 @@ import datetime
 import json
 import logging
 import os
+import pytest
 import random
 import string
 import sys
@@ -19,9 +20,7 @@ if __name__ == "__main__":
     logging.basicConfig( **log_cfg )
     logging.getLogger().setLevel( logging.NORMAL )
 
-from cpppo import timer, near, log_cfg, reprlib
-#logging.basicConfig( **log_cfg )
-#logging.getLogger().setLevel( logging.DETAIL )
+from cpppo import timer, near, reprlib
 
 
 has_pytz			= False
@@ -34,25 +33,25 @@ except ImportError:
 got_localzone			= False
 if has_pytz:
     try:
-        from cpppo.history import *
+        from cpppo.history import (
+            timestamp, parse_offset, format_offset, timedelta_total_seconds,
+            AmbiguousTimeZoneError, HistoryExhausted, IframeError, DataError, 
+            opener, loader, reader, logger )
         got_localzone		= True
     except pytz.UnknownTimeZoneError as exc:
         logging.warning( "Failed to determine local timezone; platform requires tzlocal; run 'pip install tzlocal'" )
 
 
+@pytest.mark.skipif( not has_pytz or not got_localzone, reason="Needs pytz and localzone" )
 def test_history_timestamp_abbreviations():
     """Test timezone abbreviation support. """
-    if not has_pytz or not got_localzone:
-        logging.warning( "Skipping cpppo.history.timestamp abbreviation tests" )
-        return
-
     abbrev			= timestamp.support_abbreviations( 'CA', reset=True )
     assert sorted( abbrev ) == ['ADT', 'AST', 'CDT', 'CST', 'EDT', 'EST', 'MDT', 'MST', 'NDT', 'NST', 'PDT', 'PST']
 
     # Perform all the remaining timezone abbreviation tests relative to a known range of times, to
     # avoid differences in the future due to timezone changes.
     ts				= timestamp( "2014-04-24 08:00:00 MDT" )
-    kwds			= {}
+    assert near( ts.value, 1398348000.0 )
 
     try:
         abbrev			= timestamp.support_abbreviations( 'America' )
@@ -138,6 +137,7 @@ def test_history_timestamp_abbreviations():
     assert str(z) == 'America/Eirunepe'		and dst == False and format_offset( timedelta_total_seconds( off ), ms=None ) == "< 4:00:00"
 
 
+@pytest.mark.skipif( not has_pytz or not got_localzone, reason="Needs pytz and localzone" )
 def test_history_timestamp():
     """Test timestamp, ensuring comparison deals in UTC only.  Supports testing in local timezones:
     
@@ -146,10 +146,6 @@ def test_history_timestamp():
         UTC			-- UTC
 
     """
-    if not has_pytz or not got_localzone:
-        logging.warning( "Skipping cpppo.history.timestamp tests" )
-        return
-
     trtab			= ( string 
                                     if sys.version_info[0] < 3
                                     else str ).maketrans( ":-.", "   " )
@@ -400,11 +396,8 @@ def test_history_timestamp():
                              '2014-10-26 01:01:00 UTC' )
 
 
+@pytest.mark.skipif( not has_pytz or not got_localzone, reason="Needs pytz and localzone" )
 def test_history_opener():
-    if not has_pytz or not got_localzone:
-        logging.warning( "Skipping cpppo.history file opener tests" )
-        return
-
     # Try opening all the compressed files in the 2 acceptable ways: context or iterator
     path		=  'tests/history'
     for f in os.listdir( path ):
@@ -419,11 +412,8 @@ def test_history_opener():
                 fd.close()
 
 
+@pytest.mark.skipif( not has_pytz or not got_localzone, reason="Needs pytz and localzone" )
 def test_history_sequential():
-    if not has_pytz or not got_localzone:
-        logging.warning( "Skipping cpppo.history file sequential tests" )
-        return
-
     for _ in range( 3 ):
         path		= "/tmp/test_sequential_%d" % random.randint( 100000, 999999 )
         if os.path.exists( path ):
@@ -507,15 +497,12 @@ def test_history_sequential():
                 pass
 
 
+@pytest.mark.skipif( not has_pytz or not got_localzone, reason="Needs pytz and localzone" )
 def test_history_unparsable():
     """Test history files rendered unparsable due to dropouts.  This should be handled with no problem
     except if the initial frame of register data on the first file is missing.
 
     """
-    if not has_pytz or not got_localzone:
-        logging.warning( "Skipping cpppo.history file unparsable tests" )
-        return
-
     for _ in range( 3 ):
         path		= "/tmp/test_unparsable_%d" % random.randint( 100000, 999999 )
         if os.path.exists( path ):
@@ -618,51 +605,49 @@ def test_history_unparsable():
                 pass
 
 # 
-# Enable 'tracemalloc' tracing of test_histor_performance by uncommenting the following block
+# Enable 'tracemalloc' tracing of test_history_performance by uncommenting the following block
 # 
-'''
-try:
-    import tracemalloc
-except ImportError:
-    pass
-else:
-    def display_top(snapshot, group_by='lineno', limit=10):
-        snapshot = snapshot.filter_traces((
-            tracemalloc.Filter(False, "<frozen importlib._bootstrap>"),
-            tracemalloc.Filter(False, "<unknown>"),
-        ))
-        top_stats = snapshot.statistics(group_by)
+if 'TRACEMALLOC' in os.environ:
+    try:
+        import tracemalloc
+    except ImportError:
+        pass
+    else:
+        def display_top(snapshot, group_by='lineno', limit=10):
+            snapshot = snapshot.filter_traces((
+                tracemalloc.Filter(False, "<frozen importlib._bootstrap>"),
+                tracemalloc.Filter(False, "<unknown>"),
+            ))
+            top_stats = snapshot.statistics(group_by)
+        
+            print("Top %s lines" % limit)
+            for index, stat in enumerate(top_stats[:limit], 1):
+                frame = stat.traceback[0]
+                # replace "/path/to/module/file.py" with "module/file.py"
+                filename = os.sep.join(frame.filename.split(os.sep)[-2:])
+                print("#%s: %s:%s: %.1f KiB"
+                      % (index, filename, frame.lineno,
+                        stat.size / 1024))
+        
+            other = top_stats[limit:]
+            if other:
+                size = sum(stat.size for stat in other)
+                print("%s other: %.1f KiB" % (len(other), size / 1024))
+            total = sum(stat.size for stat in top_stats)
+            print("Total allocated size: %.1f KiB" % (total / 1024))
+        
+        def display_biggest_traceback():
+            snapshot = tracemalloc.take_snapshot()
+            top_stats = snapshot.statistics('traceback')
+        
+            # pick the biggest memory block
+            stat = top_stats[0]
+            print("%s memory blocks: %.1f KiB" % (stat.count, stat.size / 1024))
+            for line in stat.traceback.format():
+                print(line)
     
-        print("Top %s lines" % limit)
-        for index, stat in enumerate(top_stats[:limit], 1):
-            frame = stat.traceback[0]
-            # replace "/path/to/module/file.py" with "module/file.py"
-            filename = os.sep.join(frame.filename.split(os.sep)[-2:])
-            print("#%s: %s:%s: %.1f KiB"
-                  % (index, filename, frame.lineno,
-                    stat.size / 1024))
-    
-        other = top_stats[limit:]
-        if other:
-            size = sum(stat.size for stat in other)
-            print("%s other: %.1f KiB" % (len(other), size / 1024))
-        total = sum(stat.size for stat in top_stats)
-        print("Total allocated size: %.1f KiB" % (total / 1024))
-    
-    def display_biggest_traceback():
-        snapshot = tracemalloc.take_snapshot()
-        top_stats = snapshot.statistics('traceback')
-    
-        # pick the biggest memory block
-        stat = top_stats[0]
-        print("%s memory blocks: %.1f KiB" % (stat.count, stat.size / 1024))
-        for line in stat.traceback.format():
-            print(line)
-'''
+@pytest.mark.skipif( not has_pytz or not got_localzone, reason="Needs pytz and localzone" )
 def test_history_performance():
-    if not has_pytz or not got_localzone:
-        logging.warning( "Skipping cpppo.history.timestamp abbreviation tests" )
-        return
     try:
         tracemalloc.start()
     except:
@@ -722,7 +707,6 @@ def test_history_performance():
                     continue # Don't remove some of the uncompressed files
                 os.unlink( f )
                 files.pop( files.index( f ))
-            end 	= now
 
         logging.warning( "Generated data in %.3fs; lines: %d", timer() - start, linecnt )
 

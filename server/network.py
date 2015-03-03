@@ -31,10 +31,11 @@ import select
 import socket
 import sys
 import threading
+import time
 import traceback
 
 from .. import misc
-from ..dotdict import *
+from ..dotdict import dotdict
 
 log				= logging.getLogger( "network" )
 
@@ -171,7 +172,7 @@ class server_thread_profiling( server_thread ):
         super( server_thread_profiling, self ).__init__( **kwds )
 
     def run( self ):
-        import cProfile, pstats, io
+        import cProfile, pstats
         profiler		= cProfile.Profile()
         profiler.enable()
         try:
@@ -310,8 +311,6 @@ def bench( server_func, client_func, client_count,
     from multiprocessing.pool	import ThreadPool as Pool
     #from multiprocessing.dummy	import Pool
     #from multiprocessing	import Pool
-    import time
-    import json
 
     log.normal( "Server %r startup...", misc.function_name( server_func ))
     server			= Process( target=server_func, kwargs=server_kwds or {} )

@@ -2,13 +2,9 @@ from __future__ import absolute_import
 from __future__ import print_function
 from __future__ import division
 
-import logging
-import os
-import sys
-import types
 import threading
 
-from .misc import *
+from .misc import ( near, scale, magnitude, centeraxis, natural, change_function, mutexmethod )
 
 def test_scale():
     assert near( scale(   0., ( 0., 100. ), ( 32., 212. )),  32. )
@@ -45,7 +41,7 @@ def test_magnitude():
     # base 10 (the default)
     assert near( magnitude( 23.   ),  1.   )
     assert near( magnitude(   .23 ),  .01  )
-    
+
     assert near( magnitude( 75.   ), 10.   )
     assert near( magnitude(   .03 ),  .001 )
 

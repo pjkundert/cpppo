@@ -7,31 +7,15 @@ try:
 except ImportError:
     pass
 
-import json
+import errno
 import logging
-import multiprocessing
-import os
 import random
-import socket
-import sys
-import threading
 import time
-import traceback
 
-if __name__ == "__main__":
-    # Allow relative imports when executing within package directory, for
-    # running tests directly
-    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))))
-    from cpppo.automata import log_cfg
-    logging.basicConfig( **log_cfg )
-    #logging.getLogger().setLevel( logging.DETAIL )
-
-import cpppo
-from   cpppo.server import enip, network
-from   cpppo.server.enip import client
+from ...dotdict import dotdict, apidict
+from .. import enip, network
 
 log				= logging.getLogger( "cli.test" )
-#log.setLevel( logging.DETAIL )
 
 def test_client_api():
     """Performance of executing an operation a number of times on a socket connected
@@ -42,14 +26,14 @@ def test_client_api():
     # TODO: work in progress; not operational yet (only one clitest Thread)
 
     svraddr		        = ('localhost', 12399)
-    svrkwds			= cpppo.dotdict({
+    svrkwds			= dotdict({
         'argv': [
             #'-v',
             '--address',	'%s:%d' % svraddr,
             'Tag=INT[1000]'
         ],
         'server': {
-            'control':	cpppo.apidict( enip.timeout, { 
+            'control':	apidict( enip.timeout, { 
                 'done': False
             }),
         },
@@ -89,20 +73,21 @@ def test_client_api():
         connection		= None
         while not connection:
             try:
-                connection	= client.connector( *svraddr, timeout=5 )
-            except ConnectionRefusedError:
+                connection	= enip.client.connector( *svraddr, timeout=5 )
+            except OSError as exc:
+                if exc.errno != errno.ECONNREFUSED:
+                    raise
                 time.sleep( .1 )
          
         results			= []
         failures		= 0
-        transactions		= 0
         with connection:
             for idx,dsc,req,rpy,sts,val in connection.pipeline( 
-                    operations=client.parse_operations( tags ),
+                    operations=enip.client.parse_operations( tags ),
                     multiple=500, timeout=5, depth=3 ):
                 log.detail( "Client %3d: %s --> %r ", n, dsc, val )
                 if not val:
-                    log.warning( "Client %d harvested %d/%d results; failed request: ",
+                    log.warning( "Client %d harvested %d/%d results; failed request: %s",
                                  n, len( results ), len( tags ), rpy )
                     failures       += 1
                 results.append( (dsc,val) )
@@ -131,4 +116,4 @@ def test_client_api():
                                                  client_func=clitest,
                                                  client_count=1,
                                                  client_max=10 )
-
+    assert failed == 0

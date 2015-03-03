@@ -10,9 +10,8 @@ from __future__ import print_function
 from __future__ import unicode_literals
 from __future__ import division
 
-import collections
+import binascii
 import logging
-import os
 import pytest
 import sys
 import timeit
@@ -257,9 +256,9 @@ def test_dfa():
     # doesn't require input for state change.  The Default (True) transition
     # requires input to make the transition, but none of these states consume
     # it, so it'll be left over at the end.
-    a 				=     cpppo.state( "Initial" )
-    a[None]			= b = cpppo.state( "Middle" )
-    b[True]			= c = cpppo.state( "Terminal", terminal=True )
+    a 				= cpppo.state( "Initial" )
+    a[None] = b			= cpppo.state( "Middle" )
+    b[True]			= cpppo.state( "Terminal", terminal=True )
 
     source			= cpppo.chainable()
     i				= a.run( source=source )
@@ -346,7 +345,7 @@ def test_struct():
     a[True] = b 		= cpppo.state_input( "Second", alphabet=abt, typecode=dtp, context=ctx )
     b[True] = c 		= cpppo.state_input( "Third",  alphabet=abt, typecode=dtp, context=ctx )
     c[True] = d			= cpppo.state_input( "Fourth", alphabet=abt, typecode=dtp, context=ctx )
-    d[None] = e			= cpppo.state_struct( "int32", context=ctx,
+    d[None] 			= cpppo.state_struct( "int32", context=ctx,
                                                       format=str("<i"),
                                                       terminal=True )
     machine			= cpppo.dfa( initial=a )
@@ -512,8 +511,6 @@ def test_regex_demo():
   4    False  4 1 1    2 1 
 """
 
-import binascii
-import codecs
 def to_hex( data, nbytes ):
     "Format bytes 'data' as a sequence of nbytes long values separated by spaces."
     chars_per_item		= nbytes * 2
