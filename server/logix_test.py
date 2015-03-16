@@ -629,10 +629,10 @@ def logix_performance( repeat=1000 ):
 
 # This number of repetitions is the point where the performance of pypy 2.1
 # intersects with cpython 2.7/3.3 on my platform (OS-X 10.8 on a 2.3GHz i7:
-# ~380TPS on a single thread.
+# ~380TPS on a single thread.  Set thresholds low, for tests on slow hosts.
 repetitions=2500
 
-@cpppo.assert_tps( 250, scale=repetitions )
+@cpppo.assert_tps( 150, scale=repetitions )
 def test_logix_performance():
     """Performance of parsing and executing an operation a number of times on an
     existing Logix object.
@@ -640,7 +640,7 @@ def test_logix_performance():
     """
     logix_performance( repeat=repetitions )
 
-@cpppo.assert_tps( 250, repeat=repetitions )
+@cpppo.assert_tps( 150, repeat=repetitions )
 def test_logix_setup():
     """Performance of parsing and executing an operation once on a newly created
     Logix object, a number of times.

@@ -28,6 +28,7 @@ remote.pymodbus_fixes -- PyModbus has some issues that need fixing
 """
 __all__				= ['modbus_server_tcp', 'modbus_server_rtu', 'modbus_rtu_framer_collecting',
                                    'modbus_client_timeout', 'modbus_client_rtu', 'modbus_client_tcp']
+import errno
 import logging
 import os
 import select
@@ -37,8 +38,18 @@ import sys
 import threading
 import traceback
 
-from SocketServer import _eintr_retry
-
+try:
+    from SocketServer import _eintr_retry
+except ImportError:
+    # Python < 2.7
+    def _eintr_retry(func, *args):
+        """restart a system call interrupted by EINTR"""
+        while True:
+            try:
+                return func(*args)
+            except (OSError, select.error) as e:
+                if e.args[0] != errno.EINTR:
+                    raise
 from .. import misc
 from ..server import network
 
