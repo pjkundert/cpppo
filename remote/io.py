@@ -240,8 +240,8 @@ class device( object ):
         return self._descr
 
     def __str__( self ):
-        attrs		= [ a for a in dir( self ) if not a.startswith('_') and a != "events" ]
-        pairs		= { a: getattr( self, a ) for a in attrs }
+        pairs		= dict( (a, getattr( self, a ))
+                                for a in dir( self ) if not a.startswith('_') and a != "events" )
         return json.dumps( pairs, sort_keys=True, indent=4 )
 
     __repr__ 		= __str__
