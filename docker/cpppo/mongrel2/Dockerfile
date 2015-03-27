@@ -9,7 +9,7 @@ FROM		cpppo/cpppo
 MAINTAINER	Perry Kundert "perry@hardconsulting.com"
 
 RUN		apt-get -y install git libtool libtool-bin autoconf	\
-			automake python-dev uuid-dev			\
+			automake python-dev uuid-dev ragel		\
 			sqlite3 libsqlite3-dev build-essential		\
 		  && apt-get clean
 RUN		git clone --branch master				\
@@ -35,8 +35,8 @@ RUN		git clone --branch v14.1.1				\
 		  && python setup.py configure --zmq=/usr/local		\
 		  && python setup.py install				\
 		  && cd / && rm -rf src/pyzmq
-RUN		git clone --branch fix/polarssl				\
-			https://github.com/pjkundert/mongrel2.git	\
+RUN		git clone --branch develop				\
+			https://github.com/zedshaw/mongrel2.git		\
 			src/mongrel2					\
 		  && cd src/mongrel2					\
 		  && sed -i -e 's/url = git:/url = http:/' .gitmodules	\
