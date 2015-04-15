@@ -649,6 +649,8 @@ def await( cli, timeout=None ):
     the client to become readable; if not, return the None.  Otherwise, loop back and continue
     trying to gain a response.
 
+    An empty response {} indicates clean termination of a session.
+
     """
     response			= None
     begun			= cpppo.timer()
@@ -824,9 +826,9 @@ class connector( client ):
                 yield index,sender_context,d,o,r
 
     def collect( self, timeout=None ):
-        """Yield collected request replies 'til timeout expires (raising StopIteration), or until a
-        GeneratorExit is raised (no more responses expected, and generator was discarded).  Yields a
-        sequence of: (<context>,<reply>,<status>,<value>).
+        """Yield collected request replies 'til timeout expires or session terminates (raising
+        StopIteration), or until a GeneratorExit is raised (no more responses expected, and
+        generator was discarded).  Yields a sequence of: (<context>,<reply>,<status>,<value>).
 
         <context> is a bytes string (any NUL padding on the right removed); All replies in a
         Multiple Service Packet response will have the same <context>.
@@ -852,7 +854,9 @@ class connector( client ):
             if response is None:
                 raise StopIteration( "Response Not Received w/in %7.2fs" % (
                     cpppo.inf if timeout is None else timeout ))
-            elif response.enip.status != 0:
+            elif not response:
+                raise StopIteration( "Session terminated" )
+            elif 'enip.status' in response and response.enip.status != 0:
                 raise Exception( "Response EtherNet/IP status: %d" % ( response.enip.status ))
             elif 'enip.CIP.send_data.CPF.item[1].unconnected_send.request.multiple.request' in response:
                 # Multiple Service Packet; request.multiple.request is an array of read/write_tag/frag

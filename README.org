@@ -257,6 +257,33 @@
     : @<class>/<instance>/<attribute>           # read a scalar, eg. @0x1FF/01/0x1A
     : @<class>/<instance>/<attribute>[99]=1     # write element, eg. @511/01/26=1
 
+    The default numeric addressing supports numeric
+    =@<class>/<instance>/<attribute>/<element>= addressing.  More complex
+    non-default addressing is also supported, allowing access to Assembly
+    instances, Connections, etc.  For example, to address an Assembly (class
+    0x04), Instance 5, Connection 100, use JSON encoding for each numeric
+    element that doesn't match the default sequence of =<class>=, =<instance>=,
+    ...  So, to specify that the third element is a Connection (instead of an
+    Attribute) number, any of these are equivalent:
+    : @4/5/{'connection":100}
+    : @0x04/5/{"connection":100}
+    : @{"class":4}/5/{"connection":100}
+
+    The following path components are supported:
+
+    | Component  | Description                            |
+    |------------+----------------------------------------|
+    | class      | 8/16-bit Class number                  |
+    | instance   | 8/16-bit Instance number               |
+    | attribute  | 8/16-bit Attribute number              |
+    | element    | 8/16/32-bit Element number             |
+    | connection | 8/16-bit Connection number             |
+    | symbolic   | ISO-8859-1 Symbolic Tag name           |
+    | port,link  | Port number, Link number or IP address |
+
+    So, you can specify something as complex as:
+    : @{"port":123,"link":"130.151.137.105"}/{"class":4}/{"instance":3}/...
+
 *** EtherNet/IP =cpppo.server.enip.client= API
 
     Dispatching a multitude of EtherNet/IP CIP I/O operations to a Controller
@@ -299,7 +326,7 @@
     of the requests and the harvested replies), or =.process= to simply get a
     summary of I/O failures and total transactions.
 
-    More advance API methods allow you to access the stream of I/O in full
+    More advanced API methods allow you to access the stream of I/O in full
     detail, as responses are received.  To issue command synchronously use
     =connector.synchronous=, and to "pipeline" the requests (have multiple
     requests issued and "in flight" simultaneously), use =connector.pipeline=
@@ -794,7 +821,6 @@
      blocks of size N when validating V registers; we provide an O(V)
      implementation.
 
-     
 * Deterministic Finite Automata
 
   A cpppo.dfa will consume symbols from its source iterable, and yield
