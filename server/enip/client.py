@@ -560,7 +560,6 @@ class client( object ):
             self.unconnected_send(
                 request=req, route_path=route_path, send_path=send_path, timeout=timeout,
                 sender_context=sender_context )
-
         return req
 
     def multiple( self, request, path=None, route_path=None, send_path=None, timeout=None, send=True,
@@ -581,6 +580,13 @@ class client( object ):
 
     def unconnected_send( self, request, route_path=None, send_path=None, timeout=None,
                           sender_context=b'' ):
+        """Encapsulates the request and transmits it, returning the full encapsulation structure used to
+        carry the request.  The response must be harvested later; a sender_context should be
+        supplied that may be used to associate the response to the originating request.  The default
+        route_path is the CPU in chassis (link 0), port 1, and the default send_path is to its
+        Connection Manager (Class 6, Instance 1).
+
+        """
         if route_path is None:
             # Default to the CPU in chassis (link 0), port 1
             route_path		= [{'link': 0, 'port': 1}]
@@ -618,7 +624,8 @@ class client( object ):
 
         us.request		= request
 
-        log.detail( "Client Unconnected Send: %s", enip.enip_format( data ))
+        if log.isEnabledFor( logging.DETAIL ):
+            log.detail( "Client Unconnected Send: %s", enip.enip_format( data ))
 
         us.request.input	= bytearray( logix.Logix.produce( us.request ))
         sd.input		= bytearray( enip.CPF.produce( sd.CPF ))
@@ -810,7 +817,7 @@ class connector( client ):
                 yield index,sender_context,descr,op,req
                 index	       += 1
 
-            sender_context = str( index ).encode( 'iso-8859-1' )
+            sender_context	= str( index ).encode( 'iso-8859-1' )
 
         # No more operations!  Issue the (final) Multiple Service Packet w/ remaining requests
         if multiple and requests:
@@ -994,13 +1001,16 @@ class connector( client ):
         further details and (optionally) printing a summary to stdout if desired.  Each harvested
         record is re-yielded.
 
-        Fill in the <value> detail from the request before re-yielding harvested tuple (records for
-        both reads and writes will carry data arrays).
+        For write_{tag,frag} requests, the incoming <value> will simply be Truthy (since the data
+        array was sent in the request, and the response carried only a success/failure status).  In
+        these cases, we fill in the <value> detail from the request before re-yielding harvested
+        tuple (records for both reads and writes will therefore produce a data array for <value>).
 
         """
         for index,descr,request,reply,status,val in harvested:
-            log.detail( "Client %s Request: %s", descr, enip.enip_format( request ))
-            log.detail( "  Yields Reply: %s", enip.enip_format( reply ))
+            if log.isEnabledFor( logging.DETAIL ):
+                log.detail( "Client %s Request: %s", descr, enip.enip_format( request ))
+                log.detail( "  Yields Reply: %s", enip.enip_format( reply ))
             res			= None # result of request
             act			= "??" # denotation of request action
             try:
