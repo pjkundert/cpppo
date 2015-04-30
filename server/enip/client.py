@@ -1087,6 +1087,13 @@ class connector( client ):
             yield index,descr,request,reply,status,val
 
     # 
+    #     Simplified interface wrappers; accepts all keyword parameters defined for synchronous/pipeline.
+    # 
+    # operate
+    # 
+    #     Select the appropriate combination of pipeline/synchronous, and validate, a yield all of
+    # the operations' details.
+    # 
     # results
     # process
     # 
@@ -1094,23 +1101,30 @@ class connector( client ):
     # sequences, and simply returns the number of (<failures>,<transactions>), optionally printing a
     # summary of I/O performed.
     # 
-    def results( self, operations, depth=0, multiple=0, fragment=False, printing=False, timeout=None ):
-        """Process a sequence of I/O operations, yielding the results.  If a non-zero 'depth' is
+    def operate( self, operations, depth=0, printing=False, validating=False, **kwds ):
+        """Operate on a sequence of I/O operations, yielding the details.  If a non-zero 'depth' is
         specified, then pipeline the requests allowing 'depth' outstanding transactions to be
-        in-flight; otherwise, we just issue the transactions synchronously.  Raises Exception on
-        catastrophic failure of the connection.
+        in-flight; otherwise, we just issue the transactions synchronously.
+
+        If 'printing' or 'validating' is requested, uses self.validate to log/print a summary of I/O
+        operations (and also fills in the yielded value written for successful Write Tag
+        [Fragmented] requests, instead of just signalling success using True).
+
+        Raises Exception on catastrophic failure of the connection.
 
         """
         if depth:
-            harvested		= self.pipeline(
-                operations=operations, multiple=multiple, fragment=fragment, timeout=timeout,
-                depth=depth )
+            harvested		= self.pipeline( operations=operations, depth=depth, **kwds )
         else:
-            harvested		= self.synchronous(
-                operations=operations, multiple=multiple, fragment=fragment, timeout=timeout )
-        if printing:
+            harvested		= self.synchronous( operations=operations, **kwds )
+        if printing or validating:
             harvested		= self.validate( harvested=harvested, printing=printing )
         for idx,dsc,req,rpy,sts,val in harvested:
+            yield idx,dsc,req,rpy,sts,val
+
+    def results( self, operations, **kwds ):
+        """Process a sequence of I/O operations, yielding just the results."""
+        for idx,dsc,req,rpy,sts,val in self.operate( operations, **kwds ):
             yield val
 
     def process( self, operations, **kwds ):

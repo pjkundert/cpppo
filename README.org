@@ -418,12 +418,18 @@
      So, you can specify something as complex as:
      : @{"port":123,"link":"130.151.137.105"}/{"class":4}/{"instance":3}/...
 
-**** =client.connector='s =.synchronous= and =.pipeline=
+**** =client.connector='s =.synchronous=, =.pipeline= and =.operate=
 
-     Issues a sequence of operations to a Controller synchronously (one at a
-     time, waiting for the response before issuing the next command) or
-     asynchronously ("pipelined", issuing multiple requests before waiting for
-     responses.
+     Issues a sequence of operations to a Controller in =synchronous= fashion
+     (one at a time, waiting for the response before issuing the next command)
+     or in =pipeline= fashion, issuing multiple requests before asynchronous
+     waiting for responses.
+
+     Automatically choose =synchronous= or =pipeline= behaviour by using
+     =operate=, which also optionally chains the results through =validate= to
+     log/print a summary of I/O operations and fill in the yielded data value
+     for all Write Tag operations (instead of just signalling success with a
+     =True= value).
 
      Automatically bundles requests up into appropriately sized Multiple Service
      Packets (if desired), and pipelines multiple requests in-flight simultaneously
@@ -442,10 +448,10 @@
      | data      | For write, set\_attribute\_single; the sequence of data to write  |
 
      Use =client.parse_operations= to convert a sequence of simple Tag assignments
-     to a sequence of suitable operations:
+     to a sequence suitable for 'operations':
      : operations = client.parse_operations( ["Tag[8-9]=88,99", "Tag[0-10]"] )
 
-     The full set of keywords to =.pipeline= or =.synchronous= are:
+     The full set of keywords to =.synchronous= are:
 
      | Keyword    | Description                                                   |
      |------------+---------------------------------------------------------------|
@@ -454,14 +460,27 @@
      | fragment   | If True, forces use of Fragmented read/write                  |
      | multiple   | If >0, uses Multiple Service Packets of up to this many bytes |
      | timeout    | A timeout, in seconds.                                        |
-     | depth      | For pipeline, the number of outstanding requests (default: 1) |
 
-     Invoking =.pipeline= or =.synchronous= on a sequence of operations yields a
-     (..., (<idx>,<dsc>,<req>,<rpy>,<sts>,<val>), ...) sequence, as replies are
-     received.  If =.pipeline= is used, there may be up to =depth= requests
-     in-flight as replies are yielded; if =.synchronous=, then each reply is
-     yielded before the next request is issued.  The 6-tuples yielded are
-     comprised of these items:
+     The =.pipeline= method also defaults to have 1 I/O operation in-flight:
+     
+     | Keyword | Description                                                   |
+     |---------+---------------------------------------------------------------|
+     | depth   | The number of outstanding requests (default: 1)               |
+
+     And =.operate= method adds these defaults:
+
+     | Keyword    | Description                                                              |
+     |------------+--------------------------------------------------------------------------|
+     | depth      | The number of outstanding requests (default: 0)                          |
+     | validating | Log summary of I/O operations, fill in Tag Write values (default: False) |
+     | printing   | Also print a summary of I/O operations to stdout (default: False)        |
+
+     Invoking =.pipeline=, =.synchronous= or =operate= on a sequence of
+     operations yields a (..., (<idx>,<dsc>,<req>,<rpy>,<sts>,<val>), ...)
+     sequence, as replies are received.  If =.pipeline=/=.operate= is used,
+     there may be up to =depth= requests in-flight as replies are yielded; if
+     =.synchronous=, then each reply is yielded before the next request is
+     issued.  The 6-tuples yielded are comprised of these items:
 
      | Item    | Description                                                 |
      |---------+-------------------------------------------------------------|
