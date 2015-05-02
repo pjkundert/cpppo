@@ -41,8 +41,10 @@
 *** Python Version and OS Support
 
     Cpppo is implemented and fully tested on both Python 2 (2.6 and 2.7), and
-    Python 3 (3.3 and 3.4). However, some of cpppo's modules are not (yet) fully
-    supported in both versions:
+    Python 3 (3.3 and 3.4).  The EtherNet/IP CIP protocol implementation is
+    fully tested and widely used in both Python 2 and 3.
+
+    Some of cpppo's modules are not (yet) fully supported in both versions:
 
     - The pymodbus module does not support Python 3, so Modbus/TCP support for
       polling remote PLCs is only available for Python 2.
@@ -52,18 +54,20 @@
 
     Linux (native or Docker containerized), Mac and Windows OSs are supported.
     However, Linux or Mac are recommended for stability, performance and ease of
-    use.
+    use.  If you need to use Windows, it is recommended that you install a
+    usable Terminal application such as [[https://github.com/Maximus5/ConEmu][ConEmu]].
 
 * Protocols
 
   The protocols implemented are described here.
 
-** EtherNet/IP CIP Logix Controller Simulator and Client
+** EtherNet/IP CIP Controller Communications Simulator/Client
 
    A subset of the EtherNet/IP client and server protocol is implemented, and a
-   simulation of a subset of a Allen-Bradley ControlLogix 5561 Controller is
-   provided.  It is capable of simulating ControlLogix Tag access, via the
-   Read/Write Tag [Fragmented] services.
+   simulation of a subset of the Tag communications capability of a
+   Allen-Bradley ControlLogix 5561 Controller is provided.  It is capable of
+   simulating ControlLogix Tag access, via the Read/Write Tag [Fragmented]
+   services.
 
    Only EtherNet/IP "Unconnected" type connections are supported.  These are
    (somewhat anomalously) a persistent connection to a single EtherNet/IP device
@@ -75,10 +79,10 @@
    Attribute numbers, the more easily remembered and meaningful Tag may be supplied
    in the request path.
 
-*** EtherNet/IP Controller Simulator
+*** EtherNet/IP Controller Communications Simulator
 
-    To run a simulation of a subset of a ControlLogix(tm) Controller with the tag
-    'SCADA' for you to read/write, run:
+    To run a simulation of a subset of a ControlLogix(tm) Controller
+    communications, with the tag 'SCADA' for you to read/write, run:
     : $ python -m cpppo.server.enip --print SCADA=INT[1000]
     Alternatively, invoke the supplied wrapper script:
     : enip_server --print SCADA=INT[1000]
@@ -194,10 +198,10 @@
 
 *** EtherNet/IP Controller Client
 
-    A simple EtherNet/IP Controller Client is provided.  Presently, it only
-    knows how to Register, and issue Read Tag Fragmented requests (and only for
-    offset 0; the first block of results):
-    : python -m cpppo.server.enip.client SCADA[1]=99 SCADA[0-10]
+    A simple EtherNet/IP CIP Client is provided.  It can Register and issue a stream
+    of "Unconnected" requests to the Controller, such as Read/Write Tag
+    (optionally Fragmented) requests:
+    : python -m cpppo.server.enip.client -v --print SCADA[1]=99 SCADA[0-10]
     Alternatively, invoke the supplied wrapper script:
     : enip_client SCADA[1]=99 SCADA[0-10]
     
