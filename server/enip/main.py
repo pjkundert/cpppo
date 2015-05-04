@@ -938,12 +938,14 @@ def main( argv=None, attribute_class=device.Attribute, identity_class=None, idle
             raise AssertionError( "Invalid tag size: %r" % tag_size )
 
         # Ready to create the tag and its Attribute (and error code to return, if any).  If tag_size
-        # is 1, it will be a scalar Attribute.
+        # is 1, it will be a scalar Attribute.  Since the tag_name may contain '.', we don't want
+        # the normal dotdict.__setitem__ resolution to parse it; use plain dict.__setitem__.
         log.normal( "Creating tag: %s=%s[%d]", tag_name, tag_type, tag_size )
-        tags[tag_name]		= cpppo.dotdict()
-        tags[tag_name].attribute= ( Attribute_print if args.print else attribute_class )(
+        tag_entry		= cpppo.dotdict()
+        tag_entry.attribute	= ( Attribute_print if args.print else attribute_class )(
             tag_name, typenames[tag_type], default=( tag_default if tag_size == 1 else [tag_default] * tag_size ))
-        tags[tag_name].error	= 0x00
+        tag_entry.error		= 0x00
+        dict.__setitem__( tags, tag_name, tag_entry )
 
     # Use the Logix simulator by default (unless some other one was supplied as a keyword options to
     # main(), loaded above into 'options').  This key indexes an immutable value (not another
