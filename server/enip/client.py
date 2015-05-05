@@ -95,6 +95,7 @@ def parse_path( path ):
     """
     if isinstance( path, cpppo.type_str_base ):
         if path.startswith( '@' ):
+            # Numeric. @<class>/<instance>/<attribute>/<element> (up to 4 segments)
             segments		= []
             try:
                 defaults	= ('class','instance','attribute','element')
@@ -109,7 +110,8 @@ def parse_path( path ):
                 raise Exception( "Invalid @%s; 1-4 (default decimal) terms, eg. 26, 0x1A, {\"connection\":100}, 0o46, 0b100110: %s" % (
                     '/'.join( '<%s>' % d for d in defaults ), exc ))
         else:
-            segments		= [{'symbolic': path}]
+            # Symbolic.  <segment>.<segment>... (no limit on number of dot-separated segments)
+            segments		= [{'symbolic': p} for p in path.split('.')]
     else:
         # Already better be a list-like path...
         segments		= path
@@ -146,8 +148,8 @@ def parse_path_elements( path ):
 
 def format_path( segments, count=None ):
     """Format some simple path segment lists in a human-readable form.  Raises an Exception if
-    unrecognized (only [{'symbolic': <tag>},...] or [{'class': ...}, {'instance': ...},
-    {'attribute': ...}, ...] paths are handled.
+    unrecognized (only [{'symbolic': <tag>}, ...] or [{'class': ...}, {'instance': ...},
+    {'attribute': ...}, ...] paths are handled, optionally followed by an {'element': ...}.
 
     If an 'element' segment is provided, we'll append a [#] element index; if count is also provided
     we'll append a [#-#] element range.
@@ -161,8 +163,7 @@ def format_path( segments, count=None ):
         element			= None
         for seg in segments:
             if 'symbolic' in seg:
-                symbolic	= seg['symbolic']
-                break
+                symbolic       += ( '.' if symbolic else '' ) + seg['symbolic']
             elif 'class' in seg and len( numeric ) == 0:
                 numeric.append( "0x%04X" % seg['class'] )
             elif 'instance' in seg and len( numeric ) == 1:
@@ -747,8 +748,9 @@ class connector( client ):
         for op in operations:
             # Chunk up requests if using Multiple Service Request, otherwise send immediately.  Also
             # handle Get Attribute(s) Single/All, but don't include in Multiple Service Packet.
-            descr		= "Multi. " if multiple else "Single "
             op['sender_context']= sender_context
+            descr		= "%6r " % sender_context
+            descr	       += "Multi. " if multiple else "Single "
             begun		= cpppo.timer()
             method		= op.pop( 'method', 'write' if 'data' in op else 'read' )
             if method == 'write':
@@ -915,7 +917,8 @@ class connector( client ):
         """
         for (idx,req_ctx,dsc,op,req),(rpy_ctx,rpy,sts,val) in zip(
                 issued, self.collect( timeout=timeout )): # must be "lazy" zip!
-            assert rpy_ctx == req_ctx, "Mismatched request/reply: %r vs. %r" % ( req_ctx, rpy_ctx )
+            assert rpy_ctx == req_ctx, "Request: %5d (Context: %10r/%10r) Mismatched;\nop: %s\nrequest: %s\nreply: %s" % (
+                idx, req_ctx, rpy_ctx, enip.enip_format( op ), enip.enip_format( req ), enip.enip_format( rpy ))
             yield idx,dsc,req,rpy,sts,val
 
     # 

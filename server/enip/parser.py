@@ -339,9 +339,18 @@ def enip_encode( data ):
     ])
     return result
     
-def enip_format( data ):
-    """Format a decoded EtherNet/IP data bundle in a human-readable form."""
-    return json.dumps( data, indent=4, sort_keys=True, default=lambda obj: repr( obj ))
+def enip_format( data, sort_keys=False ):
+    """Format a decoded EtherNet/IP data bundle in a (more) human-readable form.  Note that sort_keys=True
+    will not work as expected for keys which contain indices: the order of keys like:
+
+        path[0].more
+        path[10].more
+        path[1].more
+
+    will probably be unexpected.  There is no means by which to specify a custom sorting function.
+
+    """
+    return json.dumps( data, indent=4, sort_keys=sort_keys, default=lambda obj: repr( obj ))
 
 # 
 # EtherNet/IP CIP Parsing
@@ -399,7 +408,7 @@ class EPATH( cpppo.dfa ):
             { 'instance':   # },
             { 'attribute':  # },
             { 'element':    # },
-            { 'symbolic':   '...' },
+            { 'symbolic':   '...' }, [{ 'symbolic': '...' }, ...]
             { 'port':       #, link #/'1.2.3.4' },
          ]
          .EPATH.segment__... temp 

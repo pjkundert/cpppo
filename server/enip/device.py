@@ -64,7 +64,7 @@ directory			= dotdict()
 
 def __directory_path( class_id, instance_id=0, attribute_id=None ):
     """It is not possible to in produce a path with an attribute_id=0; this is
-    not a invalid Attribute ID.  The '0' entry is reserved for the Object, which is
+    not a valid Attribute ID.  The '0' entry is reserved for the Object, which is
     only accessible with attribute_id=None."""
     assert attribute_id != 0, \
         "Class %5d/0x%04x, Instance %3d; Invalid Attribute ID 0"
@@ -122,6 +122,7 @@ def lookup( class_id, instance_id=0, attribute_id=None ):
 symbol				= {}
 symbol_keys			= ('class', 'instance', 'attribute')
 
+
 def redirect_tag( tag, address ):
     """Establish (or change) a tag, redirecting it to the specified class/instance/attribute address.
     Make sure we stay with only str type tags (mostly for Python2, in case somehow we get a Unicode
@@ -131,6 +132,7 @@ def redirect_tag( tag, address ):
     assert all( k in symbol_keys for k in address )
     assert all( k in address     for k in symbol_keys )
     symbol[tag]			= address
+
 
 def resolve_tag( tag ):
     """Return the (class_id, instance_id, attribute_id) tuple corresponding to tag, or None if not specified"""
@@ -143,35 +145,47 @@ def resolve_tag( tag ):
 def resolve( path, attribute=False ):
     """Given a path, returns the fully resolved (class,instance[,attribute]) tuple required to lookup an
     Object/Attribute.  Won't allow over-writing existing elements (eg. 'class') with symbolic data
-    results.  Call with attribute=True to force resolving to the Attribute level; otherwise, always
-    returns None for the attribute.
+    results; build up Tags from multiple symbolic paths, eg. "Symbol.Subsymbol".  We only recognize
+    {'symbolic':<str>}, ... and {'class':<int>}, {'instance':<int>}, {'attribute':<int>} paths.
+
+    Other valid paths segments (eg. {'port':...}, {'connection':...}) are not presently usable in
+    our Controller communication simulation.
+
+    Call with attribute=True to force resolving to the Attribute level; otherwise, always returns
+    None for the attribute.
 
     """
 
     result			= { 'class': None, 'instance': None, 'attribute': None }
+    tag				= '' # developing symbolic tag "Symbol.Subsymbol"
 
     for term in path['segment']:
         if ( result['class'] is not None and result['instance'] is not None
              and ( not attribute or result['attribute'] is not None )):
-            break # All desired terms specified; done!
+            break # All desired terms specified; done! (ie. ignore 'element')
         working		= dict( term )
         while working:
             # Each term is something like {'class':5}, {'instance':1}, or (from symbol table):
             # {'class':5,'instance':1}.  Pull each key (eg. 'class') from working into result,
-            # but only if 
+            # but only if not already defined.
             for key in result:
                 if key in working:
                     assert result[key] is None, \
                         "Failed to override %r==%r with %r from path segment %r in path %r" % (
                             key, result[key], working[key], term, path['segment'] )
-                    result[key] = working.pop( key )
+                    result[key] = working.pop( key ) # single 'class'/'instance'/'attribute' seg.
             if working:
                 assert 'symbolic' in working, \
                     "Invalid term %r found in path %r" % ( working, path['segment'] )
-                sym	= str( working['symbolic'] )
-                assert sym in symbol, \
-                    "Unrecognized symbolic name %r found in path %r" % ( sym, path['segment'] )
-                working	= dict( symbol[sym] )
+                tag    += ( '.' if tag else '' ) + str( working['symbolic'] )
+                working = None
+                if tag in symbol:
+                    working = dict( symbol[tag] )
+                    tag	= ''
+
+    # Any tag not recognized will remain
+    assert not tag, \
+        "Unrecognized symbolic name %r found in path %r" % ( tag, path['segment'] )
 
     assert ( result['class'] is not None and result['instance'] is not None
              and ( not attribute or result['attribute'] is not None )), \
@@ -183,6 +197,7 @@ def resolve( path, attribute=False ):
                 result[0], result[0], result[1], result[2], path['segment'] )
 
     return result
+
 
 def resolve_element( path ):
     """Resolve an element index tuple from the path; defaults to (0, ) (the 0th element of a
