@@ -1447,6 +1447,10 @@ def test_enip_device_symbolic():
     assert enip.device.resolve( path, attribute=True ) == (0x401,1,2)
     assert enip.device.resolve( path ) == (0x401,1,None)
 
+    enip.device.symbol['Tag.Subtag'] = {'class':0x401, 'instance':1, 'attribute':3}
+    path={'segment':[{'symbolic':'Tag'}, {'symbolic':'Subtag'}, {'element':4}]}
+    assert enip.device.resolve( path, attribute=True ) == (0x401,1,3)
+
     try:
         result			= enip.device.resolve(
             {'segment':[{'class':5},{'symbolic':'SCADA'},{'element':4}]} )
@@ -1473,6 +1477,13 @@ def test_enip_device_symbolic():
         assert False, "Should not have succeeded: %r" % result
     except AssertionError as exc:
         assert "Invalid term" in str(exc)
+
+    try:
+        result			= enip.device.resolve(
+            {'segment':[{'symbolic': 'Tag'}, {'symbolic':'Incorrect'}]}, attribute=True )
+        assert False, "Should not have succeeded: %r" % result
+    except AssertionError as exc:
+        assert "Unrecognized symbolic name 'Tag.Incorrect'" in str(exc)
 
 
 def test_enip_device():

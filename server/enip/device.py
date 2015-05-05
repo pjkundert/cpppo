@@ -170,20 +170,23 @@ def resolve( path, attribute=False ):
             # but only if not already defined.
             for key in result:
                 if key in working:
+                    # If we hit non-symbolic segments, any tag resolution had better be complete
                     assert result[key] is None, \
                         "Failed to override %r==%r with %r from path segment %r in path %r" % (
                             key, result[key], working[key], term, path['segment'] )
                     result[key] = working.pop( key ) # single 'class'/'instance'/'attribute' seg.
             if working:
                 assert 'symbolic' in working, \
-                    "Invalid term %r found in path %r" % ( working, path['segment'] )
+                    ( "Unrecognized symbolic name %r found in path %r" % ( tag, path['segment'] )
+                      if tag
+                      else "Invalid term %r found in path %r" % ( working, path['segment'] ))
                 tag    += ( '.' if tag else '' ) + str( working['symbolic'] )
                 working = None
                 if tag in symbol:
                     working = dict( symbol[tag] )
                     tag	= ''
 
-    # Any tag not recognized will remain
+    # Any tag not recognized will remain after all resolution complete
     assert not tag, \
         "Unrecognized symbolic name %r found in path %r" % ( tag, path['segment'] )
 
