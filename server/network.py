@@ -298,7 +298,7 @@ def bench( server_func, client_func, client_count,
     is supplied a unique number argument, and the supplied client_kwds as keywords, and should
     return 0 on success, !0 on failure.
 
-    : Both threading.Thread and multiprocessing.Process work fine for running a bench server.
+    Both threading.Thread and multiprocessing.Process work fine for running a bench server.
     However, Thread needs to use the out-of-band means to force server_main termination (since we
     can't terminate a Thread).  This is implemented as a container (eg. dict-based cpppo.apidict)
     containing a done signal.
@@ -319,14 +319,25 @@ def bench( server_func, client_func, client_count,
     time.sleep( .25 )
 
     try:
-        log.normal( "Client %r tests begin, over %d clients (up to %d simultaneously)", 
+        log.normal( "Client %r tests begin, over %d clients (up to %d simultaneously)",
                     misc.function_name( client_func ), client_count, client_max )
         pool			= Pool( processes=client_max )
         # Use list comprehension instead of generator, to force start of all asyncs!
         asyncs			= [ pool.apply_async( client_func, args=(i,), kwds=client_kwds or {} )
                                     for i in range( client_count )]
-        successes		= sum( not a.get()
-                                       for a in asyncs )
+        log.normal( "Client %r started %d times in Pool; harvesting results",
+                    misc.function_name( client_func ), client_count )
+
+        successes		= 0
+        for a in asyncs:
+            try:
+                result		= a.get()
+                successes      += 1 if not result else 0
+                if result:
+                    log.warning( "Client failed w/ non-0 result: %s", result )
+            except Exception as exc:
+                log.warning( "Client failed w/ Exception: %s", exc )
+
 
         failures		= client_count - successes
         log.normal( "Client %r tests done: %d/%d succeeded (%d failures)", misc.function_name( client_func ),

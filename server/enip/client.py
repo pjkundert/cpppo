@@ -332,7 +332,7 @@ class client( object ):
         self.engine		= None # EtherNet/IP frame parsing in progress
         self.frame		= enip.enip_machine( terminal=True )
         self.cip		= enip.CIP( terminal=True )	# Parses a CIP   request in an EtherNet/IP frame
-        self.lgx		= logix.Logix().parser		# Parses a Logix request in an EtherNet/IP CIP request
+        self.lgx		= logix.Logix.parser		# Parses a Logix request in an EtherNet/IP CIP request
 
     def __enter__( self ):
         self.frame.__enter__()
@@ -749,8 +749,7 @@ class connector( client ):
             # Chunk up requests if using Multiple Service Request, otherwise send immediately.  Also
             # handle Get Attribute(s) Single/All, but don't include in Multiple Service Packet.
             op['sender_context']= sender_context
-            descr		= "%6r " % sender_context
-            descr	       += "Multi. " if multiple else "Single "
+            descr		= "Multi. " if multiple else "Single "
             begun		= cpppo.timer()
             method		= op.pop( 'method', 'write' if 'data' in op else 'read' )
             if method == 'write':
@@ -801,6 +800,7 @@ class connector( client ):
                                     cpppo.inf if timeout is None else timeout, "Multiple Service Packet",
                                     reqsiz, reqest, rpysiz, rpyest, multiple,
                                     enip.enip_format( mul ))
+                    log.detail( "Sending %2d (Context %10r)", len( requests ), sender_context )
                     for d,o,r in requests:
                         yield index,sender_context,d,o,r
                     index      += 1
@@ -816,6 +816,7 @@ class connector( client ):
                     log.detail( "Sent %7.3f/%7.3fs: %s %s", elapsed,
                                 cpppo.inf if timeout is None else timeout, descr,
                                 enip.enip_format( req ))
+                log.detail( "Sending  1 (Context %10r)", sender_context )
                 yield index,sender_context,descr,op,req
                 index	       += 1
 
@@ -831,6 +832,7 @@ class connector( client ):
                 log.detail( "Sent %7.3f/%7.3fs: %s %s", elapsed,
                             cpppo.inf if timeout is None else timeout, "Multiple Service Packet",
                             enip.enip_format( req ))
+            log.detail( "Sending %2d (Context %10r)", len( requests ), sender_context )
             for d,o,r in requests:
                 yield index,sender_context,d,o,r
 
@@ -860,6 +862,7 @@ class connector( client ):
                             enip.enip_format( response ))
 
             # Find the replies in the response; could be single or multiple; should match requests!
+            replies		= []
             if response is None:
                 raise StopIteration( "Response Not Received w/in %7.2fs" % (
                     cpppo.inf if timeout is None else timeout ))
@@ -875,6 +878,12 @@ class connector( client ):
                 replies		= [ response.enip.CIP.send_data.CPF.item[1].unconnected_send.request ]
             else:
                 raise Exception( "Response Unrecognized: %s" % ( enip.enip_format( response )))
+            ctx			= parse_context( response.enip.sender_context.input )
+            log.detail( "Receive %2d (Context %10r)", len( replies ), ctx )
+            assert replies, \
+                "Receive %2d (Context %10r): Mismatched; failed to locate replies in: %s" % (
+                    len( replies ), ctx, enip.enip_format( response ))
+
             for reply in replies:
                 val	= None
                 sts	= reply.status			# sts = # or (#,[#...])
@@ -896,7 +905,7 @@ class connector( client ):
                 else:					# Failure; val is Falsey
                     if 'status_ext' in reply and reply.status_ext.size:
                         sts	= (reply.status,reply.status_ext.data)
-                yield parse_context(response.enip.sender_context.input),reply,sts,val
+                yield ctx,reply,sts,val
 
     def harvest( self, issued, timeout=None ):
         """As we iterate over issued requests, collect the corresponding replies, match them up, and yield
@@ -961,8 +970,7 @@ class connector( client ):
                     return self.popleft()
                 except IndexError:
                     raise StopIteration
-            def next( self ):
-                return self.__next__()
+            next = __next__ # Python 2/3 compatibility
         
         issuer			= self.issue( operations=operations, index=index, fragment=fragment,
                                               multiple=multiple, timeout=timeout )
@@ -1073,11 +1081,11 @@ class connector( client ):
 
             except AttributeError as exc:
                 res		= "Client %s Response missing data: %s" % ( descr, exc )
-                log.warning( "%s: %s", res, ''.join( traceback.format_exception( *sys.exc_info() )), )
+                log.warning( "%s: %s", res, ''.join( traceback.format_exception( *sys.exc_info() )))
                 raise
             except Exception as exc:
                 res		= "Client %s Exception: %s" % ( descr, exc )
-                log.warning( "%s: %s", res, ''.join( traceback.format_exception( *sys.exc_info() )), )
+                log.warning( "%s: %s", res, ''.join( traceback.format_exception( *sys.exc_info() )))
                 raise
 
             if elm is None:

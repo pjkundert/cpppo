@@ -43,7 +43,7 @@ import traceback
 from ...dotdict import dotdict
 from ... import automata, misc
 from .parser import ( DINT, INT, UINT, USINT, EPATH, SSTRING, CIP, typed_data,
-                      octets, octets_noop, octets_drop, move_if,
+                      octets, octets_encode, octets_noop, octets_drop, move_if,
                       struct, enip_format, status  )
 
 log				= logging.getLogger( "enip.dev" )
@@ -538,7 +538,8 @@ class Object( object ):
 
         instance		= lookup( self.class_id, instance_id )
         assert instance is None, \
-            "CIP Object class %x, instance %x already exists" % ( self.class_id, self.instance_id )
+            "CIP Object class %x, instance %x already exists\n%s" % (
+                self.class_id, self.instance_id, ''.join( traceback.format_stack() ))
 
         # 
         # directory.1.2.None 	== self
@@ -1141,7 +1142,7 @@ class Message_Router( Object ):
             # Now, convert each sub-request into a response.
             for r in data.multiple.request:
                 if log.isEnabledFor( logging.DETAIL ):
-                    log.detail( "%s Process on %s: %s", self, target, enip_format( data ))
+                    log.detail( "%s Process on %s: %s", self, target, enip_format( r ))
                 target.request( r )
             data.status		= 0x00
 
@@ -1158,7 +1159,6 @@ class Message_Router( Object ):
                            else ''.join( traceback.format_exception( *sys.exc_info() ))))
             assert data.status, \
                 "Implementation error: must specify non-zero .status before raising Exception!"
-            pass
 
         # Always produce a response payload; if a failure occurred, will contain an error status
         if log.isEnabledFor( logging.DETAIL ):
@@ -1260,7 +1260,7 @@ class Message_Router( Object ):
                 offsets		= []
                 rpydata		= b''
                 for r in reversed( data.multiple.request ):
-                    rpy		= bytes( r.input ) # bytearray --> bytes
+                    rpy		= octets_encode( r.input ) # bytearray --> bytes
                     offsets	= [ 0 ] + [ o + len( rpy ) for o in offsets ]
                     rpydata	= rpy + rpydata
                 result	       += UINT.produce(		len( offsets ))
@@ -1286,6 +1286,8 @@ class state_multiple_service( automata.state ):
             ids			= (Message_Router.class_id, 1, None)
         try:
             target		= lookup( *ids )
+            assert target, \
+                "No Message Router Object found at %r, for parsing Multiple Service Packet" % ( ids, )
         except:
             log.warning( "Multiple Service failure: %s\n%s",
                          ''.join( traceback.format_exception( *sys.exc_info() )),
@@ -1300,8 +1302,8 @@ class state_multiple_service( automata.state ):
             decoded requests to data.multiple.request.
 
             Match up pairs of offsets[oi,oi+1], and use the target Object to parse the snippet of
-            request data payload into request[oi].  Last request offset gets balance request data.
-            If the DFA is in use (eg. we're using our own Object's parser), schedule it for
+            request data payload into request[oi].  Last request offset gets balance of request
+            data.  If the DFA is in use (eg. we're using our own Object's parser), schedule it for
             post-processing.
 
             """
@@ -1319,13 +1321,21 @@ class state_multiple_service( automata.state ):
                 if log.isEnabledFor( logging.DETAIL ):
                     log.detail( "%s Parsing: %3d-%3d of %r", target, beg, end, reqdata )
                 req		= dotdict()
+                req.input	= reqdata[beg:end]
                 with target.parser as machine:
-                    for m,s in machine.run( source=automata.peekable( reqdata[beg:end] ), data=req ):
+                    source	= automata.peekable( req.input )
+                    for m,s in machine.run( source=source, data=req ):
                         pass
+                    assert machine.terminal, \
+                        "%s: Failed to parse Multiple Service Packet request %d" % (
+                            machine.name_centered(), oi )
                 request.append( req )
 
+        # If anyone holds the lock, post-process the closure.  In a multi-threaded environment, this
+        # _requires_ that any parser that uses this class _must_ be locked during use -- or, these
+        # closures will not be run.
         if target.parser.lock.locked():
-            target.parser.post.append( closure )
+            target.parser.post_process_closure( closure )
         else:
             closure()
         if log.isEnabledFor( logging.DETAIL ):
