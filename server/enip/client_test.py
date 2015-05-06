@@ -38,13 +38,18 @@ def test_client_api():
             }),
         },
     })
+    clitimeout			= 5.0
+    clidepth			= 3		# requests in-flight
+    climultiple			= 500		# bytes of req/rpy per Multiple Service Packet
+    clicount			= 7
+    clipool			= 5
 
     def tagtests( total, name="Tag", length=1000, size=2 ):
         """Generate random reads and writes to Tag.  All writes write a value equal to the index, all
         reads should report the correct value (or 0, if the element was never written).  Randomly
         supply an offset (force Read/Write Tag Fragmented).
 
-        Yields the effective (elm,cnt), and the tag.
+        Yields the effective (elm,cnt), and the tag=val,val,... .
 
         """
         for i in range( total ):
@@ -73,7 +78,7 @@ def test_client_api():
         connection		= None
         while not connection:
             try:
-                connection	= enip.client.connector( *svraddr, timeout=5 )
+                connection	= enip.client.connector( *svraddr, timeout=clitimeout )
             except OSError as exc:
                 if exc.errno != errno.ECONNREFUSED:
                     raise
@@ -84,14 +89,14 @@ def test_client_api():
         with connection:
             for idx,dsc,req,rpy,sts,val in connection.pipeline( 
                     operations=enip.client.parse_operations( tags ),
-                    multiple=500, timeout=5, depth=3 ):
+                    multiple=500, timeout=clitimeout, depth=clidepth ):
                 log.detail( "Client %3d: %s --> %r ", n, dsc, val )
                 if not val:
                     log.warning( "Client %d harvested %d/%d results; failed request: %s",
                                  n, len( results ), len( tags ), rpy )
                     failures       += 1
                 results.append( (dsc,val) )
-        if len( results ) !=  len( tags ):
+        if len( results ) != len( tags ):
             log.warning( "Client %d harvested %d/%d results", n, len( results ), len( tags ))
             failures	       += 1
         # Now, ensure that any results that reported values reported the correct values -- each
@@ -111,9 +116,9 @@ def test_client_api():
 
         return 1 if failures else 0
 
-    failed			= network.bench( server_func=enip.main,
-                                                 server_kwds=svrkwds,
-                                                 client_func=clitest,
-                                                 client_count=1,
-                                                 client_max=10 )
+    failed			= network.bench( server_func	= enip.main,
+                                                 server_kwds	= svrkwds,
+                                                 client_func	= clitest,
+                                                 client_count	= clicount,
+                                                 client_max	= clipool )
     assert failed == 0

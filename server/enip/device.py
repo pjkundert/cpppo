@@ -43,7 +43,7 @@ import traceback
 from ...dotdict import dotdict
 from ... import automata, misc
 from .parser import ( DINT, INT, UINT, USINT, EPATH, SSTRING, CIP, typed_data,
-                      octets, octets_noop, octets_drop, move_if,
+                      octets, octets_encode, octets_noop, octets_drop, move_if,
                       struct, enip_format, status  )
 
 log				= logging.getLogger( "enip.dev" )
@@ -64,7 +64,7 @@ directory			= dotdict()
 
 def __directory_path( class_id, instance_id=0, attribute_id=None ):
     """It is not possible to in produce a path with an attribute_id=0; this is
-    not a invalid Attribute ID.  The '0' entry is reserved for the Object, which is
+    not a valid Attribute ID.  The '0' entry is reserved for the Object, which is
     only accessible with attribute_id=None."""
     assert attribute_id != 0, \
         "Class %5d/0x%04x, Instance %3d; Invalid Attribute ID 0"
@@ -122,6 +122,7 @@ def lookup( class_id, instance_id=0, attribute_id=None ):
 symbol				= {}
 symbol_keys			= ('class', 'instance', 'attribute')
 
+
 def redirect_tag( tag, address ):
     """Establish (or change) a tag, redirecting it to the specified class/instance/attribute address.
     Make sure we stay with only str type tags (mostly for Python2, in case somehow we get a Unicode
@@ -131,6 +132,7 @@ def redirect_tag( tag, address ):
     assert all( k in symbol_keys for k in address )
     assert all( k in address     for k in symbol_keys )
     symbol[tag]			= address
+
 
 def resolve_tag( tag ):
     """Return the (class_id, instance_id, attribute_id) tuple corresponding to tag, or None if not specified"""
@@ -143,35 +145,50 @@ def resolve_tag( tag ):
 def resolve( path, attribute=False ):
     """Given a path, returns the fully resolved (class,instance[,attribute]) tuple required to lookup an
     Object/Attribute.  Won't allow over-writing existing elements (eg. 'class') with symbolic data
-    results.  Call with attribute=True to force resolving to the Attribute level; otherwise, always
-    returns None for the attribute.
+    results; build up Tags from multiple symbolic paths, eg. "Symbol.Subsymbol".  We only recognize
+    {'symbolic':<str>}, ... and {'class':<int>}, {'instance':<int>}, {'attribute':<int>} paths.
+
+    Other valid paths segments (eg. {'port':...}, {'connection':...}) are not presently usable in
+    our Controller communication simulation.
+
+    Call with attribute=True to force resolving to the Attribute level; otherwise, always returns
+    None for the attribute.
 
     """
 
     result			= { 'class': None, 'instance': None, 'attribute': None }
+    tag				= '' # developing symbolic tag "Symbol.Subsymbol"
 
     for term in path['segment']:
         if ( result['class'] is not None and result['instance'] is not None
              and ( not attribute or result['attribute'] is not None )):
-            break # All desired terms specified; done!
+            break # All desired terms specified; done! (ie. ignore 'element')
         working		= dict( term )
         while working:
             # Each term is something like {'class':5}, {'instance':1}, or (from symbol table):
             # {'class':5,'instance':1}.  Pull each key (eg. 'class') from working into result,
-            # but only if 
+            # but only if not already defined.
             for key in result:
                 if key in working:
+                    # If we hit non-symbolic segments, any tag resolution had better be complete
                     assert result[key] is None, \
                         "Failed to override %r==%r with %r from path segment %r in path %r" % (
                             key, result[key], working[key], term, path['segment'] )
-                    result[key] = working.pop( key )
+                    result[key] = working.pop( key ) # single 'class'/'instance'/'attribute' seg.
             if working:
                 assert 'symbolic' in working, \
-                    "Invalid term %r found in path %r" % ( working, path['segment'] )
-                sym	= str( working['symbolic'] )
-                assert sym in symbol, \
-                    "Unrecognized symbolic name %r found in path %r" % ( sym, path['segment'] )
-                working	= dict( symbol[sym] )
+                    ( "Unrecognized symbolic name %r found in path %r" % ( tag, path['segment'] )
+                      if tag
+                      else "Invalid term %r found in path %r" % ( working, path['segment'] ))
+                tag    += ( '.' if tag else '' ) + str( working['symbolic'] )
+                working = None
+                if tag in symbol:
+                    working = dict( symbol[tag] )
+                    tag	= ''
+
+    # Any tag not recognized will remain after all resolution complete
+    assert not tag, \
+        "Unrecognized symbolic name %r found in path %r" % ( tag, path['segment'] )
 
     assert ( result['class'] is not None and result['instance'] is not None
              and ( not attribute or result['attribute'] is not None )), \
@@ -183,6 +200,7 @@ def resolve( path, attribute=False ):
                 result[0], result[0], result[1], result[2], path['segment'] )
 
     return result
+
 
 def resolve_element( path ):
     """Resolve an element index tuple from the path; defaults to (0, ) (the 0th element of a
@@ -520,7 +538,8 @@ class Object( object ):
 
         instance		= lookup( self.class_id, instance_id )
         assert instance is None, \
-            "CIP Object class %x, instance %x already exists" % ( self.class_id, self.instance_id )
+            "CIP Object class %x, instance %x already exists\n%s" % (
+                self.class_id, self.instance_id, ''.join( traceback.format_stack() ))
 
         # 
         # directory.1.2.None 	== self
@@ -1123,7 +1142,7 @@ class Message_Router( Object ):
             # Now, convert each sub-request into a response.
             for r in data.multiple.request:
                 if log.isEnabledFor( logging.DETAIL ):
-                    log.detail( "%s Process on %s: %s", self, target, enip_format( data ))
+                    log.detail( "%s Process on %s: %s", self, target, enip_format( r ))
                 target.request( r )
             data.status		= 0x00
 
@@ -1140,7 +1159,6 @@ class Message_Router( Object ):
                            else ''.join( traceback.format_exception( *sys.exc_info() ))))
             assert data.status, \
                 "Implementation error: must specify non-zero .status before raising Exception!"
-            pass
 
         # Always produce a response payload; if a failure occurred, will contain an error status
         if log.isEnabledFor( logging.DETAIL ):
@@ -1242,7 +1260,7 @@ class Message_Router( Object ):
                 offsets		= []
                 rpydata		= b''
                 for r in reversed( data.multiple.request ):
-                    rpy		= bytes( r.input ) # bytearray --> bytes
+                    rpy		= octets_encode( r.input ) # bytearray --> bytes
                     offsets	= [ 0 ] + [ o + len( rpy ) for o in offsets ]
                     rpydata	= rpy + rpydata
                 result	       += UINT.produce(		len( offsets ))
@@ -1268,6 +1286,8 @@ class state_multiple_service( automata.state ):
             ids			= (Message_Router.class_id, 1, None)
         try:
             target		= lookup( *ids )
+            assert target, \
+                "No Message Router Object found at %r, for parsing Multiple Service Packet" % ( ids, )
         except:
             log.warning( "Multiple Service failure: %s\n%s",
                          ''.join( traceback.format_exception( *sys.exc_info() )),
@@ -1282,8 +1302,8 @@ class state_multiple_service( automata.state ):
             decoded requests to data.multiple.request.
 
             Match up pairs of offsets[oi,oi+1], and use the target Object to parse the snippet of
-            request data payload into request[oi].  Last request offset gets balance request data.
-            If the DFA is in use (eg. we're using our own Object's parser), schedule it for
+            request data payload into request[oi].  Last request offset gets balance of request
+            data.  If the DFA is in use (eg. we're using our own Object's parser), schedule it for
             post-processing.
 
             """
@@ -1301,13 +1321,21 @@ class state_multiple_service( automata.state ):
                 if log.isEnabledFor( logging.DETAIL ):
                     log.detail( "%s Parsing: %3d-%3d of %r", target, beg, end, reqdata )
                 req		= dotdict()
+                req.input	= reqdata[beg:end]
                 with target.parser as machine:
-                    for m,s in machine.run( source=automata.peekable( reqdata[beg:end] ), data=req ):
+                    source	= automata.peekable( req.input )
+                    for m,s in machine.run( source=source, data=req ):
                         pass
+                    assert machine.terminal, \
+                        "%s: Failed to parse Multiple Service Packet request %d" % (
+                            machine.name_centered(), oi )
                 request.append( req )
 
+        # If anyone holds the lock, post-process the closure.  In a multi-threaded environment, this
+        # _requires_ that any parser that uses this class _must_ be locked during use -- or, these
+        # closures will not be run.
         if target.parser.lock.locked():
-            target.parser.post.append( closure )
+            target.parser.post_process_closure( closure )
         else:
             closure()
         if log.isEnabledFor( logging.DETAIL ):

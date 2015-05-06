@@ -569,13 +569,16 @@ Logix.register_service_parser( number=Logix.WR_FRG_RPY, name=Logix.WR_FRG_NAM + 
 
 
 
-
-def setup( identity_class=None ):
+def setup( identity_class=None, tags=None ):
     """Create the required CIP device Objects, return UCMM.  First one in initialize, and don't let
     anyone else proceed 'til complete.  The UCMM isn't really an addressable CIP Object, so we just
     have to return it.
 
-    If an identity_class has been supplied, use it; otherwise, use the default Identity (a Logix PLC)
+    If an identity_class has been supplied, use it; otherwise, use the default Identity (a Logix PLC).
+
+    If a tags dict (or dotdict) is supplied, its key: { 'attribute': <Attribute>, 'error': <int> }
+    items are used to initialize the given Tag names.
+
     """
     with setup.lock:
         if not setup.ucmm:
@@ -587,10 +590,36 @@ def setup( identity_class=None ):
 
             setup.ucmm		= UCMM()
 
+        # If tags are specified, check that we've got them all set up right.  If the tag doesn't exist,
+        # add it.  If it's error code doesn't match, change it.  Since it is possible that the Tags
+        # and/or their Error codes could change between calls, we check them
+        for key,val in dict.items( tags or {} ): # Don't want dotdict depth-first iteration...
+            res			= resolve_tag( key )
+            if not res:
+                # A new tag!  Allocate a new attribute ID in the Logix (Message Router).
+                cls, ins	= 0x02, 1 # The Logix Message Router
+                Lx		= lookup( cls, ins )
+                att		= len( Lx.attribute )
+                while ( str( att ) in Lx.attribute ):
+                    att	       += 1
+                log.normal( "%24s.%s Attribute %3d added", Lx, val['attribute'], att )
+                Lx.attribute[str(att)]= val['attribute']
+                redirect_tag( key, {'class': cls, 'instance': ins, 'attribute': att })
+                res		= resolve_tag( key )
+
+            # Attribute (now) exists; find it, and make sure its error code is right.
+            if 'error' in val:
+                attribute	= lookup( *res )
+                assert attribute is not None, "Failed to find existing tag: %r" % key
+                if attribute.error != val['error']:
+                    log.warning( "Attribute %s error code changed: 0x%02x", attribute, val['error'] )
+                    attribute.error = val['error']
+
     return setup.ucmm
 
 setup.lock			= threading.Lock()
 setup.ucmm			= None
+
 
 def process( addr, data, **kwds ):
     """Processes an incoming parsed EtherNet/IP encapsulated request in data.request.enip.input, and
@@ -648,30 +677,7 @@ def process( addr, data, **kwds ):
 
 
     """
-    ucmm			= setup( identity_class=kwds.get( 'identity_class' ))
-
-    # If tags are specified, check that we've got them all set up right.  If the tag doesn't exist,
-    # add it.  If it's error code doesn't match, change it.
-    if 'tags' in kwds:
-        for key,val in dict( kwds['tags'] ).items():
-            log.info( "EtherNet/IP CIP Request  (Client %16s): setup tag: %r", addr, (key, val) )
-            if not resolve_tag( key ):
-                # A new tag!  Allocate a new attribute ID in the Logix (Message Router).
-                cls, ins	= 0x02, 1 # The Logix Message Router
-                Lx		= lookup( cls, ins )
-                att		= len( Lx.attribute )
-                while ( str( att ) in Lx.attribute ):
-                    att	       += 1
-                log.normal( "%24s.%s Attribute %3d added", Lx, val.attribute, att )
-                Lx.attribute[str(att)]= val.attribute
-                redirect_tag( key, {'class': cls, 'instance': ins, 'attribute': att })
-            # Attribute (now) exists; find it, and make sure its error code is right.
-            attribute		= lookup( *resolve_tag( key ))
-            assert attribute is not None, "Failed to find existing tag: %r" % key
-            if 'error' in val and attribute.error != val.error:
-                log.warning( "Attribute %s error code changed: 0x%02x", attribute, val.error )
-                attribute.error	= val.error
-
+    ucmm			= setup( identity_class=kwds.get( 'identity_class' ), tags=kwds.get( 'tags' ))
 
     source			= automata.rememberable()
     try:

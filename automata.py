@@ -1316,27 +1316,39 @@ class dfa_drop( dfa_base, state_drop ):
 
 class dfa_post( dfa_base, state ):
     """A cpppo.dfa that supports the collection of a FIFO of post-processing closures to invoke when
-    the current invocation of the DFA is complete.  This is sometimes required when one or more
+    the Thread's current invocation of the DFA is complete.  This is sometimes required when one or more
     states in the DFA requires use of the same DFA to process some input.
 
     If <dfa_post>.lock.locked(), use <dfa_post>.post.append( <closure> ) to schedule the activity
     for immediately after release of the <dfa_post>'s lock.
 
+    When another Thread holds the lock, we must avoid allowing it to process this Thread's closures;
+    it may not complete processing them before this Thread expects the results.  Therefore, each Thread
+    keeps its own list of closures to process once it releases its own lock.
+
     """
     def __init__( self, *args, **kwds ):
-        self.post		= []
+        # Saves Thread's post-processing callbacks { <ident>: [<callable>, ...] }
+        self.post		= {}
         super( dfa_post, self ).__init__( *args, **kwds )
 
+    def post_process_closure( self, closure ):
+        """Atomically append a closure to this Thread's list of pending."""
+        self.post.setdefault( threading.current_thread().ident, [] ).append( closure )
+
     def __exit__( self, typ, val, tbk ):
-        """After release of the DFA's lock, execute all the post-processing callables."""
+        """After release of the DFA's lock, execute all the post-processing callables.  Allows
+        interleaving, by releasing lock between each cl"""
         try:
             return super( dfa_post, self ).__exit__( typ, val, tbk )
         finally:
             while True:
                 with self.lock:
-                    if not self.post:
+                    post_list	= self.post.get( threading.current_thread().ident )
+                    if not post_list:
                         break
-                    closure	= self.post.pop( 0 )
+                    closure	= post_list.pop( 0 )
+                # Lock released, got a closure; it may (internally) re-acquire Lock, if necessary.
                 try:
                     log.info( "%s -- post-processing %s",
                               self.name_centered(), misc.function_name( closure ))

@@ -760,6 +760,28 @@ writetag_1_rpy	 		= bytes(bytearray([
     0x00, 0x00                                      #/* .. */
 ]))
 
+multiple_1_rpy			= bytes(bytearray([
+    0x8a,     0x00,     0x00,     0x00,     0x11,     0x00, ord('$'),     0x00, ord('('),
+    0x00, ord(','),     0x00, ord('0'),     0x00, ord('4'),     0x00, ord('@'),     0x00,
+ord('D'),     0x00, ord('R'),     0x00, ord('b'),     0x00, ord('f'),     0x00, ord('j'),
+    0x00, ord('t'),     0x00, ord('x'),     0x00, ord('|'),     0x00,     0x80,     0x00,
+    0x8e,     0x00,     0x9c,     0x00,     0xcd,     0x00,     0x00,     0x00,     0xd3,
+    0x00,     0x00,     0x00,     0xcd,     0x00,     0x00,     0x00,     0xcd,     0x00,
+    0x00,     0x00,     0xcc,     0x00,     0x00,     0x00,     0xc3,     0x00,     0x00,
+    0x00,     0x00,     0x00,     0x00,     0x00,     0xcd,     0x00,     0x00,     0x00,
+    0xcc,     0x00,     0x00,     0x00,     0xc3,     0x00,     0x00,     0x00,     0x00,
+    0x00,     0x00,     0x00,     0x00,     0x00,     0xcc,     0x00,     0x00,     0x00,
+    0xc3,     0x00,     0x00,     0x00, ord('a'),     0x00, ord('b'),     0x00, ord('c'),
+    0x00,     0x00,     0x00,     0xcd,     0x00,     0x00,     0x00,     0xcd,     0x00,
+    0x00,     0x00,     0xcc,     0x00,     0x00,     0x00,     0xc3,     0x00,     0x00,
+    0x00,     0x00,     0x00,     0xcd,     0x00,     0x00,     0x00,     0xcd,     0x00,
+    0x00,     0x00,     0xcd,     0x00,     0x00,     0x00,     0xd2,     0x00,     0x00,
+    0x00,     0xc3,     0x00, ord('a'),     0x03, ord('b'),     0x03,     0x00,     0x00,
+    0x00,     0x00,     0xcc,     0x00,     0x00,     0x00,     0xc3,     0x00,     0x00,
+    0x00,     0x00,     0x00,     0x00,     0x00,     0x00,     0x00,     0xcc,     0x00,
+    0x00,     0x00,     0xc3,     0x00,     0x00,     0x00
+]))
+
 tag_tests			= [
     (
         readfrag_1_req,	{
@@ -786,10 +808,18 @@ tag_tests			= [
         writetag_1_req, {},
     ),(
         writetag_1_rpy, {},
+    ),(
+        multiple_1_rpy, {},
     )
 ]
 
 def test_enip_Logix():
+    Obj				= enip.device.lookup( enip.device.Message_Router.class_id, instance_id=1 )
+    if not isinstance( Obj, logix.Logix ):
+        if Obj is not None:
+            del enip.device.directory['2']['1']
+        Obj			= logix.Logix( instance_id=1 )
+
     for pkt,tst in tag_tests:
         data			= cpppo.dotdict()
         source			= cpppo.chainable( pkt )
@@ -804,11 +834,11 @@ def test_enip_Logix():
             log.warning( "%r not in data, or != %r: %s", k, v, enip.enip_format( data ))
             raise
 
-        # And, ensure that we can get the original EPATH back (ignoring extra decoy bytes)
+        # And, ensure that we can get the original Logix req/rpy back (ignoring extra decoy bytes)
         try:
             assert logix.Logix.produce( data.request ) == pkt
         except:
-            log.warning ( "Invalid packet produced from logix data: %r", data )
+            log.warning ( "Invalid packet produced from logix data: %s", enip.enip_format( data ))
             raise
         
 cpf_1		 		= bytes(bytearray([
@@ -1447,6 +1477,10 @@ def test_enip_device_symbolic():
     assert enip.device.resolve( path, attribute=True ) == (0x401,1,2)
     assert enip.device.resolve( path ) == (0x401,1,None)
 
+    enip.device.symbol['Tag.Subtag'] = {'class':0x401, 'instance':1, 'attribute':3}
+    path={'segment':[{'symbolic':'Tag'}, {'symbolic':'Subtag'}, {'element':4}]}
+    assert enip.device.resolve( path, attribute=True ) == (0x401,1,3)
+
     try:
         result			= enip.device.resolve(
             {'segment':[{'class':5},{'symbolic':'SCADA'},{'element':4}]} )
@@ -1473,6 +1507,13 @@ def test_enip_device_symbolic():
         assert False, "Should not have succeeded: %r" % result
     except AssertionError as exc:
         assert "Invalid term" in str(exc)
+
+    try:
+        result			= enip.device.resolve(
+            {'segment':[{'symbolic': 'Tag'}, {'symbolic':'Incorrect'}]}, attribute=True )
+        assert False, "Should not have succeeded: %r" % result
+    except AssertionError as exc:
+        assert "Unrecognized symbolic name 'Tag.Incorrect'" in str(exc)
 
 
 def test_enip_device():
@@ -1603,7 +1644,7 @@ def enip_cli( number, tests=None ):
     conn			= socket.socket( socket.AF_INET, socket.SOCK_STREAM )
     conn.connect( enip.address )
     log.normal( "EtherNet/IP Client %3d connected to server at %s", number, enip.address )
-        
+
     successes			= 0
     try:
         eof			= False
