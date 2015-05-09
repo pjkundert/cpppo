@@ -55,10 +55,10 @@ import traceback
 
 import cpppo
 from   cpppo.server import network, enip
-from   cpppo.server.enip import parser, logix
+
+from . import logix, device, parser
 
 log				= logging.getLogger( "enip.cli" )
-
 
 def parse_int( x, base=10 ):
     """Try parsing in the target base, but then also try deducing the base (eg. if we are provided with
@@ -307,8 +307,12 @@ class client( object ):
 
     Issue requests immediately (avoid delays due to Nagle's Algorithm) to effectively maximize
     thruput on high-latency links.
+
+    Provide an alternative enip.device.Message_Router Object class instead of the (default) Logix,
+    to parse alternative sub-dialects of EtherNet/IP.
+
     """
-    def __init__( self, host, port=None ):
+    def __init__( self, host, port=None, dialect=logix.Logix ):
         """Connect to the EtherNet/IP client, waiting  """
         self.addr               = (host if host is not None else enip.address[0],
                                    port if port is not None else enip.address[1])
@@ -332,7 +336,12 @@ class client( object ):
         self.engine		= None # EtherNet/IP frame parsing in progress
         self.frame		= enip.enip_machine( terminal=True )
         self.cip		= enip.CIP( terminal=True )	# Parses a CIP   request in an EtherNet/IP frame
-        self.lgx		= logix.Logix.parser		# Parses a Logix request in an EtherNet/IP CIP request
+
+        # Ensure the requested dialect matches the globally selected dialect
+        if device.dialect is None:
+            device.dialect	= dialect
+        assert device.dialect is dialect, \
+                "Inconsistent EtherNet/IP dialect requested: %r (vs. default: %r)" % ( dialect, device.dialect )
 
     def __enter__( self ):
         self.frame.__enter__()
@@ -429,19 +438,20 @@ class client( object ):
                     pass
                 assert machine.terminal, "No CIP payload in the EtherNet/IP frame: %r" % ( result )
 
-        # Parse the Logix request responses in the EtherNet/IP CIP payload's CPF items
+        # Parse the (eg. Logix) request responses in the EtherNet/IP CIP payload's CPF items
         if result is not None and 'enip.CIP.send_data' in result:
             for item in result.enip.CIP.send_data.CPF.item:
                 if 'unconnected_send.request' in item:
-                    # An Unconnected Send that contained an encapsulated request (ie. not just a
-                    # Get Attribute All)
-                    with self.lgx as machine:
+                    # An Unconnected Send that contained an encapsulated request (ie. not just a Get
+                    # Attribute All).  Use the globally-defined cpppo.server.enip.client's dialect's
+                    # (eg. logix.Logix) parser to parse the contents of the CIP payload's CPF items.
+                    with device.dialect.parser as machine:
                         for mch,sta in machine.run(
                                 source=cpppo.peekable( item.unconnected_send.request.input ),
                                 data=item.unconnected_send.request ):
                             pass
-                        assert machine.terminal, "No Logix request in the EtherNet/IP CIP CPF frame: %r" % (
-                            result )
+                        assert machine.terminal, "No %r request in the EtherNet/IP CIP CPF frame: %r" % (
+                            device.dialect, result )
 
         return result
 
@@ -628,7 +638,7 @@ class client( object ):
         if log.isEnabledFor( logging.DETAIL ):
             log.detail( "Client Unconnected Send: %s", enip.enip_format( data ))
 
-        us.request.input	= bytearray( logix.Logix.produce( us.request ))
+        us.request.input	= bytearray( device.dialect.produce( us.request )) # eg. logix.Logix
         sd.input		= bytearray( enip.CPF.produce( sd.CPF ))
         data.enip.input		= bytearray( enip.CIP.produce( data.enip ))
         data.input		= bytearray( enip.enip_encode( data.enip ))
