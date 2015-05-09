@@ -89,7 +89,7 @@ def test_client_api():
         with connection:
             for idx,dsc,req,rpy,sts,val in connection.pipeline( 
                     operations=enip.client.parse_operations( tags ),
-                    multiple=500, timeout=clitimeout, depth=clidepth ):
+                    multiple=climultiple, timeout=clitimeout, depth=clidepth ):
                 log.detail( "Client %3d: %s --> %r ", n, dsc, val )
                 if not val:
                     log.warning( "Client %d harvested %d/%d results; failed request: %s",

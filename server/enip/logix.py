@@ -40,8 +40,7 @@ from ... import automata
 from .device import ( Object, Attribute, Message_Router, Connection_Manager, UCMM, Identity,
                       resolve_element, resolve_tag, resolve, redirect_tag, lookup )
 from .parser import ( UDINT, DINT, UINT, INT, USINT, SINT, REAL, EPATH, typed_data,
-                      move_if, octets_drop, octets_noop, 
-                      enip_format, status )
+                      move_if, octets_drop, octets_noop, enip_format, status )
 
 log				= logging.getLogger( "enip.lgx" )
 

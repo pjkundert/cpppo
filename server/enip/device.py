@@ -29,7 +29,7 @@ __license__                     = "Dual License: GPLv3 (or later) and Commercial
 enip.device	-- support for implementing an EtherNet/IP device Objects and Attributes
 
 """
-__all__				= ['lookup', 'resolve', 'resolve_element',
+__all__				= ['dialect', 'lookup', 'resolve', 'resolve_element',
                                    'redirect_tag', 'resolve_tag', 
                                    'Object', 'Attribute',
                                    'UCMM', 'Connection_Manager', 'Message_Router', 'Identity']
@@ -44,7 +44,14 @@ from ...dotdict import dotdict
 from ... import automata, misc
 from .parser import ( DINT, INT, UINT, USINT, EPATH, SSTRING, CIP, typed_data,
                       octets, octets_encode, octets_noop, octets_drop, move_if,
-                      struct, enip_format, status  )
+                      struct, enip_format, status )
+
+# Default "dialect" of EtherNet/IP CIP protocol.  If no Message Router object is available (eg. we
+# are a "Client", not a "Controller"), then we need to know the dialect of EtherNet/IP CIP to use.
+# For that, we need a parser defined.  All client/connector instances use the same globally-defined
+# cpppo.server.enip.client.dialect parser.  The default dialect is "Logix" (eg. Read/Write Tag
+# [Fragmented], etc.)
+dialect				= None		# Default: typically logix.Logix
 
 log				= logging.getLogger( "enip.dev" )
 
@@ -1273,30 +1280,56 @@ class Message_Router( Object ):
         return result
 
 class state_multiple_service( automata.state ):
-    def terminate( self, exception, machine, path, data ):
-        super( state_multiple_service, self ).terminate( exception, machine, path, data )
+    """Find the specified target Object parser via the path specified, defaulting to the Message Router's parser (if any) in
+    play (eg. to parse reply), or the Logix' parser if no path (ie. we're just parsing a reply).
+    This requires that a Message_Router derived class has been instantiated that understands all
+    protocol elements that could be included in the Multiple Service Packet response (if the
+    EtherNet/IP dialect is not Logix)
 
-        # Find the specified target Object, defaulting to the Message Router (eg. to parse reply).
-        # This requires that a Message_Router derived class has been instantiated that understands
-        # all protocol elements that could be included in the Multiple Service Packet response.
+    """
+    def terminate( self, exception, machine, path, data ):
+        # Only operate if we have completed our state transitions without exception (that Exception
+        # will be raised as soon as terminate is done cleaning up).  We can raise our own (fresh)
+        # Exception here in terminate, if we fail to complete processing, and it will destroy the
+        # session.
         target			= None
-        if path+'.path' in data:
-            ids			= resolve( data[path+'.path'] )
-        else:
-            ids			= (Message_Router.class_id, 1, None)
         try:
-            target		= lookup( *ids )
-            assert target, \
-                "No Message Router Object found at %r, for parsing Multiple Service Packet" % ( ids, )
-        except:
+            if not exception:
+                if path+'.path' in data:
+                    # There is a specific Message Router object specified.  Better exist...
+                    ids		= resolve( data[path+'.path'] )
+                    target	= lookup( *ids )
+                    assert target and hasattr( target, 'parser' ), \
+                        "No Message Router Object found at %r, for parsing Multiple Service Packet" % ( ids, )
+                else:
+                    # There is no request path specified.  We're probably just parsing a response.  If
+                    # we (also) just happen to have a Message_Router object in play, use it.  Otherwise,
+                    # just default to this state machine parser itself.  If the client wants a
+                    # specified dialect/style of Message Router, they'd better create one.
+                    ids		= (Message_Router.class_id, 1, None)
+                    target	= lookup( *ids )
+                    if not target:
+                        assert dialect, \
+                            "No Message Router, and EtherNet/IP dialect default not provided"
+                        target	= dialect	#  eg. logix.Logix
+        except Exception as exc:
+            # We've generated an exception here (could only happen if no exception was already
+            # present)!  Don't operate, and present this exception to our Super's terminate.
             log.warning( "Multiple Service failure: %s\n%s",
                          ''.join( traceback.format_exception( *sys.exc_info() )),
                          ''.join( traceback.format_stack() ))
-            return
+            exception		= exc
+            raise
         finally:
             if log.isEnabledFor( logging.DETAIL ):
                 log.detail( "%s Target: %s", target, enip_format( data ))
 
+        super( state_multiple_service, self ).terminate( exception, machine, path, data )
+        if exception:
+            return
+
+        # No Exception has failed the state machinery, and we have found a Message Router Object (or
+        # Logix) parser target to use to parse the Multiple Service Packet's payload.
         def closure():
             """Closure capturing data, to parse the data.multiple.request_data and append the resultant
             decoded requests to data.multiple.request.
@@ -1333,7 +1366,8 @@ class state_multiple_service( automata.state ):
 
         # If anyone holds the lock, post-process the closure.  In a multi-threaded environment, this
         # _requires_ that any parser that uses this class _must_ be locked during use -- or, these
-        # closures will not be run.
+        # closures will not be run.  All Object parsers are derived from dfa_post, which is capable
+        # of post-processing a Thread's closures after being unlocked.
         if target.parser.lock.locked():
             target.parser.post_process_closure( closure )
         else:

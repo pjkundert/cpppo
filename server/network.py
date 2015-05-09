@@ -305,9 +305,11 @@ def bench( server_func, client_func, client_count,
 
     """
 
-    #from multiprocessing 	import Process
-    from threading 		import Thread as Process
+    # Either multiprocessing.Process or threading.Thread will work as Process for the Server
+    from multiprocessing 	import Process
+    #from threading 		import Thread as Process
 
+    # Only multiprocessing.pool.ThreadPool works, as we cannot serialize some client API objects
     from multiprocessing.pool	import ThreadPool as Pool
     #from multiprocessing.dummy	import Pool
     #from multiprocessing	import Pool
