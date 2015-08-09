@@ -168,6 +168,11 @@ class TYPE( octets_struct ):
     def produce( cls, value ):
         return struct.pack( cls.struct_format, value )
 
+class BOOL( TYPE ):
+    tag_type                    = 0x00c1
+    struct_format               = 'B'
+    struct_calcsize             = struct.calcsize( struct_format )
+
 class USINT( TYPE ):
     """An EtherNet/IP USINT; 8-bit unsigned integer"""
     tag_type			= 0x00c6
@@ -1168,6 +1173,7 @@ class typed_data( cpppo.dfa ):
 
     """
     TYPES_SUPPORTED		= {
+        BOOL.tag_type:  BOOL,
         SINT.tag_type:	SINT,
         USINT.tag_type:	USINT,
         INT.tag_type:	INT,
@@ -1196,6 +1202,14 @@ class typed_data( cpppo.dfa ):
         u_8p[None]		= move_if( 	'mov_8bitu',	source='.USINT', 
                                            destination='.data',	initializer=lambda **kwds: [],
                                                 state=u_8d )
+
+        u_1d			= octets_noop(	'end_8bitu',
+                                                terminal=True )
+        u_1d[True]	= u_1p	= BOOL()
+        u_1p[None]		= move_if( 	'mov_8bitu',	source='.BOOL',
+                                           destination='.data',	initializer=lambda **kwds: [],
+                                                state=u_1d )
+
 
         i16d			= octets_noop(	'end16bit',
                                                 terminal=True )
@@ -1232,6 +1246,9 @@ class typed_data( cpppo.dfa ):
                                            destination='.data',	initializer=lambda **kwds: [],
                                                 state=fltd )
 
+        slct[None]		= cpppo.decide(	'BOOL',	state=u_1p,
+            predicate=lambda path=None, data=None, **kwds: \
+                BOOL.tag_type == ( data[path+tag_type] if isinstance( tag_type, cpppo.type_str_base ) else tag_type ))
         slct[None]		= cpppo.decide(	'SINT',	state=i_8p,
             predicate=lambda path=None, data=None, **kwds: \
                 SINT.tag_type == ( data[path+tag_type] if isinstance( tag_type, cpppo.type_str_base ) else tag_type ))
@@ -1284,6 +1301,10 @@ class status( cpppo.dfa ):
     """
     def __init__( self, name=None, **kwds ):
         name 			= name or kwds.setdefault( 'context', self.__class__.__name__ )
+
+        # Parse the status, and status_ext.size
+        stat			= BOOL( 	'status',	context=None )
+        stat[True]	= size	= BOOL( 	'_ext.size',	extension='_ext.size' )
 
         # Parse the status, and status_ext.size
         stat			= USINT( 	'status',	context=None )
