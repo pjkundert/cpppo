@@ -39,7 +39,7 @@ from ...dotdict import dotdict
 from ... import automata
 from .device import ( Object, Attribute, Message_Router, Connection_Manager, UCMM, Identity,
                       resolve_element, resolve_tag, resolve, redirect_tag, lookup )
-from .parser import ( UDINT, DINT, UINT, INT, USINT, SINT, REAL, EPATH, typed_data,
+from .parser import ( BOOL, UDINT, DINT, UINT, INT, USINT, SINT, REAL, EPATH, typed_data,
                       move_if, octets_drop, octets_noop, enip_format, status )
 
 log				= logging.getLogger( "enip.lgx" )
@@ -312,10 +312,11 @@ class Logix( Message_Router ):
                 data.status	= 0xFF
                 data.status_ext= {'size': 1, 'data':[0x2107]}
                 allowed_tag_types = {
-                    REAL.tag_type:	(SINT.tag_type, INT.tag_type, DINT.tag_type, REAL.tag_type),
-                    DINT.tag_type:	(SINT.tag_type, INT.tag_type, DINT.tag_type),
-                    INT.tag_type:	(SINT.tag_type, INT.tag_type),
-                    SINT.tag_type:	(SINT.tag_type,),
+                    BOOL.tag_type:      (BOOL.tag_type,),
+                    REAL.tag_type:	(BOOL.tag_type, SINT.tag_type, INT.tag_type, DINT.tag_type, REAL.tag_type),
+                    DINT.tag_type:	(BOOL.tag_type, SINT.tag_type, INT.tag_type, DINT.tag_type),
+                    INT.tag_type:	(BOOL.tag_type, SINT.tag_type, INT.tag_type),
+                    SINT.tag_type:	(BOOL.tag_type, SINT.tag_type,),
                 }
                 assert data[context].type in allowed_tag_types.get(
                     attribute.parser.tag_type, (attribute.parser.tag_type,) ), \
