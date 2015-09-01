@@ -262,7 +262,7 @@ def parse_operations( tags, fragment=False ):
                 typ,val		= val.split( ')' )
                 _,typ		= typ.split( '(' )
                 opr['tag_type'],size,cast = {
-                    'BOOL':     (enip.BOOL.tag_type, enip.BOOL.struct_calcsize, lambda x: bool( x )),
+                    'BOOL':	(enip.BOOL.tag_type, enip.BOOL.struct_calcsize, lambda x: bool( x )),
                     'REAL': 	(enip.REAL.tag_type, enip.REAL.struct_calcsize, lambda x: float( x )),
                     'DINT':	(enip.DINT.tag_type, enip.DINT.struct_calcsize, lambda x: int_validate( x, -2**31, 2**31-1 )),
                     'INT':	(enip.INT.tag_type,  enip.INT.struct_calcsize,  lambda x: int_validate( x, -2**15, 2**15-1 )),

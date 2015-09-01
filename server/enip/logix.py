@@ -313,10 +313,10 @@ class Logix( Message_Router ):
                 data.status_ext= {'size': 1, 'data':[0x2107]}
                 allowed_tag_types = {
                     BOOL.tag_type:      (BOOL.tag_type,),
-                    REAL.tag_type:	(SINT.tag_type, INT.tag_type, DINT.tag_type, REAL.tag_type),
-                    DINT.tag_type:	(SINT.tag_type, INT.tag_type, DINT.tag_type),
-                    INT.tag_type:	(SINT.tag_type, INT.tag_type),
-                    SINT.tag_type:	(SINT.tag_type,),
+                    REAL.tag_type:	(BOOL.tag_type, SINT.tag_type, INT.tag_type, DINT.tag_type, REAL.tag_type),
+                    DINT.tag_type:	(BOOL.tag_type, SINT.tag_type, INT.tag_type, DINT.tag_type),
+                    INT.tag_type:	(BOOL.tag_type, SINT.tag_type, INT.tag_type),
+                    SINT.tag_type:	(BOOL.tag_type, SINT.tag_type,),
                 }
                 assert data[context].type in allowed_tag_types.get(
                     attribute.parser.tag_type, (attribute.parser.tag_type,) ), \

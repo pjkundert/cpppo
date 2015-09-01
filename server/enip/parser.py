@@ -1203,13 +1203,12 @@ class typed_data( cpppo.dfa ):
                                            destination='.data',	initializer=lambda **kwds: [],
                                                 state=u_8d )
 
-        u_1d			= octets_noop(	'end_8bitu',
+        u_1d			= octets_noop(	'end_1bitu',
                                                 terminal=True )
         u_1d[True]	= u_1p	= BOOL()
-        u_1p[None]		= move_if( 	'mov_8bitu',	source='.BOOL',
+        u_1p[None]		= move_if( 	'mov_1bitu',	source='.BOOL',
                                            destination='.data',	initializer=lambda **kwds: [],
                                                 state=u_1d )
-
 
         i16d			= octets_noop(	'end16bit',
                                                 terminal=True )
