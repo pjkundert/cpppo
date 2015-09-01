@@ -929,7 +929,7 @@ def main( argv=None, attribute_class=device.Attribute, identity_class=None, idle
             tag_size, rest	= rest.split( ']', 1 )
         assert not rest, "Invalid tag specified; expected tag=<type>[<size>]: %r" % t
         tag_type		= str( tag_type ).upper()
-        typenames		= {"INT": parser.INT, "DINT": parser.DINT, "SINT": parser.SINT, "REAL": parser.REAL }
+        typenames		= {"BOOL": parser.BOOL, "INT": parser.INT, "DINT": parser.DINT, "SINT": parser.SINT, "REAL": parser.REAL }
         assert tag_type in typenames, "Invalid tag type; must be one of %r" % list( typenames.keys() )
         tag_default		= 0.0 if tag_type == "REAL" else 0
         try:
