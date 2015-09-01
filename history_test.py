@@ -64,9 +64,15 @@ def test_history_timestamp_abbreviations():
                  'America/Santa_Isabel', 'America/Grand_Turk'] )
     #print( sorted( abbrev ))
     #print( reprlib.repr( timestamp._tzabbrev ))
-    assert sorted( abbrev ) == ['ACT', 'AKDT', 'AKST', 'AMST', 'AMT', 'ART', 'BOT', 'BRST', 'BRT', 'CLST', 'CLT',
-                                'COT', 'ECT', 'EGST', 'EGT', 'FNT', 'GFT', 'GMT', 'GYT', 'HADT', 'HAST',
-                                'PET', 'PMDT', 'PMST', 'PYST', 'PYT', 'SRT', 'UYST', 'UYT', 'VET', 'WGST', 'WGT']
+    if tuple( map( int, pytz.__version__.split( '.' ))) < (2015,4):
+        logging.warning( "pytz < 2015.4; HADT/HAST vs. HDT/HST" )
+        assert sorted( abbrev ) == ['ACT', 'AKDT', 'AKST', 'AMST', 'AMT', 'ART', 'BOT', 'BRST', 'BRT', 'CLST', 'CLT',
+                                    'COT', 'ECT', 'EGST', 'EGT', 'FNT', 'GFT', 'GMT', 'GYT', 'HADT', 'HAST',
+                                    'PET', 'PMDT', 'PMST', 'PYST', 'PYT', 'SRT', 'UYST', 'UYT', 'VET', 'WGST', 'WGT']
+    else:
+        assert sorted( abbrev ) == ['ACT', 'AKDT', 'AKST', 'AMST', 'AMT', 'ART', 'BOT', 'BRST', 'BRT', 'CLST', 'CLT',
+                                    'COT', 'ECT', 'EGST', 'EGT', 'FNT', 'GFT', 'GMT', 'GYT', 'HDT', 'HST',
+                                    'PET', 'PMDT', 'PMST', 'PYST', 'PYT', 'SRT', 'UYST', 'UYT', 'VET', 'WGST', 'WGT']
     abbrev			= timestamp.support_abbreviations( 'Europe/Berlin' )
     assert sorted( abbrev ) == ['CEST', 'CET']
     assert 'CEST' in timestamp._tzabbrev
