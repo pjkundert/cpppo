@@ -1303,10 +1303,6 @@ class status( cpppo.dfa ):
         name 			= name or kwds.setdefault( 'context', self.__class__.__name__ )
 
         # Parse the status, and status_ext.size
-        stat			= BOOL( 	'status',	context=None )
-        stat[True]	= size	= BOOL( 	'_ext.size',	extension='_ext.size' )
-
-        # Parse the status, and status_ext.size
         stat			= USINT( 	'status',	context=None )
         stat[True]	= size	= USINT( 	'_ext.size',	extension='_ext.size' )
 
