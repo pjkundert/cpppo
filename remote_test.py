@@ -137,10 +137,9 @@ def test_device():
     assert m.running
 
 
+@pytest.mark.skipif( not has_pymodbus, reason="Needs pymodbus" )
 def test_plc_merge():
     """ plc utility functions for merging/shattering Modbus address ranges """
-    if not has_pymodbus:
-        return
     assert list( shatter( *(1,8), limit=3 )) == [(1,3), (4,3), (7,2) ]
     assert list( merge( [ (1,2), (2,3) ] )) == [ (1,4) ]
     assert list( merge( [ (1,2), (2,3), (6,6), (40001,5) ] )) == [ (1,4), (6,6), (40001,5) ]
