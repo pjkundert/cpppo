@@ -107,14 +107,17 @@ class dotdict( dict ):
         """Return next segment in key as (mine, rest), solving for any '..'
         back-tracking.  If key begins/ends with ., or too many .. are used, the
         key will end up prefixed by ., 'mine' will end up '', raising KeyError."""
+        if '.' not in key:
+            return key, None # No simple keys in _resolve_cache
+
         tpl			= dotdict._resolve_cache.get( key, None )
         if tpl:
             return tpl
 
-        mine, rest		= key, None
         # Process '..' back-tracking
         #     'a.b..c'     ==> 'a.c'  ; split == ['a.b',   'c'  ]
         #     'a.b.c...d'  ==> 'a.d'  ; split == ['a.b.c', '.d' ]
+        mine, rest 		= key, None
         while '..' in mine:
             front, back		= mine.split( '..', 1 )
             trunc		= front[:max(0,front.rfind('.'))]

@@ -202,8 +202,11 @@ def parse_context( sender_context ):
     return bytes( bytearray( sender_context ).rstrip( b'\0' ))
 
 
-def parse_operations( tags, fragment=False ):
-    """Given a sequence of tags, deduce the set of I/O desired operations, yielding each one.
+def parse_operations( tags, fragment=False, **kwds ):
+    """
+
+    Given a sequence of tags, deduce the set of I/O desired operations, yielding each one.  Any
+    additional keyword parameters are added to each operation (eg. route_path=[{'link':0,'port':0}])
 
     Parse each EtherNet/IP Tag Read or Write; only write operations will have 'data'; default
     'method' is considered 'read':
@@ -296,7 +299,12 @@ def parse_operations( tags, fragment=False ):
                         len( opr['data'] ), byte, size, opr['elements'] )
                 if beg != 0 or end != opr['elements']:
                     log.detail( "Partial Write Tag Fragmented; elements %d-%d of %d", beg, end-1, opr['elements'] )
-        log.detail("Tag: %r yields Operation: %r", tag, opr )
+
+        if kwds:
+            log.detail("Tag: %r yields Operation: %r.update(%r)", tag, opr, kwds )
+            opr.update( kwds )
+        else:
+            log.detail("Tag: %r yields Operation: %r", tag, opr )
         yield opr
 
 
@@ -613,13 +621,14 @@ class client( object ):
         Connection Manager (Class 6, Instance 1).
 
         """
+        assert isinstance( request, dict )
         if route_path is None:
             # Default to the CPU in chassis (link 0), port 1
             route_path		= [{'link': 0, 'port': 1}]
-        if send_path is None:
+        assert isinstance( route_path, list )
+        if send_path is None: # could be a string path to parse or a list
             # Default to the Connection Manager
             send_path		= [{'class': 6}, {'instance': 1}]
-        assert isinstance( request, dict )
 
         data			= cpppo.dotdict()
         data.enip		= {}
@@ -651,7 +660,7 @@ class client( object ):
         us.request		= request
 
         if log.isEnabledFor( logging.DETAIL ):
-            log.detail( "Client Unconnected Send: %s", enip.enip_format( data ))
+            log.detail( "Client Unconnected Send (route_path: %r): %s", route_path, enip.enip_format( data ))
 
         us.request.input	= bytearray( device.dialect.produce( us.request )) # eg. logix.Logix
         sd.input		= bytearray( enip.CPF.produce( sd.CPF ))
@@ -768,6 +777,7 @@ class connector( client ):
         reqsiz = reqmin		= 68
         rpysiz = rpymin		= 68
         requests		= []	# If we're collecting for a Multiple Service Packet
+        requests_paths		= {}	# Also, must collect all op route/send_paths
         for op in operations:
             # Chunk up requests if using Multiple Service Request, otherwise send immediately.  Also
             # handle Get Attribute(s) Single/All, but don't include in Multiple Service Packet.
@@ -808,15 +818,18 @@ class connector( client ):
             descr	       += ' ' + format_path( op['path'], count=op.get( 'elements' ))
 
             if multiple:
-                if max( reqsiz + reqest, rpysiz + rpyest ) < multiple or not requests:
-                    # Multiple Service Packet req/rpy est. size OK; keep collecting (at least one!)
+                if (( not requests
+                      or max( reqsiz + reqest, rpysiz + rpyest ) < multiple )
+                    and requests_paths.setdefault( 'route_path', op.get( 'route_path' )) == op.get( 'route_path' )
+                    and requests_paths.setdefault(  'send_path', op.get(  'send_path' )) == op.get(  'send_path' )):
+                    # Multiple Service Packet new or req/rpy est. size OK, and route/send_path same; keep collecting
                     reqsiz     += reqest
                     rpysiz     += rpyest
                 else:
-                    # Multiple Service Packet siz too full w/ this req; issue requests and queue it
+                    # Multiple Service Packet siz too full w/ this req (or paths differ); issue requests and queue it
                     begun	= cpppo.timer()
                     mul		= self.multiple( request=[r for d,o,r in requests], timeout=timeout,
-                                                 sender_context=sender_context )
+                                                 sender_context=sender_context, **requests_paths )
                     elapsed	= cpppo.timer() - begun
                     if log.isEnabledFor( logging.DETAIL ):
                         log.detail( "Sent %7.3f/%7.3fs: %s (req: %d + %d or rpy: %d + %d >= %d): %s", elapsed,
@@ -828,6 +841,7 @@ class connector( client ):
                         yield index,sender_context,d,o,r
                     index      += 1
                     requests	= []
+                    requests_paths = {}
                     reqsiz	= reqmin
                     rpysiz	= rpymin
                 requests.append( (descr,op,req) )
@@ -849,7 +863,7 @@ class connector( client ):
         if multiple and requests:
             begun		= cpppo.timer()
             mul			= self.multiple( request=[r for d,o,r in requests], timeout=timeout,
-                                                 sender_context=sender_context )
+                                                 sender_context=sender_context, **requests_paths )
             elapsed		= cpppo.timer() - begun
             if log.isEnabledFor( logging.DETAIL ):
                 log.detail( "Sent %7.3f/%7.3fs: %s %s", elapsed,
@@ -1231,6 +1245,12 @@ provided.""" )
     ap.add_argument( '-r', '--repeat',
                      default=1,
                      help="Repeat EtherNet/IP request (default: 1)" )
+    ap.add_argument( '--route-path',
+                     default=None,
+                     help="""Route Path, in JSON, eg. '[{"link":0,"port":0}]' (default: None)""" )
+    ap.add_argument( '--send-path',
+                     default=None,
+                     help="Send Path to UCMM, eg. '@6/1' (default: None)" )
     ap.add_argument( '-m', '--multiple', action='store_true',
                      help="Use Multiple Service Packet request targeting ~500 bytes (default: False)" )
     ap.add_argument( '-d', '--depth', default=1,
@@ -1270,6 +1290,8 @@ provided.""" )
     multiple			= 500 if args.multiple else 0
     fragment			= bool( args.fragment )
     printing			= args.print
+    route_path			= json.loads( args.route_path ) if args.route_path else None
+    send_path			= args.send_path
 
     if '-' in args.tags:
         # Collect tags from sys.stdin 'til EOF, at position of '-' in argument list
@@ -1286,7 +1308,8 @@ provided.""" )
     
         # Issue Tag I/O operations, optionally printing a summary
         begun			= cpppo.timer()
-        operations		= parse_operations( recycle( tags, times=repeat ))
+        operations		= parse_operations( recycle( tags, times=repeat ),
+                                                    route_path=route_path, send_path=send_path )
         failures,transactions	= connection.process(
             operations=operations, depth=depth, multiple=multiple,
             fragment=fragment, printing=printing, timeout=timeout )
