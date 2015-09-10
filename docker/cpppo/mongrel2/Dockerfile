@@ -36,7 +36,7 @@ RUN		git clone --branch v14.1.1				\
 		  && python setup.py install				\
 		  && cd / && rm -rf src/pyzmq
 RUN		git clone --branch develop				\
-			https://github.com/zedshaw/mongrel2.git		\
+			https://github.com/mongrel2/mongrel2.git	\
 			src/mongrel2					\
 		  && cd src/mongrel2					\
 		  && sed -i -e 's/url = git:/url = http:/' .gitmodules	\
