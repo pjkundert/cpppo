@@ -1,1 +1,1 @@
-greenery>=2.0
+greenery>=2.0,<3.0
