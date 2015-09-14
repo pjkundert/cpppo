@@ -35,7 +35,7 @@ RUN		git clone --branch v14.1.1				\
 		  && python setup.py configure --zmq=/usr/local		\
 		  && python setup.py install				\
 		  && cd / && rm -rf src/pyzmq
-RUN		git clone --branch develop				\
+RUN		git clone --branch master				\
 			https://github.com/mongrel2/mongrel2.git	\
 			src/mongrel2					\
 		  && cd src/mongrel2					\
