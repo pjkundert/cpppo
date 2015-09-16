@@ -114,16 +114,82 @@ from cpppo.remote.pymodbus_fixes import (
 
 log 			= logging.getLogger( 'modbus_sim' )
 
+def register_parse( txt ):
+    """Tokenizer yields integers; any other character (except space), one at a time. """
+    b, i, e			= 0, 0, len( txt )
+    while i <= e:
+        if i == e or not( '0' <= txt[i] <= '9' ):
+            if i > b:
+                yield int( txt[b:i] )			# "123..."   Parsed 1+ digits
+                b, i		= i, i-1
+            elif i < e:
+                if txt[b] != ' ':
+                    yield txt[b]			# "?..."     Something else (not whitespace)
+                b, i		= i+1, i
+        i		       += 1
+
+
+def register_decode( txt, default=None ):
+    """Parse the supplied <beg>[-<end>][=<val>[,...]] and return beg,end,val.  If no ...=<val> portion
+    is found, the returned 'val' is empty unless a non-None 'default' is provided.
+
+    """
+    prs				= register_parse( txt )
+    beg = end			= None
+    val				= []
+    try:
+        beg			= prs.next()
+        end			= beg
+        end			= prs.next()
+        if end == '-':
+            end			= prs.next()		# <beg>-<end>=
+            equ			= prs.next()		#    ... raises StopIteration if no '='
+        elif end == '=':
+            equ			= end			# <beg>=
+            end			= beg
+        else:
+            assert end == '-'			# Unknown range operator
+        assert equ == '='
+        while True: # Consumes values forever, 'til StopIteration
+            val.append( prs.next() )
+            assert type( val[-1] ) == int
+            assert prs.next() == ','
+    except StopIteration:
+        pass
+    except Exception as exc:
+        log.error( "Unrecognized registers '%s': %s", txt, str( exc ))
+        raise
+
+    assert type( beg ) is int
+    if end is None:
+        end			= beg
+    assert type( end ) is int
+
+    if val or default is not None:
+        # We're supposed to ensure some default values (or were provided 1 or more values).  Try
+        # hard; Extend <beg>-<end> out to the number of values, or extend val to the range length;
+        # duplicate entries and/or truncates to range length
+        if not val:
+            val			= [0 if default is None else default]
+        if end == beg:
+            end			= beg + len( val ) - 1
+        if len( val ) < end - beg + 1:
+            val		       *= (( end - beg + 1 ) // len( val ) + 1 )
+        val			= val[:end - beg + 1]
+
+    log.info( "%05d-%05d = %s", beg, end, cpppo.reprlib.repr( val ))
+    return beg,end,val
+
 
 def register_definitions( registers, default=None ):
     """Parse the register ranges, as: registers[, registers ...], and produce a keywords dictionary
     suitable for construction of modbus_sparse_data_block instances for a ModbusSlaveContext, for
     'hr' (Holding Registers), 'co' (Coils), etc.:
-    
+
         40001=999
-    
+
     produces:
-    
+
          { ..., hr: { 0: 999 }, ... }
 
     Incoming registers are standard one-based Modbus address ranges, output register: value
@@ -133,66 +199,19 @@ def register_definitions( registers, default=None ):
     1[0]0001-3[0]0000		Input  Coils
     3[0]0001-4[0]0000		Input   Registers
     4[0]0001-			Holding Registers
-    
+
     Allow:
         <begin>[-<end>][=<val>[,<val>]] ...
 
     """
-    def registers_parse( txt ):
-        """ Tokenizer yields integers; any other character (except space), one at a time. """
-        b, i, e				= 0, 0, len( txt )
-        while i <= e:
-            if i == e or not( '0' <= txt[i] <= '9' ):
-                if i > b:
-                    yield int( txt[b:i] )		# "123..."   Parsed 1+ digits
-                    b, i	= i, i-1
-                elif i < e:
-                    if txt[b] != ' ':
-                        yield txt[b]			# "?..."     Something else (not whitespace)
-                    b, i	= i+1, i
-            i		       += 1
-
     # Parse register ranges
     # 0  10001 30001 40001
     cod,   did,  ird,  hrd 	= {}, {}, {}, {}
     for txt in registers:
-        prs			= registers_parse( txt )
-        beg = end			= None
-        val			= []
-        try:
-            beg			= prs.next()
-            end			= beg
-            end			= prs.next()
-            if end == '-':
-                end		= prs.next()		# <beg>-<end>=
-                equ		= prs.next()
-            elif end == '=':
-                equ		= end			# <beg>=
-                end		= beg
-            else:
-                assert end == '-'			# Unknown range operator
-            assert equ == '='
-            while True:
-                val	       += [prs.next()]
-                assert type( val[-1] ) == int
-                assert prs.next() == ','
-        except StopIteration:
-            assert type( beg ) is int
-            if end is None:
-                end		= beg
-            assert type( end ) is int
-            # Extend <beg>-<end> out to the number of values, or extend val to the
-            # range length; duplicate entries and/or truncates to range length
-            if not val:
-                val		= [0 if default is None else default]
-            if end == beg:
-                end		= beg + len( val ) - 1
-            if len( val ) < end - beg + 1:
-                val	       *= (( end - beg + 1 ) // len( val ) + 1 )
-            val			= val[:end - beg + 1]
-            log.info( "%05d-%05d = %s", beg, end, cpppo.reprlib.repr( val ))
-            for reg in range( beg, end + 1 ):
-                dct, off 	= (     ( hrd,  40001 ) if  40001 <= reg <=  99999
+        beg,end,val		= register_decode( txt, default=0 )
+
+        for reg in range( beg, end + 1 ):
+            dct, off		= (     ( hrd,  40001 ) if  40001 <= reg <=  99999
                                    else ( hrd, 400001 ) if 400001 <= reg <= 465536
                                    else ( ird,  30001 ) if  30001 <= reg <=  39999
                                    else ( ird, 300001 ) if 300001 <= reg <= 365536
@@ -200,11 +219,8 @@ def register_definitions( registers, default=None ):
                                    else ( did, 100001 ) if 100001 <= reg <= 165536
                                    else ( cod,      1 ) if      1 <= reg <=   9999
                                    else ( None, None ))
-                assert dct is not None, "Invalid Modbus register: %d" % ( reg )
-                dct[reg - off]	= val[reg - beg]
-        except Exception as exc:
-            log.error( "Unrecognized registers '%s': %s", txt, str( exc ))
-            raise
+            assert dct is not None, "Invalid Modbus register: %d" % ( reg )
+            dct[reg - off]	= val[reg - beg]
     log.info( "Holding Registers: %5d, %6d-%6d; %s", len( hrd ),
               400001 + min( hrd ) if hrd else 0, 400001 + max( hrd ) if hrd else 0, cpppo.reprlib.repr( hrd ))
     log.info( "Input   Registers: %5d, %6d-%6d; %s", len( ird ),
@@ -300,7 +316,7 @@ context				= None
 #---------------------------------------------------------------------------#
 # Creation Factories
 #   - always take 'address'; underlying Modbus...Server may differ
-#   - passes any remaining keywords to underlying Modbus...Server (eg. 
+#   - passes any remaining keywords to underlying Modbus...Server (eg.
 #     serial port parameters)
 #---------------------------------------------------------------------------#
 def StartTcpServerLogging( registers, identity=None, framer=ModbusSocketFramer, address=None,

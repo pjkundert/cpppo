@@ -25,7 +25,8 @@ import sys
 import time
 
 import cpppo
-from cpppo.remote.plc_modbus import poller_modbus, Defaults
+from cpppo.remote.plc_modbus import poller_modbus, Defaults, merge
+from cpppo.bin.modbus_sim import register_decode
 
 #---------------------------------------------------------------------------# 
 # configure the service logging
@@ -38,10 +39,12 @@ def main():
     parser			= argparse.ArgumentParser(
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog = """\
+    Begin polling the designated register range(s), optionally writing initial values to them.
 
     Register range(s) and value(s) must be supplied:
     
       <begin>[-<end>]
+      <begin>[-<end>]=<val>,...
     
     EXAMPLE
     
@@ -88,17 +91,23 @@ def main():
             int( address[1] ) if len( address ) > 1 else Defaults.Port )
         log.info( "--address '%s' produces address=%r" % ( args.address, address ))
 
-    # Start the PLC poller
+    # Start the PLC poller (and perform any initial writes indicated)
 
     poller			= poller_modbus(
         "Modbus/TCP", host=address[0], port=address[1], reach=int( args.reach ), rate=float( args.rate ))
 
-    
-    for r in args.registers:
-        rng			= r.split('-')
-        beg,cnt			= int(rng[0]), int(rng[1])-int(rng[0])+1 if len(rng) else 1
-        for reg in range( beg, beg+cnt ):
+    for txt in args.registers:
+        beg,end,val		= register_decode( txt ) # beg-end is inclusive
+        for reg in range( beg, end+1 ):
             poller.poll( reg )
+        if val:
+            # Value(s) were supplied for the register(s) range; write 'em.  This results in a
+            # WriteMultipleRegistersRequest if val is an iterable, or a WriteSingle...  if not.
+            # We'll need to shatter/merge the register range into appropriate sized chunks for a
+            # valid Modbus/TCP request, and then take the appropriate number of values for each.
+            for base,length in merge( [ (beg,end-beg+1) ] ):
+                poller.write( base, val[0] if length == 1 else val[:length] )
+                val		= val[length:]
     
     load			= ''
     fail			= ''

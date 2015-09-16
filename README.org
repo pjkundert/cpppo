@@ -880,6 +880,36 @@
    reg = p.read( 40001 ) # Will eventually be 123, after next poll
    #+END_SRC
 
+   We have made available a script to allow simple poll (and write) access to a Modbus/TCP PLC:
+   =modbus_poll=.  To initialize (and poll) some values (assuming you are running the =modbus_sim=
+   above), run:
+   #+BEGIN_EXAMPLE
+   $ modbus_poll -a :1502 40001-40010=0 40001-40100
+   09-16 06:26:06.161  7fff70d0e300 root  WARNING  main  40001 ==     9 (was: None)
+   09-16 06:26:06.161  7fff70d0e300 root  WARNING  main  40002 ==     9 (was: None)
+   09-16 06:26:06.161  7fff70d0e300 root  WARNING  main  40003 ==     9 (was: None)
+   09-16 06:26:06.161  7fff70d0e300 root  WARNING  main  40004 ==     9 (was: None)
+   09-16 06:26:06.161  7fff70d0e300 root  WARNING  main  40005 ==     9 (was: None)
+   09-16 06:26:06.161  7fff70d0e300 root  WARNING  main  40006 ==    99 (was: None)
+   09-16 06:26:06.161  7fff70d0e300 root  WARNING  main  40007 ==    99 (was: None)
+   09-16 06:26:06.161  7fff70d0e300 root  WARNING  main  40008 ==    99 (was: None)
+   09-16 06:26:06.161  7fff70d0e300 root  WARNING  main  40009 ==    99 (was: None)
+   09-16 06:26:06.161  7fff70d0e300 root  WARNING  main  40010 ==    99 (was: None)
+   #+END_EXAMPLE
+
+   Now, if you write to the PLC using =modbus_poll= again (in another terminal), eg:
+   #+BEGIN_EXAMPLE
+   $ modbus_poll -a :1502 40009=999    # hit ^C to terminate
+   $ modbus_poll -a :1502 40001=9999   # hit ^C to terminate
+   #+END_EXAMPLE
+
+   In a second or so after each request, you'll see further logging from the first (still running)
+   =modbus_poll=:
+   #+BEGIN_EXAMPLE
+   09-16 06:28:12.579  7fff70d0e300 root WARNING  main  40009 ==   999 (was: 99)
+   09-16 06:28:38.674  7fff70d0e300 root WARNING  main  40001 ==  9999 (was: 9)
+   #+END_EXAMPLE
+
 *** =cpppo.remote.plc_modbus.poller_modbus= API
 
     Implements background polling and synchronous writing of a Modbus/TCP
