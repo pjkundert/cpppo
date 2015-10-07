@@ -61,6 +61,8 @@ def main():
                          help="Merge polls within <reach> registers of each-other" )
     parser.add_argument( '-R', '--rate',	default=1.0,
                          help="Target poll rate" )
+    parser.add_argument( '-t', '--timeout',	default=Defaults.Timeout,
+                         help="I/O Timeout (default: %s)" % ( Defaults.Timeout ))
     parser.add_argument( 'registers', nargs="+" )
     args			= parser.parse_args()
     
@@ -91,8 +93,10 @@ def main():
             int( address[1] ) if len( address ) > 1 else Defaults.Port )
         log.info( "--address '%s' produces address=%r" % ( args.address, address ))
 
-    # Start the PLC poller (and perform any initial writes indicated)
+    # Set up the Modbus/TCP I/O timeout to use, for all connect and read/write transactions
+    Defaults.Timeout		= float( args.timeout )
 
+    # Start the PLC poller (and perform any initial writes indicated)
     poller			= poller_modbus(
         "Modbus/TCP", host=address[0], port=address[1], reach=int( args.reach ), rate=float( args.rate ))
 
