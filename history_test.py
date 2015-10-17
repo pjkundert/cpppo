@@ -61,7 +61,7 @@ def test_history_timestamp_abbreviations():
     abbrev			= timestamp.support_abbreviations( 'America', 
         exclude=['America/Mazatlan', 'America/Merida', 'America/Mexico_City', 'America/Monterrey',
                  'America/Bahia_Banderas', 'America/Cancun', 'America/Chihuahua', 'America/Havana',
-                 'America/Santa_Isabel', 'America/Grand_Turk'] )
+                 'America/Santa_Isabel', 'America/Grand_Turk', 'America/Cayman'] )
     #print( sorted( abbrev ))
     #print( reprlib.repr( timestamp._tzabbrev ))
     if tuple( map( int, pytz.__version__.split( '.' ))) < (2015,4):
@@ -77,7 +77,8 @@ def test_history_timestamp_abbreviations():
     assert sorted( abbrev ) == ['CEST', 'CET']
     assert 'CEST' in timestamp._tzabbrev
     assert 'EEST' not in timestamp._tzabbrev
-    abbrev			= timestamp.support_abbreviations( 'Europe', exclude=[ 'Europe/Simferopol', 'Europe/Istanbul', 'Europe/Minsk' ] )
+    abbrev			= timestamp.support_abbreviations( 'Europe',
+        exclude=[ 'Europe/Simferopol', 'Europe/Istanbul', 'Europe/Minsk', 'Europe/Chisinau' ] )
     #print( sorted( abbrev ))
     assert sorted( abbrev ) == ['BST', 'EEST', 'EET', 'FET', 'IST', 'MSK', 'SAMT', 'WEST', 'WET']
 
