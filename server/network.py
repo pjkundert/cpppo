@@ -58,11 +58,12 @@ def readable( timeout=0 ):
                     r,_,_	= select.select( [args[0].fileno()], [], [], rem )
                 except select.error as exc:
                     if ( exc.args[0] if sys.version_info[0] < 3 else exc.errno ) == errno.EINTR:
-                        now	= misc.timer()
-                        if now >= beg + tmo:
-                            break	# EINTR, timeout exceeded
-                        rem	= beg + tmo - now
-                        continue	# EINTR, timeout remains
+                        # EINTR.  If the timeout has been exceeded, loop once with a zero timeout
+                        # (to reliably detect EOF, in heavily loaded situations with lots of
+                        # EINTRs).  Otherwise, recompute the remaining timeout.  In Python >= 3.5,
+                        # PEP 475 does this automatically (we shouldn't see EINTR).
+                        rem	= max( 0, beg + tmo - misc.timer() )
+                        continue
                     raise		# Not select.error, or not EINTR
                 break			# readable, or timeout expired
             return function( *args, **kwds ) if r else None
