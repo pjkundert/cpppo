@@ -916,6 +916,70 @@ class communications_service( cpppo.dfa ):
         return result
 
 
+class identity_object( cpppo.dfa ):
+    """The ListIdentity response contains a CPF item list containing one item: an "Identity Object "
+    type_id 0x000C, indicating that the device supports encapsulation of CIP packets.  These CPF
+    items contain the standard type_id and length, followed by:
+
+       .CPF.item[0].version		UINT		2	Version of protocol (shall be 1)
+       .CPF.item[0].capability		UINT		2	Capability flags
+       .CPF.item[0].service_name	USINT[*]    .length-8	Name of service + NUL (eg. "Communications\0")
+
+    The Identity Item in the CPF list consists of the standard .type_id of 0x000C, a .length, and
+    then a payload containing a protocol version and socket address, and then identity data that
+    follows the format of a Get Attributes All of the Identity Object, instance 1, thus containing
+    at least (could be more, if the Identity Object's Get Attributes All returns more):
+
+    | Parameter              | Type      | Description                                      |
+    |------------------------+-----------+--------------------------------------------------|
+    | Item Type Code         | UINT      | 0x000C                                           |
+    | Item Length            | UINT      | Bytes to follow                                  |
+    | Encap. Proto. Version  | UINT      | Version supported (same as Register Session)     |
+    | Socket Address         | STRUCT OF | (big-endian)                                     |
+    |                        | INT       | sin_family                                       |
+    |                        | UINT      | sin_port                                         |
+    |                        | UDINT     | sin-addr                                         |
+    |                        | USINT[8]  | sin_zero                                         |
+    | Vendor ID              | UINT      | Device manufacturer's Vendor ID                  |
+    | Device Type            | UINT      | Device Type of product                           |
+    | Product Code           | UINT      | Produce Code assigned, w/ respect to Device Type |
+    | Revision               | UINT      | Device Revision                                  |
+    | Status                 | WORD      | Current status of device                         |
+    | Serial Number          | UDINT     | Serial number of device                          |
+    | Product Name           | SSTRING   | Human readable description of device             |
+    | State                  | USINT     | Current state of device                          |
+
+    """
+    def __init__( self, name=None, **kwds ):
+        name 			= name or kwds.setdefault( 'context', self.__class__.__name__ )
+        
+        vers			= UINT(	context='version' )
+        vers[True]	= capa	= UINT(	context='capability' )
+
+        capa[True]	= svnm	= cpppo.string_bytes( 'service_name',
+                                        context='service_name', greedy=True,
+                                        initial='[^\x00]*', decode='iso-8859-1' )
+        svnm[b'\0'[0]]		= octets_drop( 'NUL', repeat=1, terminal=True )
+
+        '''
+        capa[b'\0'[0]]	= done	= octets_drop( 'NUL', repeat=1, terminal=True )
+        capa[True]	= svnm	= octets(	context='service_name' )
+        svnm[b'\0'[0]]	= done
+        svnm[True]	= svnm
+        '''
+
+        super( communications_service, self ).__init__( name=name, initial=vers, **kwds )
+
+    @classmethod
+    def produce( cls, data ):
+        result			= b''
+        result	       	       += UINT.produce( data.version )
+        result	               += UINT.produce( data.capability )
+        result		       += data.service_name.encode( 'iso-8859-1' )
+        result		       += b'\0'
+        return result
+
+
 class CPF( cpppo.dfa ):
 
     """A SendRRData Common Packet Format specifies the number and type of the encapsulated CIP
@@ -942,12 +1006,14 @@ class CPF( cpppo.dfa ):
         0x0100:		ListServices response
 
     
-    Presently we only handle NULL Address and Unconnected Messages, and ListServices.
+    Presently we only handle NULL Address and Unconnected Messages, and ListServices
+    (communications_service), and ListIdentity (identity_object).
 
     """
     ITEM_PARSERS		= {
-            0x00b2:	unconnected_send,	# used in SendRRData request/response
-            0x0100:	communications_service, # used in ListServices response
+        0x00b2:	unconnected_send,	# used in SendRRData request/response
+        0x0100:	communications_service, # used in ListServices response
+        0x000C: identity_object,	# used in ListIdentity response
     }
 
     def __init__( self, name=None, **kwds ):
@@ -1037,6 +1103,30 @@ class send_data( cpppo.dfa ):
         result		       += UDINT.produce( data.interface )
         result		       += UINT.produce(  data.timeout )
         result		       += CPF.produce( data.CPF )
+        return result
+
+
+class list_identity( cpppo.dfa ):
+    """Handle ListIdentity request/reply.  Identity items are encoded as a CPF list.  We must deduce whether
+    we are parsing a request or a reply.  The request will have a 0 length; the reply (which must
+    contain a CPF with at least an item count) will have a non-zero length.
+
+    Even if the request is empty, we want to produce 'CIP.list_identity.CPF' containing an Identity
+    Object.  See the 'identity_object' class above for details.
+
+    """
+    def __init__( self, name=None, **kwds ):
+        name 			= name or kwds.setdefault( 'context', self.__class__.__name__ )
+
+        svcs			= CPF( terminal=True )
+
+        super( list_identity, self ).__init__( name=name, initial=svcs, **kwds )
+
+    @staticmethod
+    def produce( data ):
+        result			= b''
+        if 'CPF' in data:
+            result	       += CPF.produce( data.CPF )
         return result
 
 
@@ -1140,9 +1230,10 @@ class CIP( cpppo.dfa ):
 
     """
     COMMAND_PARSERS		= {
-        (0x006f,0x0070):	send_data,	# 0x006f (SendRRData) is default if CIP.send_data seen
+        (0x0063,):		list_identity,	# Usually only seen via UDP
         (0x0065,):		register,
         (0x0066,):		unregister,
+        (0x006f,0x0070):	send_data,	# 0x006f (SendRRData) is default if CIP.send_data seen
         (0x0004,):		list_services,
     }
     def __init__( self, name=None, **kwds ):
