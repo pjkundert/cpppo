@@ -153,6 +153,10 @@ class peeking( object ):
         return self._back[-1]
 
     def next( self ):
+        """Ensure we invoke the proper super-class __next__ for Python 2/3
+        compatibility (ie. cannot simply use 'next = __next__')
+
+        """
         return self.__next__()
 
     def __next__( self ):
@@ -259,7 +263,7 @@ class decide( object ):
 
     def execute( self, truth, machine=None, source=None, path=None, data=None ):
         target			= self.state if truth else None
-        log.info( "%s %-13.13s -> %10s w/ data: %r", machine.name_centered(), self, target, data )
+        #log.info( "%s %-13.13s -> %10s w/ data: %r", machine.name_centered(), self, target, data )
         return target
 
 
@@ -472,33 +476,19 @@ class state( dict ):
         """
         enc			= self.encode( inp )
         try:
-            target		= super( state, self ).__getitem__( enc )
-            #log.debug( "%s   [%-10.10r] == %-10s%s", self.name_centered(),
-            #           inp, target, ("" if enc is inp else " (via encoding, on %s)" % repr( enc )))
-            return target
+            return super( state, self ).__getitem__( enc )
         except KeyError:
             pass
         if enc is not None:
             for pred,target in self.recognizers:
                 if pred( enc ):
-                    #log.debug( "%s   [%-10.10r] == %-10s (via %r(%r))", self.name_centered(), 
-                    #           inp, target, pred, enc )
                     return target
             try:
-                target		= super( state, self ).__getitem__( True )
-                #log.debug( "%s   [%-10.10r] == %-10s (via wildcard, on %r)", self.name_centered(),
-                #           inp, target, enc )
-                return target
+                return super( state, self ).__getitem__( True )
             except KeyError:
                 pass
-        try:
-            target		= super( state, self ).__getitem__( None )
-            #log.debug( "%s   [%-10.10r] == %-10s (via epsilon,  on %r)", self.name_centered(),
-            #           inp, target, enc )
-            return target
-        except KeyError:
-            #log.debug( "%s   [%-10.10r] xx (no match for %r)", self.name_centered(), inp, enc )
-            raise
+        return super( state, self ).__getitem__( None )
+
 
     def get( self, inp, default=None ):
         """The base dict get() doesn't use __getitem__, so we must implement it."""
@@ -1090,9 +1080,10 @@ class state_struct( state ):
         val		        = self._struct.unpack_from( buffer=buf )[0]
         try:
             data[ours].append( val )
-            log.info( "%s :  %-10.10s => %20s[%3d]= %r (format %r over %r)",
-                      ( machine or self ).name_centered(),
-                      "", ours, len(data[ours])-1, val, self._struct.format, buf )
+            if log.getEffectiveLevel() <= logging.INFO:
+                log.info( "%s :  %-10.10s => %20s[%3d]= %r (format %r over %r)",
+                          ( machine or self ).name_centered(),
+                          "", ours, len(data[ours])-1, val, self._struct.format, buf )
         except (AttributeError, KeyError):
             # Target doesn't exist, or isn't a list/deque; just save value
             data[ours]		= val
@@ -1232,7 +1223,7 @@ class dfa_base( object ):
                     try:
                         target	= None
                         transit	= False
-                        for which,target in submach:
+                        for which,target in submach: # 75% of runtime is spent inside 'run'
                             if which is self:
                                 # Watch for loops in our own state sub-machine (lower level dfa's
                                 # will watch out for their own sub-machines).  This is the "normal"
@@ -1466,8 +1457,9 @@ class string_base( object ):
                       exception )
             return
         subs			= self.initial.context( ours )
-        log.info( "%s: data[%s] = data[%s]: %r", self.name_centered(),
-                  ours, subs, data[subs] if subs in data else data )
+        if log.getEffectiveLevel() <= logging.INFO:
+            log.info( "%s: data[%s] = data[%s]: %r", self.name_centered(),
+                      ours, subs, data.get( subs, data ))
         value			= data[subs]
         if isinstance( value, array.array ):
             if value.typecode == 'c':
@@ -1497,7 +1489,6 @@ class integer_base( string_base ):
             __package__, self.__class__.__name__ )
         super( integer_base, self ).__init__( name=name, initial="\d+", context=context,
                                               greedy=True, **kwds )
-        
     def terminate( self, exception, machine=None, path=None, data=None ):
         """Once our sub-machine has accepted a sequence of digits (into data '<context>.input'),
         convert to an integer and store in 'value'.  This occurs before outgoing transitions occur.
@@ -1512,8 +1503,9 @@ class integer_base( string_base ):
         super( integer_base, self ).terminate(
             exception=exception, machine=machine, path=path, data=data )
 
-        log.info( "%s: int( data[%s]: %r)", self.name_centered(),
-                  ours, data[ours] if ours in data else data )
+        if log.getEffectiveLevel() <= logging.INFO:
+            log.info( "%s: int( data[%s]: %r)", self.name_centered(),
+                      ours, data.get( ours, data ))
         data[ours]		= int( data[ours] )
 
 
@@ -1535,6 +1527,7 @@ class integer_bytes( integer_base, regex_bytes ):
 
 class regex_bytes_promote( regex_bytes ):
     """Copy the collected data at path.sub-machine.context to our path.context"""
+
     def terminate( self, exception, machine=None, path=None, data=None ):
         """Once our machine has accepted a sentence of the grammar and terminated without exception,
         we'll move it to its target location.  It just copies the raw data collected by our state
@@ -1554,5 +1547,6 @@ class regex_bytes_promote( regex_bytes ):
             return
 
         subs			= self.initial.context( ours )
-        log.info( "data[%s] = data[%s]: %r", ours, subs, data[subs] if subs in data else data )
+        if log.getEffectiveLevel() <= logging.INFO:
+            log.info( "data[%s] = data[%s]: %r", ours, subs, data.get( subs, data ))
         data[ours]		= data[subs]

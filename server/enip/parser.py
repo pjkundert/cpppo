@@ -375,7 +375,7 @@ class move_if( cpppo.decide ):
         self.src		= source
         self.dst		= destination if destination else ''
         self.ini		= initializer
-        
+
     def execute( self, truth, machine=None, source=None, path=None, data=None ):
         target			= super( move_if, self ).execute(
             truth, machine=machine, source=source, path=path, data=data )
@@ -389,17 +389,27 @@ class move_if( cpppo.decide ):
                 try:
                     data[pathdst]= ini
                 finally:
-                    log.debug( "%s -- init. data[%r] to %r in data: %s", self, pathdst, ini, data )
+                    if log.getEffectiveLevel() <= logging.DEBUG:
+                        log.debug( "%s -- init. data[%r] to %r in data: %s", self, pathdst, ini, data )
             if self.src is not None:
                 pathsrc		= path + self.src
-                assert pathsrc in data, \
-                    "Could not find %r to move to %r in %r" % ( pathsrc, pathdst, data )
-                if hasattr( data[pathdst], 'append' ):
-                    log.debug( "%s -- append data[%r] == %r to data[%r]", self, pathsrc, data[pathsrc], pathdst )
-                    data[pathdst].append( data.pop( pathsrc ))
+                # assert pathsrc in data, \
+                #     "Could not find %r to move to %r in %r" % ( pathsrc, pathdst, data )
+                try:
+                    src		= data.pop( pathsrc )
+                except:
+                    raise AssertionError( "Could not find %r to move to %r in %r" % ( pathsrc, pathdst, data ))
+                dst		= data[pathdst]
+                if hasattr( dst, 'append' ):
+                    # We're supposed to append to an existing destination list-like thing...
+                    if log.getEffectiveLevel() <= logging.DEBUG:
+                        log.debug( "%s -- append data[%r] == %r to data[%r]", self, pathsrc, src, pathdst )
+                    dst.append( src )
                 else:
-                    log.debug( "%s -- assign data[%r] == %r to data[%r]", self, pathsrc, data[pathsrc], pathdst )
-                    data[pathdst] = data.pop( pathsrc )
+                    # We're supposed to replace an existing destination object
+                    if log.getEffectiveLevel() <= logging.DEBUG:
+                        log.debug( "%s -- assign data[%r] == %r to data[%r]", self, pathsrc, src, pathdst )
+                    data[pathdst] = src
 
         return target
 

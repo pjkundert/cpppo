@@ -9,6 +9,9 @@ import socket
 import sys
 import traceback
 
+# for @profile, kernprof.py -v -l enip_test.py
+from line_profiler import LineProfiler
+
 if __name__ == "__main__":
     # Allow relative imports when executing within package directory, for
     # running tests directly
@@ -1384,12 +1387,17 @@ CIP_tests			= [
 ]
   
 
-def test_enip_CIP():
-    for pkt,tst in CIP_tests:
+def test_enip_CIP( repeat=10 ):
+    """Most of CIP parsing run-time overhead is spent inside 'run'.
+    """
+    ENIP			= enip.enip_machine( context='enip' )
+    CIP				= enip.CIP()
+    for _ in range( repeat ):
+      for pkt,tst in CIP_tests:
         # Parse just the CIP portion following the EtherNet/IP encapsulation header
         data			= cpppo.dotdict()
         source			= cpppo.chainable( pkt )
-        with enip.enip_machine( context='enip' ) as machine:
+        with ENIP as machine:
             for i,(m,s) in enumerate( machine.run( source=source, data=data )):
                 log.detail( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r",
                           machine.name_centered(), i, s, source.sent, source.peek(), data )
@@ -1399,18 +1407,20 @@ def test_enip_CIP():
             log.normal( "EtherNet/IP Request: Empty (session terminated): %s", enip.enip_format( data ))
             continue
 
-        log.normal( "EtherNet/IP Request: %s", enip.enip_format( data ))
+        if log.getEffectiveLevel() <= logging.NORMAL:
+            log.normal( "EtherNet/IP Request: %s", enip.enip_format( data ))
             
         # Parse the encapsulated .input
 
         data.enip.encapsulated	= cpppo.dotdict()
         
-        with enip.CIP() as machine:
+        with CIP as machine:
             for i,(m,s) in enumerate( machine.run( path='enip', source=cpppo.peekable( data.enip.get( 'input', b'' )), data=data )):
                 log.detail( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r",
                           machine.name_centered(), i, s, source.sent, source.peek(), data )
 
-        log.normal( "EtherNet/IP CIP Request: %s", enip.enip_format( data ))
+        if log.getEffectiveLevel() <= logging.NORMAL:
+            log.normal( "EtherNet/IP CIP Request: %s", enip.enip_format( data ))
 
         # Assume the request in the CIP's CPF items are Logix requests.
         # Now, parse the encapsulated message(s).  We'll assume it is destined for a Logix Object.
@@ -1421,9 +1431,10 @@ def test_enip_CIP():
                     # An Unconnected Send that contained an encapsulated request (ie. not just a Get
                     # Attribute All)
                     with Lx.parser as machine:
-                        log.normal( "Parsing %3d bytes using %s.parser, from %s", 
-                                    len( item.unconnected_send.request.input ),
-                                    Lx, enip.enip_format( item ))
+                        if log.getEffectiveLevel() <= logging.NORMAL:
+                            log.normal( "Parsing %3d bytes using %s.parser, from %s", 
+                                        len( item.unconnected_send.request.input ),
+                                        Lx, enip.enip_format( item ))
                         # Parse the unconnected_send.request.input octets, putting parsed items into the
                         # same request context
                         for i,(m,s) in enumerate( machine.run(
@@ -1431,9 +1442,10 @@ def test_enip_CIP():
                                 data=item.unconnected_send.request )):
                             log.detail( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r",
                                         machine.name_centered(), i, s, source.sent, source.peek(), data )
-                        log.normal( "Parsed  %3d bytes using %s.parser, into %s", 
-                                    len( item.unconnected_send.request.input ),
-                                    Lx, enip.enip_format( data ))
+                        if log.getEffectiveLevel() <= logging.NORMAL:
+                            log.normal( "Parsed  %3d bytes using %s.parser, into %s", 
+                                        len( item.unconnected_send.request.input ),
+                                        Lx, enip.enip_format( data ))
 
         try:
             for k,v in tst.items():
@@ -1836,11 +1848,33 @@ def test_enip_bench_logix():
 
 
 if __name__ == "__main__":
+    #'''
+    # Profile using line_profiler, and kernprof.py -v -l enip_test.py
+    test_enip_CIP( 10 )
+    #'''
+
+    '''
+    # Profile the main thread using cProfile
+    import cProfile
+    import pstats
+    prof_file			= "enip_test.profile"
+    cProfile.run( "test_enip_CIP( 10 )", prof_file )
+    prof			= pstats.Stats( prof_file )
+    print( "\n\nTIME:")
+    prof.sort_stats(  'time' ).print_stats( 100 )
+
+    print( "\n\nCUMULATIVE:")
+    prof.sort_stats(  'cumulative' ).print_stats( 100 )
+    '''
+
     '''
     import yappi
     yappi.start()
     '''
+
+    '''
     test_enip_bench_logix()
+    '''
     '''
     print( "\nFunction Total:" )
     yappi.print_stats( sys.stdout, yappi.SORTTYPE_TTOTAL )
