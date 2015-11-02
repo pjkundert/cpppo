@@ -80,7 +80,7 @@ def test_history_timestamp_abbreviations():
     abbrev			= timestamp.support_abbreviations( 'Europe',
         exclude=[ 'Europe/Simferopol', 'Europe/Istanbul', 'Europe/Minsk', 'Europe/Chisinau' ] )
     #print( sorted( abbrev ))
-    assert sorted( abbrev ) == ['BST', 'EEST', 'EET', 'FET', 'IST', 'MSK', 'SAMT', 'WEST', 'WET']
+    assert sorted( abbrev ) == ['BST', 'EEST', 'EET', 'IST', 'MSK', 'SAMT', 'WEST', 'WET']
 
     assert 'EEST' in timestamp._tzabbrev
     try:
