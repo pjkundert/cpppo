@@ -567,6 +567,20 @@ def enip_srv( conn, addr, enip_process=None, delay=None, **kwds ):
     name			= "enip_%s" % addr[1]
     log.normal( "EtherNet/IP Server %s begins serving peer %s", name, addr )
 
+    # Configure TCP_NODELAY (for no delay in transmitting response data) and SO_KEEPALIVE (to ensure
+    # that we eventually detect half-open connections -- connections where we are listening only,
+    # and where the peer has closed by the FIN or RST has been lost.
+    try:
+        conn.setsockopt( socket.IPPROTO_TCP, socket.TCP_NODELAY, 1 )
+    except Exception as exc:
+        log.warning( "%s unable to set TCP_NODELAY for client %s:%s: %s",
+                     name, addr[0], addr[1], exc )
+    try:
+        conn.setsockopt( socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1 )
+    except Exception as exc:
+        log.warning( "%s unable to set SO_KEEPALIVE for client %s:%s: %s",
+                     name, addr[0], addr[1], exc )
+
 
     source			= cpppo.rememberable()
     with parser.enip_machine( name=name, context='enip' ) as enip_mesg:

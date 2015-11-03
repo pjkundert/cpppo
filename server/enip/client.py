@@ -307,7 +307,8 @@ class client( object ):
     responses to previous requests are received.)
 
     Issue requests immediately (avoid delays due to Nagle's Algorithm) to effectively maximize
-    thruput on high-latency links.
+    thruput on high-latency links.  Also enable keep-alive on the socket, to be able to (eventually)
+    detect half-open sockets.
 
     Provide an alternative enip.device.Message_Router Object class instead of the (default) Logix,
     to parse alternative sub-dialects of EtherNet/IP.
@@ -329,7 +330,12 @@ class client( object ):
         except Exception as exc:
             log.warning( "Couldn't set TCP_NODELAY on socket to EtherNet/IP server at %s:%s: %s",
                          self.addr[0], self.addr[1], exc )
-            pass
+        try:
+            self.conn.setsockopt( socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1 )
+        except Exception as exc:
+            log.warning( "Couldn't set SO_KEEPALIVE on socket to EtherNet/IP server at %s:%s: %s",
+                         self.addr[0], self.addr[1], exc )
+
         self.session		= None
         self.source		= cpppo.chainable()
         self.data		= None
