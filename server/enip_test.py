@@ -10,7 +10,7 @@ import sys
 import traceback
 
 # for @profile, kernprof.py -v -l enip_test.py
-from line_profiler import LineProfiler
+#from line_profiler import LineProfiler
 
 if __name__ == "__main__":
     # Allow relative imports when executing within package directory, for
@@ -1910,10 +1910,10 @@ def test_enip_bench_logix():
 
 
 if __name__ == "__main__":
-    #'''
+    '''
     # Profile using line_profiler, and kernprof.py -v -l enip_test.py
     test_enip_CIP( 10 )
-    #'''
+    '''
 
     '''
     # Profile the main thread using cProfile
