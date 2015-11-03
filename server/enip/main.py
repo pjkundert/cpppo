@@ -303,9 +303,9 @@ def api_request( group, match, command, value,
         "until":	cpppo.timer(),	# time (default, unless we return alarms)
         }
 
-    logging.debug( "Searching for %s/%s, since: %s (%s)" % (
+    logging.debug( "Searching for %s/%s, since: %s (%s)",
             group, match, since, 
-            None if since is None else time.ctime( since )))
+            None if since is None else time.ctime( since ))
 
     # Effectively:
     #     group.match.command = value
@@ -613,9 +613,9 @@ def enip_srv( conn, addr, enip_process=None, delay=None, **kwds ):
                             brx = cpppo.timer()
                             msg	= network.recv( conn, timeout=wait )
                             now = cpppo.timer()
-                            log.detail( "Transaction receive after %7.3fs (%5s bytes in %7.3f/%7.3fs)" % (
+                            log.detail( "Transaction receive after %7.3fs (%5s bytes in %7.3f/%7.3fs)",
                                 now - begun, len( msg ) if msg is not None else "None",
-                                now - brx, wait ))
+                                now - brx, wait )
 
                             # After each block of input (or None), check if the server is being
                             # signalled done/disabled; we need to shut down so signal eof.  Assumes
@@ -629,8 +629,9 @@ def enip_srv( conn, addr, enip_process=None, delay=None, **kwds ):
                             if msg is not None:
                                 stats['received']+= len( msg )
                                 stats['eof']	= stats['eof'] or not len( msg )
-                                log.detail( "%s recv: %5d: %s", enip_mesg.name_centered(),
-                                            len( msg ) if msg is not None else 0, cpppo.reprlib.repr( msg ))
+                                if log.getEffectiveLevel() <= logging.DETAIL:
+                                    log.detail( "%s recv: %5d: %s", enip_mesg.name_centered(),
+                                                len( msg ), cpppo.reprlib.repr( msg ))
                                 source.chain( msg )
                             else:
                                 # No input.  If we have symbols available, no problem; continue.
@@ -643,7 +644,7 @@ def enip_srv( conn, addr, enip_process=None, delay=None, **kwds ):
                                 # We're at a None (can't proceed), and no input is available.  This
                                 # is where we implement "Blocking"; just loop.
 
-                log.detail( "Transaction parsed  after %7.3fs" % ( cpppo.timer() - begun ))
+                log.detail( "Transaction parsed  after %7.3fs", cpppo.timer() - begun )
                 # Terminal state and EtherNet/IP header recognized, or clean EOF (no partial
                 # message); process and return response
                 if 'request' in data:
@@ -690,8 +691,8 @@ def enip_srv( conn, addr, enip_process=None, delay=None, **kwds ):
                         log.detail( "Session ended (client initiated): %s",
                                     parser.enip_format( data ))
                         stats['eof'] = True
-                    log.detail( "Transaction complete after %7.3fs (w/ %7.3fs delay)" % (
-                        cpppo.timer() - begun, delayseconds ))
+                    log.detail( "Transaction complete after %7.3fs (w/ %7.3fs delay)",
+                        cpppo.timer() - begun, delayseconds )
                 except:
                     log.error( "Failed request: %s", parser.enip_format( data ))
                     enip_process( addr, data=cpppo.dotdict() ) # Terminate.
