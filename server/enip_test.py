@@ -154,8 +154,8 @@ def test_octets_struct():
 
     assert data.octets_struct.ushort == 25185
 
-def test_enip_TYPES():
-    
+def test_enip_TYPES_SSTRING():
+
     pkt				= b'\x05abc123'
     data			= cpppo.dotdict()
     source			= cpppo.chainable( pkt )
@@ -191,7 +191,17 @@ def test_enip_TYPES():
     assert len( res ) == data.SSTRING.length+1
     assert res == b'\x00'
 
-    
+
+def test_enip_TYPES_numeric():
+    pkt				= b'\x01\x00\x02\x00\x03\x00'
+    data			= cpppo.dotdict()
+    source			= cpppo.chainable( pkt )
+    with enip.INT() as machine:
+        for i,(m,s) in enumerate( machine.run( source=source, data=data )):
+            log.info( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r", m.name_centered(),
+                      i, s, source.sent, source.peek(), data )
+        assert i == 1
+    assert data.INT == 1
 
 
 # pkt4
@@ -1445,6 +1455,27 @@ CIP_tests			= [
                     "enip.session_handle": 285351425, 
                     "enip.status": 0
                 }
+          ), (
+            rtg_001_reply,
+            {
+                "enip.session_handle": 4126743718,
+                "enip.command": 111,
+                "enip.status": 0,
+                "enip.length": 422,
+                "enip.options": 0,
+                "enip.CIP.send_data.CPF.item[0].length": 0,
+                "enip.CIP.send_data.CPF.item[0].type_id": 0,
+                "enip.CIP.send_data.CPF.item[1].length": 406,
+                "enip.CIP.send_data.CPF.item[1].type_id": 178,
+                "enip.CIP.send_data.CPF.item[1].unconnected_send.request.service": 204,
+                "enip.CIP.send_data.CPF.item[1].unconnected_send.request.status_ext.size": 0,
+                "enip.CIP.send_data.CPF.item[1].unconnected_send.request.read_tag.type": 195,
+                "enip.CIP.send_data.CPF.item[1].unconnected_send.request.read_tag.data": [ 0 ] * 200,
+                "enip.CIP.send_data.CPF.item[1].unconnected_send.request.status": 0,
+                "enip.CIP.send_data.CPF.count": 2,
+                "enip.CIP.send_data.interface": 0,
+                "enip.CIP.send_data.timeout": 0,
+            }
           ),
 ]
   

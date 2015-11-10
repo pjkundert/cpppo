@@ -567,9 +567,9 @@ def enip_srv( conn, addr, enip_process=None, delay=None, **kwds ):
     name			= "enip_%s" % addr[1]
     log.normal( "EtherNet/IP Server %s begins serving peer %s", name, addr )
 
-    # Configure TCP_NODELAY (for no delay in transmitting response data) and SO_KEEPALIVE (to ensure
-    # that we eventually detect half-open connections -- connections where we are listening only,
-    # and where the peer has closed by the FIN or RST has been lost.
+    # Configure TCP_NODELAY (for no NAGLE delay in transmitting response data) and SO_KEEPALIVE (to
+    # ensure that we eventually detect half-open connections -- connections where we are listening
+    # only, and where the peer has closed by the FIN or RST has been lost.
     try:
         conn.setsockopt( socket.IPPROTO_TCP, socket.TCP_NODELAY, 1 )
     except Exception as exc:

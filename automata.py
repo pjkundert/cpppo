@@ -640,7 +640,7 @@ class state( dict ):
                     ending	= source.sent + limit 
 
             # Run the sub-machine; it is assumed that it ensures that sub-machine is deterministic
-            # (doesn't enter a no-progress loop).
+            # (doesn't enter a no-progress loop).  About 33% of the runtime...
             for which,state in self.delegate(
                     source=source, machine=machine, path=path, data=data, ending=ending ):
                 yield which,state
@@ -1080,7 +1080,7 @@ class state_struct( state ):
         val		        = self._struct.unpack_from( buffer=buf )[0]
         try:
             data[ours].append( val )
-            if log.getEffectiveLevel() <= logging.INFO:
+            if log.isEnabledFor( logging.INFO ):
                 log.info( "%s :  %-10.10s => %20s[%3d]= %r (format %r over %r)",
                           ( machine or self ).name_centered(),
                           "", ours, len(data[ours])-1, val, self._struct.format, buf )
@@ -1120,7 +1120,7 @@ class dfa_base( object ):
         self.cycle		= 0
         self.final		= 1
         self.lock		= threading.Lock()
-        if log.getEffectiveLevel() <= logging.DEBUG:
+        if log.isEnabledFor( logging.DEBUG ):
             for sta in sorted( self.initial.nodes(), key=lambda s: misc.natural( s.name )):
                 for inp,dst in sta.edges():
                     log.debug( "%s <- %-10.10r --> %s", sta.name_centered(), inp, dst )
@@ -1329,7 +1329,7 @@ class dfa_post( dfa_base, state ):
 
     def __exit__( self, typ, val, tbk ):
         """After release of the DFA's lock, execute all the post-processing callables.  Allows
-        interleaving, by releasing lock between each cl"""
+        interleaving, by releasing lock between each closure"""
         try:
             return super( dfa_post, self ).__exit__( typ, val, tbk )
         finally:
@@ -1445,7 +1445,7 @@ class string_base( object ):
         self.decode		= decode
         super( string_base, self ).__init__( name=name, initial=initial, context=context,
                                              greedy=greedy, **kwds )
-        
+
     def terminate( self, exception, machine=None, path=None, data=None ):
         """Once our sub-machine has accepted the specified sequence (into data '<context>.input'),
         convert to an string and store in <context>.  This occurs before outgoing transitions occur.
@@ -1457,7 +1457,7 @@ class string_base( object ):
                       exception )
             return
         subs			= self.initial.context( ours )
-        if log.getEffectiveLevel() <= logging.INFO:
+        if log.isEnabledFor( logging.INFO ):
             log.info( "%s: data[%s] = data[%s]: %r", self.name_centered(),
                       ours, subs, data.get( subs, data ))
         value			= data[subs]
@@ -1489,6 +1489,7 @@ class integer_base( string_base ):
             __package__, self.__class__.__name__ )
         super( integer_base, self ).__init__( name=name, initial="\d+", context=context,
                                               greedy=True, **kwds )
+
     def terminate( self, exception, machine=None, path=None, data=None ):
         """Once our sub-machine has accepted a sequence of digits (into data '<context>.input'),
         convert to an integer and store in 'value'.  This occurs before outgoing transitions occur.
@@ -1503,7 +1504,7 @@ class integer_base( string_base ):
         super( integer_base, self ).terminate(
             exception=exception, machine=machine, path=path, data=data )
 
-        if log.getEffectiveLevel() <= logging.INFO:
+        if log.isEnabledFor( logging.INFO ):
             log.info( "%s: int( data[%s]: %r)", self.name_centered(),
                       ours, data.get( ours, data ))
         data[ours]		= int( data[ours] )
@@ -1547,6 +1548,6 @@ class regex_bytes_promote( regex_bytes ):
             return
 
         subs			= self.initial.context( ours )
-        if log.getEffectiveLevel() <= logging.INFO:
+        if log.isEnabledFor( logging.INFO ):
             log.info( "data[%s] = data[%s]: %r", ours, subs, data.get( subs, data ))
         data[ours]		= data[subs]

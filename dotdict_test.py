@@ -10,6 +10,7 @@ import time
 from . import misc
 from .dotdict import dotdict, apidict
 
+
 def test_dotdict():
     # Like dict, construct from mapping, iterable and/or keywords
     assert "a" in dotdict({"a":1})
@@ -122,6 +123,7 @@ def test_dotdict():
     assert d.pop("a.b.c...x") == 3
     assert "x" not in d.a
 
+
 def test_indexes():
     """Indexing presently only works for __getitem__, get; not implemented/tested for __setitem__,
     setdefault, del, pop, etc."""
@@ -187,9 +189,9 @@ def test_hasattr():
     #print( dir( d ))
 
 
-repeat = 50
-@misc.assert_tps( repeat=repeat )
-def test_dotdict_speed():
+repeat = 1000
+@misc.assert_tps( scale=repeat )
+def test_dotdict_performance():
     count = repeat
     while count:
         count -= 1
@@ -254,5 +256,3 @@ def test_apidict():
         assert misc.near( dif, shorter if 'attr' in kwargs else latency, significance=significance )
         assert ad.noo == 3
         t.join()
-
-    

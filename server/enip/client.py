@@ -301,26 +301,26 @@ def parse_operations( tags, fragment=False ):
 
 
 class client( object ):
-    """Transmit request(s), and yield replies as available.  The request will fail (raise
-    exception) if it cannot be sent within the specified timeout (None, if no timeout desired).
-    After a session is registered, transactions may be pipelined (requests sent before
-    responses to previous requests are received.)
+    """Establish a connection (within timeout), and Transmit request(s), and yield replies as
+    available.  The request will fail (raise exception) if it cannot be sent within the specified
+    timeout (None, if no timeout desired).  After a session is registered, transactions may be
+    pipelined (requests sent before responses to previous requests are received.)
 
     Issue requests immediately (avoid delays due to Nagle's Algorithm) to effectively maximize
     thruput on high-latency links.  Also enable keep-alive on the socket, to be able to (eventually)
-    detect half-open sockets.
+    detect half-open sockets (depends on the kernel's TCP/IP keepalive timer settings.)
 
     Provide an alternative enip.device.Message_Router Object class instead of the (default) Logix,
     to parse alternative sub-dialects of EtherNet/IP.
 
     """
-    def __init__( self, host, port=None, dialect=logix.Logix ):
+    def __init__( self, host, port=None, timeout=None, dialect=logix.Logix ):
         """Connect to the EtherNet/IP client, waiting  """
         self.addr               = (host if host is not None else enip.address[0],
                                    port if port is not None else enip.address[1])
-        self.conn		= socket.socket(  socket.AF_INET, socket.SOCK_STREAM )
+        self.conn		= None
         try:
-            self.conn.connect( self.addr )
+            self.conn		= socket.create_connection( self.addr, timeout=timeout )
         except Exception as exc:
             log.warning( "Couldn't connect to EtherNet/IP server at %s:%s: %s",
                         self.addr[0], self.addr[1], exc )
@@ -349,6 +349,14 @@ class client( object ):
             device.dialect	= dialect
         assert device.dialect is dialect, \
                 "Inconsistent EtherNet/IP dialect requested: %r (vs. default: %r)" % ( dialect, device.dialect )
+
+    def close( self ):
+        """The lifespan of an EtherNet/IP CIP client connection is defined by client.__init__() and client.close()"""
+        if self.conn is not None:
+            self.conn.close()
+
+    def __del__( self ):
+        self.close()
 
     def __enter__( self ):
         self.frame.__enter__()
@@ -701,13 +709,17 @@ class connector( client ):
     Raises an Exception if no valid connection can be established within the supplied timeout.
 
     """
-    def __init__( self, host, port=None, timeout=None, **kwds ):
-        super( connector, self ).__init__( host=host, port=port, **kwds )
-
+    def __init__( self, host, port=None, timeout=None, **kwds ): # possibly supply dialect, ...
+        """Establish a TCP/IP connection and perform a successful CIP Register within 'timeout'."""
         begun			= cpppo.timer()
+        # Allow the full timeout for the TCP/IP connection to succeed
+        super( connector, self ).__init__( host=host, port=port, timeout=timeout, **kwds )
         try:
             with self:
-                self.register( timeout=timeout )
+                # The register( timeout=... ) applies to the socket send only
+                elapsed_req	= cpppo.timer() - begun
+                self.register( timeout=None if timeout is None else max( 0, timeout - elapsed_req ))
+                # Await the CIP response for remainder of timeout
                 elapsed_req	= cpppo.timer() - begun
                 data,elapsed_rpy= await( self, timeout=None if timeout is None else max( 0, timeout - elapsed_req ))
 
@@ -724,12 +736,6 @@ class connector( client ):
 
         logging.detail( "Connect:  Success in %7.3fs/%7.3fs", elapsed_req + elapsed_rpy,
                         cpppo.inf if timeout is None else timeout )
-
-    def close( self ):
-        self.conn.close()
-
-    def __del__( self ):
-        self.close()
 
     def issue( self, operations, index=0, fragment=False, multiple=0, timeout=None ):
         """Issue a sequence of I/O operations, returning the corresponding sequence of:
