@@ -4,10 +4,14 @@ from __future__ import division
 
 import logging
 import os
+import platform
+import pytest
 import random
 import socket
 import sys
 import traceback
+
+is_pypy				= platform.python_implementation() == "PyPy"
 
 # for @profile, kernprof.py -v -l enip_test.py
 #from line_profiler import LineProfiler
@@ -521,7 +525,7 @@ def test_enip_header():
         for k,v in tst.items():
             assert data[k] == v
 
-
+@pytest.mark.skipif( is_pypy, reason="Not yet supported under PyPy" )
 def test_enip_machine():
     ENIP			= enip.enip_machine( context='enip' )
     for pkt,tst in eip_tests:
