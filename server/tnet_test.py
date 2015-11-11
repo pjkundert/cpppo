@@ -7,9 +7,13 @@ from __future__ import division
 import json
 import logging
 import os
+import platform
+import pytest
 import random
 import socket
 import traceback
+
+is_pypy				= platform.python_implementation() == "PyPy"
 
 import cpppo
 from   cpppo        import misc
@@ -19,7 +23,7 @@ from   cpppo.server import network, tnet, tnetstrings
 log				= logging.getLogger( "tnet.cli")
 #log.setLevel( logging.DEBUG )
 
-
+@pytest.mark.skipif( is_pypy, reason="Not yet supported under PyPy" )
 def test_tnet_machinery():
     # parsing integers
     path			= "machinery"

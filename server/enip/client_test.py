@@ -9,13 +9,53 @@ except ImportError:
 
 import errno
 import logging
+import multiprocessing
 import random
+import socket
+import threading
 import time
 
 from ...dotdict import dotdict, apidict
+from ... import misc, tools
 from .. import enip, network
 
 log				= logging.getLogger( "cli.test" )
+
+def connector( **kwds ):
+    """An enip.client.connector that logs and ignores socket errors (returning None)."""
+    beg				= misc.timer()
+    try:
+        log.info( "Connecting to %s:%s for %s sec. timeout", kwds.get('host'), kwds.get('port'), kwds.get('timeout') )
+        return enip.client.connector( **kwds )
+    except socket.timeout as exc:
+        log.info( "EtherNet/IP CIP connection timed out after %.3fs",
+                  misc.timer() - beg )
+    except socket.error as exc:
+        log.info( "EtherNet/IP CIP connection error %d: %r after %.3fs",
+                  exc.errno, exc.strerror, misc.timer() - beg )
+    except Exception as exc:
+        log.info( "EtherNet/IP CIP connection failure after %.3fs: %s",
+                  misc.timer() - beg, exc )
+        raise
+
+
+def test_client_timeout():
+    """Both connection and request I/O should respond to the specified timeout (w/ socket.timeout, or
+    socket.error, if the host actually exists...).
+
+    """
+    conn			= multiprocessing.Process( # So we can actually kill it if blocked...
+        target=connector,
+        kwargs={ 'host': '10.254.254.253', 'port': 44818, 'timeout': .5 } )
+    conn.start()
+    # Await the termination of the Process, which should happen just after .5s.
+    beg				= misc.timer()
+    try:
+        assert all( tools.await.existence( terms=[ lambda: not conn.is_alive() ], timeout=1.0 )), \
+            "enip.client.connector to non-existent host didn't time out; took: %.3fs" % ( misc.timer() - beg )
+    finally:
+        conn.terminate()
+
 
 def test_client_api():
     """Performance of executing an operation a number of times on a socket connected

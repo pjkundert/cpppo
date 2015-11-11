@@ -5,7 +5,7 @@ python:
   - "3.3"
   - "3.4"
   - "nightly"
-# - "pypy"   # Some unit tests don't pass, but everything seems to work
+  - "pypy"   # Some unit tests don't pass, but everything seems to work
 
 # command to install dependencies
 install:

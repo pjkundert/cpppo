@@ -4,10 +4,17 @@ from __future__ import division
 
 import logging
 import os
+import platform
+import pytest
 import random
 import socket
 import sys
 import traceback
+
+is_pypy				= platform.python_implementation() == "PyPy"
+
+# for @profile, kernprof.py -v -l enip_test.py
+#from line_profiler import LineProfiler
 
 if __name__ == "__main__":
     # Allow relative imports when executing within package directory, for
@@ -151,8 +158,8 @@ def test_octets_struct():
 
     assert data.octets_struct.ushort == 25185
 
-def test_enip_TYPES():
-    
+def test_enip_TYPES_SSTRING():
+
     pkt				= b'\x05abc123'
     data			= cpppo.dotdict()
     source			= cpppo.chainable( pkt )
@@ -188,7 +195,17 @@ def test_enip_TYPES():
     assert len( res ) == data.SSTRING.length+1
     assert res == b'\x00'
 
-    
+
+def test_enip_TYPES_numeric():
+    pkt				= b'\x01\x00\x02\x00\x03\x00'
+    data			= cpppo.dotdict()
+    source			= cpppo.chainable( pkt )
+    with enip.INT() as machine:
+        for i,(m,s) in enumerate( machine.run( source=source, data=data )):
+            log.info( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r", m.name_centered(),
+                      i, s, source.sent, source.peek(), data )
+        assert i == 1
+    assert data.INT == 1
 
 
 # pkt4
@@ -402,6 +419,66 @@ rfg_002_reply			= bytes(bytearray([
     0x04,0x01,0x00,0x00                                                                #....             
 ]))
 
+#                                o     \x00  \xa6 \x01 \xa6 \x1c \xf9 \xf5 \x00 \x00
+#   \x00 \x00 0    \x00 \x00 \x00
+#   \x00 \x00 \x00 \x00 \x00 \x00 \x00 \x00  \x00 \x00 \x00 \x00 \x00 \x00 \x02 \x00
+#   \x00 \x00 \x00 \x00 \xb2 \x00 \x96 \x01  \xcc \x00 \x00 \x00 \xc3 \x00 \x00 \x00
+#   \x00 \x00 \x00 \x00 \x00 \x00 \x00 \x00  \x00 \x00 \x00 \x00 \x00 \x00 \x00 \x00
+#   \x00 \x00 \x00 \x00 \x00 \x00 \x00 \x00  \x00 \x00 \x00 \x00 \x00 \x00 \x00 \x00
+#   \x00 \x00 \x00 \x00 \x00 \x00 \x00 \x00  \x00 \x00 \x00 \x00 \x00 \x00 \x00 \x00
+#   \x00 \x00 \x00 \x00 \x00 \x00 \x00 \x00  \x00 \x00 \x00 \x00 \x00 \x00 \x00 \x00
+#   \x00 \x00 \x00 \x00 \x00 \x00 \x00 \x00  \x00 \x00 \x00 \x00 \x00 \x00 \x00 \x00
+#   \x00 \x00 \x00 \x00 \x00 \x00 \x00 \x00  \x00 \x00 \x00 \x00 \x00 \x00 \x00 \x00
+#   \x00 \x00 \x00 \x00 \x00 \x00 \x00 \x00  \x00 \x00 \x00 \x00 \x00 \x00 \x00 \x00
+#   \x00 \x00 \x00 \x00 \x00 \x00 \x00 \x00  \x00 \x00 \x00 \x00 \x00 \x00 \x00 \x00
+#   \x00 \x00 \x00 \x00 \x00 \x00 \x00 \x00  \x00 \x00 \x00 \x00 \x00 \x00 \x00 \x00
+#   \x00 \x00 \x00 \x00 \x00 \x00 \x00 \x00  \x00 \x00 \x00 \x00 \x00 \x00 \x00 \x00
+#   \x00 \x00 \x00 \x00 \x00 \x00 \x00 \x00  \x00 \x00 \x00 \x00 \x00 \x00 \x00 \x00
+#   \x00 \x00 \x00 \x00 \x00 \x00 \x00 \x00  \x00 \x00 \x00 \x00 \x00 \x00 \x00 \x00
+#   \x00 \x00 \x00 \x00 \x00 \x00 \x00 \x00  \x00 \x00 \x00 \x00 \x00 \x00 \x00 \x00
+#   \x00 \x00 \x00 \x00 \x00 \x00 \x00 \x00  \x00 \x00 \x00 \x00 \x00 \x00 \x00 \x00
+#   \x00 \x00 \x00 \x00 \x00 \x00 \x00 \x00  \x00 \x00 \x00 \x00 \x00 \x00 \x00 \x00
+#   \x00 \x00 \x00 \x00 \x00 \x00 \x00 \x00  \x00 \x00 \x00 \x00 \x00 \x00 \x00 \x00
+#   \x00 \x00 \x00 \x00 \x00 \x00 \x00 \x00  \x00 \x00 \x00 \x00 \x00 \x00 \x00 \x00
+#   \x00 \x00 \x00 \x00 \x00 \x00 \x00 \x00  \x00 \x00 \x00 \x00 \x00 \x00 \x00 \x00
+#   \x00 \x00 \x00 \x00 \x00 \x00 \x00 \x00  \x00 \x00 \x00 \x00 \x00 \x00 \x00 \x00
+#   \x00 \x00 \x00 \x00 \x00 \x00 \x00 \x00  \x00 \x00 \x00 \x00 \x00 \x00 \x00 \x00
+#   \x00 \x00 \x00 \x00 \x00 \x00 \x00 \x00  \x00 \x00 \x00 \x00 \x00 \x00 \x00 \x00
+#   \x00 \x00 \x00 \x00 \x00 \x00 \x00 \x00  \x00 \x00 \x00 \x00 \x00 \x00 \x00 \x00
+#   \x00 \x00 \x00 \x00 \x00 \x00 \x00 \x00  \x00 \x00 \x00 \x00 \x00 \x00 \x00 \x00
+#   \x00 \x00 \x00 \x00 \x00 \x00 \x00 \x00  \x00 \x00 \x00 \x00 \x00 \x00 \x00 \x00
+#   \x00 \x00 \x00 \x00 \x00 \x00 \x00 \x00  \x00 \x00 \x00 \x00 \x00 \x00'
+rtg_001_reply			= bytes(bytearray([
+                                  0x6f,0x00, 0xa6,0x01,0xa6,0x1c,0xf9,0xf5,0x00,0x00,
+    0x00,0x00,0x30,0x00,0x00,0x00,
+    0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00, 0x00,0x00,0x00,0x00,0x00,0x00,0x02,0x00,
+    0x00,0x00,0x00,0x00,0xb2,0x00,0x96,0x01, 0xcc,0x00,0x00,0x00,0xc3,0x00,0x00,0x00,
+    0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00, 0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+    0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00, 0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+    0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00, 0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+    0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00, 0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+    0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00, 0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+    0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00, 0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+    0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00, 0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+    0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00, 0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+    0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00, 0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+    0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00, 0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+    0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00, 0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+    0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00, 0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+    0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00, 0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+    0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00, 0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+    0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00, 0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+    0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00, 0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+    0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00, 0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+    0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00, 0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+    0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00, 0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+    0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00, 0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+    0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00, 0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+    0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00, 0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+    0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00, 0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+    0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00, 0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+    0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00, 0x00,0x00,0x00,0x00,0x00,0x00
+]))
 eip_tests			= [
             ( b'', {} ),        # test that parsers handle/reject empty/EOF
             ( rss_004_request,	{ 'enip.command': 0x0065, 'enip.length': 4 }),
@@ -422,6 +499,7 @@ eip_tests			= [
             ( rfg_001_reply,	{} ),
             ( rfg_002_request,	{} ),
             ( rfg_002_reply,	{} ),
+            ( rtg_001_reply,	{} ),
 ]
 
 def test_enip_header():
@@ -447,13 +525,14 @@ def test_enip_header():
         for k,v in tst.items():
             assert data[k] == v
 
-
+@pytest.mark.skipif( is_pypy, reason="Not yet supported under PyPy" )
 def test_enip_machine():
+    ENIP			= enip.enip_machine( context='enip' )
     for pkt,tst in eip_tests:
         # Parse the headers and encapsulated command data
         data			= cpppo.dotdict()
         source			= cpppo.chainable( pkt )
-        with enip.enip_machine() as machine:
+        with ENIP as machine:
             for i,(m,s) in enumerate( machine.run( source=source, data=data )):
                 log.info( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r",
                           machine.name_centered(), i, s, source.sent, source.peek(), data )
@@ -1380,16 +1459,42 @@ CIP_tests			= [
                     "enip.session_handle": 285351425, 
                     "enip.status": 0
                 }
+          ), (
+            rtg_001_reply,
+            {
+                "enip.session_handle": 4126743718,
+                "enip.command": 111,
+                "enip.status": 0,
+                "enip.length": 422,
+                "enip.options": 0,
+                "enip.CIP.send_data.CPF.item[0].length": 0,
+                "enip.CIP.send_data.CPF.item[0].type_id": 0,
+                "enip.CIP.send_data.CPF.item[1].length": 406,
+                "enip.CIP.send_data.CPF.item[1].type_id": 178,
+                "enip.CIP.send_data.CPF.item[1].unconnected_send.request.service": 204,
+                "enip.CIP.send_data.CPF.item[1].unconnected_send.request.status_ext.size": 0,
+                "enip.CIP.send_data.CPF.item[1].unconnected_send.request.read_tag.type": 195,
+                "enip.CIP.send_data.CPF.item[1].unconnected_send.request.read_tag.data": [ 0 ] * 200,
+                "enip.CIP.send_data.CPF.item[1].unconnected_send.request.status": 0,
+                "enip.CIP.send_data.CPF.count": 2,
+                "enip.CIP.send_data.interface": 0,
+                "enip.CIP.send_data.timeout": 0,
+            }
           ),
 ]
   
 
-def test_enip_CIP():
-    for pkt,tst in CIP_tests:
+def test_enip_CIP( repeat=10 ):
+    """Most of CIP parsing run-time overhead is spent inside 'run'.
+    """
+    ENIP			= enip.enip_machine( context='enip' )
+    CIP				= enip.CIP()
+    for _ in range( repeat ):
+      for pkt,tst in CIP_tests:
         # Parse just the CIP portion following the EtherNet/IP encapsulation header
         data			= cpppo.dotdict()
         source			= cpppo.chainable( pkt )
-        with enip.enip_machine( context='enip' ) as machine:
+        with ENIP as machine:
             for i,(m,s) in enumerate( machine.run( source=source, data=data )):
                 log.detail( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r",
                           machine.name_centered(), i, s, source.sent, source.peek(), data )
@@ -1399,18 +1504,20 @@ def test_enip_CIP():
             log.normal( "EtherNet/IP Request: Empty (session terminated): %s", enip.enip_format( data ))
             continue
 
-        log.normal( "EtherNet/IP Request: %s", enip.enip_format( data ))
+        if log.getEffectiveLevel() <= logging.NORMAL:
+            log.normal( "EtherNet/IP Request: %s", enip.enip_format( data ))
             
         # Parse the encapsulated .input
 
         data.enip.encapsulated	= cpppo.dotdict()
         
-        with enip.CIP() as machine:
+        with CIP as machine:
             for i,(m,s) in enumerate( machine.run( path='enip', source=cpppo.peekable( data.enip.get( 'input', b'' )), data=data )):
                 log.detail( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r",
                           machine.name_centered(), i, s, source.sent, source.peek(), data )
 
-        log.normal( "EtherNet/IP CIP Request: %s", enip.enip_format( data ))
+        if log.getEffectiveLevel() <= logging.NORMAL:
+            log.normal( "EtherNet/IP CIP Request: %s", enip.enip_format( data ))
 
         # Assume the request in the CIP's CPF items are Logix requests.
         # Now, parse the encapsulated message(s).  We'll assume it is destined for a Logix Object.
@@ -1421,9 +1528,10 @@ def test_enip_CIP():
                     # An Unconnected Send that contained an encapsulated request (ie. not just a Get
                     # Attribute All)
                     with Lx.parser as machine:
-                        log.normal( "Parsing %3d bytes using %s.parser, from %s", 
-                                    len( item.unconnected_send.request.input ),
-                                    Lx, enip.enip_format( item ))
+                        if log.getEffectiveLevel() <= logging.NORMAL:
+                            log.normal( "Parsing %3d bytes using %s.parser, from %s", 
+                                        len( item.unconnected_send.request.input ),
+                                        Lx, enip.enip_format( item ))
                         # Parse the unconnected_send.request.input octets, putting parsed items into the
                         # same request context
                         for i,(m,s) in enumerate( machine.run(
@@ -1431,9 +1539,10 @@ def test_enip_CIP():
                                 data=item.unconnected_send.request )):
                             log.detail( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r",
                                         machine.name_centered(), i, s, source.sent, source.peek(), data )
-                        log.normal( "Parsed  %3d bytes using %s.parser, into %s", 
-                                    len( item.unconnected_send.request.input ),
-                                    Lx, enip.enip_format( data ))
+                        if log.getEffectiveLevel() <= logging.NORMAL:
+                            log.normal( "Parsed  %3d bytes using %s.parser, into %s", 
+                                        len( item.unconnected_send.request.input ),
+                                        Lx, enip.enip_format( data ))
 
         try:
             for k,v in tst.items():
@@ -1837,10 +1946,32 @@ def test_enip_bench_logix():
 
 if __name__ == "__main__":
     '''
+    # Profile using line_profiler, and kernprof.py -v -l enip_test.py
+    test_enip_CIP( 10 )
+    '''
+
+    '''
+    # Profile the main thread using cProfile
+    import cProfile
+    import pstats
+    prof_file			= "enip_test.profile"
+    cProfile.run( "test_enip_CIP( 10 )", prof_file )
+    prof			= pstats.Stats( prof_file )
+    print( "\n\nTIME:")
+    prof.sort_stats(  'time' ).print_stats( 100 )
+
+    print( "\n\nCUMULATIVE:")
+    prof.sort_stats(  'cumulative' ).print_stats( 100 )
+    '''
+
+    '''
     import yappi
     yappi.start()
     '''
+
+    '''
     test_enip_bench_logix()
+    '''
     '''
     print( "\nFunction Total:" )
     yappi.print_stats( sys.stdout, yappi.SORTTYPE_TTOTAL )

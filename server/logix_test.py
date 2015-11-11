@@ -4,9 +4,16 @@ from __future__ import division
 
 import logging
 import os
+import platform
+import pytest
 import sys
 import threading
 import time
+
+is_pypy				= platform.python_implementation() == "PyPy"
+
+# for @profile, kernprof.py -v -l enip_test.py
+#from line_profiler import LineProfiler
 
 if __name__ == "__main__":
     # Allow relative imports when executing within package directory, for
@@ -575,9 +582,41 @@ def test_logix_multiple():
     assert data.input == rpy_bad, \
         "Unexpected reply from Multiple Request Service request for SCADA_40001/2; got: \n%r\nvs.\n%r " % ( data.input, rpy_bad )
 
+#@profile
+def logix_test_once( obj, req ):
+    req_source			= cpppo.peekable( req )
+    req_data 			= cpppo.dotdict()
+    with obj.parser as machine:
+        for m,s in machine.run( source=req_source, data=req_data ):
+            pass
+    if log.isEnabledFor( logging.NORMAL ):
+        log.normal( "Logix Request parsed: %s", enip.enip_format( req_data ))
+    
+    # If we ask a Logix Object to process the request, it should respond.
+    processed			= obj.request( req_data )
+    if log.isEnabledFor( logging.NORMAL ):
+        log.normal( "Logix Request processed: %s", enip.enip_format( req_data ))
+
+    # And, the same object should be able to parse the request's generated reply
+    rpy_source			= cpppo.peekable( bytes( req_data.input ))
+    rpy_data			= cpppo.dotdict()
+    with obj.parser as machine:
+        for i,(m,s) in enumerate( machine.run( source=rpy_source, data=rpy_data )):
+            if log.isEnabledFor( logging.INFO ):
+                log.info( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r", m.name_centered(),
+                          i, s, rpy_source.sent, rpy_source.peek(), rpy_data )
+
+    if log.isEnabledFor( logging.NORMAL ):
+        log.normal( "Logix Reply   processed: %s", enip.enip_format( rpy_data ))
+
+    return processed,req_data,rpy_data
+
 
 def logix_performance( repeat=1000 ):
-    """Characterize the performance of the logix module."""
+    """Characterize the performance of the logix module, parsing and processing a large request, and
+    then parsing the reply.  No network I/O is involved.
+
+    """
     Obj				= enip.device.lookup( enip.device.Message_Router.class_id, instance_id=1 )
     if not isinstance( Obj, logix.Logix ):
         if Obj is not None:
@@ -592,47 +631,34 @@ def logix_performance( repeat=1000 ):
     # Set up a symbolic tag referencing the Logix Object's Attribute
     enip.device.symbol['SCADA']	= {'class': Obj.class_id, 'instance': Obj.instance_id, 'attribute':1 }
 
-    # Lets get it to parse a request:
+    # Lets get it to parse a request, resulting in a 200 element response:
     #     'service': 			0x52,
     #     'path.segment': 		[{'symbolic': 'SCADA', 'length': 5}],
-    #     'read_frag.elements':		20,
+    #     'read_frag.elements':		201,
     #     'read_frag.offset':		2,
 
     req_1	 		= bytes(bytearray([
         0x52, 0x04, 0x91, 0x05, 0x53, 0x43, 0x41, 0x44, #/* R...SCAD */
-        0x41, 0x00, 0x14, 0x00, 0x02, 0x00, 0x00, 0x00, #/* A....... */
+        0x41, 0x00, 0xC9, 0x00, 0x02, 0x00, 0x00, 0x00, #/* A....... */
     ]))
 
-    def test_once():
-        source			= cpppo.peekable( req_1 )
-        data 			= cpppo.dotdict()
-        with Obj.parser as machine:
-            for m,w in machine.run( source=source, data=data ):
-                pass
-        log.normal( "Logix Request parsed: %s", enip.enip_format( data ))
-        
-        # If we ask a Logix Object to process the request, it should respond.
-        processed		= Obj.request( data )
-        log.normal( "Logix Request processed: %s", enip.enip_format( data ))
-        return processed, data
-
-    processed, data		= False, None
+    proc,req_data,rpy_data	= False,None,None
     while repeat > 0:
-        processed, data		= test_once()
+        proc,req_data,rpy_data	= logix_test_once( Obj, req_1 )
         repeat		       -= 1
 
-    assert data.status == 0
-    assert len( data.read_frag.data ) == 19
-    assert data.read_frag.data[ 0] == 1
-    assert data.read_frag.data[-1] == 19
+    assert rpy_data.status == 0
+    assert len( rpy_data.read_frag.data ) == 200
+    assert rpy_data.read_frag.data[ 0] == 1
+    assert rpy_data.read_frag.data[-1] == 200
 
 
 # This number of repetitions is the point where the performance of pypy 2.1
 # intersects with cpython 2.7/3.3 on my platform (OS-X 10.8 on a 2.3GHz i7:
 # ~380TPS on a single thread.  Set thresholds low, for tests on slow hosts.
-repetitions=2500
+repetitions=250
 
-@cpppo.assert_tps( 150, scale=repetitions )
+@cpppo.assert_tps( 10, scale=repetitions )
 def test_logix_performance():
     """Performance of parsing and executing an operation a number of times on an
     existing Logix object.
@@ -640,7 +666,7 @@ def test_logix_performance():
     """
     logix_performance( repeat=repetitions )
 
-@cpppo.assert_tps( 150, repeat=repetitions )
+@cpppo.assert_tps( 10, repeat=repetitions )
 def test_logix_setup():
     """Performance of parsing and executing an operation once on a newly created
     Logix object, a number of times.
@@ -657,6 +683,7 @@ rss_004_request 		= bytes(bytearray([
     0x00, 0x00                                      #/* .. */
 ]))
 
+@pytest.mark.skipif( is_pypy, reason="Not yet supported under PyPy" )
 def test_logix_remote( count=100 ):
     """Performance of executing an operation a number of times on a socket connected
     Logix simulator, within the same Python interpreter (ie. all on a single CPU
@@ -741,7 +768,7 @@ def logix_remote( count, svraddr, kwargs ):
         for _ in range( count ):
             begun		= cpppo.timer()
             cli.read( path=[{'symbolic': 'SCADA'}, {'element': 12}],
-                      elements=1, offset=0, timeout=timeout )
+                      elements=201, offset=2, timeout=timeout )
             data,elapsed	= client.await( cli, timeout=timeout )
             log.normal( "Client ReadFrg. Rcvd %7.3f/%7.3fs: %r", elapsed, timeout, data )
 
@@ -786,10 +813,34 @@ if __name__ == "__main__":
     print('\n\nSORTED BY SUB TIME')
     yappi.print_stats( sys.stdout, sort_type=yappi.SORTTYPE_TSUB, limit=100 )
     '''
+
+    # To profile using line_profiler: kernprof.py -v -l logix_test.py
+    repetitions=250
     count			= repetitions
+
     start			= cpppo.timer()
     logix_performance( repeat=count )
     duration			= cpppo.timer() - start
     log.warning( "Local  ReadFrg. Average %7.3f TPS (%7.3fs ea)." % ( count / duration, duration / count ))
 
-    test_logix_remote( count=100 )
+    '''
+
+    # Profile the main thread
+    import cProfile
+    import pstats
+    prof_file			= "logix_test.profile"
+
+    start			= cpppo.timer()
+    cProfile.run( "logix_performance( repeat=%d )" % repetitions, prof_file )
+    duration			= cpppo.timer() - start
+    log.warning( "Local  ReadFrg. Average %7.3f TPS (%7.3fs ea)." % ( count / duration, duration / count ))
+
+    prof			= pstats.Stats( prof_file )
+    print( "\n\nTIME:")
+    prof.sort_stats(  'time' ).print_stats( 100 )
+    print( "\n\nCUMULATIVE:")
+    prof.sort_stats(  'cumulative' ).print_stats( 100 )
+    '''
+
+#    test_logix_remote( count=100 )
+
