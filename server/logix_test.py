@@ -4,9 +4,13 @@ from __future__ import division
 
 import logging
 import os
+import platform
+import pytest
 import sys
 import threading
 import time
+
+is_pypy				= platform.python_implementation() == "PyPy"
 
 # for @profile, kernprof.py -v -l enip_test.py
 #from line_profiler import LineProfiler
@@ -679,6 +683,7 @@ rss_004_request 		= bytes(bytearray([
     0x00, 0x00                                      #/* .. */
 ]))
 
+@pytest.mark.skipif( is_pypy, reason="Not yet supported under PyPy" )
 def test_logix_remote( count=100 ):
     """Performance of executing an operation a number of times on a socket connected
     Logix simulator, within the same Python interpreter (ie. all on a single CPU
