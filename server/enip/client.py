@@ -322,7 +322,7 @@ class client( object ):
     to parse alternative sub-dialects of EtherNet/IP.
 
     """
-    def __init__( self, host, port=None, timeout=None, dialect=logix.Logix ):
+    def __init__( self, host, port=None, timeout=None, dialect=logix.Logix, profiler=None ):
         """Connect to the EtherNet/IP client, waiting  """
         self.addr               = (host if host is not None else enip.address[0],
                                    port if port is not None else enip.address[1])
@@ -357,6 +357,9 @@ class client( object ):
             device.dialect	= dialect
         assert device.dialect is dialect, \
                 "Inconsistent EtherNet/IP dialect requested: %r (vs. default: %r)" % ( dialect, device.dialect )
+        # If provided, we'll disable/enable a profiler around the I/O code, to avoid corrupting the
+        # profile data with arbitrary I/O related delays
+        self.profiler		= profiler
 
     def close( self ):
         """The lifespan of an EtherNet/IP CIP client connection is defined by client.__init__() and client.close()"""
@@ -408,20 +411,26 @@ class client( object ):
         # here after already having issued a non-transition event from the existing EtherNet/IP
         # framer engine -- we can't re-enter the engine w/o getting some more input.
         if self.source.peek() is None:
-            rcvd		= network.recv( self.conn, timeout=0 )
-            log.debug(
-                "EtherNet/IP-->%16s:%-5d rcvd %5d: %r",
-                self.addr[0], self.addr[1], len( rcvd ) if rcvd is not None else 0, rcvd )
-            if rcvd is not None:
-                # Some input (or EOF); source is empty; chain the input and drop back into 
-                # the framer engine.  It will detect a no-progress condition on EOF.
-                self.source.chain( rcvd )
-            else:
-                # Don't create parsing engine 'til we have some I/O to process.  This avoids the
-                # degenerate situation where empty I/O (EOF) always matches the empty command (used
-                # to indicate the end of an EtherNet/IP session).
-                if self.engine is None:
-                    return None
+            if self.profiler:
+                self.profiler.disable()
+            try:
+                rcvd		= network.recv( self.conn, timeout=0 )
+                log.debug(
+                    "EtherNet/IP-->%16s:%-5d rcvd %5d: %r",
+                    self.addr[0], self.addr[1], len( rcvd ) if rcvd is not None else 0, rcvd )
+                if rcvd is not None:
+                    # Some input (or EOF); source is empty; chain the input and drop back into 
+                    # the framer engine.  It will detect a no-progress condition on EOF.
+                    self.source.chain( rcvd )
+                else:
+                    # Don't create parsing engine 'til we have some I/O to process.  This avoids the
+                    # degenerate situation where empty I/O (EOF) always matches the empty command (used
+                    # to indicate the end of an EtherNet/IP session).
+                    if self.engine is None:
+                        return None
+            finally:
+                if self.profiler:
+                    self.profiler.enable()
 
         # Initiate or continue parsing input using the machine's engine; discard the engine at
         # termination or on error (Exception).  Any exception (including cpppo.NonTerminal) will be
@@ -444,6 +453,7 @@ class client( object ):
                          self.addr[0], self.addr[1], str( exc ))
             self.engine		= None
             raise
+
         if self.frame.terminal:
             log.info( "EtherNet/IP   %16s:%-5d done: %s -> %10.10s; next byte %3d: %-10.10r: %r",
                         self.addr[0], self.addr[1], self.frame.name_centered(), self.frame.current, 
@@ -491,13 +501,24 @@ class client( object ):
             "EtherNet/IP-->%16s:%-5d send %5d: %r",
                     self.addr[0], self.addr[1], len( request ), sent )
 
-
     def writable( self, timeout=None ):
-        r, w, e			= select.select( [], [self.conn.fileno()], [], timeout )
+        if self.profiler:
+            self.profiler.disable()
+        try:
+            r, w, e		= select.select( [], [self.conn.fileno()], [], timeout )
+        finally:
+            if self.profiler:
+                self.profiler.enable()
         return len( w ) > 0
 
     def readable( self, timeout=None ):
-        r, w, e			= select.select( [self.conn.fileno()], [], [], timeout )
+        if self.profiler:
+            self.profiler.disable()
+        try:
+            r, w, e		= select.select( [self.conn.fileno()], [], [], timeout )
+        finally:
+            if self.profiler:
+                self.profiler.enable()
         return len( r ) > 0
 
     def register( self, timeout=None, sender_context=b'' ):
@@ -673,8 +694,13 @@ class client( object ):
                   len( sd.input ) - len( us.request.input ),
                   len( us.request.input ),
                   len( data.input ))
-
-        self.send( data.input, timeout=timeout )
+        if self.profiler:
+            self.profiler.disable()
+        try:
+            self.send( data.input, timeout=timeout )
+        finally:
+            if self.profiler:
+                self.profiler.enable()
         return data
 
 
@@ -892,7 +918,13 @@ class connector( client ):
 
         """
         while True:
-            response,elapsed	= await( self, timeout=timeout )
+            if self.profiler:
+                self.profiler.disable()
+            try:
+                response,elapsed	= await( self, timeout=timeout )
+            finally:
+                if self.profiler:
+                    self.profiler.enable()
             if log.isEnabledFor( logging.DETAIL ):
                 log.detail( "Rcvd %7.3f/%7.3fs %s", elapsed,
                             cpppo.inf if timeout is None else timeout,
@@ -1258,16 +1290,13 @@ provided.""" )
     ap.add_argument( '-f', '--fragment', dest='fragment', action='store_true',
                      default=False,
                      help="Always use Read/Write Tag Fragmented requests (default: False)" )
+    ap.add_argument( '-P', '--profile', action='store_true',
+                     help="Activate profiling (default: False)" )
     ap.add_argument( 'tags', nargs="+",
                      help="Tags to read/write (- to read from stdin), eg: SCADA[1], SCADA[2-10]+4=(DINT)3,4,5" )
 
     args			= ap.parse_args( argv )
 
-    addr			= args.address.split(':')
-    assert 1 <= len( addr ) <= 2, "Invalid --address [<interface>]:[<port>}: %s" % args.address
-    addr			= ( str( addr[0] ) if addr[0] else enip.address[0],
-                                    int( addr[1] ) if len( addr ) > 1 and addr[1] else enip.address[1] )
-    
     # Set up logging level (-v...) and --log <file>
     levelmap 			= {
         0: logging.WARNING,
@@ -1284,6 +1313,10 @@ provided.""" )
 
     logging.basicConfig( **cpppo.log_cfg )
 
+    addr			= args.address.split(':')
+    assert 1 <= len( addr ) <= 2, "Invalid --address [<interface>]:[<port>}: %s" % args.address
+    addr			= ( str( addr[0] ) if addr[0] else enip.address[0],
+                                    int( addr[1] ) if len( addr ) > 1 and addr[1] else enip.address[1] )
     timeout			= float( args.timeout )
     repeat			= int( args.repeat )
     depth			= int( args.depth )
@@ -1300,9 +1333,16 @@ provided.""" )
     else:
         tags			= args.tags
 
+    profiler			= None
+    if args.profile:
+        import cProfile as profile
+        import pstats
+        import StringIO
+        profiler		= profile.Profile()
+
     # Register and EtherNet/IP CIP connection to a Controller
     begun			= cpppo.timer()
-    with connector( host=addr[0], port=addr[1], timeout=timeout ) as connection:
+    with connector( host=addr[0], port=addr[1], timeout=timeout, profiler=profiler ) as connection:
         elapsed			= cpppo.timer() - begun
         log.detail( "Client Register Rcvd %7.3f/%7.3fs" % ( elapsed, timeout ))
     
@@ -1316,6 +1356,14 @@ provided.""" )
         elapsed			= cpppo.timer() - begun
         log.normal( "Client Tag I/O  Average %7.3f TPS (%7.3fs ea)." % (
             len( transactions ) / elapsed, elapsed / len( transactions )))
+
+    if profiler:
+        s			= StringIO.StringIO()
+        ps			= pstats.Stats( profiler, stream=s )
+        for sortby in [ 'cumulative', 'time' ]:
+            ps.sort_stats( sortby )
+            ps.print_stats( 25 )
+        print( s.getvalue() )
 
     return 1 if failures else 0
 
