@@ -241,6 +241,26 @@ class modbus_server_tcp( ModbusTcpServer ):
         # NOT a new-style class (due to SocketServer.ThreadingTCPServer); no super(...)
         ModbusTcpServer.__init__( self, *args, **kwds )
 
+    def get_request( self ):
+        """Configure each accepted Client socket with TCP_NODELAY and SO_KEEPALIVE, to maximize thruput
+        and ensure detection of zombie TCP/IP connections where the final FIN or RST was dropped.
+
+        """
+        conn,addr		= ModbusTcpServer.get_request( self )
+        try:
+            conn.setsockopt( socket.IPPROTO_TCP, socket.TCP_NODELAY, 1 )
+        except Exception as exc:
+            logging.warning( "Couldn't set TCP_NODELAY on socket to Modbust/TCP client at %s:%s: %s",
+                         addr[0], addr[1], exc )
+        try:
+            conn.setsockopt( socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1 )
+        except Exception as exc:
+            logging.warning( "Couldn't set SO_KEEPALIVE on socket to Modbus/TCP client at %s:%s: %s",
+                         addr[0], addr[1], exc )
+        logging.info( "Set TCP_NODELAY and SO_KEEPALIVE on socket to Modbus/TCP client at %s:%s",
+                      addr[0], addr[1] )
+        return conn,addr
+
     def serve_forever( self, poll_interval=.5 ):
         self._BaseServer__is_shut_down.clear()
         try:

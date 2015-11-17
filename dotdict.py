@@ -104,17 +104,19 @@ class dotdict( dict ):
 
     _resolve_cache		= {}
     def _resolve( self, key ):
-        """Return next segment in key as (mine, rest), solving for any '..'
-        back-tracking.  If key begins/ends with ., or too many .. are used, the
-        key will end up prefixed by ., 'mine' will end up '', raising KeyError."""
+        """Return next segment in key as (mine, rest), solving for any '..'  back-tracking.  If key
+        begins/ends with ., or too many .. are used, the key will end up prefixed by ., 'mine' will
+        end up '', raising KeyError.  Avoid calling if there are no '.' in key.
+
+        """
         tpl			= dotdict._resolve_cache.get( key, None )
         if tpl:
             return tpl
 
-        mine, rest		= key, None
         # Process '..' back-tracking
         #     'a.b..c'     ==> 'a.c'  ; split == ['a.b',   'c'  ]
         #     'a.b.c...d'  ==> 'a.d'  ; split == ['a.b.c', '.d' ]
+        mine, rest 		= key, None
         while '..' in mine:
             front, back		= mine.split( '..', 1 )
             trunc		= front[:max(0,front.rfind('.'))]
@@ -144,7 +146,7 @@ class dotdict( dict ):
 
     def __setitem__( self, key, value ):
         """Assign a value to an item. """
-        mine, rest          	= self._resolve( key )
+        mine,rest		= self._resolve( key ) if '.' in key else (key,None)
         if rest:
             if '[' in mine:
                 # If indexing used in path down to target, must be pre-existing values
@@ -185,7 +187,7 @@ class dotdict( dict ):
 
         Note also that the hasattr builtin used getattr to identify the existence of attributes; it
         must return AttributeError if the attribute doesn't exist."""
-        mine, rest              = self._resolve( key )
+        mine,rest		= self._resolve( key ) if '.' in key else (key,None)
         if '[' in mine:
             target              = eval( mine, {'__builtins__':{}}, self )
         else:
@@ -193,10 +195,11 @@ class dotdict( dict ):
         if rest is None:
             return target
         # We have the rest of the levels to go; must have addressed another dotdict level (or
-        # something else that is subscriptable). 
-        if not hasattr( target, '__getitem__' ):
+        # something else that is subscriptable).
+        getter			= getattr( target, '__getitem__', None )
+        if getter is None:
             raise KeyError( 'cannot get "%s" in "%s" (%r); not subscriptable' % ( rest, mine, target ))
-        return target[rest]
+        return getter( rest )
 
     def __getattr__( self, key ):
         try:
@@ -241,7 +244,7 @@ class dotdict( dict ):
             if 0 == len( target ):
                 dict.__delitem__( self, mine )
         """
-        mine, rest		= self._resolve( key )
+        mine,rest		= self._resolve( key ) if '.' in key else (key,None)
         #logging.debug("del %s, from: %s (in %r)", rest, mine, self )
         # will raise KeyError if no such key...
         target			= self[mine]
@@ -256,7 +259,7 @@ class dotdict( dict ):
         """Pop doesn't take keyword args, but default is optional.  So, we can only
         override this by capturing args."""
         key			= args[0]
-        mine, rest              = self._resolve( key )
+        mine,rest		= self._resolve( key ) if '.' in key else (key,None)
         if rest is None:
             return dict.pop( self, mine, *args[1:] )
         target                  = dict.__getitem__( self, mine )

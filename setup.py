@@ -13,6 +13,7 @@ exec( open( 'version.py', 'r' ).read() )
 console_scripts			= [
     'enip_server	= cpppo.server.enip.main:main',
     'enip_client	= cpppo.server.enip.client:main',
+    'enip_getattr	= cpppo.server.enip.getattr:main',
 ]
 if sys.version_info[0:2] < (3,0):
     console_scripts	       += [
