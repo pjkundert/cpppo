@@ -24,7 +24,7 @@ __email__                       = "perry@hardconsulting.com"
 __copyright__                   = "Copyright (c) 2013 Hard Consulting Corporation"
 __license__                     = "Dual License: GPLv3 (or later) and Commercial (see LICENSE)"
 
-__all__				= ['main']
+__all__				= ['attribute_operations', 'main']
 
 """Get Attributes (Single/All) from a target EtherNet/IP CIP device.
 
@@ -34,13 +34,13 @@ __all__				= ['main']
     $ python -m cpppo.server.enip.getattr -a controller '@2/1'
 
 Object class identifiers are divided into two types of open objects: publicly defined (ranging from
-0x00 – 0x63 and 0x00F0 – 0x02FF) and vendor-specific objects (ranging from 0x64 – 0xC7 and 0x0300 –
+0x00 - 0x63 and 0x00F0 - 0x02FF) and vendor-specific objects (ranging from 0x64 - 0xC7 and 0x0300 -
 0x04FF). All other class identifiers are reserved for future use. In some cases, e.g., within the
 assembly object class, instance identifiers are divided into two types of open instances: publicly
-defined (ranging from 0x01 – 0x63 and 0x0100 – 0x02FF) and vendor-specific (ranging from 0x64 – 0xC7
-and 0x0300 – 0x04FF). All other instance identifiers are reserved for future use. Attribute
-identifiers are divided into two types of open attributes: publicly defined (ranging from 0x00 –
-0x63) and vendor-specific (ranging from 0x64 – 0xC7). All other attribute identifiers are reserved
+defined (ranging from 0x01 - 0x63 and 0x0100 - 0x02FF) and vendor-specific (ranging from 0x64 - 0xC7
+and 0x0300 - 0x04FF). All other instance identifiers are reserved for future use. Attribute
+identifiers are divided into two types of open attributes: publicly defined (ranging from 0x00 -
+0x63) and vendor-specific (ranging from 0x64 - 0xC7). All other attribute identifiers are reserved
 for future use. While vendor-specific objects can be created with a great deal of flexibility, these
 objects must adhere to certain rules specified for CIP, e.g., they can use whatever instance and
 attribute IDs the developer wishes, but their class attributes must follow guidelines detailed in
@@ -59,8 +59,19 @@ from cpppo.server import enip
 from cpppo.server.enip import client
 
 
+def attribute_operations( paths, **kwds ):
+    """Replace any tag/attribute-level operations with Get Attribute Single, otherwise Get Attributes All"""
+    for op in client.parse_operations( paths, **kwds ):
+        path_end		=  op['path'][-1]
+        if 'attribute' in path_end or 'symbolic' in path_end:
+            op['method'] = 'get_attribute_single'
+        else:
+            op['method'] = 'get_attributes_all'
+        yield op
+
+
 def main( argv=None ):
-    """Get Attriburte(s) Single/All the specified Instance or Attribute level address(es)"""
+    """Get Attribute(s) Single/All the specified Instance or Attribute level address(es)"""
     ap				= argparse.ArgumentParser()
     ap.add_argument( '-a', '--address',
                      default=( "%s:%d" % enip.address ),
@@ -121,16 +132,6 @@ def main( argv=None ):
         tags			= itertools.chain( args.tags[:minus], sys.stdin, args.tags[minus+1:] )
     else:
         tags			= args.tags
-
-    def attribute_operations( paths, **kwds ):
-        """Replace any attribute-level operations with Get Attribute Single, otherwise Get Attributes All"""
-        for op in client.parse_operations( paths, **kwds ):
-            path_end		=  op['path'][-1]
-            if 'attribute' in path_end or 'symbolic' in path_end:
-                op['method'] = 'get_attribute_single'
-            else:
-                op['method'] = 'get_attributes_all'
-            yield op
 
     profiler			= None
     if args.profile:
