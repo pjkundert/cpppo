@@ -556,6 +556,9 @@ def test_enip_machine():
         if data:
             assert enip.enip_encode( data.enip ) == pkt, "Invalid data: %r" % data
 
+extpath_0		= bytes(bytearray([
+    0x00,						# 0 words
+]))
 extpath_1		= bytes(bytearray([
     0x01,						# 1 word
     0x28, 0x01,   					# 8-bit element segment == 1
@@ -667,6 +670,9 @@ extpath_9		= bytes(bytearray([
 # The byte order of EtherNet/IP CIP data is little-endian; the lowest-order byte
 # of the value arrives first.
 extpath_tests			= [
+            ( extpath_0, enip.EPATH,	{
+                'request.EPATH.size': 0,
+            } ),
             ( extpath_1, enip.EPATH,	{
                 'request.EPATH.size': 1,
                 'request.EPATH.segment': [{'element': 1}]

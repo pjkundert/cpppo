@@ -499,7 +499,8 @@ class EPATH( cpppo.dfa ):
         name 			= name or kwds.setdefault( 'context', self.__class__.__name__ )
 
         # Get the size, and chain remaining machine onto rest.  When used as a Route Path, the size
-        # is padded, so insert a state to drop the pad, and chain rest to that instead.
+        # is padded, so insert a state to drop the pad, and chain rest to that instead.  We handle a
+        # Route Path with a zero size; it'll be empty, except for the size.
         size		= rest	= USINT(			context='size' )
         if self.PADSIZE:
             size[True]	= rest	= octets_drop( 	'pad', 		repeat=1 )
@@ -694,10 +695,12 @@ class EPATH( cpppo.dfa ):
     
         Optionally pad the size (eg. for Route Paths).
 
+        An Falsey 'data' results in an EPATH indicating a 0 size.
+
         """
         
         result			= b''
-        for seg in data.segment:
+        for seg in data.segment if data and 'segment' in data else []: # handles empty path
             found			= False
             for segnam, segtyp in cls.SEGMENTS.items():
                 if segnam not in seg:
@@ -846,7 +849,7 @@ class unconnected_send( cpppo.dfa ):
             result	       += octets_encode( data.request.input )
             if len( data.request.input ) % 2:
                 result	       += b'\x00'
-            result	       += route_path.produce( data.route_path )
+            result	       += route_path.produce( data.get( 'route_path', {} ))
         else:
             # Not an Unconnected Send; just return the encapsulated request.input payload
             result	       += octets_encode( data.request.input )

@@ -125,7 +125,8 @@ def main( argv=None ):
     def attribute_operations( paths, **kwds ):
         """Replace any attribute-level operations with Get Attribute Single, otherwise Get Attributes All"""
         for op in client.parse_operations( paths, **kwds ):
-            if 'attribute' in op['path'][-1]:
+            path_end		=  op['path'][-1]
+            if 'attribute' in path_end or 'symbolic' in path_end:
                 op['method'] = 'get_attribute_single'
             else:
                 op['method'] = 'get_attributes_all'

@@ -112,6 +112,16 @@
     To print a summary of PLC I/O to stdout:
     : -p|--print
 
+    To specify and check for a specific route_path in incoming Unconnected Send
+    requests, provide one in JSON format; the default is to ignore the specified
+    route_path.  It must be a list containing one dict, usually specifying a
+    =link= and =port= value.  The =link= is typically in the range 0-15, and the
+    =port= is either an 8- or 16-bit number, or an IP address.  To specify that no
+    route_path is accepted (ie. only an empty route_path is allowed), use 0 or false:
+    : --route-path '[{"link": 0, "port": 1}]'
+    : --route-path '[{"link": 0, "port": "192.168.1.2"}]'
+    : --route-path false
+
     You may specify as many tags as you like on the command line; at least one
     is required:
     : <tag>=<type>[<length>]   # eg. SCADA=INT[1000]
@@ -219,6 +229,16 @@
 
     Specify a number of times to repeat the specified operations:
     : -r|--repeat #
+
+    To specify an Unconnected Send route_path (other than the default '[{"link":
+    0}, "port": 1}]", which is a guess at the location of a *Logix controller in
+    a typical backplane), provide one in JSON format.  It must be a list
+    containing one dict, usually specifying a =link= and =port= value.  The
+    =link= is typically in the range 0-15, and the =port= is either an 8- or
+    16-bit number, or an IP address.  To specify no route_path, use 0 or false:
+    : --route-path '[{"link": 0, "port": 1}]'
+    : --route-path '[{"link": 0, "port": "192.168.1.2"}]'
+    : --route-path false
 
     To send log output to a file (limited to 10MB, rotates through 5 copies):
     : -l|--log <file>

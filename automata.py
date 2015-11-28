@@ -40,7 +40,7 @@ log				= logging.getLogger( __package__ )
 log_cfg				= {
     "level":	logging.WARNING,
     "datefmt":	'%m-%d %H:%M:%S',
-    "format":	'%(asctime)s.%(msecs).03d %(thread)16x %(name)-8.8s %(levelname)-8.8s %(funcName)-10.10s %(message)s',
+    "format":	'%(asctime)s.%(msecs).03d %(threadName)10.10s %(name)-8.8s %(levelname)-8.8s %(funcName)-10.10s %(message)s',
 }
 
 # Python2/3 compatibility types, for ascii/unicode str type

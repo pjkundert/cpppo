@@ -34,7 +34,8 @@ USAGE
 
 """
 
-__all__				= ['main', 'address', 'timeout', 'latency']
+__all__				= ['main', 'address', 'timeout', 'latency',
+                                   'route_path_default', 'send_path_default']
 
 import argparse
 import fnmatch
@@ -49,20 +50,17 @@ import time
 import traceback
 
 import cpppo
-from   cpppo.server import network
-
-from . import parser
-from . import logix
-from . import device
+from .. import network
+from . import logix, device, parser
 
 # Globals
 latency				=  0.1 	# network I/O polling (should allow several round-trips)
 timeout				= 20.0	# Await completion of all I/O, thread activity (on many threads)
+address				= ('', 44818)	# The default cpppo.enip.address
+route_path_default		= [{'link': 0, 'port': 1}]
+send_path_default		= [{'class': 6}, {'instance': 1}]
 
 log				= logging.getLogger( "enip.srv" )
-
-# The default cpppo.enip.address
-address				= ('', 44818)
 
 
 # Maintain a global 'options' cpppo.dotdict() containing all our configuration options, configured
@@ -769,8 +767,8 @@ def logrotate_perform():
 # 
 # main		-- Run the EtherNet/IP Controller Simulation
 # 
-def main( argv=None, attribute_class=device.Attribute, identity_class=None, idle_service=None,
-          **kwds ):
+def main( argv=None, attribute_class=device.Attribute, idle_service=None, identity_class=None,
+          UCMM_class=None, message_router_class=None, connection_manager_class=None, **kwds ):
     """Pass the desired argv (excluding the program name in sys.arg[0]; typically pass argv=None, which
     is equivalent to argv=sys.argv[1:], the default for argparse.  Requires at least one tag to be
     defined.
@@ -820,6 +818,10 @@ def main( argv=None, attribute_class=device.Attribute, identity_class=None, idle
     ap.add_argument( '-s', '--size',
                      help="Limit EtherNet/IP encapsulated request size to the specified number of bytes (default: None)",
                      default=None )
+    ap.add_argument( '--route-path',
+                     default=None,
+                     help="Route Path, in JSON, eg. %r (default: None); 0/false to accept only empty route_path" % (
+                         str( json.dumps( route_path_default ))))
     ap.add_argument( '-P', '--profile',
                      help="Output profiling data to a file (default: None)",
                      default=None )
@@ -962,11 +964,29 @@ def main( argv=None, attribute_class=device.Attribute, identity_class=None, idle
         tag_entry.error		= 0x00
         dict.__setitem__( tags, tag_name, tag_entry )
 
-    # Use the Logix simulator by default (unless some other one was supplied as a keyword options to
-    # main(), loaded above into 'options').  This key indexes an immutable value (not another
-    # dotdict layer), so is not available for the web API to report/manipulate.
+    # Use the Logix simulator and all the basic required default CIP message processing classes by
+    # default (unless some other one was supplied as a keyword options to main(), loaded above into
+    # 'options').  This key indexes an immutable value (not another dotdict layer), so is not
+    # available for the web API to report/manipulate.  By default, we'll specify no route_path, so
+    # any request route_path will be accepted.  Otherwise, we'll create a UCMM-derived class with
+    # the specified route_path, which will filter only requests w/ the correct route_path.
     options.setdefault( 'enip_process', logix.process )
-    options.setdefault( 'identity_class', identity_class )
+    if identity_class:
+        options.setdefault( 'identity_class', identity_class )
+    assert not UCMM_class or not args.route_path, \
+        "Specify either a route-path, or a custom UCMM_class; not both"
+    if args.route_path is not None:
+        # Must be JSON, eg. '[{"link"...}]', or '0'/'false' to explicitly specify no route_path
+        # accepted (must be empty in request)
+        class UCMM_class_with_route( device.UCMM ):
+            route_path		= json.loads( args.route_path )
+        UCMM_class		= UCMM_class_with_route
+    if UCMM_class:
+        options.setdefault( 'UCMM_class', UCMM_class )
+    if message_router_class:
+        options.setdefault( 'message_router_class', message_router_class )
+    if connection_manager_class:
+        options.setdefault( 'connection_manager_class', connection_manager_class )
 
     # The Web API
 

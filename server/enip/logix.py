@@ -30,6 +30,7 @@ enip.logix	-- Implements a Logix-like PLC subset
 
 """
 
+import json
 import logging
 import sys
 import threading
@@ -569,12 +570,13 @@ Logix.register_service_parser( number=Logix.WR_FRG_RPY, name=Logix.WR_FRG_NAM + 
 
 
 
-def setup( identity_class=None, tags=None ):
+def setup( **kwds ):
     """Create the required CIP device Objects, return UCMM.  First one in initialize, and don't let
     anyone else proceed 'til complete.  The UCMM isn't really an addressable CIP Object, so we just
     have to return it.
 
-    If an identity_class has been supplied, use it; otherwise, use the default Identity (a Logix PLC).
+    If an {identity,message_router,connection_manager,UCMM}_class keyword has been supplied, use it;
+    otherwise, use the default Identity (of a *Logix PLC).
 
     If a tags dict (or dotdict) is supplied, its key: { 'attribute': <Attribute>, 'error': <int> }
     items are used to initialize the given Tag names.
@@ -582,18 +584,25 @@ def setup( identity_class=None, tags=None ):
     """
     with setup.lock:
         if not setup.ucmm:
-            ( identity_class or Identity )()	# Class 0x01, Instance 1
-            Logix()				# Class 0x02, Instance 1 -- Message Router; knows Logix Tag requests
-            Connection_Manager()		# Class 0x06, Instance 1
+            kwds.get( 'identity_class',
+                      Identity )()		# Class 0x01, Instance 1
+            kwds.get( 'message_router_class',
+                      Logix )()			# Class 0x02, Instance 1 -- Message Router; knows Logix Tag requests
+            kwds.get( 'connection_manager_class',
+                      Connection_Manager )()	# Class 0x06, Instance 1
         
             Unknown_Object()			# Class 0x66, Instance 1 -- Unknown purpose in Logix Controller
 
-            setup.ucmm		= UCMM()
+            setup.ucmm		= kwds.get( 'UCMM_class', UCMM )()
+            if setup.ucmm.route_path:
+                log.normal( "UCMM is restricting request route_path to match: %r",
+                            str( json.dumps( setup.ucmm.route_path )))
+
 
         # If tags are specified, check that we've got them all set up right.  If the tag doesn't exist,
         # add it.  If it's error code doesn't match, change it.  Since it is possible that the Tags
         # and/or their Error codes could change between calls, we check them
-        for key,val in dict.items( tags or {} ): # Don't want dotdict depth-first iteration...
+        for key,val in dict.items( kwds.get( 'tags', {} )): # Don't want dotdict depth-first iteration...
             res			= resolve_tag( key )
             if not res:
                 # A new tag!  Allocate a new attribute ID in the Logix (Message Router).
@@ -677,7 +686,7 @@ def process( addr, data, **kwds ):
 
 
     """
-    ucmm			= setup( identity_class=kwds.get( 'identity_class' ), tags=kwds.get( 'tags' ))
+    ucmm			= setup( **kwds )
 
     source			= automata.rememberable()
     try:

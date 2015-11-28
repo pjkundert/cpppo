@@ -3,7 +3,7 @@ from __future__ import print_function
 from __future__ import division
 
 try:
-    from future_builtings import map, zip
+    from future_builtins import map, zip
 except ImportError:
     pass
 
