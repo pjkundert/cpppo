@@ -60,7 +60,12 @@ from cpppo.server.enip import client
 
 
 def attribute_operations( paths, **kwds ):
-    """Replace any tag/attribute-level operations with Get Attribute Single, otherwise Get Attributes All"""
+    """Replace any tag/attribute-level operations with Get Attribute Single, otherwise Get Attributes
+    All.  This is probably beyond "compability" with *Logix or other CIP devices, as they only allow
+    Read/Write Tag [Fragmented] services to use Tags (Get/Set Attribute Single services require
+    numeric Class, Instance, Attribute addressing).  
+
+    """
     for op in client.parse_operations( paths, **kwds ):
         path_end		=  op['path'][-1]
         if 'attribute' in path_end or 'symbolic' in path_end:

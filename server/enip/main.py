@@ -797,8 +797,7 @@ def main( argv=None, attribute_class=device.Attribute, idle_service=None, identi
         description = "Provide an EtherNet/IP Server",
         epilog = "" )
 
-    ap.add_argument( '-v', '--verbose',
-                     default=0, action="count",
+    ap.add_argument( '-v', '--verbose', default=0, action="count",
                      help="Display logging information." )
     ap.add_argument( '-a', '--address',
                      default=( "%s:%d" % address ),
@@ -808,23 +807,19 @@ def main( argv=None, attribute_class=device.Attribute, idle_service=None, identi
                      help="Print a summary of operations to stdout" )
     ap.add_argument( '-l', '--log',
                      help="Log file, if desired" )
-    ap.add_argument( '-w', '--web',
-                     default="",
+    ap.add_argument( '-w', '--web', default="",
                      help="Web API [interface]:[port] to bind to (default: %s, port 80)" % (
                          address[0] ))
-    ap.add_argument( '-d', '--delay',
-                     help="Delay response to each request by a certain number of seconds (default: 0.0)",
-                     default="0.0" )
+    ap.add_argument( '-d', '--delay', default="0.0" ,
+                     help="Delay response to each request by a certain number of seconds (default: 0.0)")
     ap.add_argument( '-s', '--size',
                      help="Limit EtherNet/IP encapsulated request size to the specified number of bytes (default: None)",
                      default=None )
-    ap.add_argument( '--route-path',
-                     default=None,
+    ap.add_argument( '--route-path', default=None,
                      help="Route Path, in JSON, eg. %r (default: None); 0/false to accept only empty route_path" % (
                          str( json.dumps( route_path_default ))))
-    ap.add_argument( '-P', '--profile',
-                     help="Output profiling data to a file (default: None)",
-                     default=None )
+    ap.add_argument( '-P', '--profile', default=None ,
+                     help="Output profiling data to a file (default: None)" )
     ap.add_argument( 'tags', nargs="+",
                      help="Any tags, their type (default: INT), and number (default: 1), eg: tag=INT[1000]")
 
