@@ -50,13 +50,14 @@ the CIP Volume section of each network specification.
 
 import argparse
 import itertools
+import json
 import logging
 import sys
 
 import cpppo
-from cpppo.history import timestamp
-from cpppo.server import enip
-from cpppo.server.enip import client
+from ...history import timestamp
+from .. import enip
+from . import client
 
 
 def attribute_operations( paths, **kwds ):
@@ -95,7 +96,8 @@ def main( argv=None ):
                      help="Log file, if desired" )
     ap.add_argument( '--route-path',
                      default=None,
-                     help="""Route Path, in JSON, eg. '[{"link":0,"port":0}]' (default: None)""" )
+                     help="Route Path, in JSON (default: %r); 0/false to specify empty route_path" % (
+                         str( json.dumps( client.connector.route_path_default ))))
     ap.add_argument( '--send-path',
                      default=None,
                      help="Send Path to UCMM, eg. '@6/1' (default: None)" )
@@ -128,7 +130,7 @@ def main( argv=None ):
                                     int( addr[1] ) if len( addr ) > 1 and addr[1] else enip.address[1] )
     timeout			= float( args.timeout )
     depth			= int( args.depth )
-    route_path			= json.loads( args.route_path ) if args.route_path else None
+    route_path			= json.loads( args.route_path ) if args.route_path else None # may be None/0/False
     send_path			= args.send_path
 
     if '-' in args.tags:

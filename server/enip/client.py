@@ -1287,7 +1287,7 @@ provided.""" )
     ap.add_argument( '--route-path',
                      default=None,
                      help="Route Path, in JSON (default: %r); 0/false to specify empty route_path" % (
-                         str( json.dumps( client.route_path_default ))))
+                         str( json.dumps( connector.route_path_default ))))
     ap.add_argument( '--send-path',
                      default=None,
                      help="Send Path to UCMM, eg. '@6/1' (default: None)" )
