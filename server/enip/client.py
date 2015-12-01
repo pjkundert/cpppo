@@ -346,7 +346,7 @@ class client( object ):
             log.warning( "Couldn't set SO_KEEPALIVE on socket to EtherNet/IP server at %s:%s: %s",
                          self.addr[0], self.addr[1], exc )
 
-        self.session		= None
+        self.session		= None	# Not set w/in client class; set manually, or in derived class
         self.source		= cpppo.chainable()
         self.data		= None
         # Parsers
@@ -362,6 +362,9 @@ class client( object ):
         # If provided, we'll disable/enable a profiler around the I/O code, to avoid corrupting the
         # profile data with arbitrary I/O related delays
         self.profiler		= profiler
+
+    def __str__( self ):
+        return "%s:%s[%r]" % ( self.addr[0], self.addr[1], self.session )
 
     def close( self ):
         """The lifespan of an EtherNet/IP CIP client connection is defined by client.__init__() and client.close()"""
