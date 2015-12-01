@@ -264,11 +264,19 @@ def server_main( address, target=None, kwargs=None, idle_service=None,
         try:
             acceptable		= accept( sock, timeout=control['latency'] )
             if acceptable:
-                conn, addr	= acceptable
-                threads[addr]	= thread_factory( target=target, args=(conn, addr), kwargs=kwargs,
+                conn,addr	= acceptable
+                thrd		= None
+                try:
+                    thrd	= thread_factory( target=target, args=(conn, addr), kwargs=kwargs,
                                                   **kwds )
-                threads[addr].daemon = True
-                threads[addr].start()
+                    thrd.daemon = True
+                    thrd.start()
+                    threads[addr]= thrd
+                except Exception as exc:
+                    # Failed to setup or start service Thread for some reason!  Don't rmember
+                    log.warning( "Failed to start Thread to service connection %r; %s", addr, exc )
+                    conn.close()
+                    del thrd
             elif idle_service is not None:
                 idle_service()
         except KeyboardInterrupt as exc:
