@@ -2,6 +2,7 @@ from __future__ import absolute_import
 from __future__ import print_function
 from __future__ import division
 
+import codecs
 import logging
 import os
 import platform
@@ -851,6 +852,72 @@ def test_enip_listservices():
     assert source.peek() is None
     assert data.enip.command == 0x0004
     assert data.enip.length  == 0
+
+def escaped_chunks_to_bytes( string, chunk=4 ):
+    """Produce bytes from an escaped chunked input like br'c___\x01\n__'; An '____' produces '_'."""
+    assert len( string ) % chunk == 0, \
+        "raw bytes escaped string of length %d must be divisible by chunk %d" % ( len( string ), chunk )
+    return bytes( bytearray( ord( codecs.decode( string[i:i+chunk].strip( '_' ) or '_', 'unicode_escape' ))
+                             for i in range( 0, len( string ), chunk )))
+
+listident_1_req			= escaped_chunks_to_bytes(
+        br'''c___\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00'''
+)
+listident_1_rpy			= escaped_chunks_to_bytes(
+        br'''c___\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00'''
+        br'''\x01\x00\x0c\x00'___\x00\x01\x00\x00\x02\xaf\x12\n__\xa1\x01\x05\x00\x00\x00\x00\x00\x00\x00\x00'''
+        br'''\x01\x00{___\x00\x90\x04\x0b\x01a___\x05\x15\x1dI___\x80 ___P___o___w___e___r___F___l___e___x___'''
+        br''' ___7___5___3___ ___ ___ ___ ___ ___ ___ ___ ___ ___ ___ ___ ___ ___ ___ ___ ___ ___ ___ ___\xff'''
+)
+
+
+def test_enip_listidentity():
+    # The CPF item produced by the ListIdentity command has item (type_id = 0x000C).
+
+    data			= cpppo.dotdict()
+    data.version		= 0x0001
+    data.sin_family		= 0x0002				# (network byte order)
+    data.sin_port		= 44818					# (network byte order)
+    data.sin_addr		= (10<<24) + (161<<16) + (1<<8) + 5	# (network byte order) 10.161.1.5
+    data.vendor_id		= 0x0001 # AB
+    data.device_type		= 0x007B
+    data.product_code		= 0x0490
+    data.revision		= 0x010b
+    data.status			= 0x0561
+    data.serial_number		= 0x80491D15
+    data.product_name		= "PowerFlex 753                   "	# 32 characters
+    data.state			= 0xFF
+
+    result			= parser.identity_object.produce( data )
+    
+    assert result == listident_1_rpy[30:] 
+
+    data			= cpppo.dotdict()
+    source			= cpppo.chainable( listident_1_rpy[30:] )
+
+    with parser.identity_object( terminal=True ) as machine:
+        for i,(m,s) in enumerate( machine.run( source=source, data=data )):
+            log.info( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r", m.name_centered(),
+                      i, s, source.sent, source.peek(), data )
+        assert machine.terminal, "%s: Should have reached terminal state" % machine.name_centered()
+        assert i == 82
+    assert source.peek() is None
+    assert 'identity_object' in data
+    assert data.identity_object.product_name.string == "PowerFlex 753                   "
+
+    '''
+    # Minimal ListServices request is empty
+    data			= cpppo.dotdict()
+    source			= cpppo.chainable( b'\x04\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00Funstuff\x00\x00\x00\x00' )
+    with enip.enip_machine( context='enip' ) as machine:
+        for i,(m,s) in enumerate( machine.run( source=source, data=data )):
+            log.detail( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r",
+                          machine.name_centered(), i, s, source.sent, source.peek(), data )
+    assert source.peek() is None
+    assert data.enip.command == 0x0004
+    assert data.enip.length  == 0
+    '''
+
     
 
 # "17","0.423597000","192.168.222.128","10.220.104.180","CIP CM","124","Unconnected Send: Unknown Service (0x52)"

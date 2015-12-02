@@ -215,6 +215,27 @@ class REAL( TYPE ):
     struct_format		= '<f'
     struct_calcsize		= struct.calcsize( struct_format )
 
+# Some network byte-order types that are occasionally used in parsing
+class UINT_network( TYPE ):
+    """An EtherNet/IP UINT; 16-bit unsigned integer, but in network byte order"""
+    struct_format		= '>H'
+    struct_calcsize		= struct.calcsize( struct_format )
+
+class INT_network( TYPE ):
+    """An EtherNet/IP INT; 16-bit integer, but in network byte order"""
+    struct_format		= '>h'
+    struct_calcsize		= struct.calcsize( struct_format )
+
+class UDINT_network( TYPE ):
+    """An EtherNet/IP UDINT; 32-bit unsigned integer, but in network byte order"""
+    struct_format		= '>I'
+    struct_calcsize		= struct.calcsize( struct_format )
+
+class DINT_network( TYPE ):
+    """An EtherNet/IP DINT; 32-bit integer, but in network byte order"""
+    struct_format		= '>i'
+    struct_calcsize		= struct.calcsize( struct_format )
+
 
 class STRUCT( cpppo.dfa, cpppo.state ):
     pass
@@ -897,13 +918,6 @@ class communications_service( cpppo.dfa ):
                                         initial='[^\x00]*', decode='iso-8859-1' )
         svnm[b'\0'[0]]		= octets_drop( 'NUL', repeat=1, terminal=True )
 
-        '''
-        capa[b'\0'[0]]	= done	= octets_drop( 'NUL', repeat=1, terminal=True )
-        capa[True]	= svnm	= octets(	context='service_name' )
-        svnm[b'\0'[0]]	= done
-        svnm[True]	= svnm
-        '''
-
         super( communications_service, self ).__init__( name=name, initial=vers, **kwds )
 
     @classmethod
@@ -918,12 +932,7 @@ class communications_service( cpppo.dfa ):
 
 class identity_object( cpppo.dfa ):
     """The ListIdentity response contains a CPF item list containing one item: an "Identity Object "
-    type_id 0x000C, indicating that the device supports encapsulation of CIP packets.  These CPF
-    items contain the standard type_id and length, followed by:
-
-       .CPF.item[0].version		UINT		2	Version of protocol (shall be 1)
-       .CPF.item[0].capability		UINT		2	Capability flags
-       .CPF.item[0].service_name	USINT[*]    .length-8	Name of service + NUL (eg. "Communications\0")
+    type_id 0x000C.
 
     The Identity Item in the CPF list consists of the standard .type_id of 0x000C, a .length, and
     then a payload containing a protocol version and socket address, and then identity data that
@@ -938,7 +947,7 @@ class identity_object( cpppo.dfa ):
     | Socket Address         | STRUCT OF | (big-endian)                                     |
     |                        | INT       | sin_family                                       |
     |                        | UINT      | sin_port                                         |
-    |                        | UDINT     | sin-addr                                         |
+    |                        | UDINT     | sin_addr                                         |
     |                        | USINT[8]  | sin_zero                                         |
     | Vendor ID              | UINT      | Device manufacturer's Vendor ID                  |
     | Device Type            | UINT      | Device Type of product                           |
@@ -949,34 +958,59 @@ class identity_object( cpppo.dfa ):
     | Product Name           | SSTRING   | Human readable description of device             |
     | State                  | USINT     | Current state of device                          |
 
+    Here is a UDP ListIdentity 0x0063 == 'c\x00...' request (spaced with _ so that each symbol takes
+    4 spaces):
+
+        c___\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00
+
+    And a response from a PowerFlex 753 AC Drive Controller:
+
+        c___\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00
+        \x01\x00\x0c\x00'___\x00\x01\x00\x00\x02\xaf\x12\n__\xa1\x01\x05\x00\x00\x00\x00\x00\x00\x00\x00
+        \x01\x00{___\x00\x90\x04\x0b\x01a___\x05\x15\x1dI___\x80 ___P___o___w___e___r___F___l___e___x___
+        7___5___3___ ___ ___ ___ ___ ___ ___ ___ ___ ___ ___ ___ ___ ___ ___ ___ ___ ___ ___ ___\xff
+
     """
     def __init__( self, name=None, **kwds ):
         name 			= name or kwds.setdefault( 'context', self.__class__.__name__ )
         
         vers			= UINT(	context='version' )
-        vers[True]	= capa	= UINT(	context='capability' )
+        vers[True]	= sfam	= INT_network(
+					context='sin_family' )
+        sfam[True]	= sprt	= UINT_network(
+					context='sin_port' )
+        sprt[True]	= sadd	= UDINT_network(
+					context='sin_addr' )
+        sadd[True]	= szro	= octets_drop( context='sin_zero', repeat=8 )
+        szro[True]	= vndr	= UINT(	context='vendor_id' )
+        vndr[True]	= dvtp	= UINT(	context='device_type' )
+        dvtp[True]	= prod	= UINT( context='product_code' )
+        prod[True]	= revi	= UINT( context='revision' )
+        revi[True]	= stts	= UINT(	context='status' )	# Should be WORD
+        stts[True]	= srnm	= UDINT( context='serial_number' )
+        srnm[True]	= prnm	= SSTRING( context='product_name' )
+        prnm[True]	= stat	= USINT( context='state', terminal=True )
+        stat[True]	= xtra	= octets( context='xtra',	# Any extra data; ignored
+                                          terminal=True )
 
-        capa[True]	= svnm	= cpppo.string_bytes( 'service_name',
-                                        context='service_name', greedy=True,
-                                        initial='[^\x00]*', decode='iso-8859-1' )
-        svnm[b'\0'[0]]		= octets_drop( 'NUL', repeat=1, terminal=True )
-
-        '''
-        capa[b'\0'[0]]	= done	= octets_drop( 'NUL', repeat=1, terminal=True )
-        capa[True]	= svnm	= octets(	context='service_name' )
-        svnm[b'\0'[0]]	= done
-        svnm[True]	= svnm
-        '''
-
-        super( communications_service, self ).__init__( name=name, initial=vers, **kwds )
+        super( identity_object, self ).__init__( name=name, initial=vers, **kwds )
 
     @classmethod
     def produce( cls, data ):
         result			= b''
         result	       	       += UINT.produce( data.version )
-        result	               += UINT.produce( data.capability )
-        result		       += data.service_name.encode( 'iso-8859-1' )
-        result		       += b'\0'
+        result	               += INT_network.produce( data.sin_family )
+        result	               += UINT_network.produce( data.sin_port )
+        result	               += UDINT_network.produce( data.sin_addr )
+        result		       += b'\0' * 8
+        result		       += UINT.produce( data.vendor_id )
+        result		       += UINT.produce( data.device_type )
+        result		       += UINT.produce( data.product_code )
+        result		       += UINT.produce( data.revision )
+        result		       += UINT.produce( data.status )
+        result		       += UDINT.produce( data.serial_number )
+        result		       += SSTRING.produce( data.product_name )
+        result		       += USINT.produce( data.state )
         return result
 
 
