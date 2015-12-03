@@ -965,10 +965,31 @@ class identity_object( cpppo.dfa ):
 
     And a response from a PowerFlex 753 AC Drive Controller:
 
+                  ------- incorrect EtherNet/IP CIP payload size: should be \x48\x00 == 72!
+                  ||
+                  vv
         c___\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00
+                        -- incorrect EtherNet/IP CIP CPF item payload size: should b <___\x00 == 60!
+                        |
+                        v
         \x01\x00\x0c\x00'___\x00\x01\x00\x00\x02\xaf\x12\n__\xa1\x01\x05\x00\x00\x00\x00\x00\x00\x00\x00
         \x01\x00{___\x00\x90\x04\x0b\x01a___\x05\x15\x1dI___\x80 ___P___o___w___e___r___F___l___e___x___
-        7___5___3___ ___ ___ ___ ___ ___ ___ ___ ___ ___ ___ ___ ___ ___ ___ ___ ___ ___ ___ ___\xff
+         ___7___5___3___ ___ ___ ___ ___ ___ ___ ___ ___ ___ ___ ___ ___ ___ ___ ___ ___ ___ ___ ___\xff
+
+    Note that this EtherNet/IP CIP response encapsulation is, in fact, incorrect: it specifies a 0
+    length.  It is from an official Allen Bradley PowerFlex 753 product, with a 20-COMM-E
+    EtherNet/IP CIP interface card.  Since it is sent via UDP, the entire request appears in a
+    single indivisible packet, so we can deduce the actual message payload size from the total size
+    of the UDP datagram, minus the 24-byte EtherNet/IP encapsulation header.  This is, however, not
+    documented EtherNet/IP CIP protocol behaviour (perhaps since it's insane).  So, its just a bug.
+    It prevents a correctly implemented parser from receiving the List Identity reply, though...
+
+    Here's a response from a Logix 1769 PLC, with correct EtherNet/IP CIP frame sizes:
+
+        c___\x00E___\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00
+        \x01\x00\x0c\x00?___\x00\x01\x00\x00\x02\xaf\x12\n__\xa1\x01\x03\x00\x00\x00\x00\x00\x00\x00\x00
+        \x01\x00\x0e\x00\x95\x00\x1b\x0b0___\x00^___3___\x1e\xc0\x1d1___7___6___9___-___L___2___4___E___
+        R___-___Q___B___1___B___/___A___ ___L___O___G___I___X___5___3___2___4___E___R___\x03
 
     """
     def __init__( self, name=None, **kwds ):
@@ -986,11 +1007,13 @@ class identity_object( cpppo.dfa ):
         vndr[True]	= dvtp	= UINT(	context='device_type' )
         dvtp[True]	= prod	= UINT( context='product_code' )
         prod[True]	= revi	= UINT( context='revision' )
-        revi[True]	= stts	= UINT(	context='status' )	# Should be WORD
+        revi[True]	= stts	= UINT(	context='status' )		# Should be WORD
         stts[True]	= srnm	= UDINT( context='serial_number' )
-        srnm[True]	= prnm	= SSTRING( context='product_name' )
-        prnm[True]	= stat	= USINT( context='state', terminal=True )
-        stat[True]	= xtra	= octets( context='xtra',	# Any extra data; ignored
+        srnm[True]	= prnm	= SSTRING( context='product_name',	# May end here, b/c
+                                           terminal=True )		# of CPF framing errors (eg. PowerFlex)!
+        prnm[True]	= stat	= USINT( context='state',		# May end here, too...
+                                         terminal=True )
+        stat[True]	= xtra	= octets( context='xtra',		# ... any extra data are ignored
                                           terminal=True )
 
         super( identity_object, self ).__init__( name=name, initial=vers, **kwds )
@@ -1038,6 +1061,7 @@ class CPF( cpppo.dfa ):
         0x00a1:		Address for connection based requests
         0x00b1:		Connected Transport packet (eg. used within CIP command SendUnitData)
         0x0100:		ListServices response
+        0x000C:		ListIdentity response
 
     
     Presently we only handle NULL Address and Unconnected Messages, and ListServices
@@ -1140,30 +1164,6 @@ class send_data( cpppo.dfa ):
         return result
 
 
-class list_identity( cpppo.dfa ):
-    """Handle ListIdentity request/reply.  Identity items are encoded as a CPF list.  We must deduce whether
-    we are parsing a request or a reply.  The request will have a 0 length; the reply (which must
-    contain a CPF with at least an item count) will have a non-zero length.
-
-    Even if the request is empty, we want to produce 'CIP.list_identity.CPF' containing an Identity
-    Object.  See the 'identity_object' class above for details.
-
-    """
-    def __init__( self, name=None, **kwds ):
-        name 			= name or kwds.setdefault( 'context', self.__class__.__name__ )
-
-        svcs			= CPF( terminal=True )
-
-        super( list_identity, self ).__init__( name=name, initial=svcs, **kwds )
-
-    @staticmethod
-    def produce( data ):
-        result			= b''
-        if 'CPF' in data:
-            result	       += CPF.produce( data.CPF )
-        return result
-
-
 class register( cpppo.dfa ):
     """Handle RegisterSession request/reply (identical)"""
     def __init__( self, name=None, **kwds ):
@@ -1196,19 +1196,20 @@ class unregister( octets_noop ):
         data[ours]		= True
 
 
-class list_services( cpppo.dfa ):
-    """Handle ListServices request/reply.  Services are encoded as a CPF list.  We must deduce whether
-    we are parsing a request or a reply.  The request will have a 0 length; the reply (which must
-    contain a CPF with at least an item count) will have a non-zero length.
+class CPF_service( cpppo.dfa ):
+    """Handle Service request/reply that are encoded as a CPF list.  We must deduce whether we are
+    parsing a request or a reply.  The request will have a 0 length; the reply (which must contain a
+    CPF with at least an item count) will have a non-zero length.
 
-    Even if the request is empty, we want to produce 'CIP.list_services.CPF'.
+    Even if the request is empty, we want to produce 'CIP.<service_name>.CPF'.
+
     """
     def __init__( self, name=None, **kwds ):
         name 			= name or kwds.setdefault( 'context', self.__class__.__name__ )
 
         svcs			= CPF( terminal=True )
 
-        super( list_services, self ).__init__( name=name, initial=svcs, **kwds )
+        super( CPF_service, self ).__init__( name=name, initial=svcs, **kwds )
 
     @staticmethod
     def produce( data ):
@@ -1216,6 +1217,13 @@ class list_services( cpppo.dfa ):
         if 'CPF' in data:
             result	       += CPF.produce( data.CPF )
         return result
+
+
+class list_identity( CPF_service ):
+    pass
+
+class list_services( CPF_service ):
+    pass
 
 
 class CIP( cpppo.dfa ):
@@ -1264,11 +1272,11 @@ class CIP( cpppo.dfa ):
 
     """
     COMMAND_PARSERS		= {
+        (0x0004,):		list_services,
         (0x0063,):		list_identity,	# Usually only seen via UDP
         (0x0065,):		register,
         (0x0066,):		unregister,
         (0x006f,0x0070):	send_data,	# 0x006f (SendRRData) is default if CIP.send_data seen
-        (0x0004,):		list_services,
     }
     def __init__( self, name=None, **kwds ):
         name 			= name or kwds.setdefault( 'context', self.__class__.__name__ )
