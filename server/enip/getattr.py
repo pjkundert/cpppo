@@ -105,6 +105,8 @@ which is required to carry this Send/Route Path data. """ )
                      default=( "%s:%d" % enip.address ),
                      help="EtherNet/IP interface[:port] to connect to (default: %s:%d)" % (
                          enip.address[0], enip.address[1] ))
+    ap.add_argument( '-m', '--multiple', action='store_true',
+                     help="Use Multiple Service Packet request targeting ~500 bytes (default: False)" )
     ap.add_argument( '-d', '--depth',
                      default=0,
                      help="Pipelining depth" )
@@ -152,6 +154,7 @@ which is required to carry this Send/Route Path data. """ )
                                     int( addr[1] ) if len( addr ) > 1 and addr[1] else enip.address[1] )
     timeout			= float( args.timeout )
     depth			= int( args.depth )
+    multiple			= 500 if args.multiple else 0
     route_path			= json.loads( args.route_path ) if args.route_path else None # may be None/0/False
     send_path			= args.send_path
 
@@ -175,7 +178,7 @@ which is required to carry this Send/Route Path data. """ )
         start			= cpppo.timer()
         operations		= attribute_operations( tags, route_path=route_path, send_path=send_path )
         for idx,dsc,op,rpy,sts,val in connection.pipeline(
-                operations=operations, depth=depth, multiple=False, timeout=timeout ):
+                operations=operations, depth=depth, multiple=multiple, timeout=timeout ):
             print( "%s: %3d: %s == %s" % ( timestamp(), idx, dsc, val ))
             failures	       += 1 if sts else 0
         elapsed			= cpppo.timer() - start
