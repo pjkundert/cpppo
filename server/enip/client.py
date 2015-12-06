@@ -54,8 +54,7 @@ import sys
 import traceback
 
 import cpppo
-from   cpppo.server import network, enip
-
+from .. import network, enip
 from . import logix, device, parser
 
 log				= logging.getLogger( "enip.cli" )
@@ -322,6 +321,9 @@ class client( object ):
     to parse alternative sub-dialects of EtherNet/IP.
 
     """
+    route_path_default		= enip.route_path_default
+    send_path_default		= enip.send_path_default
+
     def __init__( self, host, port=None, timeout=None, dialect=logix.Logix, profiler=None ):
         """Connect to the EtherNet/IP client, waiting  """
         self.addr               = (host if host is not None else enip.address[0],
@@ -344,7 +346,7 @@ class client( object ):
             log.warning( "Couldn't set SO_KEEPALIVE on socket to EtherNet/IP server at %s:%s: %s",
                          self.addr[0], self.addr[1], exc )
 
-        self.session		= None
+        self.session		= None	# Not set w/in client class; set manually, or in derived class
         self.source		= cpppo.chainable()
         self.data		= None
         # Parsers
@@ -360,6 +362,9 @@ class client( object ):
         # If provided, we'll disable/enable a profiler around the I/O code, to avoid corrupting the
         # profile data with arbitrary I/O related delays
         self.profiler		= profiler
+
+    def __str__( self ):
+        return "%s:%s[%r]" % ( self.addr[0], self.addr[1], self.session )
 
     def close( self ):
         """The lifespan of an EtherNet/IP CIP client connection is defined by client.__init__() and client.close()"""
@@ -637,19 +642,24 @@ class client( object ):
                           sender_context=b'' ):
         """Encapsulates the request and transmits it, returning the full encapsulation structure used to
         carry the request.  The response must be harvested later; a sender_context should be
-        supplied that may be used to associate the response to the originating request.  The default
-        route_path is the CPU in chassis (link 0), port 1, and the default send_path is to its
-        Connection Manager (Class 6, Instance 1).
+        supplied that may be used to associate the response to the originating request.
+
+        The default route_path is the CPU in chassis (link 0), port 1, and the default send_path is
+        to its Connection Manager (Class 6, Instance 1).  These defaults can be configured on a
+        class or per-instance basis by changing the {route,send}_path_default attributes in either
+        the client class or instance.
 
         """
         assert isinstance( request, dict )
+        # Default route_path to the CPU in chassis (link 0), port 1.  If provided route_path is
+        # 0/False, then disable (no route_path provided to Unconnected Send)
         if route_path is None:
-            # Default to the CPU in chassis (link 0), port 1
-            route_path		= [{'link': 0, 'port': 1}]
-        assert isinstance( route_path, list )
+            route_path		= self.route_path_default
+        if route_path:
+            assert isinstance( route_path, list )
         if send_path is None: # could be a string path to parse or a list
             # Default to the Connection Manager
-            send_path		= [{'class': 6}, {'instance': 1}]
+            send_path		= self.send_path_default
 
         data			= cpppo.dotdict()
         data.enip		= {}
@@ -670,14 +680,19 @@ class client( object ):
         sd.CPF.item[1].type_id	= 178
         sd.CPF.item[1].unconnected_send = {}
 
+        # If a non-empty send_path or route_path is desired, we'll need to use a Logix-style service
+        # 0x52 Unconnected Send within the SendRRData to carry these details.  Only Originating
+        # Devices and devices that route between links need to implement this.  Otherwise, just go
+        # straight to the command payload.
         us			= sd.CPF.item[1].unconnected_send
-        us.service		= 82
-        us.status		= 0
-        us.priority		= 5
-        us.timeout_ticks	= 157
-        us.path			= { 'segment': [ cpppo.dotdict( s ) for s in parse_path( send_path ) ]}
-        us.route_path		= { 'segment': [ cpppo.dotdict( s ) for s in route_path ]} # must be {link/port}
-
+        if send_path or route_path:
+            us.service		= 82
+            us.status		= 0
+            us.priority		= 5
+            us.timeout_ticks	= 157
+            us.path		= { 'segment': [ cpppo.dotdict( s ) for s in parse_path( send_path ) ]}
+            if route_path: # May be None/0/False or empty
+                us.route_path	= { 'segment': [ cpppo.dotdict( s ) for s in route_path ]} # must be {link/port}
         us.request		= request
 
         if log.isEnabledFor( logging.DETAIL ):
@@ -1249,8 +1264,9 @@ def main( argv=None ):
         description = "An EtherNet/IP Client",
         formatter_class = argparse.RawDescriptionHelpFormatter,
         epilog = """\
-One or more EtherNet/IP CIP Tags may be read or written.  The full format for
-specifying a tag and an operation is:
+
+One or more EtherNet/IP CIP Tags or Object/Instance Attributes may be read or
+written.  The full format for specifying a tag and an operation is:
 
     Tag[<first>-<last>]+<offset>=(SINT|INT|DINT|REAL)<value>,<value>
 
@@ -1258,7 +1274,18 @@ All components except Tag are optional.  Specifying a +<offset> (in bytes)
 forces the use of the Fragmented command, regardless of whether --[no-]fragment
 was specified.  If an element range [<first>] or [<first>-<last>] was specified
 and --no-fragment selected, then the exact correct number of elements must be
-provided.""" )
+provided.
+
+The default Send Path is '@6/1', and the default Route Path is [{"link": 0,
+"port":1}].  This should work with a device that can route requests to links
+(eg. a *Logix Controller), with the Processor is slot 1 of the chassis.  If you
+have a simpler device (ie. something that does not route requests, such as an AB
+PowerFlex for example), then you may want to specify:
+
+    --send-path='' --route-path=false
+
+to eliminate the *Logix-style Unconnected Send (service 0x52) encapsulation
+which is required to carry this Send/Route Path data. """ )
 
     ap.add_argument( '-v', '--verbose',
                      default=0, action="count",
@@ -1279,10 +1306,11 @@ provided.""" )
                      help="Repeat EtherNet/IP request (default: 1)" )
     ap.add_argument( '--route-path',
                      default=None,
-                     help="""Route Path, in JSON, eg. '[{"link":0,"port":0}]' (default: None)""" )
+                     help="Route Path, in JSON (default: %r); 0/false to specify no/empty route_path" % (
+                         str( json.dumps( connector.route_path_default ))))
     ap.add_argument( '--send-path',
                      default=None,
-                     help="Send Path to UCMM, eg. '@6/1' (default: None)" )
+                     help="Send Path to UCMM (default: @6/1); Specify an empty string '' for no Send Path" )
     ap.add_argument( '-m', '--multiple', action='store_true',
                      help="Use Multiple Service Packet request targeting ~500 bytes (default: False)" )
     ap.add_argument( '-d', '--depth', default=1,
@@ -1323,7 +1351,7 @@ provided.""" )
     multiple			= 500 if args.multiple else 0
     fragment			= bool( args.fragment )
     printing			= args.print
-    route_path			= json.loads( args.route_path ) if args.route_path else None
+    route_path			= json.loads( args.route_path ) if args.route_path else None # may be None/0/False
     send_path			= args.send_path
 
     if '-' in args.tags:

@@ -850,6 +850,7 @@ class UCMM( Object ):
     """
 
     class_id			= 0x9999	# Not an addressable Object
+    route_path			= None		# Specify, if we want to reject invalid ones
 
     parser			= CIP()
     command			= {
@@ -970,23 +971,33 @@ class UCMM( Object ):
                 # which must (also) be processed by the Message Router at the end of all the address
                 # or backplane hops.
 
-                # In this implementation, we can *only* process un-routed requests, or requests
-                # routed to the local backplane: port 1, link 0.  All Unconnected Requests have a
-                # NULL Address in CPF item 0.
+                # All Unconnected Requests have a NULL Address in CPF item 0.
                 assert 'enip.CIP.send_data.CPF' in data \
                     and data.enip.CIP.send_data.CPF.count == 2 \
                     and data.enip.CIP.send_data.CPF.item[0].length == 0, \
                     "EtherNet/IP UCMM remote routed requests unimplemented"
                 unc_send	= data.enip.CIP.send_data.CPF.item[1].unconnected_send
+
+                # Make sure the route_path matches what we've been configured w/; the supplied
+                # route_path.segment list must match the configured self.route_path, eg: {'link': 0,
+                # 'port': 1}.  Thus, if an empty route_path supplied in Unconnected Send request, it
+                # will not match any configured route_path.  Also, if we've specified a Falsey
+                # (eg. 0, False) UCMM object .route_path, we'll only accept requests with an empty
+                # route_path.
+                if self.route_path is not None: # may be [{"port"}...]}, or 0/False
+                    route_path	= unc_send.get( 'route_path.segment' )
+                    assert ( not self.route_path and not route_path # both Falsey, or match
+                             or route_path == self.route_path ), \
+                        "Unconnected Send route path %r differs from configured: %r" % (
+                            route_path, self.route_path )
+
+                # If the standard Connection Manager isn't addressed, that's strange but, OK...
+                ids		= (0x06, 1) # Connection Manager default address
                 if 'path' in unc_send:
                     ids		= resolve( unc_send.path )
-                    assert ids[0] == 0x06 and ids[1] == 1, \
-                        "Unconnected Send targeted Object other than Connection Manager: 0x%04x/%d" % ( ids[0], ids[1] )
-                if 'route_path.segment' in unc_send:
-                    assert len( unc_send.route_path.segment ) == 1 \
-                        and unc_send.route_path.segment[0] == {'link': 0, 'port':1}, \
-                        "Unconnected Send routed to link other than backplane link 1, port 0: %r" % unc_send.route_path
-                CM		= lookup( class_id=0x06, instance_id=1 )
+                    if ( ids[0] != 0x06 or ids[1] != 1 ):
+                        log.warning( "Unconnected Send targeted Object other than Connection Manager: 0x%04x/%d", ids[0], ids[1] )
+                CM		= lookup( class_id=ids[0], instance_id=ids[1] )
                 CM.request( unc_send )
                 
                 # After successful processing of the Unconnected Send on the target node, we
@@ -1020,7 +1031,7 @@ class UCMM( Object ):
                 method		= getattr( self, key, None )
                 assert method, "CIP request %r unsupported: %r" % ( key, cip )
 
-                # Finally, use the method to 
+                # Finally, use the method to process the request data
                 proceed		= method( data )
 
         except Exception as exc:

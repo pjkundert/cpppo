@@ -556,6 +556,9 @@ def test_enip_machine():
         if data:
             assert enip.enip_encode( data.enip ) == pkt, "Invalid data: %r" % data
 
+extpath_0		= bytes(bytearray([
+    0x00,						# 0 words
+]))
 extpath_1		= bytes(bytearray([
     0x01,						# 1 word
     0x28, 0x01,   					# 8-bit element segment == 1
@@ -667,6 +670,9 @@ extpath_9		= bytes(bytearray([
 # The byte order of EtherNet/IP CIP data is little-endian; the lowest-order byte
 # of the value arrives first.
 extpath_tests			= [
+            ( extpath_0, enip.EPATH,	{
+                'request.EPATH.size': 0,
+            } ),
             ( extpath_1, enip.EPATH,	{
                 'request.EPATH.size': 1,
                 'request.EPATH.segment': [{'element': 1}]
@@ -1148,12 +1154,79 @@ def test_enip_CPF():
             raise
 
 
+# These Get Attribute Single requests are in a SendRRData (0x006f) encapsulation, but not
+# encapsulated in an Unconnected Send (0x52) encapsulation; hence no send_path, route_path.
+gas_001_request		= bytes(bytearray([
+    0x6f, 0x00, 0x18, 0x00, 0x02, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x0d, 0x00, 0x00, 0x80, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0xb2, 0x00, 0x08, 0x00,
+    0x0e, 0x03, 0x20, 0x93, 0x24, 0x0b, 0x30, 0x0a,
+]))
 
+gas_001_reply		= bytes(bytearray([
+    0x6f, 0x00, 0x18, 0x00, 0x02, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x0d, 0x00, 0x00, 0x80, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0xb2, 0x00, 0x08, 0x00,
+    0x8e, 0x00, 0x00, 0x00, 0x0a, 0xd7, 0xa3, 0x3d,
+]))
  
 CIP_tests			= [
             ( 
                 # An empty
                 b'', {}
+            ), (
+                gas_001_request,
+                {
+                    "enip.status": 0, 
+                    "enip.session_handle": 2, 
+                    "enip.encapsulated": {}, 
+                    "enip.length": 24, 
+                    "enip.CIP.send_data.interface": 0, 
+                    "enip.CIP.send_data.CPF.count": 2, 
+                    "enip.CIP.send_data.CPF.item[0].length": 0, 
+                    "enip.CIP.send_data.CPF.item[0].type_id": 0, 
+                    "enip.CIP.send_data.CPF.item[1].length": 8, 
+                    "enip.CIP.send_data.CPF.item[1].unconnected_send.request.get_attribute_single": True, 
+                    "enip.CIP.send_data.CPF.item[1].unconnected_send.request.service": 14, 
+                    "enip.CIP.send_data.CPF.item[1].unconnected_send.request.path.segment[0].class": 147, 
+                    "enip.CIP.send_data.CPF.item[1].unconnected_send.request.path.segment[1].instance": 11, 
+                    "enip.CIP.send_data.CPF.item[1].unconnected_send.request.path.segment[2].attribute": 10, 
+                    "enip.CIP.send_data.CPF.item[1].unconnected_send.request.path.size": 3, 
+                    "enip.CIP.send_data.CPF.item[1].type_id": 178, 
+                    "enip.CIP.send_data.timeout": 0, 
+                    "enip.command": 111, 
+                    "enip.options": 0,
+                }
+            ), (
+                gas_001_reply,
+                {
+                    "enip.status": 0, 
+                    "enip.session_handle": 2, 
+                    "enip.encapsulated": {}, 
+                    "enip.length": 24, 
+                    "enip.CIP.send_data.interface": 0, 
+                    "enip.CIP.send_data.CPF.count": 2, 
+                    "enip.CIP.send_data.CPF.item[0].length": 0, 
+                    "enip.CIP.send_data.CPF.item[0].type_id": 0, 
+                    "enip.CIP.send_data.CPF.item[1].length": 8, 
+                    "enip.CIP.send_data.CPF.item[1].unconnected_send.request.status": 0, 
+                    "enip.CIP.send_data.CPF.item[1].unconnected_send.request.status_ext.size": 0, 
+                    "enip.CIP.send_data.CPF.item[1].unconnected_send.request.service": 142, 
+                    "enip.CIP.send_data.CPF.item[1].unconnected_send.request.get_attribute_single.data": [
+                        10, 
+                        215, 
+                        163, 
+                        61
+                    ], 
+                    "enip.CIP.send_data.CPF.item[1].type_id": 178, 
+                    "enip.CIP.send_data.timeout": 0, 
+                    "enip.command": 111, 
+                    "enip.options": 0,
+                }
             ), (
                 # ListServices also has a CIP payload (may be empty)
                 b'\x04\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00Funstuff\x00\x00\x00\x00',
@@ -1487,6 +1560,7 @@ CIP_tests			= [
 def test_enip_CIP( repeat=10 ):
     """Most of CIP parsing run-time overhead is spent inside 'run'.
     """
+    #logging.getLogger().setLevel(logging.NORMAL)
     ENIP			= enip.enip_machine( context='enip' )
     CIP				= enip.CIP()
     for _ in range( repeat ):
