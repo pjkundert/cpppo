@@ -77,8 +77,30 @@ def attribute_operations( paths, **kwds ):
 
 
 def main( argv=None ):
-    """Get Attribute(s) Single/All the specified Instance or Attribute level address(es)"""
-    ap				= argparse.ArgumentParser()
+    """Get Attribute(s) Single/All the specified Instance or Attribute level address(es)
+
+    """
+    ap				= argparse.ArgumentParser(
+        description = "An EtherNet/IP Get Attribute Single/All and Set Attribute Single client",
+        formatter_class = argparse.RawDescriptionHelpFormatter,
+        epilog = """\
+
+One or more EtherNet/IP CIP Object/Instance Attributes may be read or
+written.  The full format for specifying a tag and an operation is:
+
+    @<Object>/<Instance>/<Attribute>[=<value>,<value>...]
+
+The default Send Path is '@6/1', and the default Route Path is [{"link": 0,
+"port":1}].  This should work with a device that can route requests to links
+(eg. a *Logix Controller), with the Processor is slot 1 of the chassis.  If you
+have a simpler device (ie. something that does not route requests, such as an AB
+PowerFlex for example), then you may want to specify:
+
+    --send-path='' --route-path=false
+
+to eliminate the *Logix-style Unconnected Send (service 0x52) encapsulation
+which is required to carry this Send/Route Path data. """ )
+
     ap.add_argument( '-a', '--address',
                      default=( "%s:%d" % enip.address ),
                      help="EtherNet/IP interface[:port] to connect to (default: %s:%d)" % (
@@ -96,11 +118,11 @@ def main( argv=None ):
                      help="Log file, if desired" )
     ap.add_argument( '--route-path',
                      default=None,
-                     help="Route Path, in JSON (default: %r); 0/false to specify empty route_path" % (
+                     help="Route Path, in JSON (default: %r); 0/false to specify no/empty route_path" % (
                          str( json.dumps( client.connector.route_path_default ))))
     ap.add_argument( '--send-path',
                      default=None,
-                     help="Send Path to UCMM, eg. '@6/1' (default: None)" )
+                     help="Send Path to UCMM (default: @6/1); Specify an empty string '' for no Send Path" )
     ap.add_argument( '-P', '--profile', action='store_true',
                      help="Activate profiling (default: False)" )
     ap.add_argument( 'tags', nargs="+",

@@ -680,14 +680,19 @@ class client( object ):
         sd.CPF.item[1].type_id	= 178
         sd.CPF.item[1].unconnected_send = {}
 
+        # If a non-empty send_path or route_path is desired, we'll need to use a Logix-style service
+        # 0x52 Unconnected Send within the SendRRData to carry these details.  Only Originating
+        # Devices and devices that route between links need to implement this.  Otherwise, just go
+        # straight to the command payload.
         us			= sd.CPF.item[1].unconnected_send
-        us.service		= 82
-        us.status		= 0
-        us.priority		= 5
-        us.timeout_ticks	= 157
-        us.path			= { 'segment': [ cpppo.dotdict( s ) for s in parse_path( send_path ) ]}
-        if route_path: # May be None/0/False or empty
-            us.route_path	= { 'segment': [ cpppo.dotdict( s ) for s in route_path ]} # must be {link/port}
+        if send_path or route_path:
+            us.service		= 82
+            us.status		= 0
+            us.priority		= 5
+            us.timeout_ticks	= 157
+            us.path		= { 'segment': [ cpppo.dotdict( s ) for s in parse_path( send_path ) ]}
+            if route_path: # May be None/0/False or empty
+                us.route_path	= { 'segment': [ cpppo.dotdict( s ) for s in route_path ]} # must be {link/port}
         us.request		= request
 
         if log.isEnabledFor( logging.DETAIL ):
@@ -1259,8 +1264,9 @@ def main( argv=None ):
         description = "An EtherNet/IP Client",
         formatter_class = argparse.RawDescriptionHelpFormatter,
         epilog = """\
-One or more EtherNet/IP CIP Tags may be read or written.  The full format for
-specifying a tag and an operation is:
+
+One or more EtherNet/IP CIP Tags or Object/Instance Attributes may be read or
+written.  The full format for specifying a tag and an operation is:
 
     Tag[<first>-<last>]+<offset>=(SINT|INT|DINT|REAL)<value>,<value>
 
@@ -1268,7 +1274,18 @@ All components except Tag are optional.  Specifying a +<offset> (in bytes)
 forces the use of the Fragmented command, regardless of whether --[no-]fragment
 was specified.  If an element range [<first>] or [<first>-<last>] was specified
 and --no-fragment selected, then the exact correct number of elements must be
-provided.""" )
+provided.
+
+The default Send Path is '@6/1', and the default Route Path is [{"link": 0,
+"port":1}].  This should work with a device that can route requests to links
+(eg. a *Logix Controller), with the Processor is slot 1 of the chassis.  If you
+have a simpler device (ie. something that does not route requests, such as an AB
+PowerFlex for example), then you may want to specify:
+
+    --send-path='' --route-path=false
+
+to eliminate the *Logix-style Unconnected Send (service 0x52) encapsulation
+which is required to carry this Send/Route Path data. """ )
 
     ap.add_argument( '-v', '--verbose',
                      default=0, action="count",
@@ -1289,11 +1306,11 @@ provided.""" )
                      help="Repeat EtherNet/IP request (default: 1)" )
     ap.add_argument( '--route-path',
                      default=None,
-                     help="Route Path, in JSON (default: %r); 0/false to specify empty route_path" % (
+                     help="Route Path, in JSON (default: %r); 0/false to specify no/empty route_path" % (
                          str( json.dumps( connector.route_path_default ))))
     ap.add_argument( '--send-path',
                      default=None,
-                     help="Send Path to UCMM, eg. '@6/1' (default: None)" )
+                     help="Send Path to UCMM (default: @6/1); Specify an empty string '' for no Send Path" )
     ap.add_argument( '-m', '--multiple', action='store_true',
                      help="Use Multiple Service Packet request targeting ~500 bytes (default: False)" )
     ap.add_argument( '-d', '--depth', default=1,
