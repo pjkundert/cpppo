@@ -195,6 +195,29 @@ def test_enip_TYPES_SSTRING():
     assert len( res ) == data.SSTRING.length+1
     assert res == b'\x00'
 
+    pkt				= res
+    data			= cpppo.dotdict()
+    source			= cpppo.chainable( pkt )
+    with enip.SSTRING() as machine:
+        for i,(m,s) in enumerate( machine.run( source=source, data=data )):
+            log.info( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r", m.name_centered(),
+                      i, s, source.sent, source.peek(), data )
+        assert i == 3
+    assert data.SSTRING.length == 0
+    assert data.SSTRING.string == ''
+
+    # 3 x 0-length SSTRING followed by 'a'
+    pkt				= b'\x00\x00\x00\x01a'
+    data			= cpppo.dotdict()
+    source			= cpppo.chainable( pkt )
+    with enip.typed_data( tag_type=enip.SSTRING.tag_type, terminal=True ) as machine:
+        for i,(m,s) in enumerate( machine.run( source=source, data=data )):
+            log.info( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r", m.name_centered(),
+                      i, s, source.sent, source.peek(), data )
+        assert i == 31
+    assert len( data.typed_data.data ) == 4
+    assert data.typed_data.data == ['','','','a']
+
 
 def test_enip_TYPES_numeric():
     pkt				= b'\x01\x00\x02\x00\x03\x00'
@@ -206,6 +229,18 @@ def test_enip_TYPES_numeric():
                       i, s, source.sent, source.peek(), data )
         assert i == 1
     assert data.INT == 1
+
+    # 4 x REAL
+    pkt				= b'\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00'
+    data			= cpppo.dotdict()
+    source			= cpppo.chainable( pkt )
+    with enip.typed_data( tag_type=enip.REAL.tag_type, terminal=True ) as machine:
+        for i,(m,s) in enumerate( machine.run( source=source, data=data )):
+            log.info( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r", m.name_centered(),
+                      i, s, source.sent, source.peek(), data )
+        assert i == 30
+    assert len( data.typed_data.data ) == 4
+    assert data.typed_data.data == [0.0]*4
 
 
 # pkt4
