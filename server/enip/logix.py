@@ -332,7 +332,7 @@ class Logix( Message_Router ):
             # Compute (beg,end] for this reply, given data.path...element, data.elements/offset.
             # The end element of the full request (not the size/data-limited end) is in endactual
             beg,end,endactual	= self.reply_elements( attribute, data, context )
-
+            log.debug( "Replying w/ elements [%3d-%-3d/%3d] for %r", beg, end, endactual, data )
             if data.service in (self.RD_TAG_RPY, self.RD_FRG_RPY):
                 # Read Tag [Fragmented]
                 data[context].data	= attribute[beg:end]
@@ -432,7 +432,7 @@ class Logix( Message_Router ):
             result	       += USINT.produce(	data.service )
             result	       += USINT.produce(	0x00 )	# fill
             result	       += status.produce(	data )
-            if data.status == 0x00:
+            if data.status in (0x00, 0x06):
                 result	       += UINT.produce(		data.read_tag.type )
                 result	       += typed_data.produce(	data.read_tag )
         elif data.get( 'service' ) == cls.RD_FRG_RPY:
@@ -469,9 +469,9 @@ def __read_tag_reply():
     dtyp[True]			= typed_data( 	'data',   	context='read_tag',
                                         tag_type='.type',
                                         terminal=True )
-    # For status 0x00 (Success), type/data follows.
+    # For status 0x00 (Success) and 0x06 (Not all data returned), type/data follows.
     schk[None]			= automata.decide( 'ok',	state=dtyp,
-        predicate=lambda path=None, data=None, **kwds: data[path+'.status' if path else 'status']== 0x00 )
+        predicate=lambda path=None, data=None, **kwds: data[path+'.status' if path else 'status'] in (0x00, 0x06) )
     schk[None]			= move_if(	'mark',		initializer=True,
                                                 destination='read_tag' )
     return srvc

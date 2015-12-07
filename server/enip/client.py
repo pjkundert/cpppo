@@ -247,6 +247,7 @@ def parse_operations( tags, fragment=False, **kwds ):
             opr['elements']	= cnt
 
         if val:
+            # Default to REAL/INT, by simply checking for '.' in the provided value(s)
             if '.' in val:
                 opr['tag_type']	= enip.REAL.tag_type
                 size		= enip.REAL.struct_calcsize
@@ -264,11 +265,12 @@ def parse_operations( tags, fragment=False, **kwds ):
                 typ,val		= val.split( ')' )
                 _,typ		= typ.split( '(' )
                 opr['tag_type'],size,cast = {
-                    'BOOL':	(enip.BOOL.tag_type, enip.BOOL.struct_calcsize, lambda x: bool( x )),
-                    'REAL': 	(enip.REAL.tag_type, enip.REAL.struct_calcsize, lambda x: float( x )),
+                    'BOOL':	(enip.BOOL.tag_type, enip.BOOL.struct_calcsize, bool ),
+                    'REAL': 	(enip.REAL.tag_type, enip.REAL.struct_calcsize, float ),
                     'DINT':	(enip.DINT.tag_type, enip.DINT.struct_calcsize, lambda x: int_validate( x, -2**31, 2**31-1 )),
                     'INT':	(enip.INT.tag_type,  enip.INT.struct_calcsize,  lambda x: int_validate( x, -2**15, 2**15-1 )),
                     'SINT':	(enip.SINT.tag_type, enip.SINT.struct_calcsize, lambda x: int_validate( x, -2**7,  2**7-1 )),
+                    'SSTRING':	(enip.SSTRING.tag_type, 0, str ),
                 }[typ.upper()]
             opr['data']		= list( map( cast, val.split( ',' )))
 
@@ -281,13 +283,13 @@ def parse_operations( tags, fragment=False, **kwds ):
                     "Number of data values (%d) doesn't match element count (%d): %s=%s" % (
                         len( opr['data'] ), opr['elements'], tag, val )
             else:
-                # Fragmented write, to an identified range of indices optionally w/offset into a
+                # Known element size; allow Fragmented write, to an identified range of indices optionally w/offset into a
                 # buffer of known type, hence we can check length.  If the byte offset + data
                 # provided doesn't match the number of elements, then a subsequent Write Tag
                 # Fragmented command will be required to write the balance.  We can't deduce the
                 # final total number of elements from the data provided, b/c it may be partial.
-                assert 'elements' in opr, \
-                    "Fragmented write must specify exact destination element range"
+                assert size and 'elements' in opr, \
+                    "Fragmented write must specify exact size and destination element range"
                 byte		= opr.get( 'offset' ) or 0
                 assert byte % size == 0, \
                     "Invalid byte offset %d for elements of size %d bytes" % ( byte, size )
@@ -548,7 +550,8 @@ class client( object ):
 
     def get_attributes_all( self, path,
               route_path=None, send_path=None, timeout=None, send=True,
-              sender_context=b'' ):
+              sender_context=b'',
+              data_size=None, elements=None, tag_type=None ):
         req			= cpppo.dotdict()
         req.path		= { 'segment': [ cpppo.dotdict( d ) for d in parse_path( path ) ]}
         req.get_attributes_all	= True
@@ -560,7 +563,8 @@ class client( object ):
 
     def get_attribute_single( self, path,
               route_path=None, send_path=None, timeout=None, send=True,
-              sender_context=b'' ):
+              sender_context=b'',
+              data_size=None, elements=None, tag_type=None ):
         req			= cpppo.dotdict()
         req.path		= { 'segment': [ cpppo.dotdict( d ) for d in parse_path( path ) ]}
         req.get_attribute_single= True
@@ -572,7 +576,8 @@ class client( object ):
 
     def read( self, path, elements=1, offset=0,
               route_path=None, send_path=None, timeout=None, send=True,
-              sender_context=b'' ):
+              sender_context=b'',
+              data_size=None, tag_type=None ):
         """Issue a Read Tag Fragmented request for the specified path.  If no specific number of elements is specified,
         get it from the path (if it is unparsed, eg Tag[0-9] or @0x04/5/connection=100)"""
         req			= cpppo.dotdict()
@@ -595,7 +600,7 @@ class client( object ):
                 sender_context=sender_context )
         return req
 
-    def write( self, path, data, elements=1, offset=0, tag_type=enip.INT.tag_type,
+    def write( self, path, data, elements=1, offset=0, tag_type=None,
                route_path=None, send_path=None, timeout=None, send=True,
                sender_context=b'' ):
         req			= cpppo.dotdict()
@@ -603,6 +608,8 @@ class client( object ):
         if cnt is not None:
             elements		= cnt
         req.path		= { 'segment': [ cpppo.dotdict( s ) for s in seg ]}
+        if tag_type is None:
+            tag_type		= enip.INT.tag_type
         if offset is None:
             req.write_tag	= {
                 'elements':	elements,
@@ -811,7 +818,12 @@ class connector( client ):
         24+6+24+14 == 68 bytes; about 14 bytes more than a normal single CIP request/reply.
 
         We must estimate the size of both the request and the reply, and attempt to ensure neither
-        exceeds the target 'multiple' request size.
+        exceeds the target 'multiple' request and/or response size.  If data_size or elements and
+        tag_type (undefined/None defaults to assume 4-byte types) is provided (strictly not
+        necessary for read/get_attribute* calls), these will be used to calculate/estimate the
+        response size.  Default assumption for Read Tag is 4-byte elements, for Get Attribute Single
+        is an average SSTRING, and for Get Attributes All is the maximum Multiple Service Packet
+        size (so it isn't merged, by default)
 
         """
         sender_context		= str( index ).encode( 'iso-8859-1' )
@@ -821,7 +833,7 @@ class connector( client ):
         requests_paths		= {}	# Also, must collect all op route/send_paths
         for op in operations:
             # Chunk up requests if using Multiple Service Request, otherwise send immediately.  Also
-            # handle Get Attribute(s) Single/All, but don't include in Multiple Service Packet.
+            # handle Get Attribute(s) Single/All, but don't include ...All in Multiple Service Packet.
             op['sender_context']= sender_context
             descr		= "Multi. " if multiple else "Single "
             begun		= cpppo.timer()
@@ -832,7 +844,7 @@ class connector( client ):
                     op['offset']= 0 if fragment else None # Force Write Tag Fragmented
                 req		= self.write( timeout=timeout, send=not multiple, **op )
                 reqest		= 24 + parser.typed_data.datasize(
-                    tag_type=op.get( 'tag_type', enip.INT.tag_type ), size=len( op['data'] ))
+                    tag_type=op.get( 'tag_type' ) or enip.INT.tag_type, size=len( op['data'] ))
                 rpyest		= 4
             elif method == 'read':
                 descr	       += "Read  "
@@ -840,18 +852,36 @@ class connector( client ):
                     op['offset']= 0 if fragment else None # Force Read  Tag Fragmented
                 req		= self.read( timeout=timeout, send=not multiple, **op )
                 reqest		= 22
-                rpyest		= 4 + parser.typed_data.datasize(
-                    tag_type=enip.DINT.tag_type, size=op.get( 'elements', 1 ))
+                rpyest		= 4
+                if op.get( 'data_size' ):
+                    rpyest     += op.get( 'data_size' )
+                else:
+                    rpyest     += parser.typed_data.datasize(
+                        tag_type=op.get( 'tag_type' ) or enip.DINT.tag_type, size=op.get( 'elements', 1 ))
             elif method == 'get_attribute_single':
                 descr	       += "G_A_S "
                 req		= self.get_attribute_single( timeout=timeout, send=not multiple, **op )
                 reqest		= 8
-                rpyest		= multiple # Completely unknown; prevent merging...
+                rpyest		= 0
+                if op.get( 'data_size' ):
+                    rpyest     += op.get( 'data_size' )
+                elif op.get( 'tag_type' ): # a non-0/None tag_type defined; use it (assumes 1 element Attribute)
+                    rpyest     += parser.typed_data.datasize(
+                        tag_type=op.get( 'tag_type' ) or enip.DINT.tag_type, size=op.get( 'elements', 1 ))
+                else:
+                    rpyest	= multiple # Completely unknown; prevent merging...
             elif method == 'get_attributes_all':
                 descr	       += "G_A_A "
                 req		= self.get_attributes_all( timeout=timeout, send=not multiple, **op )
                 reqest		= 8
-                rpyest		= multiple # Completely unknown; prevent merging...
+                rpyest		= 0
+                if op.get( 'data_size' ):
+                    rpyest     += op.get( 'data_size' )
+                elif op.get( 'tag_type' ) and op.get( 'elements' ):
+                    rpyest     += parser.typed_data.datasize(
+                        tag_type=op.get( 'tag_type' ) or enip.DINT.tag_type, size=op.get( 'elements', 1 ))
+                else:
+                    rpyest	= multiple # Completely unknown; prevent merging...
             else:
                 log.detail( "Unrecognized operation method %s: %r", method, op )
             elapsed		= cpppo.timer() - begun
@@ -859,8 +889,7 @@ class connector( client ):
             descr	       += ' ' + format_path( op['path'], count=op.get( 'elements' ))
 
             if multiple:
-                if (( not requests
-                      or max( reqsiz + reqest, rpysiz + rpyest ) < multiple )
+                if (( not requests or max( reqsiz + reqest, rpysiz + rpyest ) < multiple )
                     and requests_paths.setdefault( 'route_path', op.get( 'route_path' )) == op.get( 'route_path' )
                     and requests_paths.setdefault(  'send_path', op.get(  'send_path' )) == op.get(  'send_path' )):
                     # Multiple Service Packet new or req/rpy est. size OK, and route/send_path same; keep collecting
@@ -885,7 +914,10 @@ class connector( client ):
                     requests_paths = {}
                     reqsiz	= reqmin
                     rpysiz	= rpymin
+                # This op is consistent with developing multiple requests; queue it, remembering paths
                 requests.append( (descr,op,req) )
+                requests_paths.setdefault( 'route_path', op.get( 'route_path' ))
+                requests_paths.setdefault(  'send_path', op.get( 'send_path' ))
                 if log.isEnabledFor( logging.DETAIL ):
                     log.detail( "Que. %7.3f/%7.3fs: %s %s", 0, 0, descr, enip.enip_format( req ))
             else:
@@ -1117,7 +1149,7 @@ class connector( client ):
                 if 'element' in request.path.segment[-1]:
                     elm		= request.path.segment[-1].element	# array access
 
-                # The response should contain either an status code (possibly with an extended
+                # The response should contain either a status code (possibly with an extended
                 # status), or the read_frag request's data.  Remember; a successful response may
                 # carry read_frag.data, but report a status == 6 indicating that more data remains
                 # to return via a subsequent fragmented read request.  Compute any Read/Write Tag
@@ -1130,10 +1162,9 @@ class connector( client ):
                 if 'read_frag' in reply:
                     act		= "=="
                     if reply.status in (0x00, 0x06):
-                        # Success (may be partial data); we can compute actual element offset
-                        # and count of elements actually included in reply.
-                        off	= request.read_frag.get( 'offset', 0 ) \
-                                      // enip.parser.typed_data.datasize( tag_type=reply.read_frag['type'] )
+                        # Success (may be partial data); we don't try to compute actual element
+                        # offset from byte offset, because of types (eg. SSTRING) w/ indetermine len
+                        off	= request.read_frag.get( 'offset', 0 )
                         cnt	= len( val )
                     else:
                         # Failure; no way to compute element offset requested, use count from request
@@ -1144,8 +1175,7 @@ class connector( client ):
                     cnt		= request.read_tag.get( 'elements', 0 )
                 elif 'write_frag' in reply:
                     act		= "<="
-                    off		= request.write_frag.get( 'offset', 0 ) \
-                                  // enip.parser.typed_data.datasize( tag_type=request.write_frag['type'] )
+                    off		= request.write_frag.get( 'offset', 0 )
                     val		= request.write_frag.data
                     cnt		= request.write_frag.elements - off
                 elif 'write_tag' in reply:
@@ -1175,7 +1205,7 @@ class connector( client ):
             if elm is None:
                 line		= "%20s              %s %r: %r" % ( tag, act, val, res ) # scalar access
             else:
-                line		= "%20s[%5d-%-5d] %s %r: %r" % ( tag, elm + off, elm + off + cnt - 1, act, val, res )
+                line		= "%20s[%3d-%-3d]+%3d %s %r: %r" % ( tag, elm, elm + cnt - 1, off, act, val, res )
             log.normal( line )
             if printing:
                 print( line )

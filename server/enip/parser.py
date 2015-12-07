@@ -226,14 +226,22 @@ class SSTRING( STRUCT ):
         .SSTRING.string			octets[*]	.length
 
     The produce classmethod accepts this structure, or just a plain Python str, and will output the
-    equivalent length+string."""
-    tag_type			= None
+    equivalent length+string.  If a zero length is provided, no string is parsed, and an empty
+    string returned.
+
+    """
+    tag_type			= 0x00DA
+    struct_calcsize		= 80 # Average SSTRING size used for estimations
+
     def __init__( self, name=None, **kwds):
         name			= name or kwds.setdefault( 'context', self.__class__.__name__ )
 
-        leng			= USINT(		context='length' )
+        leng			= USINT(		'length', context='length' )
+        leng[None]		= move_if(		'empty',  destination='.string', initializer='',
+                                    predicate=lambda path=None, data=None, **kwds: not data[path].length,
+                                                        state=octets_noop( 'done', terminal=True ))
         leng[None]		= cpppo.string_bytes(	'string',
-                                                        context='string', limit='..length',
+                                                        limit='..length',
                                                         initial='.*',	decode='iso-8859-1',
                                                         terminal=True )
 
@@ -1163,6 +1171,7 @@ class CIP( cpppo.dfa ):
                 return cmdcls.produce( data['CIP.' + cmdcls.__name__] )
         raise Exception( "Invalid CIP request/reply format: %r" % data )
 
+
 class typed_data( cpppo.dfa ):
     """Parses CIP typed data, of the form specified by the datatype (must be a relative path within
     the data artifact, or an integer data type).  Data elements are parsed 'til exhaustion of input, so the caller should
@@ -1183,17 +1192,19 @@ class typed_data( cpppo.dfa ):
     UDINT	yes		= 0x00c8	# 4 bytes
     DWORD			= 0x00d3	# 4 byte (32-bit boolean array)
     LINT			= 0x00c5	# 8 byte
+    SSTRING	yes		= 0x00da	# 1 byte length + <length> data
 
     """
     TYPES_SUPPORTED		= {
-        BOOL.tag_type:  BOOL,
-        SINT.tag_type:	SINT,
-        USINT.tag_type:	USINT,
-        INT.tag_type:	INT,
-        UINT.tag_type:	UINT,
-        DINT.tag_type:	DINT,
-        UDINT.tag_type:	UDINT,
-        REAL.tag_type:	REAL,
+        BOOL.tag_type:  	BOOL,
+        SINT.tag_type:		SINT,
+        USINT.tag_type:		USINT,
+        INT.tag_type:		INT,
+        UINT.tag_type:		UINT,
+        DINT.tag_type:		DINT,
+        UDINT.tag_type:		UDINT,
+        REAL.tag_type:		REAL,
+        SSTRING.tag_type:	SSTRING,
     }
 
     def __init__( self, name=None, tag_type=None, **kwds ):
@@ -1257,6 +1268,17 @@ class typed_data( cpppo.dfa ):
         fltp[None]		= move_if( 	'movfloat',	source='.REAL', 
                                            destination='.data',	initializer=lambda **kwds: [],
                                                 state=fltd )
+        # Since a parsed "SSTRING": { "string": "abc", "length": 3 } is multiple layers deep, and we
+        # want to completely eliminate the target container in preparation for the next loop, we'll
+        # need to move it up one layer, and then into the final target.
+        sstd			= octets_noop(	'endsstring',
+                                                terminal=True )
+        sstd[True]	= sstp	= SSTRING()
+        sstp[None]		= move_if( 	'movsstring',	source='.SSTRING.string',
+                                                destination='.SSTRING' )
+        sstp[None]		= move_if( 	'movsSSTRING',	source='.SSTRING', 
+                                           destination='.data',	initializer=lambda **kwds: [],
+                                                state=sstd )
 
         slct[None]		= cpppo.decide(	'BOOL',	state=u_1p,
             predicate=lambda path=None, data=None, **kwds: \
@@ -1282,6 +1304,9 @@ class typed_data( cpppo.dfa ):
         slct[None]		= cpppo.decide(	'REAL',	state=fltp,
             predicate=lambda path=None, data=None, **kwds: \
                 REAL.tag_type == ( data[path+tag_type] if isinstance( tag_type, cpppo.type_str_base ) else tag_type ))
+        slct[None]		= cpppo.decide(	'SSTRING', state=sstp,
+            predicate=lambda path=None, data=None, **kwds: \
+                SSTRING.tag_type == ( data[path+tag_type] if isinstance( tag_type, cpppo.type_str_base ) else tag_type ))
         
         super( typed_data, self ).__init__( name=name, initial=slct, **kwds )
 

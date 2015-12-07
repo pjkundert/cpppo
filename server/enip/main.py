@@ -941,9 +941,16 @@ def main( argv=None, attribute_class=device.Attribute, idle_service=None, identi
             tag_size, rest	= rest.split( ']', 1 )
         assert not rest, "Invalid tag specified; expected tag=<type>[<size>]: %r" % t
         tag_type		= str( tag_type ).upper()
-        typenames		= {"BOOL": parser.BOOL, "INT": parser.INT, "DINT": parser.DINT, "SINT": parser.SINT, "REAL": parser.REAL }
-        assert tag_type in typenames, "Invalid tag type; must be one of %r" % list( typenames.keys() )
-        tag_default		= 0.0 if tag_type == "REAL" else 0
+        typenames		= {
+            "BOOL":	( parser.BOOL,	0 ),
+            "INT":	( parser.INT,	0 ),
+            "DINT":	( parser.DINT,	0 ),
+            "SINT":	( parser.SINT,	0 ),
+            "REAL":	( parser.REAL,  0.0 ),
+            "SSTRING":	( parser.SSTRING, '' ),
+        }
+        assert tag_type in typenames, "Invalid tag type; must be one of %r" % list( typenames )
+        tag_class,tag_default	= typenames[tag_type]
         try:
             tag_size		= int( tag_size )
         except:
@@ -955,7 +962,7 @@ def main( argv=None, attribute_class=device.Attribute, idle_service=None, identi
         log.normal( "Creating tag: %s=%s[%d]", tag_name, tag_type, tag_size )
         tag_entry		= cpppo.dotdict()
         tag_entry.attribute	= ( Attribute_print if args.print else attribute_class )(
-            tag_name, typenames[tag_type], default=( tag_default if tag_size == 1 else [tag_default] * tag_size ))
+            tag_name, tag_class, default=( tag_default if tag_size == 1 else [tag_default] * tag_size ))
         tag_entry.error		= 0x00
         dict.__setitem__( tags, tag_name, tag_entry )
 
