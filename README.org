@@ -126,8 +126,8 @@
     is required:
     : <tag>=<type>[<length>]   # eg. SCADA=INT[1000]
 
-    The available types are INT (16-bit), SINT (8-bit) DINT (32-bit) integer,
-    and REAL (32-bit float).
+    The available types are SINT (8-bit), INT (16-bit), DINT (32-bit) integer,
+    and REAL (32-bit float).  BOOL (8-bit, bit #0) and SSTRING are also supported.
 
 *** EtherNet/IP Controller I/O Customization
 
