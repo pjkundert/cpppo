@@ -45,6 +45,7 @@ specified).  Optionally prints results (if --print specified).
 import argparse
 import array
 import collections
+import csv
 import itertools
 import json
 import logging
@@ -247,7 +248,7 @@ def parse_operations( tags, fragment=False, **kwds ):
             opr['elements']	= cnt
 
         if val:
-            # Default to REAL/INT, by simply checking for '.' in the provided value(s)
+            # Default between REAL/INT, by simply checking for '.' in the provided value(s)
             if '.' in val:
                 opr['tag_type']	= enip.REAL.tag_type
                 size		= enip.REAL.struct_calcsize
@@ -257,13 +258,13 @@ def parse_operations( tags, fragment=False, **kwds ):
                 size		= enip.INT.struct_calcsize
                 cast		= lambda x: int( x )
             # Allow an optional (TYPE)value,value,...
-            if ')' in val:
+            if val.strip().startswith( '(' ) and ')' in val:
                 def int_validate( x, lo, hi ):
                     res		= int( x )
                     assert lo <= res <= hi, "Invalid %d; not in range (%d,%d)" % ( res, lo, hi)
                     return res
-                typ,val		= val.split( ')' )
-                _,typ		= typ.split( '(' )
+                typ,val		= val.split( ')', 1 ) # Get leading: ['(TYPE', '), ...]
+                _,typ		= typ.split( '(', 1 )
                 opr['tag_type'],size,cast = {
                     'BOOL':	(enip.BOOL.tag_type, enip.BOOL.struct_calcsize, bool ),
                     'REAL': 	(enip.REAL.tag_type, enip.REAL.struct_calcsize, float ),
@@ -272,7 +273,18 @@ def parse_operations( tags, fragment=False, **kwds ):
                     'SINT':	(enip.SINT.tag_type, enip.SINT.struct_calcsize, lambda x: int_validate( x, -2**7,  2**7-1 )),
                     'SSTRING':	(enip.SSTRING.tag_type, 0, str ),
                 }[typ.upper()]
-            opr['data']		= list( map( cast, val.split( ',' )))
+
+            # The provided val is a comma-separated, whitespace-padded single-line list containing
+            # integers, reals and quoted strings.  Perfect for using csv.reader to parse...  Not
+            # quite perfect: doesn't handle trailing whitespace after quoted strings quite right,
+            # but much better than we can do by hand.
+            try:
+                val_list,	= csv.reader(
+                    [ val ], quotechar='"', delimiter=',', quoting=csv.QUOTE_ALL, skipinitialspace=True )
+            except Exception as exc:
+                log.warning( "Invalid sequence of CSV values: %s; %s", val, exc )
+                raise
+            opr['data']		= list( map( cast, val_list ))
 
             if 'offset' not in opr and not fragment:
                 # Non-fragment write.  The exact correct number of data elements must be
@@ -280,8 +292,8 @@ def parse_operations( tags, fragment=False, **kwds ):
                 if 'elements' not in opr:
                     opr['elements'] = len( opr['data'] )
                 assert len( opr['data'] ) == opr['elements'], \
-                    "Number of data values (%d) doesn't match element count (%d): %s=%s" % (
-                        len( opr['data'] ), opr['elements'], tag, val )
+                    "Number of data values (%d: %r) doesn't match element count (%d): %s=%s" % (
+                        len( opr['data'] ), opr['data'], opr['elements'], tag, val )
             else:
                 # Known element size; allow Fragmented write, to an identified range of indices optionally w/offset into a
                 # buffer of known type, hence we can check length.  If the byte offset + data

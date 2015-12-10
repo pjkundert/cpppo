@@ -70,9 +70,12 @@
    services.
 
    Only EtherNet/IP "Unconnected" type connections are supported.  These are
-   (somewhat anomalously) a persistent connection to a single EtherNet/IP device
-   (such as a Controller), which allow a sequence of CIP service requests
-   (commands) to be sent to arbitrary CIP objects resident on the target device.
+   (somewhat anomalously) a persistent TCP/IP connection from a client to a
+   single EtherNet/IP device (such as a *Logix Controller), which allow the
+   client to issue a sequence of CIP service requests (commands) to be sent to
+   arbitrary CIP objects resident on the target device.  Cpppo does not
+   implement "Connected" requests (eg. those typically used between *Logix PLCs,
+   in an industrial LAN environment).
 
    A Tag is simply a shortcut to a specific EtherNet/IP CIP Object Instance and
    Attribute.  Instead of the Client needing to know the specific Instance and
@@ -83,9 +86,9 @@
 
     To run a simulation of a subset of a ControlLogix(tm) Controller
     communications, with the tag 'SCADA' for you to read/write, run:
-    : $ python -m cpppo.server.enip --print SCADA=INT[1000]
+    : $ python -m cpppo.server.enip --print SCADA=INT[1000] TEXT=SSTRING[100]
     Alternatively, invoke the supplied wrapper script:
-    : enip_server --print SCADA=INT[1000]
+    : enip_server --print SCADA=INT[1000] TEXT=SSTRING[100]
     This is especially handy under Python 2.6, where you must manually specify
     the module entry point, eg. =cpppo.server.enip.__main__=.
 
@@ -121,7 +124,7 @@
     : --route-path '[{"link": 0, "port": 1}]'
     : --route-path '[{"link": 0, "port": "192.168.1.2"}]'
     : --route-path false
-
+    
     You may specify as many tags as you like on the command line; at least one
     is required:
     : <tag>=<type>[<length>]   # eg. SCADA=INT[1000]
@@ -211,10 +214,11 @@
     A simple EtherNet/IP CIP Client is provided.  It can Register and issue a stream
     of "Unconnected" requests to the Controller, such as Read/Write Tag
     (optionally Fragmented) requests:
-    : python -m cpppo.server.enip.client -v --print SCADA[1]=99 SCADA[0-10]
+    : python -m cpppo.server.enip.client -v --print \
+    :     SCADA[1]=99 SCADA[0-10] 'TEXT[1]=(SSTRING)"Hello, world!"' TEXT[0-3]
     Alternatively, invoke the supplied wrapper script:
-    : enip_client SCADA[1]=99 SCADA[0-10]
-    
+    : enip_client SCADA[1]=99 SCADA[0-10] 'TEXT[1]=(SSTRING)"Hello, world!"' TEXT[0-3]
+
     Specify a different local interface and/or port to connect to (default is :44818):
     : -a|--address [<interface>][:<port>]
     On Windows systems, you must specify an actual interface.  For example, if you started the
@@ -239,6 +243,21 @@
     : --route-path '[{"link": 0, "port": 1}]'
     : --route-path '[{"link": 0, "port": "192.168.1.2"}]'
     : --route-path false
+
+    If a simple EtherNet/IP CIP device doesn't support routing of message to
+    other CIP devices, and hence supports no Message Router Object, an empty
+    send-path may be supplied Normally, this also implies no route-path, so is
+    usually used in combination with =--route-path=false=.  This can be used to
+    prevent the issuance of Unconnected Send Service encapsulation, which "Only
+    originating devices and devices that route between links need to implement"
+    (see: The CIP Networks Library, Vol 1, Table 3-5.8).  Also avoid use of
+    =--multiple=, as these devices do not generally accept Multiple Service
+    Packet requests, either.
+
+    Therefore, to communicate with simple, non-routing CIP devices (eg. AB
+    PowerFlex, ...), use:
+    : --send-path='' --route-path=false
+
 
     To send log output to a file (limited to 10MB, rotates through 5 copies):
     : -l|--log <file>
@@ -265,13 +284,14 @@
     : <tag>=<value>                             # scalar, eg. SCADA=1
     : <tag>[<reg>-<reg>]=<value>,<value>,...    # vector range
     : <tag>[<reg>]=<value>                      # single element of a vector
-    : <tag>[<reg>-<reg>]=(DINT)<value>,<value>  # cast to SINT, INT, DINT or REAL
+    : <tag>[<reg>-<reg>]=(DINT)<value>,<value>  # cast to SINT/INT/DINT/REAL/BOOL/SSTRING
 
-    If any <value> contains a '.' (eg. '9.9,10'), all values are deemed to be REAL;
-    otherwise, they are integers and default to a type INT.  To force a specific
-    type (and limit the values to the appropriate value range), you may specify
-    a "cast" to a specific type, eg. 'TAG[4-6]=(INT)1,2,3'.  The types SINT,
-    INT, DINT and REAL are supported.
+    By default, if any <value> contains a '.' (eg. '9.9,10'), all values are
+    deemed to be REAL; otherwise, they are integers and are assumed to be type
+    INT.  To force a specific type (and limit the values to the appropriate
+    value range), you may specify a "cast" to a specific type,
+    eg. 'TAG[4-6]=(DINT)1,2,3'.  The types SINT, INT, DINT, REAL, BOOL and
+    SSTRING are supported.
 
     In addition to symbolic Tag addressing, numeric Class/Instance/Attribute
     addressing is available.  A Class, Instance and Attribute address values are
