@@ -1196,7 +1196,7 @@ class Message_Router( Object ):
         result, using this same cls.produce() method.
 
             "unconnected_send.service": 0x0A,					# default, if '.multiple' seen
-            "unconnected_send.multiple.path": { 'class': 0x06, 'instance': 1}	# default, if no path provided
+            "unconnected_send.multiple.path": { 'class': 0x02, 'instance': 1}	# default, if no path provided
             "unconnected_send.multiple.request[0].path": { 'symbolic': "SCADA_40100", 'element': 123 }
             "unconnected_send.multiple.request[0].read_tag.elements": 1		# vector access, single element
             "unconnected_send.multiple.request[1].path": { 'symbolic': "part" }
@@ -1435,7 +1435,12 @@ def __multiple_reply():
     srvc			= USINT(	context='service' )
     srvc[True]		= rsvd	= octets_drop(	'reserved',	repeat=1 )
     rsvd[True]		= stts	= status()
-    stts[True]		= numr	= UINT(		'number',	context='multiple', extension='.number' )
+    stts[None]		= schk	= octets_noop(	'check',
+                                                terminal=True )
+    # Next comes the number of replies encapsulated; only if general reply status is 0/ok
+    numr			= UINT(		'number',	context='multiple', extension='.number' )
+    schk[None]			= automata.decide( 'ok',	state=numr,
+        predicate=lambda path=None, data=None, **kwds: data[path+'.status' if path else 'status'] == 0x00 )
     
     # Prepare a state-machine to parse each UINT into .UINT, and move it onto the .offsets list
     off_			= UINT(		'offset',	context='multiple', extension='.UINT' )
