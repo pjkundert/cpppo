@@ -179,7 +179,7 @@ which is required to carry this Send/Route Path data. """ )
         operations		= attribute_operations( tags, route_path=route_path, send_path=send_path )
         for idx,dsc,op,rpy,sts,val in connection.pipeline(
                 operations=operations, depth=depth, multiple=multiple, timeout=timeout ):
-            print( "%s: %3d: %s == %s" % ( time.ctim(), idx, dsc, val ))
+            print( "%s: %3d: %s == %s" % ( time.ctime(), idx, dsc, val ))
             failures	       += 1 if sts else 0
         elapsed			= cpppo.timer() - start
         logging.normal( "%3d requests in %7.3fs at pipeline depth %2s; %7.3f TPS" % (
