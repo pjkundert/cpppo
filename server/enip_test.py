@@ -1994,10 +1994,7 @@ def test_enip_CIP( repeat=10 ):
                         item.unconnected_send.request.input	= bytearray( MR.produce( item.unconnected_send.request ))
                         log.normal("Produce Logix message from: %r", item.unconnected_send.request )
                 log.normal( "Produce CPF message from: %r", cpf.CPF )
-                cpf.input	= bytearray( enip.CPF.produce( cpf.CPF )) 
-            elif 'enip.CIP' in data and ( 'list_identity' in data.enip.CIP ):
-                cpf		= data.enip.CIP.list_identity
-                cpf.input	= bytearray( enip.CPF.produce( cpf.CPF ))
+                # cpf.input	= bytearray( enip.CPF.produce( cpf.CPF )) 
 
             # Next, reconstruct the CIP Register, ListIdentity, ListServices, or SendRRData.  The CIP.produce must
             # be provided the EtherNet/IP header, because it contains data (such as .command)

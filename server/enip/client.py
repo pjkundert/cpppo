@@ -708,11 +708,6 @@ class client( object ):
         us.request		= request
 
         us.request.input	= bytearray( device.dialect.produce( us.request )) # eg. logix.Logix
-        sd.input		= bytearray( enip.CPF.produce( sd.CPF ))
-
-        log.debug( "CPF: %3d + Request: %3d == %3d bytes total",
-                  len( sd.input ) - len( us.request.input ),
-                  len( us.request.input ), len( sd.input ))
 
         return self.cip_send( cip=cip, sender_context=sender_context, timeout=timeout )
 
