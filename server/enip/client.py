@@ -434,7 +434,7 @@ class client( object ):
                 self.profiler.disable()
             try:
                 rcvd		= network.recv( self.conn, timeout=0 )
-                log.debug(
+                log.info(
                     "EtherNet/IP-->%16s:%-5d rcvd %5d: %r",
                     self.addr[0], self.addr[1], len( rcvd ) if rcvd is not None else 0, rcvd )
                 if rcvd is not None:
@@ -712,8 +712,7 @@ class client( object ):
 
         log.debug( "CPF: %3d + Request: %3d == %3d bytes total",
                   len( sd.input ) - len( us.request.input ),
-                  len( us.request.input ),
-                  len( sd.input ))
+                  len( us.request.input ), len( sd.input ))
 
         return self.cip_send( cip=cip, sender_context=sender_context, timeout=timeout )
 
@@ -741,7 +740,7 @@ class client( object ):
 
         log.info( "EtherNet/IP: %3d + CIP: %3d == %3d bytes total",
                   len( data.input ) - len( data.enip.input ),
-                  len( data.enip.input ))
+                  len( data.enip.input ), len( data.input ))
 
         if self.profiler:
             self.profiler.disable()

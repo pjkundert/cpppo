@@ -1461,7 +1461,6 @@ CIP_tests			= [
                 {
                     "enip.status": 0, 
                     "enip.session_handle": 2, 
-                    "enip.encapsulated": {}, 
                     "enip.length": 54, 
                     "enip.CIP.send_data.interface": 0, 
                     "enip.CIP.send_data.CPF.count": 2, 
@@ -1506,7 +1505,6 @@ CIP_tests			= [
                 {
                     "enip.status": 0, 
                     "enip.session_handle": 2, 
-                    "enip.encapsulated": {}, 
                     "enip.length": 20, 
                     "enip.CIP.send_data.interface": 0, 
                     "enip.CIP.send_data.CPF.count": 2, 
@@ -1526,7 +1524,6 @@ CIP_tests			= [
                 {
                     "enip.status": 0, 
                     "enip.session_handle": 2, 
-                    "enip.encapsulated": {}, 
                     "enip.length": 24, 
                     "enip.CIP.send_data.interface": 0, 
                     "enip.CIP.send_data.CPF.count": 2, 
@@ -1549,7 +1546,6 @@ CIP_tests			= [
                 {
                     "enip.status": 0, 
                     "enip.session_handle": 2, 
-                    "enip.encapsulated": {}, 
                     "enip.length": 24, 
                     "enip.CIP.send_data.interface": 0, 
                     "enip.CIP.send_data.CPF.count": 2, 
@@ -1580,6 +1576,21 @@ CIP_tests			= [
                     "enip.session_handle": 0, 
                     "enip.status": 0,
                     "enip.CIP.list_services.CPF": {}, 
+                }
+            ), (
+                b'\x04\x00\x19\x00\xdc\xa5\xeaN\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\x01\x13\x00\x01\x00 \x00Communications\x00',
+               {
+                   "enip.status": 0, 
+                   "enip.session_handle": 1324000732, 
+                   "enip.length": 25, 
+                   "enip.CIP.list_services.CPF.count": 1, 
+                   "enip.CIP.list_services.CPF.item[0].communications_service.capability": 32, 
+                   "enip.CIP.list_services.CPF.item[0].communications_service.service_name": "Communications", 
+                   "enip.CIP.list_services.CPF.item[0].communications_service.version": 1, 
+                   "enip.CIP.list_services.CPF.item[0].length": 19, 
+                   "enip.CIP.list_services.CPF.item[0].type_id": 256, 
+                   "enip.command": 4, 
+                   "enip.options": 0
                 }
             ), (
                 rss_004_request,
@@ -1928,9 +1939,6 @@ def test_enip_CIP( repeat=10 ):
             log.normal( "EtherNet/IP Request: %s", enip.enip_format( data ))
             
         # Parse the encapsulated .input
-
-        data.enip.encapsulated	= cpppo.dotdict()
-        
         with CIP as machine:
             for i,(m,s) in enumerate( machine.run( path='enip', source=cpppo.peekable( data.enip.get( 'input', b'' )), data=data )):
                 log.detail( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r",
@@ -1963,26 +1971,6 @@ def test_enip_CIP( repeat=10 ):
                         log.normal( "Parsed  %3d bytes using %s.parser, into %s", 
                                     len( item.unconnected_send.request.input ),
                                     Lx, enip.enip_format( data ))
-        elif 'enip.CIP' in data:
-            # Some general CIP commands (eg. list_identity, list_services).  A standard Message
-            # Router should understand them (we'll use the Logix one we have lying around).
-            for item in data.enip.CIP.list_identity.CPF.items if 'list_identity.CPF.items' in data.enip.CIP else []:
-                    with MR.parser as machine:
-                        if log.getEffectiveLevel() <= logging.NORMAL:
-                            log.normal( "Parsing %3d bytes using %s.parser, from %s", 
-                                        len( item.identity_object.request.input ),
-                                        MR, enip.enip_format( item ))
-                        # Parse the unconnected_send.request.input octets, putting parsed items into the
-                        # same request context
-                        for i,(m,s) in enumerate( machine.run(
-                                source=cpppo.peekable( item.identity_object.request.input ),
-                                data=item.identity_object.request )):
-                            log.detail( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r",
-                                        machine.name_centered(), i, s, source.sent, source.peek(), data )
-                        if log.getEffectiveLevel() <= logging.NORMAL:
-                            log.normal( "Parsed  %3d bytes using %s.parser, into %s", 
-                                        len( item.identity_object.request.input ),
-                                        MR, enip.enip_format( data ))
         try:
             for k,v in tst.items():
                 assert data[k] == v, ( "data[%r] == %r\n"
