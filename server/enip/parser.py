@@ -198,11 +198,17 @@ class INT( TYPE ):
     struct_format		= '<h'
     struct_calcsize		= struct.calcsize( struct_format )
 
+class WORD( UINT ):
+    tag_type			= 0x00D2
+
 class UDINT( TYPE ):
     """An EtherNet/IP UDINT; 32-bit unsigned integer"""
     tag_type			= 0x00c8
     struct_format		= '<I'
     struct_calcsize		= struct.calcsize( struct_format )
+
+class DWORD( UDINT ):
+    tag_type			= 0x00D3
 
 class DINT( TYPE ):
     """An EtherNet/IP DINT; 32-bit signed integer"""
@@ -320,6 +326,53 @@ class IPADDR( UDINT_network ):
             value		= int( ipaddr )
             log.info( "Converted IP %r --> %d", ipaddr, value )
         return UDINT_network.produce( value )
+
+
+class IFACEADDRS( STRUCT ):
+    """Parses/produces a struct of TCP/IP interface IP address data, as per. Attribute 5 of the TCPIP
+    Interface Object.  Takes a dict, eg.: {
+        'ip_address': 		0x0201000A,	# or '10.0.1.2'
+        'network_mask':		0x0000FFFF,	# or '255.255.0.0'
+        'gateway_address':	0x0100000A,	# or '10.0.0.1'
+        'dns_primary':		0x0100000A,	# or '10.0.0.1'
+        'dns_secondary':	0x0200000A,	# or '10.0.0.2'
+        'domain_name':		'acme.com',
+    }
+
+    and produces a network byte-ordered encoding, and can parse such an encoding to restore the IP
+    addresses and domain_name.
+
+    """
+    tag_type			= None
+    def __init__( self, name=None, **kwds):
+        name			= name or kwds.setdefault( 'context', self.__class__.__name__ )
+
+        ipad			= IPADDR(	context='ip_address' )
+        ipad[True] = nmsk	= IPADDR(	context='network_mask' )
+        nmsk[True] = gwad	= IPADDR(	context='gateway_address' )
+        gwad[True] = dns1	= IPADDR(	context='dns_primary' )
+        dns1[True] = dns2	= IPADDR(	context='dns_secondary' )
+        dns2[True] = domn	= SSTRING(		context='domain_name',
+                                                        terminal=True )
+        domn[None]		= move_if( 'movsstring',source='.domain_name.string',
+                                                   destination='.domain_name' )
+
+        super( IFACEADDRS, self ).__init__( name=name, initial=ipad, **kwds )
+
+    @classmethod
+    def produce( cls, value ):
+        """Emit the binary representation (always in Network byte-order) of the supplied IPADDRS value dict.
+        Allows strings, which are assumed to be textual representations of IP addresses.
+
+        """
+        result			= b''
+        result		       += IPADDR.produce( value.ip_address )
+        result		       += IPADDR.produce( value.network_mask )
+        result		       += IPADDR.produce( value.gateway_address )
+        result		       += IPADDR.produce( value.dns_primary )
+        result		       += IPADDR.produce( value.dns_secondary )
+        result		       += SSTRING.produce( value.domain_name )
+        return result
 
 
 # 
@@ -1350,6 +1403,7 @@ class typed_data( cpppo.dfa ):
     REAL	yes		= 0x00ca	# 4 bytes
     USINT	yes		= 0x00c6	# 1 byte
     UINT	yes		= 0x00c7	# 2 bytes
+    WORD			= 0x00d2	# 2 byte (16-bit boolean array)
     UDINT	yes		= 0x00c8	# 4 bytes
     DWORD			= 0x00d3	# 4 byte (32-bit boolean array)
     LINT			= 0x00c5	# 8 byte

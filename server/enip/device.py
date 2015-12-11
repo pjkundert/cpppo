@@ -32,7 +32,7 @@ enip.device	-- support for implementing an EtherNet/IP device Objects and Attrib
 __all__				= ['dialect', 'lookup', 'resolve', 'resolve_element',
                                    'redirect_tag', 'resolve_tag', 
                                    'Object', 'Attribute',
-                                   'UCMM', 'Connection_Manager', 'Message_Router', 'Identity']
+                                   'UCMM', 'Connection_Manager', 'Message_Router', 'Identity', 'TCPIP']
 
 import logging
 import random
@@ -42,7 +42,8 @@ import traceback
 
 from ...dotdict import dotdict
 from ... import automata, misc
-from .parser import ( DINT, UDINT, UDINT_network, INT, UINT, USINT, EPATH, SSTRING, STRUCT,
+from .parser import ( DINT, UDINT, UDINT_network, DWORD, INT, UINT, WORD, USINT,
+                      EPATH, SSTRING, STRUCT, IFACEADDRS,
                       CIP, typed_data,
                       octets, octets_encode, octets_noop, octets_drop, move_if,
                       struct, enip_format, status )
@@ -830,46 +831,6 @@ class Identity( Object ):
             self.attribute['10']= Attribute( 'Heartbeat Interval',	USINT,	default=0 )
 
 
-
-class IFACEADDRS( STRUCT ):
-    """Parses/produces a struct of TCP/IP interface IP address data, as per. Attribute 5 of the TCPIP
-    Interface Object.  Takes a dict, eg.: {
-        'ip_address': 		0x0201000A,	# or '10.0.1.2'
-        'network_mask':		0x0000FFFF,	# or '255.255.0.0'
-        'gateway_address':	0x0100000A,	# or '10.0.0.1'
-        'dns_primary':		0x0100000A,	# or '10.0.0.1'
-        'dns_secondary':	0x0200000A,	# or '10.0.0.2'
-        'domain_name':		'acme.com',	# 
-    }
-
-    """
-    tag_type			= None
-    def __init__( self, name=None, **kwds):
-        name			= name or kwds.setdefault( 'context', self.__class__.__name__ )
-
-        ipad			= IPADDR(	context='ip_address' )
-        ipad[True] = nmsk	= IPADDR(	context='network_mask' )
-        nmsk[True] = gwad	= IPADDR(	context='gateway_address' )
-        gwad[True] = dns1	= IPADDR(	context='dns_primary' )
-        dns1[True] = dns2	= IPADDR(	context='dns_secondary' )
-        dns2[True] = donm	= SSTRING(		context='domain_name',
-                                                        terminal=True )
-
-        super( IFACEADDRS, self ).__init__( name=name, initial=ipad, **kwds )
-
-    @classmethod
-    def produce( cls, value ):
-        """Emit the binary representation (always in Network byte-order) of the supplied IPADDRS value dict.
-        Allows strings, which are assumed to be textual representations of IP addresses.
-
-        """
-        result			= b''
-        result		       += IPADDR.produce( value.ip_address )
-        result		       += IPADDR.produce( value.network_mask )
-        result		       += IPADDR.produce( value.ip_address )
-        result		       += IPADDR.produce( value.ip_address )
-    
-
 class TCPIP( Object ):
     """Contains the TCP/IP network details of a CIP device.  See Volume 2: EtherNet/IP Adaptation of
     CIP, Chapter 5-4, TCP/IP Interface Object
@@ -888,7 +849,7 @@ class TCPIP( Object ):
             self.attribute['2']	= Attribute( 'Interface Capability',	DWORD,	default=0 )
             self.attribute['3']	= Attribute( 'Interface Control',	DWORD,	default=0 )
             self.attribute['4']	= Attribute( 'Path to Physical Link ',	EPATH,	default=[{}] )
-            self.attribute['5']	= Attribute( 'Interface Configuration',	IPADDRS,default=[{}] )
+            self.attribute['5']	= Attribute( 'Interface Configuration',	IFACEADDRS,default=[{}] )
             self.attribute['7']	= Attribute( 'Host Name', 		SSTRING,default='' )
 
 
