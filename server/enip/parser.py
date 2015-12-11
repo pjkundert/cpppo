@@ -305,9 +305,10 @@ class IPADDR( UDINT_network ):
     def terminate( self, exc, machine, path, data ):
         """Post-process a parsed UDINT IP address to produce it in dotted-quad string form"""
         super( IPADDR, self ).terminate( exc, machine=machine, path=path, data=data )
-        ipaddr			= ipaddress.ip_address( data.IPADDR )
-        log.info( "Converting %d --> %r", data.IPADDR, ipaddr )
-        data.IPADDR		= str( ipaddr )
+        ours			= self.context( path )
+        ipaddr			= ipaddress.ip_address( data[ours] )
+        log.info( "Converting %d --> %r", data[ours], ipaddr )
+        data[ours]		= str( ipaddr )
 
     @classmethod
     def produce( cls, value ):
@@ -1024,7 +1025,7 @@ class identity_object( cpppo.dfa ):
 					context='sin_family' )
         sfam[True]	= sprt	= UINT_network(
 					context='sin_port' )
-        sprt[True]	= sadd	= UDINT_network(
+        sprt[True]	= sadd	= IPADDR(
 					context='sin_addr' )
         sadd[True]	= szro	= octets_drop( context='sin_zero', repeat=8 )
         szro[True]	= vndr	= UINT(	context='vendor_id' )
@@ -1048,7 +1049,7 @@ class identity_object( cpppo.dfa ):
         result	       	       += UINT.produce( data.version )
         result	               += INT_network.produce( data.sin_family )
         result	               += UINT_network.produce( data.sin_port )
-        result	               += UDINT_network.produce( data.sin_addr )
+        result	               += IPADDR.produce( data.sin_addr )
         result		       += b'\0' * 8
         result		       += UINT.produce( data.vendor_id )
         result		       += UINT.produce( data.device_type )
