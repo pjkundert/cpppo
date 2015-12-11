@@ -35,6 +35,7 @@ import json
 import logging
 import struct
 import sys
+import ipaddress
 
 import cpppo
 
@@ -293,6 +294,29 @@ class SSTRING( STRUCT ):
         if actual < value.length:
             result	       += b'\x00' * ( value.length - actual )
         return result
+
+
+class IPADDR( UDINT_network ):
+    """Acts alot like a UDINT_network, but .produce takes an optional string value, and parses a
+    UDINT_network to produce an IPv4 dotted-quad address string.
+
+    """
+
+    def terminate( self, exc, machine, path, data ):
+        """Post-process a parsed UDINT IP address to produce it in dotted-quad string form"""
+        super( IPADDR, self ).terminate( exc, machine=machine, path=path, data=data )
+        ipaddr			= ipaddress.ip_address( data.IPADDR )
+        log.info( "Converting %d --> %r", data.IPADDR, ipaddr )
+        data.IPADDR		= str( ipaddr )
+
+    @classmethod
+    def produce( cls, value ):
+        if isinstance( value, cpppo.type_str_base ):
+            # Parse the supplied IP address string to an integer.
+            ipaddr		= ipaddress.ip_address( unicode( value ))
+            value		= int( ipaddr )
+            log.info( "Converted IP %r --> %d", ipaddr, value )
+        return UDINT_network.produce( value )
 
 # 
 # enip_header	-- Parse an EtherNet/IP header only 

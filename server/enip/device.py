@@ -40,11 +40,10 @@ import sys
 import threading
 import traceback
 
-#import ipaddress TODO: make identity_object handle IP addresses
-
 from ...dotdict import dotdict
 from ... import automata, misc
-from .parser import ( DINT, UDINT, INT, UINT, USINT, EPATH, SSTRING, STRUCT, CIP, typed_data,
+from .parser import ( DINT, UDINT, UDINT_network, INT, UINT, USINT, EPATH, SSTRING, STRUCT,
+                      CIP, typed_data,
                       octets, octets_encode, octets_noop, octets_drop, move_if,
                       struct, enip_format, status )
 
@@ -831,14 +830,6 @@ class Identity( Object ):
             self.attribute['10']= Attribute( 'Heartbeat Interval',	USINT,	default=0 )
 
 
-class IPADDR( UDINT ):
-    """Acts alot like a UDINT, but takes an optional string value, and parses a UDINT to produce an IPv4
-    dotted-quad address string."""
-    ipad			= UDINT(	context='ip_address' )
-
-    def terminate( self, **kwds ):
-        """Post-process a parsed UDINT IP address to produce it in dotted-quad string form"""
-        pass
 
 class IFACEADDRS( STRUCT ):
     """Parses/produces a struct of TCP/IP interface IP address data, as per. Attribute 5 of the TCPIP
@@ -856,11 +847,11 @@ class IFACEADDRS( STRUCT ):
     def __init__( self, name=None, **kwds):
         name			= name or kwds.setdefault( 'context', self.__class__.__name__ )
 
-        ipad			= UDINT(		context='ip_address' )
-        ipad[True] = nmsk	= UDINT(		context='network_mask' )
-        nmsk[True] = gwad	= UDINT(		context='gateway_address' )
-        gwad[True] = dns1	= UDINT(		context='dns_primary' )
-        dns1[True] = dns2	= UDINT(		context='dns_secondary' )
+        ipad			= IPADDR(	context='ip_address' )
+        ipad[True] = nmsk	= IPADDR(	context='network_mask' )
+        nmsk[True] = gwad	= IPADDR(	context='gateway_address' )
+        gwad[True] = dns1	= IPADDR(	context='dns_primary' )
+        dns1[True] = dns2	= IPADDR(	context='dns_secondary' )
         dns2[True] = donm	= SSTRING(		context='domain_name',
                                                         terminal=True )
 
@@ -868,14 +859,15 @@ class IFACEADDRS( STRUCT ):
 
     @classmethod
     def produce( cls, value ):
-        """Emit the binary representation of the supplied IPADDRS value dict.  Allows strings
+        """Emit the binary representation (always in Network byte-order) of the supplied IPADDRS value dict.
+        Allows strings, which are assumed to be textual representations of IP addresses.
 
         """
         result			= b''
-        result		       += UDINT.produce( value.ip_address )
-        result		       += UDINT.produce( value.network_mask )
-        result		       += UDINT.produce( value.ip_address )
-        result		       += UDINT.produce( value.ip_address )
+        result		       += IPADDR.produce( value.ip_address )
+        result		       += IPADDR.produce( value.network_mask )
+        result		       += IPADDR.produce( value.ip_address )
+        result		       += IPADDR.produce( value.ip_address )
     
 
 class TCPIP( Object ):
