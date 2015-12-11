@@ -313,11 +313,14 @@ class IPADDR( UDINT_network ):
     @classmethod
     def produce( cls, value ):
         if isinstance( value, cpppo.type_str_base ):
-            # Parse the supplied IP address string to an integer.
-            ipaddr		= ipaddress.ip_address( unicode( value ))
+            # Parse the supplied IP address string to an integer.  ip_address requires unicode
+            # value, even in Python2; there is no Python2/3 agnostic method for casting to unicode!
+            ipaddr		= ipaddress.ip_address(
+                ( unicode if sys.version_info[0] < 3 else str )( value ))
             value		= int( ipaddr )
             log.info( "Converted IP %r --> %d", ipaddr, value )
         return UDINT_network.produce( value )
+
 
 # 
 # enip_header	-- Parse an EtherNet/IP header only 
