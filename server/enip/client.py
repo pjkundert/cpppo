@@ -490,7 +490,7 @@ class client( object ):
                     pass
                 assert machine.terminal, "No CIP payload in the EtherNet/IP frame: %r" % ( result )
 
-        # Parse the (eg. Logix) request responses in the EtherNet/IP CIP payload's CPF items
+        # Parse the device (eg. Logix) request responses in the EtherNet/IP CIP payload's CPF items
         if result is not None and 'enip.CIP.send_data' in result:
             for item in result.enip.CIP.send_data.CPF.item:
                 if 'unconnected_send.request' in item:
@@ -498,12 +498,17 @@ class client( object ):
                     # Attribute All).  Use the globally-defined cpppo.server.enip.client's dialect's
                     # (eg. logix.Logix) parser to parse the contents of the CIP payload's CPF items.
                     with device.dialect.parser as machine:
-                        for mch,sta in machine.run(
+                        engine	= machine.run(
                                 source=cpppo.peekable( item.unconnected_send.request.input ),
-                                data=item.unconnected_send.request ):
-                            pass
-                        assert machine.terminal, "No %r request in the EtherNet/IP CIP CPF frame: %r" % (
-                            device.dialect, result )
+                                data=item.unconnected_send.request )
+                        try:
+                            for mch,sta in engine:
+                                pass
+                            assert machine.terminal, "No %r request in the EtherNet/IP CIP CPF frame: %r" % (
+                                device.dialect, result )
+                        finally:
+                            engine.close() # for pypy, where gc may delay destruction of generators
+                            del engine
 
         return result
 
@@ -540,26 +545,25 @@ class client( object ):
                 self.profiler.enable()
         return len( r ) > 0
 
+    # Basic CIP Requests; sent immediately
     def register( self, timeout=None, sender_context=b'' ):
-        data			= cpppo.dotdict()
-        data.enip		= {}
-        data.enip.session_handle= 0
-        data.enip.options	= 0
-        data.enip.status	= 0
-        data.enip.sender_context= {}
-        data.enip.sender_context.input = format_context( sender_context )
+        cip			= cpppo.dotdict()
+        cip.register		= {}
+        cip.register.options 	= 0
+        cip.register.protocol_version = 1
+        return self.cip_send( cip=cip, sender_context=sender_context, timeout=timeout )
 
-        data.enip.CIP		= {}
-        data.enip.CIP.register 	= {}
-        data.enip.CIP.register.options 		= 0
-        data.enip.CIP.register.protocol_version	= 1
+    def list_services( self, timeout=None, sender_context=b'' ):
+        cip			= cpppo.dotdict()
+        cip.list_services	= {}
+        return self.cip_send( cip=cip, sender_context=sender_context, timeout=timeout )
 
-        data.enip.input		= bytearray( enip.CIP.produce( data.enip ))
-        data.input		= bytearray( enip.enip_encode( data.enip ))
+    def list_identity( self, timeout=None, sender_context=b'' ):
+        cip			= cpppo.dotdict()
+        cip.list_identity	= {}
+        return self.cip_send( cip=cip, sender_context=sender_context, timeout=timeout )
 
-        self.send( data.input, timeout=timeout )
-        return data
-
+    # CIP SendRRData Requests; may be deferred (eg. for Multiple Service Packet)
     def get_attributes_all( self, path,
               route_path=None, send_path=None, timeout=None, send=True,
               sender_context=b'',
@@ -659,11 +663,7 @@ class client( object ):
 
     def unconnected_send( self, request, route_path=None, send_path=None, timeout=None,
                           sender_context=b'' ):
-        """Encapsulates the request and transmits it, returning the full encapsulation structure used to
-        carry the request.  The response must be harvested later; a sender_context should be
-        supplied that may be used to associate the response to the originating request.
-
-        The default route_path is the CPU in chassis (link 0), port 1, and the default send_path is
+        """The default route_path is the CPU in chassis (link 0), port 1, and the default send_path is
         to its Connection Manager (Class 6, Instance 1).  These defaults can be configured on a
         class or per-instance basis by changing the {route,send}_path_default attributes in either
         the client class or instance.
@@ -680,17 +680,10 @@ class client( object ):
             # Default to the Connection Manager
             send_path		= self.send_path_default
 
-        data			= cpppo.dotdict()
-        data.enip		= {}
-        data.enip.session_handle= self.session
-        data.enip.options	= 0
-        data.enip.status	= 0
-        data.enip.sender_context= {}
-        data.enip.sender_context.input = format_context( sender_context )
-        data.enip.CIP		= {}
-        data.enip.CIP.send_data = {}
+        cip			= cpppo.dotdict()
+        cip.send_data		= {}
 
-        sd			= data.enip.CIP.send_data
+        sd			= cip.send_data
         sd.interface		= 0
         sd.timeout		= 0
         sd.CPF			= {}
@@ -714,20 +707,42 @@ class client( object ):
                 us.route_path	= { 'segment': [ cpppo.dotdict( s ) for s in route_path ]} # must be {link/port}
         us.request		= request
 
-        if log.isEnabledFor( logging.DETAIL ):
-            log.detail( "Client Unconnected Send (route_path: %r): %s", route_path, enip.enip_format( data ))
-
         us.request.input	= bytearray( device.dialect.produce( us.request )) # eg. logix.Logix
         sd.input		= bytearray( enip.CPF.produce( sd.CPF ))
+
+        log.debug( "CPF: %3d + Request: %3d == %3d bytes total",
+                  len( sd.input ) - len( us.request.input ),
+                  len( us.request.input ),
+                  len( sd.input ))
+
+        return self.cip_send( cip=cip, sender_context=sender_context, timeout=timeout )
+
+    def cip_send( self, cip, timeout=None, sender_context=b'' ):
+        """Encapsulates the CIP request and transmits it, returning the full encapsulation structure
+        used to carry the request.  The response must be harvested later; a sender_context should be
+        supplied that may be used to associate the response to the originating request.
+
+        """
+        data			= cpppo.dotdict()
+        data.enip		= {}
+        data.enip.session_handle= self.session or 0 # May be None, if not yet registered
+        data.enip.options	= 0
+        data.enip.status	= 0
+        data.enip.sender_context= {}
+        data.enip.sender_context.input = format_context( sender_context )
+
+        data.enip.CIP		= cip		# Must have content encoded already produced
+
+        if log.isEnabledFor( logging.DETAIL ):
+            log.detail( "Client CIP Send: %s", enip.enip_format( data ))
+
         data.enip.input		= bytearray( enip.CIP.produce( data.enip ))
         data.input		= bytearray( enip.enip_encode( data.enip ))
 
-        log.info( "EtherNet/IP: %3d + CIP: %3d + CPF: %3d + Request: %3d == %3d bytes total",
+        log.info( "EtherNet/IP: %3d + CIP: %3d == %3d bytes total",
                   len( data.input ) - len( data.enip.input ),
-                  len( data.enip.input ) - len( sd.input ),
-                  len( sd.input ) - len( us.request.input ),
-                  len( us.request.input ),
-                  len( data.input ))
+                  len( data.enip.input ))
+
         if self.profiler:
             self.profiler.disable()
         try:
@@ -1360,6 +1375,10 @@ which is required to carry this Send/Route Path data. """ )
     ap.add_argument( '-f', '--fragment', dest='fragment', action='store_true',
                      default=False,
                      help="Always use Read/Write Tag Fragmented requests (default: False)" )
+    ap.add_argument( '-s', '--list-services', action='store_true', default=False,
+                     help="Perform a CIP List Services request upon connection (default: False)" )
+    ap.add_argument( '-i', '--list-identity', action='store_true', default=False,
+                     help="Perform a CIP List Identity request upon connection (default: False)" )
     ap.add_argument( '-P', '--profile', action='store_true',
                      help="Activate profiling (default: False)" )
     ap.add_argument( 'tags', nargs="+",
@@ -1415,7 +1434,22 @@ which is required to carry this Send/Route Path data. """ )
     with connector( host=addr[0], port=addr[1], timeout=timeout, profiler=profiler ) as connection:
         elapsed			= cpppo.timer() - begun
         log.detail( "Client Register Rcvd %7.3f/%7.3fs" % ( elapsed, timeout ))
+
+        # Issue List {Identity,Service} requests, if desired
+        if args.list_identity:
+            connection.list_identity( timeout=timeout )
+            assert connection.readable( timeout=timeout ), \
+                "No List Identity response w/in %7.3fs timeout" % timeout
+            reply		= next( connection )
+            print( "List Identity: %s" % enip.enip_format( reply.enip.CIP.list_identity.CPF.item[0].identity_object ))
     
+        if args.list_services:
+            connection.list_services( timeout=timeout )
+            assert connection.readable( timeout=timeout ), \
+                "No List Services response w/in %7.3fs timeout" % timeout
+            reply		= next( connection )
+            print( "List Services: %s" % enip.enip_format( reply.enip.CIP.list_services.CPF.item[0].communications_service ))
+
         # Issue Tag I/O operations, optionally printing a summary
         begun			= cpppo.timer()
         operations		= parse_operations( recycle( tags, times=repeat ),

@@ -40,9 +40,11 @@ import sys
 import threading
 import traceback
 
+#import ipaddress TODO: make identity_object handle IP addresses
+
 from ...dotdict import dotdict
 from ... import automata, misc
-from .parser import ( DINT, INT, UINT, USINT, EPATH, SSTRING, CIP, typed_data,
+from .parser import ( DINT, UDINT, INT, UINT, USINT, EPATH, SSTRING, STRUCT, CIP, typed_data,
                       octets, octets_encode, octets_noop, octets_drop, move_if,
                       struct, enip_format, status )
 
@@ -263,7 +265,7 @@ class Attribute( object ):
         self.scalar		= isinstance( default, automata.type_str_base ) or not hasattr( default, '__len__' )
         self.parser		= type_cls()
         self.error		= error		# If an error code is desired on access
-        self.mask		= mask		# May be hidden from Get Attribute(s) All/SIngle
+        self.mask		= mask		# May be hidden from Get Attribute(s) All/Single
 
     @property
     def value( self ):
@@ -829,6 +831,75 @@ class Identity( Object ):
             self.attribute['10']= Attribute( 'Heartbeat Interval',	USINT,	default=0 )
 
 
+class IPADDR( UDINT ):
+    """Acts alot like a UDINT, but takes an optional string value, and parses a UDINT to produce an IPv4
+    dotted-quad address string."""
+    ipad			= UDINT(	context='ip_address' )
+
+    def terminate( self, **kwds ):
+        """Post-process a parsed UDINT IP address to produce it in dotted-quad string form"""
+        pass
+
+class IFACEADDRS( STRUCT ):
+    """Parses/produces a struct of TCP/IP interface IP address data, as per. Attribute 5 of the TCPIP
+    Interface Object.  Takes a dict, eg.: {
+        'ip_address': 		0x0201000A,	# or '10.0.1.2'
+        'network_mask':		0x0000FFFF,	# or '255.255.0.0'
+        'gateway_address':	0x0100000A,	# or '10.0.0.1'
+        'dns_primary':		0x0100000A,	# or '10.0.0.1'
+        'dns_secondary':	0x0200000A,	# or '10.0.0.2'
+        'domain_name':		'acme.com',	# 
+    }
+
+    """
+    tag_type			= None
+    def __init__( self, name=None, **kwds):
+        name			= name or kwds.setdefault( 'context', self.__class__.__name__ )
+
+        ipad			= UDINT(		context='ip_address' )
+        ipad[True] = nmsk	= UDINT(		context='network_mask' )
+        nmsk[True] = gwad	= UDINT(		context='gateway_address' )
+        gwad[True] = dns1	= UDINT(		context='dns_primary' )
+        dns1[True] = dns2	= UDINT(		context='dns_secondary' )
+        dns2[True] = donm	= SSTRING(		context='domain_name',
+                                                        terminal=True )
+
+        super( IFACEADDRS, self ).__init__( name=name, initial=ipad, **kwds )
+
+    @classmethod
+    def produce( cls, value ):
+        """Emit the binary representation of the supplied IPADDRS value dict.  Allows strings
+
+        """
+        result			= b''
+        result		       += UDINT.produce( value.ip_address )
+        result		       += UDINT.produce( value.network_mask )
+        result		       += UDINT.produce( value.ip_address )
+        result		       += UDINT.produce( value.ip_address )
+    
+
+class TCPIP( Object ):
+    """Contains the TCP/IP network details of a CIP device.  See Volume 2: EtherNet/IP Adaptation of
+    CIP, Chapter 5-4, TCP/IP Interface Object
+
+    """
+    class_id			= 0xF5
+
+    def __init__( self, name=None, **kwds ):
+        super( TCPIP, self ).__init__( name=name, **kwds )
+
+        if self.instance_id == 0:
+            self.attribute['0'] = Attribute( 'Revision', 		UINT,	default=3 )
+        else:
+            # Instance Attributes (these example defaults are from a Rockwell Logix PLC)
+            self.attribute['1']	= Attribute( 'Interface Status',	DWORD,	default=0 )
+            self.attribute['2']	= Attribute( 'Interface Capability',	DWORD,	default=0 )
+            self.attribute['3']	= Attribute( 'Interface Control',	DWORD,	default=0 )
+            self.attribute['4']	= Attribute( 'Path to Physical Link ',	EPATH,	default=[{}] )
+            self.attribute['5']	= Attribute( 'Interface Configuration',	IPADDRS,default=[{}] )
+            self.attribute['7']	= Attribute( 'Host Name', 		SSTRING,default='' )
+
+
 class UCMM( Object ):
     """Un-Connected Message Manager, handling Register/Unregister of connections, and sending
     Unconnected Send messages to either directly to a local object, or to the local Connection
@@ -1061,7 +1132,7 @@ class UCMM( Object ):
         cpf.item		= [ dotdict() ]
         cpf.item[0].type_id	= 0x0100
         cpf.item[0].communications_service \
-            		= c_s	= dotdict()
+			= c_s	= dotdict()
         c_s.version		= 1
         c_s.capability		= self.LISTSVCS_CIP_ENCAP
         c_s.service_name	= 'Communications'
@@ -1069,6 +1140,42 @@ class UCMM( Object ):
         data.enip.input		= bytearray( self.parser.produce( data.enip ))
 
         return True
+
+    def list_identity( self, data ):
+        """The List Identity response consists of the IP address we're bound to from the TCP/IP Object, plus
+        some Attribute data from the Identity object.
+
+        """
+        cpf			= data.enip.CIP.list_identity.CPF
+        cpf.item		= [ dotdict() ]
+        cpf.item[0].type_id	= 0x000C
+        cpf.item[0].identity_object \
+			= ido	= dotdict()
+        ido.version		= 1
+
+        # The TCP/IP Object, Instance 1, Attribute 5 is a struct of:
+        #   | UDINT | IP Address
+        #   | UDINT | Network Mask
+        #   | UDINT | Gateway
+        # Each value This will be a tuple
+        TCP_addr		= lookup( class_id=0xF5, instance_id=1, attribute_id=5 )
+        ido.sin_family		= 0 if not TCP_addr else TCP_addr.value[0][0]
+        ido.sin_port		= 0
+        ido.sin_addr		= 0
+
+        ido.vendor_id		= 0
+        ido.device_type		= 0
+        ido.product_code	= 0
+        ido.revision		= 0
+        ido.status		= 0
+        ido.serial_number	= 0
+        ido.product_name	= "Something"
+        ido.state		= 0
+
+        data.enip.input		= bytearray( self.parser.produce( data.enip ))
+
+        return True
+
 
 class Message_Router( Object ):
     """Processes incoming requests.  Normally a derived class would expand the normal set of Services
