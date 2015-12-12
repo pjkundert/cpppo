@@ -2176,6 +2176,7 @@ draindelay			= 10.  		# long in case server very slow (eg. logging), but immedia
 
 def enip_cli( number, tests=None ):
     """Sends a series of test messages, testing response for expected results."""
+    #logging.getLogger().setLevel(logging.NORMAL)
     log.info( "EtherNet/IP Client %3d connecting... PID [%5d]", number, os.getpid() )
     conn			= socket.socket( socket.AF_INET, socket.SOCK_STREAM )
     conn.connect( enip.address )
@@ -2290,7 +2291,7 @@ enip_svr_kwds_basic		= {
     },
 }
 
-def test_enip_bench_basic():
+def enip_bench_basic():
     failed			= cpppo.server.network.bench( server_func=enip.main,
                                                               server_kwds=enip_svr_kwds_basic,
                                                               client_func=enip_cli,
@@ -2304,6 +2305,8 @@ def test_enip_bench_basic():
 
     return failed
 
+def test_enip_bench_basic():
+    assert not enip_bench_basic(), "One or more enip_bench_basic clients reported failure"
 
 enip_cli_kwds_logix		= {
 	'tests':	[
@@ -2321,7 +2324,9 @@ enip_cli_kwds_logix		= {
             ), ( 
                 gaa_011_request,
                 {
-                    "response.enip.length": 		55, 
+                    # Size depends on the Identity Object's Attributes; will
+                    # change if Identity modified...
+                    "response.enip.length": 		59,
                 }
             ), ( 
                 unk_014_request, # Read Frag, 1 element
@@ -2356,7 +2361,7 @@ enip_svr_kwds_logix 		= {
 }
 
 
-def test_enip_bench_logix():
+def enip_bench_logix():
     failed			= cpppo.server.network.bench( server_func=enip.main,
                                                               server_kwds=enip_svr_kwds_logix,
                                                               client_func=enip_cli,
@@ -2370,6 +2375,8 @@ def test_enip_bench_logix():
 
     return failed
 
+def test_enip_bench_logix():
+    assert not enip_bench_logix(), "One or more enip_bench_logix clients reported failure"
 
 if __name__ == "__main__":
     '''
@@ -2397,7 +2404,7 @@ if __name__ == "__main__":
     '''
 
     '''
-    test_enip_bench_logix()
+    enip_bench_logix()
     '''
     '''
     print( "\nFunction Total:" )
