@@ -339,9 +339,16 @@ class client( object ):
     send_path_default		= enip.send_path_default
 
     def __init__( self, host, port=None, timeout=None, dialect=logix.Logix, profiler=None ):
-        """Connect to the EtherNet/IP client, waiting  """
-        self.addr               = (host if host is not None else enip.address[0],
-                                   port if port is not None else enip.address[1])
+        """Connect to the EtherNet/IP client, waiting up to 'timeout' for a connection.  Avoid using
+        the host OS platform default if 'host' is empty; this will be different on Mac OS-X, Linux,
+        Windows, ...  So, for an empty host, we'll default to 'localhost'; this should be IPv4/IPv6
+        compatible (vs. '127.0.0.1', for exmaple).  Likewise, if boht the supplied port and
+        enip.address ends up 0, the OS-supplied default port is not used; use 44818.
+
+        """
+        addr			= ( host if host is not None else enip.address[0],
+                                    port if port is not None else enip.address[1] )
+        self.addr		= ( addr[0] or 'localhost', addr[1] or 44818 )
         self.conn		= None
         try:
             self.conn		= socket.create_connection( self.addr, timeout=timeout )
@@ -1344,7 +1351,7 @@ which is required to carry this Send/Route Path data. """ )
     ap.add_argument( '-a', '--address',
                      default=( "%s:%d" % enip.address ),
                      help="EtherNet/IP interface[:port] to connect to (default: %s:%d)" % (
-                         enip.address[0], enip.address[1] ))
+                         enip.address[0] or 'localhost', enip.address[1] or 44818 ))
     ap.add_argument( '-p', '--print', default=False, action='store_true',
                      help="Print a summary of operations to stdout" )
     ap.add_argument( '-l', '--log',
