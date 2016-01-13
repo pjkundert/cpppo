@@ -308,7 +308,7 @@
     Dispatching a multitude of EtherNet/IP CIP I/O operations to a Controller
     (with our without pipelining) is very simple.  If you don't need to see the
     results of each operation as they occur, or just want to ensure that they
-    succeeded, you can use =connector.process= (see =cpppo/server/enip/client/io.py=):
+    succeeded, you can use =connector.process= (see =cpppo/server/enip/client/io_example.py=):
     #+BEGIN_EXAMPLE python
     host                        = 'localhost'   # Controller IP address
     port                        = address[1]    # default is port 44818

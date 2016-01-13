@@ -32,6 +32,7 @@ def test_IPADDR():
             pass
     assert result.IPADDR == '10.0.0.1'
 
+
 def test_IFACEADDRS():
     data			= cpppo.dotdict()
     data.ip_address		= "10.161.1.5"
@@ -39,13 +40,43 @@ def test_IFACEADDRS():
     data.gateway_address	= "10.161.1.1"
     data.dns_primary		= "8.8.8.8"
     data.dns_secondary		= "8.8.4.4"
-    data.domain_name		= "acme.com"
+    data.domain_name		= "acme.ca"
 
     source			= parser.IFACEADDRS.produce( data )
-    assert source == b'\n\xa1\x01\x05\xff\xff\xff\x00\n\xa1\x01\x01\x08\x08\x08\x08\x08\x08\x04\x04\x08acme.com'
+    assert source == b'\n\xa1\x01\x05\xff\xff\xff\x00\n\xa1\x01\x01\x08\x08\x08\x08\x08\x08\x04\x04\x07\x00acme.ca\x00'
 
     result			= cpppo.dotdict()
     with parser.IFACEADDRS() as machine:
         for m,s in machine.run( source=source, data=result ):
             pass
     assert result.IFACEADDRS == data
+
+
+def test_STRINGs():
+    """SSTRING is 1-byte len + string; STRING is 2-byte len + string + pad (if odd len)"""
+    base			= "Of the increase of His government and peace there shall be no end "
+    for l in ( random.randrange( 0, 1000 ) for _ in range( 10 )):
+        original		= base * ( l // len( base ) + 1 ) # always at least length l
+        encoded			= parser.STRING.produce( value=original )
+        assert len( encoded ) == 2 + len( original ) + len( original ) % 2
+
+        result			= cpppo.dotdict()
+        with parser.STRING() as machine:
+            for m,s in machine.run( source=encoded, data=result ):
+                pass
+        assert result.STRING.length == len( original )
+        assert result.STRING.string == original
+
+        try:
+            encoded		= parser.SSTRING.produce( value=original )
+        except Exception as exc:
+            assert len( original ) >= 256, "SSTRING failure: %s" % ( exc )
+            continue
+        assert len( encoded ) == 1 + len( original )
+
+        result			= cpppo.dotdict()
+        with parser.SSTRING() as machine:
+            for m,s in machine.run( source=encoded, data=result ):
+                pass
+        assert result.SSTRING.length == len( original )
+        assert result.SSTRING.string == original

@@ -43,7 +43,7 @@ import traceback
 from ...dotdict import dotdict
 from ... import automata, misc
 from .parser import ( DINT, UDINT, UDINT_network, DWORD, INT, UINT, WORD, USINT,
-                      EPATH, SSTRING, STRUCT, IFACEADDRS,
+                      EPATH, EPATH_padded, SSTRING, STRING, STRUCT, IFACEADDRS,
                       CIP, typed_data,
                       octets, octets_encode, octets_noop, octets_drop, move_if,
                       struct, enip_format, status )
@@ -423,8 +423,9 @@ class NumInstances( MaxInstance ):
 class Object( object ):
     """An EtherNet/IP device.Object is capable of parsing and processing a number of requests.  It has
     a class_id and an instance_id; an instance_id of 0 indicates the "class" instance of the
-    device.Object, which has different (class level) Attributes (and may respond to different commands)
-    than the other instance_id's.
+    device.Object, which has different (class level) Attributes (and may respond to different
+    commands) than the other instance_id's.  An instance_id will be dynamically allocated, if one
+    isn't specified.
 
     Each Object has a single class-level parser, which is used to register all of its available
     service request parsers.  The next available symbol designates the type of service request,
@@ -833,8 +834,43 @@ class Identity( Object ):
 
 class TCPIP( Object ):
     """Contains the TCP/IP network details of a CIP device.  See Volume 2: EtherNet/IP Adaptation of
-    CIP, Chapter 5-4, TCP/IP Interface Object
+    CIP, Chapter 5-4, TCP/IP Interface Object.
 
+    According to Volume 2: EtherNet/IP Adaptation of CIP, Table 5-4.13, the Get_Attributes_All
+    formatting of the Domain Name and Host Name are CIP STRINGs consist of 2-byte (UINT) length, followed
+    by the string, followed by a 1-byte PAD if the string is of odd length.
+
+    As per Volume 2: 5-4.3, the Instance Attributes 1-6 are Required:
+
+    | Attribute | Type  | Name / bits               | Description                                 |
+    |-----------+-------+---------------------------+---------------------------------------------|
+    |         1 | DWORD | Status                    | Interface Configuration Status              |
+    |           |       | 0-3: I'face Config Status | 0 == Not configured                         |
+    |           |       |                           | 1 == BOOTP/DHCP/non-volatile storage        |
+    |           |       |                           | 2 == IP address from hardware configuration |
+    |           |       | 4: M'cast Pending         | (not if Attribute 2, bit 5 False)           |
+    |           |       | 5: I'face Config Pending  |                                             |
+    |           |       | 6: AcdStatus              |                                             |
+    |           |       | 7: AcdFault               |                                             |
+    |           |       | 8-31:                     | Reserved                                    |
+    |         2 | DWORD | Configuration Capability  |                                             |
+    |           |       | 0: BOOTP Client           | Capable of config. w/BOOTP                  |
+    |           |       | 1: DNS Client             | Can resolve hostname w/DNS                  |
+    |           |       | 2: DHCP Client            | Can obtain network config w/DHCP            |
+    |           |       | 3: DHCP-DNS Update        | Shall be 0                                  |
+    |           |       | 4: Config. Settable       | Interface Config. Attr. is settable         |
+    |           |       | 5: Hardware Configurable  | IP can be configured from h/w               |
+    |           |       | 6: I'face Chg. Reset      | Restart required on IP config change        |
+    |           |       | 7: AcdCapable             | Indicates ACD capable                       |
+    |           |       | 8-31:                     | Reserved                                    |
+    |         3 | DWORD | Configuration Control     |                                             |
+    |           |       | 0-3: Configuration method | 0 == Use statically-assigned IP config      |
+    |           |       |                           | 1 == Obtain config. via BOOTP               |
+    |           |       |                           | 2 == Obtain config. via DHCP                |
+    |           |       |                           | 3-15 == Reserved                            |
+    |           |       | 4: DNS Enable             | Resolve hostnames via DHCP                  |
+    |           |       | 5-31                      | Reserved                                    |
+    |           |       |                           |                                             |
     """
     class_id			= 0xF5
 
@@ -848,9 +884,9 @@ class TCPIP( Object ):
             self.attribute['1']	= Attribute( 'Interface Status',	DWORD,	default=0 )
             self.attribute['2']	= Attribute( 'Interface Capability',	DWORD,	default=0 )
             self.attribute['3']	= Attribute( 'Interface Control',	DWORD,	default=0 )
-            self.attribute['4']	= Attribute( 'Path to Physical Link ',	EPATH,	default=[{}] )
+            self.attribute['4']	= Attribute( 'Path to Physical Link ',	EPATH_padded,default=[{}] )
             self.attribute['5']	= Attribute( 'Interface Configuration',	IFACEADDRS,default=[{}] )
-            self.attribute['7']	= Attribute( 'Host Name', 		SSTRING,default='' )
+            self.attribute['6']	= Attribute( 'Host Name', 		STRING,default='' )
 
 
 class UCMM( Object ):
@@ -1095,8 +1131,10 @@ class UCMM( Object ):
         return True
 
     def list_identity( self, data ):
-        """The List Identity response consists of the IP address we're bound to from the TCP/IP Object, plus
-        some Attribute data from the Identity object.
+        """The List Identity response consists of the IP address we're bound to from the TCP/IP Object,
+        plus some Attribute data from the Identity object.  Look up these Objects at their
+        traditional CIP Class and Instance numbers; if they exist, use their values to populate the
+        response.
 
         """
         cpf			= data.enip.CIP.list_identity.CPF
@@ -1106,24 +1144,37 @@ class UCMM( Object ):
 			= ido	= dotdict()
         ido.version		= 1
 
-        # The TCP/IP Object, Instance 1, Attribute 5 is a struct of:
-        #   | UDINT | IP Address
-        #   | UDINT | Network Mask
-        #   | UDINT | Gateway
-        # Each value This will be a tuple
-        TCP_addr		= lookup( class_id=0xF5, instance_id=1, attribute_id=5 )
-        ido.sin_family		= 0 if not TCP_addr else TCP_addr.value[0][0]
-        ido.sin_port		= 0
-        ido.sin_addr		= 0
+        # The TCP/IP Object, Instance 1, Attribute 5 is an IFACEADDRS struct of:
+        #   | UDINT   | IP Address
+        #   | UDINT   | Network Mask
+        #   | UDINT   | Gateway
+        #   | UDINT   | DNS Primary
+        #   | UDINT   | DNS Secondary
+        #   | SSTRING | Domain Name
+        # 
+        # Each value must be a tuple/list
+        att			= lookup( class_id=TCPIP.class_id, instance_id=1, attribute_id=5 )
+        ido.sin_family		= 2
+        ido.sin_port		= 44818
+        val			= ( att.value if att.scalar else att.value[0] ) if att else None
+        ido.sin_addr		= val[0] if hasattr( val, 'getitem' ) and len( val ) >= 1 else 0
 
-        ido.vendor_id		= 0
-        ido.device_type		= 0
-        ido.product_code	= 0
-        ido.revision		= 0
-        ido.status		= 0
-        ido.serial_number	= 0
-        ido.product_name	= "Something"
-        ido.state		= 0
+        att			= lookup( class_id=Identity.class_id, instance_id=1, attribute_id=1 )
+        ido.vendor_id		= ( att.value if att.scalar else att.value[0] ) if att else 0
+        att			= lookup( class_id=Identity.class_id, instance_id=1, attribute_id=2 )
+        ido.device_type		= ( att.value if att.scalar else att.value[0] ) if att else 0
+        att			= lookup( class_id=Identity.class_id, instance_id=1, attribute_id=3 )
+        ido.product_code	= ( att.value if att.scalar else att.value[0] ) if att else 0
+        att			= lookup( class_id=Identity.class_id, instance_id=1, attribute_id=4 )
+        ido.revision		= ( att.value if att.scalar else att.value[0] ) if att else 0
+        att			= lookup( class_id=Identity.class_id, instance_id=1, attribute_id=5 )
+        ido.status		= ( att.value if att.scalar else att.value[0] ) if att else 0
+        att			= lookup( class_id=Identity.class_id, instance_id=1, attribute_id=6 )
+        ido.serial_number	= ( att.value if att.scalar else att.value[0] ) if att else 0
+        att			= lookup( class_id=Identity.class_id, instance_id=1, attribute_id=7 )
+        ido.product_name	= ( att.value if att.scalar else att.value[0] ) if att else ""
+        att			= lookup( class_id=Identity.class_id, instance_id=1, attribute_id=8 )
+        ido.state		= ( att.value if att.scalar else att.value[0] ) if att else 0
 
         data.enip.input		= bytearray( self.parser.produce( data.enip ))
 

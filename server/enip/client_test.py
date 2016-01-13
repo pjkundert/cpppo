@@ -10,11 +10,22 @@ except ImportError:
 import errno
 import logging
 import multiprocessing
+import os
 import random
 import socket
+import sys
 import threading
 import time
 
+if __name__ == "__main__":
+    # Allow relative imports when executing within package directory, for
+    # running tests directly
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))))
+    from cpppo.automata import log_cfg
+    logging.basicConfig( **log_cfg )
+    #logging.getLogger().setLevel( logging.INFO )
+
+import cpppo
 from ...dotdict import dotdict, apidict
 from ... import misc, tools
 from .. import enip, network

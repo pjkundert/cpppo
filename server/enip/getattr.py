@@ -19,19 +19,41 @@ from __future__ import absolute_import
 from __future__ import print_function
 from __future__ import division
 
+try:
+    from future_builtins import map, zip
+except ImportError:
+    pass # already available in Python3
+
+
 __author__                      = "Perry Kundert"
 __email__                       = "perry@hardconsulting.com"
 __copyright__                   = "Copyright (c) 2013 Hard Consulting Corporation"
 __license__                     = "Dual License: GPLv3 (or later) and Commercial (see LICENSE)"
 
-__all__				= ['attribute_operations', 'main']
+__all__				= ['attribute_operations', 'proxy', 'proxy_simple', 'main']
 
-"""Get Attributes (Single/All) from a target EtherNet/IP CIP device.
+
+"""Get Attributes (Single/All) interface from a target EtherNet/IP CIP device.
 
     $ # Get Attribute Single from Class 2, Instance 1, Attribute 1
     $ python -m cpppo.server.enip.getattr -a controller '@2/1/1'
     $ # Get Attributes All from Class 2, Instance 1
     $ python -m cpppo.server.enip.getattr -a controller '@2/1'
+
+A flexible proxy for a "routing" CIP device (eg. a *Logix controller) or a "simple" CIP device
+(eg. a simple EtherNet/IP CIP device such as an AB MicroLogix, or a sensor or actuator such as the
+AB PowerFlex AC Drive):
+
+mysensors.py:
+
+    from cpppo.server.enip.getattr import proxy_simple
+
+    class some_sensor( proxy_simple ):
+        '''A simple (non-routing) CIP device with one parameter with a shortcut name: 'A Sensor Parameter' '''
+        PARAMETERS		= dict( proxy_simple.PARAMETERS,
+            a_sensor_parameter	= powerflex.parameter( '@0x93/1/10',	'REAL',	'Hz' ),
+        )
+
 
 Object class identifiers are divided into two types of open objects: publicly defined (ranging from
 0x00 - 0x63 and 0x00F0 - 0x02FF) and vendor-specific objects (ranging from 0x64 - 0xC7 and 0x0300 -
@@ -49,11 +71,14 @@ the CIP Volume section of each network specification.
 """
 
 import argparse
+import collections
+import functools
 import itertools
 import json
 import logging
 import sys
 import time
+import traceback
 
 import cpppo
 from .. import enip
@@ -74,6 +99,441 @@ def attribute_operations( paths, **kwds ):
         else:
             op['method'] = 'get_attributes_all'
         yield op
+
+
+# 
+# getattr.is_...
+# 
+#     Methods for identifying certain types of Python objects
+# 
+def is_iterator( thing ):
+    """Detects if 'thing' is already an iterator/generator."""
+    return hasattr( thing, '__next__' if sys.version_info[0] < 3 else 'next' )
+
+
+def is_listlike( thing ):
+    """Something like a list or tuple; indexable, but not a string or a class (some may have
+    __getitem__, eg. cpppo.state, based on a dict).
+
+    """
+    return not isinstance( thing, (cpppo.type_str_base,type) ) and hasattr( thing, '__getitem__' )
+
+# 
+# getattr.proxy		-- for devices that can "route" CIP requests
+# getattr.proxy_simple	-- for simple end-devices (eg. sensors, actuators)
+# 
+#     Access an EtherNet/IP CIP device using either generic Get Attribute{s All, Single}, or *Logix
+# Read Tag [Fragmented] services, as desired.  Data is delivered converted to target format.
+# 
+class proxy( object ):
+    """Monitor/control an EtherNet/IP CIP device, using either Get Attribute Single/All or Read Tag
+    [Fragmented] services.  The EtherNet/IP CIP gateway is discarded and re-opened on any Exception;
+    it is created as required; if accessing the EtherNet/IP CIP device via this interface results in
+    an Exception, the caller must signal the enip_proxy to discard the connection, by invoking the
+    .close_gateway method
+
+    Provides general "Unconnected" read/write access to CIP attributes, using either *Logix
+    "Read/Write Tag [Fragmented]" service requests, or (if a type is specified), then uses the more
+    basic "Get/Set Attribute Single" service requests.
+
+    If the target EtherNet/IP CIP device that is capable of "routing" requests to other devices
+    (eg. a *Logix Controller), then the default configuration should be usable.  However, for simple
+    devices that are not capable of routing CIP requests to other devices, the use of the
+    "Unconnected Request" service must be avoided;
+
+    NOTE
+
+    Iterators which satisfy the requirements of read/write may be supplied; otherwise, 'read' will
+    attempt to iterate the supplied (list-like or string) value, and 'write' will attempt to invoke the
+    '.items' method on its supplied (dict-like) value.
+
+    The reason read/write accept iterators instead of simply performing an I/O operation for each
+    call, is because the underlying EtherNet/IP CIP protocol is capable of both pipe-lining (having
+    multiple requests in-flight before receiving earlier responses), *and* can package multiple
+    requests into a single Multiple Service Packet request.  In order to do that, the underlying
+    cpppo.server.enip.client APIs require an iterable sequence of operations to perform.
+
+    """
+    IDENTITY_PRODUCT_NAME	= ( "@1/1/7", "SSTRING" )	# Identity: Product Name
+    CIP_TYPES			= {
+        "real":		( enip.REAL,	"REAL" ),		# <name>: (<class>, <data-path> )
+        "sint":		( enip.SINT,	"SINT" ),
+        "usint":	( enip.USINT,	"USINT" ),
+        "int":		( enip.INT,	"INT" ),
+        "uint":		( enip.UINT,	"UINT" ),
+        "dint":		( enip.DINT,	"DINT" ),
+        "udint":	( enip.UDINT,	"UDINT" ),
+        "bool":		( enip.BOOL,	"BOOL" ),
+        "word":		( enip.WORD,	"WORD" ),
+        "dword":	( enip.DWORD,	"DWORD" ),
+        "ipaddr":	( enip.IPADDR,	"IPADDR" ),		# a network-order UDINT as a dotted-quad
+        "string":	( enip.STRING,	"STRING.string" ),
+        "sstring":	( enip.SSTRING,	"SSTRING.string" ),
+        "epath":	( enip.EPATH_padded, "EPATH_padded.segment" ), # Supports padded EPATH: <words> 0x00 <EPATH> [<pad>]
+    }
+
+    # 
+    # parameter		-- An attribute address, its underlying type(s) and units
+    # PARAMETERS	-- Transformations from parameter "bare name" ==> parameter( attribute, types, units )
+    # parameter_substitution -- perform parameter name to ( attribute, types, units ) transformations
+    # 
+    parameter			= collections.namedtuple(
+        'parameter', [
+            'attribute',	# eg. "@0x93/3/10"
+            'types',		# eg. "REAL" or ("UINT",...,"SSTRING")
+            'units',		# eg. "Hz"
+        ] )
+
+    PARAMETERS			= dict( # { 'Parameter Name': parameter(...), }
+        identity	= parameter( "@1/1",	[ "INT", "INT", "INT", "INT", "INT", "DINT", "SSTRING", "USINT" ], "Identity" ),
+        tcpip		= parameter( "@0xF5/1",	[
+            "DWORD", "DWORD", "DWORD", "EPATH",
+            "IPADDR", "IPADDR", "IPADDR", "IPADDR", "IPADDR", "STRING",
+            "STRING"
+        ], "TCPIP" )
+    )
+
+    def parameter_substitution( self, iterable, parameters=None, pass_thru=True ):
+        """Lookup bare names in the given parameters dict (or self.PARAMETERS, if None); pass
+        everything else (eg. tuples of CIP (<attribute>, <cip_type>, <units>)) thru unchanged (if pass_thru==True).
+    
+        Transforms bare names by stripping surrounding whitespace, lowering case, and substituting
+        intervening whitespace with underscores, eg.
+
+        ' Output Freq ' --> parameters['output_freq']
+    
+        Default to use the class' PARAMETERS.
+        """
+        if parameters is None:
+            parameters		= self.PARAMETERS
+        for t in iterable:
+            if isinstance( t, cpppo.type_str_base ):
+                ti 		= t.strip().lower().replace( ' ', '_' )
+                to		= parameters.get( ti )
+                if ti in parameters:
+                    att,typ,uni	= parameters[ti]
+                    logging.info( "Parameter %r (%s) --> %r", t, uni, (att,typ) )
+                    t		= att,typ
+                else:
+                    # Don't allow plain text Tags; must be named parameters!
+                    assert pass_thru, "Unrecognized parameter name: %r" % ( t )
+            yield t
+
+    def __init__( self, host, port=44818, timeout=None, depth=None, multiple=None,
+                  gateway_class=client.connector, route_path=None, send_path=None ):
+        self.host		= host
+        self.port		= port
+        self.timeout		= 5 if timeout is None else timeout
+        self.depth		= 2 if depth is None else depth
+        self.multiple		= 0 if multiple is None else multiple
+        self.route_path		= route_path
+        self.send_path		= send_path
+        self.gateway_class	= gateway_class
+        self.gateway		= None
+
+        # Attempt to resolve all properties (to avoid possible recursive attempts, later)
+        logging.detail( "Identity: %s", self.identity )
+
+    def __str__( self ):
+        return "%s via %s" % ( self.identity, self.gateway )
+
+    def close_gateway( self, exc=None ):
+        if self.gateway is not None:
+            self.gateway.close()
+            logging.warning( "Closed EtherNet/IP CIP gateway %s due to: %s",
+                             self.gateway, exc or "(unknown)" )
+            self.gateway	= None
+            if hasattr( self, '_identity' ):
+                del self._identity # also re-obtain identity, next time gateway opens
+
+    @property
+    def identity( self ):
+        """Return the Gateway Identity (if possible), otherwise None"""
+        if not hasattr( self, '_identity' ):
+            # Not yet obtained.  Unpack the iterator into the one expected result, if possible,
+            # otherwise return None (no Identity yet obtained).
+            reader			= self.read( [ self.IDENTITY_PRODUCT_NAME ] )
+            try:
+                product_name,		= reader
+                self._identity		= product_name[0]
+            except Exception as exc:
+                logging.detail( "Getting identity failed: %s; %s", exc, traceback.format_exc() )
+                return None
+            finally:
+                reader.close()
+                del reader
+
+        return self._identity
+
+    def maintain_gateway( function ):
+        """A decorator to open the gateway (if necessary), and discard it on any Exception."""
+        @functools.wraps( function )
+        def wrapper( inst, *args, **kwds ):
+            if inst.gateway is None:
+                inst.gateway	= inst.gateway_class( host=inst.host, port=inst.port, timeout=inst.timeout )
+                logging.detail( "Opened EtherNet/IP CIP gateway %s", inst.gateway )
+            try:
+                return function( inst, *args, **kwds )
+            except Exception as exc:
+                inst.close_gateway()
+                raise
+        return wrapper
+
+    @staticmethod
+    def is_request( req ):
+        """Return True iff the given item is potentially a read/write request target:
+        
+            <address>		-- "Tag|@<Class>/<Instance>/<Attribute>"
+            ( <address>, <CIP-type> [, <units> ] )
+            ( <address>, "CIP-type-name" [, <units> ] )
+            ( <address>, (<CIP-type>, <CIP-type>, ...) [, <units> ])
+
+        No validation of the provided <units> is done; it is passed thru unchanged.
+        """
+        logging.detail( "Validating request: %r", req )
+        if isinstance( req, cpppo.type_str_base ):
+            return True
+        if is_listlike( req ) and 2 <= len( req ) <= 3:
+            try:
+                add,typ,uni	= req
+            except ValueError:
+                (add,typ),uni	= req,None
+            if isinstance( add, cpppo.type_str_base ):
+                if isinstance( typ, (cpppo.type_str_base, type) ):
+                    return True
+                if is_listlike( typ ):
+                    if all( isinstance( t, (cpppo.type_str_base, type) ) for t in typ ):
+                        return True
+        return False
+
+    def read( self, attributes, printing=False ):
+        """Yeilds all values, raising Exception at end if any failed."""
+        bad			= []
+        reader			= self.read_details( attributes )
+        try:
+            for val,(sts,(att,typ,uni)) in reader:
+                if printing:
+                    # eg.   Output Current == 16.8275 Amps
+                    print( "%16s == %s %s" % (
+                        att, 'N/A' if ( val is not None ) else ', '.join( map( str, v )), uni ))
+                yield val
+                if sts not in (0,6):
+                    bad.append( "%s: status %r" % ( att, sts ))
+        finally:
+            reader.close() # PyPy compatibility; avoid deferred destruction of generators
+            del reader
+        if bad:
+            raise ValueError( "read failed to access %d attributes: %s" % (
+                len( bad ), ', '.join( bad )))
+
+    @maintain_gateway
+    def read_details( self, attributes ):
+        """Read the specified CIP Tags/Attributes in the string or iterable 'attributes', using Read
+        Tag [Fragmented] (returning the native type), or Get Attribute Single/All (converting it to
+        the specified EtherNet/IP CIP type(s)).
+
+        The reason iterables are used and a generator returned, is to allow the underlying
+        cpppo.server.enip.client connector to aggregate multiple CIP operations using Multiple
+        Service Packet requests and/or "pipeline" multiple requests in-flight, while receiving the
+        results of earlier requests.
+
+        The 'attributes' must be either a simple string Tag name (no Type, implying the use of
+        *Logix Read Tag [Fragmented] service), eg:
+
+            "Tag"
+
+        or an iterable containing 2 or 3 values; a Tag/address, a type/types (may be None, to force
+        Tag I/O), and an optional description (eg. Units)
+
+            [
+                "Tag",
+                ( "Tag", None, "kWh" ),
+                ( "@1/1/1", "INT" )
+                ( "@1/1/1", "INT", "Hz" )
+                ( "@1/1", ( "INT", "INT", "INT", "INT", "INT", "DINT", "SSTRING", "USINT" ))
+                ( "@1/1", ( "INT", "INT", "INT", "INT", "INT", "DINT", "SSTRING", "USINT" ), "Identity" )
+            ]
+
+        Produces a generator yielding the corresponding sequence of results and details for the
+        supplied 'attributes' iterable.  Each individual request may succeed or fail with a non-zero
+        status code (remember: status code 0x06 indicates successful return of a partial result).
+
+        Upon successful I/O, a tuple containing the result value and details about the result (a
+        status, and the attribute's details (address, type, and units)) corresponding to each of the
+        supplied 'attributes' elements is yielded as a sequence.  Each result value is always a list
+        of values, or None if the request failed:
+
+            (
+                ([0],(0, ("Tag", enip.INT, None))),
+                ([1.23],(0, "Tag", enip.REAL, "kWh"))),
+                ([1], (0, ("@1/1/1", enip.INT, None))),
+                ([1], (0, ("@1/1/1", enip.INT, "Hz"))),
+                ([1, 2, 3, 4, 5 6, "Something", 255],
+                    (0, ("@1/1", [
+                        enip.INT, enip.INT, enip.INT,  enip.INT,
+                        enip.INT, enip.DINT, enip.STRING, enip.USINT ], None ))),
+                ([1, 2, 3, 4, 5 6, "Something", 255],
+                    (0, ("@1/1", [
+                        enip.INT, enip.INT, enip.INT,  enip.INT,
+                        enip.INT, enip.DINT, enip.STRING, enip.USINT ], "Identity" ))),
+            )
+
+        The read_details API raises exception on failure to parse request, or result data type
+        conversion problem.  The simple 'read' API also raises an Exception on attribute access
+        error, the return of failure status code.  Not all of these strictly necessitate a closure
+        of the EtherNet/IP CIP connection, but should be sufficiently rare (once configured) that
+        they all must signal closure of the connection gateway (which is re-established on the next
+        call for I/O).
+
+        EXAMPLES
+
+            proxy		= enip_proxy( '10.0.1.2' )
+            try:
+                reader		= proxy.read( [ ("@1/1/7", "SSTRING") ] ) # CIP Device Name
+                try:
+                    value	= next( reader )
+                finally:
+                    reader.close() # for pypy, other Pythons w/ GC that defer object destruction
+            except Exception as exc:
+                proxy.close_gateway( exc )
+
+            # If CPython (w/ reference counting) is your only target, you can use the simpler:
+            proxy		= enip_proxy( '10.0.1.2' )
+            try:
+                value,		= proxy.read( [ ("@1/1/7", "SSTRING") ] ) # CIP Device Name
+            except Exception as exc:
+                proxy.close_gateway( exc )
+
+        """
+        if isinstance( attributes, cpppo.type_str_base ):
+            attributes		= [ attributes ]
+
+        def opp__att_typ_uni( i ):
+            """Generate sequence containing the enip.client operation, and the original attribute
+            specified, its type(s) (if any), and any description.  Augment produced operation with
+            data type (if known), to allow estimation of reply sizes (and hence, Multiple Service
+            Packet use); requires cpppo>=3.8.1.
+
+            Yields: (opp,(att,typ,dsc))
+
+            """
+            for a in i:
+                assert self.is_request( a ), \
+                    "Not a valid read/write target: %r" % ( a, )
+                try:
+                    # The attribute description is either a plain Tag, an (address, type), or an
+                    # (address, type, description)
+                    if is_listlike( a ):
+                        att,typ,uni = a if len( a ) == 3 else a+(None,)
+                    else:
+                        att,typ,uni = a,None,None
+                    # No conversion of data type if None; use a Read Tag [Fragmented]; works only for
+                    # SINT/INT/DINT/REAL/BOOL.  Otherwise, conversion of data type desired; get raw
+                    # data using Get Attribute Single.
+                    parser	= client.parse_operations if typ is None else attribute_operations
+                    opp,	= parser( ( att, ), route_path=self.route_path, send_path=self.send_path )
+                except Exception as exc:
+                    logging.warning( "Failed to parse attribute %r; %s", att, exc )
+                    raise
+                if typ is not None and not is_listlike( typ ):
+                    t		= typ
+                    if isinstance( typ, cpppo.type_str_base ):
+                        td	= self.CIP_TYPES.get( t.strip().lower() )
+                        if td is not None:
+                            t,d	= td
+                    if hasattr( t, 'tag_type' ):
+                        opp['tag_type'] = t.tag_type
+
+                logging.detail( "Parsed attribute %r (type %r) into operation: %r", att, typ, opp )
+                yield opp,(att,typ,uni)
+
+        def types_decode( types ):
+            """Produce a sequence of type class,data-path, eg. (enip.REAL,"SSTRING.string").  If a
+            user-supplied type (or None) is provided, data-path is None, and the type is passed.
+
+            """
+            for t in typ if is_listlike( typ ) else [ typ ]:
+                d		= None 		# No data-path, if user-supplied type
+                if isinstance( t, cpppo.type_str_base ):
+                    td		= self.CIP_TYPES.get( t.strip().lower() )
+                    assert td, "Invalid EtherNet/IP CIP type name %r specified" % ( t, )
+                    t,d		= td
+                assert type( t ) in (type,type(None)), \
+                    "Expected None or CIP type class, not %r" % ( t, )
+                yield t,d
+
+        # Get duplicate streams; one to feed the the enip.client's connector.operate, and one for
+        # post-processing based on the declared type(s).
+        operations,attrtypes	= itertools.tee( opp__att_typ_uni( attributes ))
+
+        # Process all requests w/ the specified pipeline depth, Multiple Service Packet
+        # configuration.  The 'idx' is the EtherNet/IP CIP request packet index; 'i' is the
+        # individual I/O request index (for indexing att/typ/operations).
+        assert not self.gateway.frame.lock.locked(), "Attempting recursive read on %r" % (
+            self.gateway.frame, )
+        with self.gateway as connection:
+            for i,(idx,dsc,req,rpy,sts,val) in enumerate( connection.operate(
+                    ( opr for opr,_ in operations ),
+                    depth=self.depth, multiple=self.multiple, timeout=self.timeout )):
+                logging.detail( "%3d (pkt %3d) %16s %-12s: %r ", 
+                                i, idx, dsc, sts or "OK", val )
+                _,(att,typ,uni)	= next( attrtypes )
+                if typ is None or sts not in (0,6):
+                    # No type conversion; just return whatever type produced by Read Tag.  Also, if
+                    # failure status (OK if no error, or if just not all data could be returned), we
+                    # can't do any more with this value...
+                    yield val,(sts,(att,typ,uni))
+                    continue
+
+                # Parse the raw data using the type (or list of types) desired.  If one type, then
+                # all data will be parsed using it.  If a list, then the data will be sequentially
+                # parsed using each type.  Finally, the target data will be extracted from each
+                # parsed item, and added to the result.  For example, for the parsed SSTRING
+                # 
+                #     data = { "SSTRING": {"length": 3, "string": "abc"}}
+                # 
+                # we just want to return data['SSTRING.string'] == "abc"; each recognized CIP type
+                # has a data path which we'll use to extract just the result data.  If a
+                # user-defined type is supplied, of course we'll just return the full result.
+                source		= cpppo.peekable( bytes( bytearray( val ))) # Python2/3 compat.
+                res		= []
+                typ_is_list	= is_listlike( typ )
+                typ_dat		= list( types_decode( typ if typ_is_list else [typ] ))
+                for t,d in typ_dat:
+                    with t() as machine:
+                        while source.peek() is not None: # More data available; keep parsing.
+                            data= cpppo.dotdict()
+                            for m,s in machine.run( source=source, data=data ):
+                                assert not ( s is None and source.peek() is None ), \
+                                    "Data exhausted before completing parsing a %s" % ( t.__name__, )
+                            res.append( data[d] if d else data )
+                            # If t is the only type, keep processing it 'til out of data...
+                            if len( typ_dat ) == 1:
+                                continue
+                            break
+                typ_types	= [t for t,_ in typ_dat] if typ_is_list else typ_dat[0][0]
+                yield res,(sts,(att,typ_types,uni))
+
+    @maintain_gateway
+    def write( self, attrvals ):
+        """Write the contents of the provided dict-like or iterable yielding ..., ("Tag",<value>),
+        (("Tag",enip.TYPE),<value>), ...
+
+        """
+        for a,v in attrvals if is_iterator( attrvals ) else attrvals.items():
+            raise NotImplementedError
+
+
+class proxy_simple( proxy ):
+    """Monitor/Control a simple non-routing CIP device (eg. an AB MicroLogix, AB PowerFlex AC Drive).
+
+    Defaults to disable route_path and send_path, to avoid generating CIP router-specific
+    Unconnected Send encapsulation in CIP SendRRData requests.
+
+    """
+    def __init__( self, host, route_path=False, send_path='', **kwds ):
+        super( proxy_simple, self ).__init__(
+            host=host, route_path=route_path, send_path=send_path, **kwds )
 
 
 def main( argv=None ):

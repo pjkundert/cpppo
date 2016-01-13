@@ -247,6 +247,7 @@ class DINT_network( TYPE ):
 class STRUCT( cpppo.dfa, cpppo.state ):
     pass
 
+
 class SSTRING( STRUCT ):
     """Parses/produces a EtherNet/IP Short String:
 
@@ -293,12 +294,78 @@ class SSTRING( STRUCT ):
         desired			= value.setdefault( 'length', actual )
         if desired is None:
             value.length 	= actual
-        assert value.length < 256, "SSTRING must be < 256 bytes in length; %r" % value
+        assert value.length < 1<<8, "SSTRING must be < 256 bytes in length; %r" % value
 
         result		       += USINT.produce( value.length )
         result		       += encoded[:value.length]
         if actual < value.length:
             result	       += b'\x00' * ( value.length - actual )
+        return result
+
+
+class STRING( STRUCT ):
+    """Parses/produces a EtherNet/IP String:
+
+        .STRING.length			UINT		2
+        .STRING.string			octets[*]	.length+.length%2
+
+    The produce classmethod accepts this structure, or just a plain Python str, and will output the
+    equivalent length+string.  If a zero length is provided, no string is parsed, and an empty
+    string returned.  Much like SSTRING, except:
+
+    - a 2-byte UINT specifies the length
+    - the string is padded to an even number of words with a NUL byte, if necessary
+
+    """
+    tag_type			= 0x00D0
+    struct_calcsize		= 80 # Average STRING size used for estimations
+
+    def __init__( self, name=None, **kwds):
+        name			= name or kwds.setdefault( 'context', self.__class__.__name__ )
+
+        leng			= UINT(			'length', context='length' )
+        leng[None]		= move_if(		'empty',  destination='.string', initializer='',
+                                    predicate=lambda path=None, data=None, **kwds: 0 == data[path].length,
+                                    state=octets_noop(	'done',
+                                                        terminal=True ))
+        leng[None] = sbdy	= cpppo.string_bytes(	'string',
+                                                        limit='..length',
+                                                        initial='.*',	decode='iso-8859-1' )
+        sbdy[None]		= cpppo.decide(		'string_even',
+                                    predicate=lambda path=None, data=None, **kwds: 0 == data[path].length % 2,
+                                    state=octets_noop(	'done',
+                                                        terminal=True ))
+        sbdy[None]		= octets_drop(		'pad', repeat=1,
+                                                	terminal=True )
+
+        super( STRING, self ).__init__( name=name, initial=leng, **kwds )
+
+    @classmethod
+    def produce( cls, value ):
+        """Truncate or NUL-fill the provided .string to the given .length (if provided and not None).
+        Then, emit the (two byte) length+string+pad.  Accepts either a {.length: ..., .string:... }
+        dotdict, or a plain string.  
+
+        """
+        result			= b''
+        
+        if isinstance( value, cpppo.type_str_base ):
+            value		= cpppo.dotdict( {'string': value } )
+
+        encoded			= value.string.encode( 'iso-8859-1' )
+        # If .length doesn't exist or is None, set the length to the actual string length
+        actual			= len( encoded )
+        desired			= value.setdefault( 'length', actual )
+        if desired is None:
+            value.length 	= actual
+        assert value.length < 1<<16, "STRING must be < 65536 bytes in length; %r" % value
+
+        result		       += UINT.produce( value.length )
+        result		       += encoded[:value.length]
+        if actual < value.length:
+            result	       += b'\x00' * ( value.length - actual )
+        if value.length % 2:
+            result	       += b'\x00' # pad, if length is odd
         return result
 
 
@@ -336,7 +403,7 @@ class IFACEADDRS( STRUCT ):
         'gateway_address':	0x0100000A,	# or '10.0.0.1'
         'dns_primary':		0x0100000A,	# or '10.0.0.1'
         'dns_secondary':	0x0200000A,	# or '10.0.0.2'
-        'domain_name':		'acme.com',
+        'domain_name':		'acme.ca',
     }
 
     and produces a network byte-ordered encoding, and can parse such an encoding to restore the IP
@@ -352,7 +419,7 @@ class IFACEADDRS( STRUCT ):
         nmsk[True] = gwad	= IPADDR(	context='gateway_address' )
         gwad[True] = dns1	= IPADDR(	context='dns_primary' )
         dns1[True] = dns2	= IPADDR(	context='dns_secondary' )
-        dns2[True] = domn	= SSTRING(		context='domain_name',
+        dns2[True] = domn	= STRING(		context='domain_name',
                                                         terminal=True )
         domn[None]		= move_if( 'movsstring',source='.domain_name.string',
                                                    destination='.domain_name' )
@@ -361,17 +428,17 @@ class IFACEADDRS( STRUCT ):
 
     @classmethod
     def produce( cls, value ):
-        """Emit the binary representation (always in Network byte-order) of the supplied IPADDRS value dict.
+        """Emit the binary representation (always in Network byte-order) of the supplied IFACESADDRS value dict.
         Allows strings, which are assumed to be textual representations of IP addresses.
 
         """
         result			= b''
-        result		       += IPADDR.produce( value.ip_address )
-        result		       += IPADDR.produce( value.network_mask )
-        result		       += IPADDR.produce( value.gateway_address )
-        result		       += IPADDR.produce( value.dns_primary )
-        result		       += IPADDR.produce( value.dns_secondary )
-        result		       += SSTRING.produce( value.domain_name )
+        result		       += IPADDR.produce( value.get( 'ip_address', 0 ))
+        result		       += IPADDR.produce( value.get( 'network_mask', 0 ))
+        result		       += IPADDR.produce( value.get( 'gateway_address', 0 ))
+        result		       += IPADDR.produce( value.get( 'dns_primary', 0 ))
+        result		       += IPADDR.produce( value.get( 'dns_secondary', 0 ))
+        result		       += STRING.produce( value.get( 'domain_name', '' ))
         return result
 
 
@@ -788,9 +855,16 @@ class EPATH( cpppo.dfa ):
         adrl[None]	= adrv
 
         # Parse all segments in a sub-dfa limited by the parsed path.size (in words; double)
+        # If the size is zero, we won't be parsing anything; initialize segment to []
+        def size_init( path=None, data=None, **kwds ):
+            octets		= data[path+'..size'] * 2
+            if not octets:
+                data[path+'..segment'] = []
+            return octets
+
         rest[None]		= cpppo.dfa(    'each',		context='segment__',
                                                 initial=pseg,	terminal=True,
-            limit=lambda path=None, data=None, **kwds: data[path+'..size'] * 2 )
+                                                limit=size_init )
 
         super( EPATH, self ).__init__( name=name, initial=size, **kwds )
 
@@ -810,7 +884,7 @@ class EPATH( cpppo.dfa ):
         """
         
         result			= b''
-        for seg in data.segment if data and 'segment' in data else []: # handles empty path
+        for seg in data.get( 'segment', [] ): # handles empty path
             found			= False
             for segnam, segtyp in cls.SEGMENTS.items():
                 if segnam not in seg:
@@ -877,7 +951,11 @@ class EPATH( cpppo.dfa ):
         return USINT.produce( len( result ) // 2 ) + ( b'\x00' if cls.PADSIZE else b'' ) + result
 
 
-class route_path( EPATH ):
+class EPATH_padded( EPATH ):
+    PADSIZE			= True
+
+
+class route_path( EPATH_padded ):
     """Unconnected message route path.  
 
         .route_path.size		USINT		1 (in words)
@@ -885,7 +963,6 @@ class route_path( EPATH ):
         .route_path.segment 		...
 
     """
-    PADSIZE			= True
 
 
 class unconnected_send( cpppo.dfa ):

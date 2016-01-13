@@ -20,6 +20,8 @@ is_pypy				= platform.python_implementation() == "PyPy"
 if __name__ == "__main__":
     # Allow relative imports when executing within package directory, for
     # running tests directly
+    if __package__ is None:
+        __package__ = "cpppo.server"
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
     from cpppo.automata import log_cfg
     logging.basicConfig( **log_cfg )
@@ -2085,8 +2087,6 @@ def test_enip_device():
         "%16s: %s" % ( k, enip.device.directory[k] )
         for k in sorted( enip.device.directory.keys(), key=cpppo.natural)))
 
-
-
     Ix				= enip.device.Identity( 'Test Identity' )
     attrs			= enip.device.directory[str(Ix.class_id)+'.'+str(Ix.instance_id)]
     log.normal( "New Identity Instance directory: %s", enip.enip_format( attrs ))
@@ -2110,6 +2110,14 @@ def test_enip_device():
     assert '0' in O.attribute # the Object
     assert '2' in O.attribute
     assert enip.device.lookup( *enip.device.resolve( path, attribute=True )) is Oa1
+
+    # Volume 2, Table 5-4.13 is very explicit about the expected TCP/IP Object response encoding to
+    # a Get_Attributes_All request
+    Tcpip			= enip.device.TCPIP( 'Test TCP/IP' )
+    request			= cpppo.dotdict({'service': 0x01, 'path':{'segment':[{'class':Tcpip.class_id},{'instance':Tcpip.instance_id}]}})
+    gaa				= Tcpip.request( request )
+    log.normal( "TCPIP Get Attributes All: %r, data: %s", gaa, enip.enip_format( request ))
+    assert request.input == b'\x81\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00'    
 
 
 def test_enip_logix():
