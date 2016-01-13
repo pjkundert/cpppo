@@ -342,7 +342,7 @@ class client( object ):
         """Connect to the EtherNet/IP client, waiting up to 'timeout' for a connection.  Avoid using
         the host OS platform default if 'host' is empty; this will be different on Mac OS-X, Linux,
         Windows, ...  So, for an empty host, we'll default to 'localhost'; this should be IPv4/IPv6
-        compatible (vs. '127.0.0.1', for exmaple).  Likewise, if boht the supplied port and
+        compatible (vs. '127.0.0.1', for example).  Likewise, if both the supplied port and
         enip.address ends up 0, the OS-supplied default port is not used; use 44818.
 
         """

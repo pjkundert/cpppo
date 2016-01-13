@@ -212,7 +212,8 @@ def test_powerflex_poll_failure():
         string response, to fake the poll client into sending a poll request into a closed socket.
         Immediately does a shutdown of the incoming half of the socket, and then closes the
         connection after sending the fake replies, usually resulting in an excellent EPIPE/SIGPIPE
-        on the client.
+        on the client.  Use port 44819, to avoid interference by (possibly slow-to-exit) simulators
+        running on port 44818.
 
         """
         logging.normal( "null_server on %s starting" % ( addr, ))
@@ -232,19 +233,23 @@ def test_powerflex_poll_failure():
         control			= dotdict()
         control.done		= False
 
-        server			= threading.Thread(
-            target=network.server_main, kwargs={
-                'address': 	('localhost',44818),
-                'target':	null_server,
-                'kwargs': {
-                    'server': dotdict({
-                        'control': control
-                    })
-                }
-            })
-        server.daemon		= True
-        server.start()
-        time.sleep(.1)
+        for _ in range( 3 ):
+            server		= threading.Thread(
+                target=network.server_main, kwargs={
+                    'address': 	('',44819),
+                    'target':	null_server,
+                    'kwargs': {
+                        'server': dotdict({
+                            'control': control
+                        })
+                    }
+                })
+            server.daemon		= True
+            server.start()
+            time.sleep(.5)
+            if server.is_alive:
+                break
+        assert server.is_alive, "Unable to start null_server on INADDR_ANY"
 
         def process( p, v ):
             logging.normal( "process: %16s == %s", p, v )
@@ -263,7 +268,7 @@ def test_powerflex_poll_failure():
         poller			= threading.Thread(
             target=poll.poll, kwargs={ 
                 'gateway_class':powerflex_750_series,
-                'address': 	('localhost',44818),
+                'address': 	('localhost',44819),
                 'cycle':	1.0,
                 'timeout':	0.5,
                 'backoff_min':	backoff_min,
