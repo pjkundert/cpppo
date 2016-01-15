@@ -64,6 +64,8 @@ class Attribute_weather( device.Attribute ):
             if type( data ) is not str: # Python3 urlopen.read returns bytes
                 data		= data.decode( 'utf-8' )
             weather		= json.loads( data )
+            assert weather.get( 'cod' ) == 200 and 'main' in weather, \
+                weather.get( 'message', "Unknown error obtaining weather data" )
             cast		= float if isinstance( self.parser, REAL ) else int
             temperature		= cast( weather['main']['temp'] )
         except Exception as exc:
