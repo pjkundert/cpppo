@@ -338,34 +338,62 @@ class client( object ):
     route_path_default		= enip.route_path_default
     send_path_default		= enip.send_path_default
 
-    def __init__( self, host, port=None, timeout=None, dialect=logix.Logix, profiler=None ):
+    def __init__( self, host, port=None, timeout=None, dialect=logix.Logix, profiler=None,
+                  udp=False, broadcast=False ):
         """Connect to the EtherNet/IP client, waiting up to 'timeout' for a connection.  Avoid using
         the host OS platform default if 'host' is empty; this will be different on Mac OS-X, Linux,
         Windows, ...  So, for an empty host, we'll default to 'localhost'; this should be IPv4/IPv6
         compatible (vs. '127.0.0.1', for example).  Likewise, if both the supplied port and
         enip.address ends up 0, the OS-supplied default port is not used; use 44818.
 
+        If 'udp' specified and a 'broadcast' is intended, then we won't connect the UDP socket
+        (allowing multiple peers, and we'll set OS_BROADCAST.
+
+        It is not recommended to use 'broadcast' when high reliability is required.  Since all
+        responses are parsed one after another by the same EtherNet/IP CIP response parser, an
+        invalid CIP response will cause the parser to fail.  Instead, issue a broadcast "List
+        Services/Identity/Interfaces" request, and then manually collect the peer replies and
+        addresses using recvfrom.  Then, issue individual requests to each identified peer.
+
         """
         addr			= ( host if host is not None else enip.address[0],
                                     port if port is not None else enip.address[1] )
         self.addr		= ( addr[0] or 'localhost', addr[1] or 44818 )
+        self.addr_connected	= not ( udp and broadcast )
         self.conn		= None
-        try:
-            self.conn		= socket.create_connection( self.addr, timeout=timeout )
-        except Exception as exc:
-            log.warning( "Couldn't connect to EtherNet/IP server at %s:%s: %s",
-                        self.addr[0], self.addr[1], exc )
-            raise
-        try:
-            self.conn.setsockopt( socket.IPPROTO_TCP, socket.TCP_NODELAY, 1 )
-        except Exception as exc:
-            log.warning( "Couldn't set TCP_NODELAY on socket to EtherNet/IP server at %s:%s: %s",
-                         self.addr[0], self.addr[1], exc )
-        try:
-            self.conn.setsockopt( socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1 )
-        except Exception as exc:
-            log.warning( "Couldn't set SO_KEEPALIVE on socket to EtherNet/IP server at %s:%s: %s",
-                         self.addr[0], self.addr[1], exc )
+
+        if udp:
+            try:
+                self.conn		= socket.socket( socket.AF_INET, socket.SOCK_DGRAM )
+                if not broadcast:
+                    self.conn.connect( self.addr )
+            except Exception as exc:
+                log.warning( "Couldn't %s to EtherNet/IP UDP server at %s:%s: %s",
+                            "broadcast" if broadcast else "connect", self.addr[0], self.addr[1], exc )
+                raise
+            if broadcast:
+                try:
+                    self.conn.setsockopt( socket.SOL_SOCKET, socket.SO_BROADCAST, 1 )
+                except Exception as exc:
+                    log.warning( "Couldn't set SO_BROADCAST on socket to EtherNet/IP server at %s:%s: %s",
+                                 self.addr[0], self.addr[1], exc )
+        else:
+            try:
+                self.conn		= socket.create_connection( self.addr, timeout=timeout )
+            except Exception as exc:
+                log.warning( "Couldn't connect to EtherNet/IP TCP server at %s:%s: %s",
+                            self.addr[0], self.addr[1], exc )
+                raise
+            try:
+                self.conn.setsockopt( socket.IPPROTO_TCP, socket.TCP_NODELAY, 1 )
+            except Exception as exc:
+                log.warning( "Couldn't set TCP_NODELAY on socket to EtherNet/IP server at %s:%s: %s",
+                             self.addr[0], self.addr[1], exc )
+            try:
+                self.conn.setsockopt( socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1 )
+            except Exception as exc:
+                log.warning( "Couldn't set SO_KEEPALIVE on socket to EtherNet/IP server at %s:%s: %s",
+                             self.addr[0], self.addr[1], exc )
 
         self.session		= None	# Not set w/in client class; set manually, or in derived class
         self.source		= cpppo.chainable()
@@ -440,10 +468,11 @@ class client( object ):
             if self.profiler:
                 self.profiler.disable()
             try:
-                rcvd		= network.recv( self.conn, timeout=0 )
+                rcvd,addr	= self.recvfrom( timeout=0 )
                 log.info(
-                    "EtherNet/IP-->%16s:%-5d rcvd %5d: %r",
-                    self.addr[0], self.addr[1], len( rcvd ) if rcvd is not None else 0, rcvd )
+                    "EtherNet/IP-->%16s:%-5s rcvd %5d: %r",
+                    addr[0] if addr else None, addr[1] if addr else None,
+                    len( rcvd ) if rcvd is not None else 0, rcvd )
                 if rcvd is not None:
                     # Some input (or EOF); source is empty; chain the input and drop back into 
                     # the framer engine.  It will detect a no-progress condition on EOF.
@@ -521,13 +550,25 @@ class client( object ):
 
     next = __next__ # Python 2/3 compatibility
 
+    def recvfrom( self, timeout=None ):
+        """Receive data (if any) and source address, if available within timeout."""
+        addr			= self.addr
+        if self.addr_connected:
+            rcvd		= network.recv( self.conn, timeout=timeout )
+        else:
+            rcvd,addr		= network.recvfrom( self.conn, timeout=timeout )
+        return rcvd,addr
+
     def send( self, request, timeout=None ):
         """Send encoded request data."""
         assert self.writable( timeout=timeout ), \
             "Failed to send to %r within %7.3fs: %r" % (
                 self.addr, cpppo.inf if timeout is None else timeout, request )
-        sent		= bytes( request )
-        self.conn.send( sent )
+        sent			= bytes( request )
+        if self.addr_connected:
+            self.conn.send( sent )
+        else:
+            self.conn.sendto( sent, self.addr )
         log.info(
             "EtherNet/IP-->%16s:%-5d send %5d: %r",
                     self.addr[0], self.addr[1], len( request ), sent )
@@ -1352,7 +1393,14 @@ which is required to carry this Send/Route Path data. """ )
                      default=( "%s:%d" % enip.address ),
                      help="EtherNet/IP interface[:port] to connect to (default: %s:%d)" % (
                          enip.address[0] or 'localhost', enip.address[1] or 44818 ))
-    ap.add_argument( '-p', '--print', default=False, action='store_true',
+    ap.add_argument( '-u', '--udp', action='store_true',
+                     default=False, 
+                     help="Use a UDP/IP connection (default: False)" )
+    ap.add_argument( '-b', '--broadcast', action='store_true',
+                     default=False, 
+                     help="Allow multiple peers, and use of broadcast address (default: False)" )
+    ap.add_argument( '-p', '--print', action='store_true',
+                     default=False, 
                      help="Print a summary of operations to stdout" )
     ap.add_argument( '-l', '--log',
                      help="Log file, if desired" )
@@ -1370,19 +1418,23 @@ which is required to carry this Send/Route Path data. """ )
                      default=None,
                      help="Send Path to UCMM (default: @6/1); Specify an empty string '' for no Send Path" )
     ap.add_argument( '-m', '--multiple', action='store_true',
+                     default=False, 
                      help="Use Multiple Service Packet request targeting ~500 bytes (default: False)" )
     ap.add_argument( '-d', '--depth', default=1,
                      help="Pipeline requests to this depth (default: 1)" )
     ap.add_argument( '-f', '--fragment', dest='fragment', action='store_true',
                      default=False,
                      help="Always use Read/Write Tag Fragmented requests (default: False)" )
-    ap.add_argument( '-s', '--list-services', action='store_true', default=False,
+    ap.add_argument( '-s', '--list-services', action='store_true',
+                     default=False,
                      help="Perform a CIP List Services request upon connection (default: False)" )
-    ap.add_argument( '-i', '--list-identity', action='store_true', default=False,
+    ap.add_argument( '-i', '--list-identity', action='store_true',
+                     default=False,
                      help="Perform a CIP List Identity request upon connection (default: False)" )
     ap.add_argument( '-P', '--profile', action='store_true',
+                     default=False, 
                      help="Activate profiling (default: False)" )
-    ap.add_argument( 'tags', nargs="+",
+    ap.add_argument( 'tags', nargs="*",
                      help="Tags to read/write (- to read from stdin), eg: SCADA[1], SCADA[2-10]+4=(DINT)3,4,5" )
 
     args			= ap.parse_args( argv )
@@ -1432,7 +1484,8 @@ which is required to carry this Send/Route Path data. """ )
 
     # Register and EtherNet/IP CIP connection to a Controller
     begun			= cpppo.timer()
-    with connector( host=addr[0], port=addr[1], timeout=timeout, profiler=profiler ) as connection:
+    with connector( host=addr[0], port=addr[1], timeout=timeout, profiler=profiler,
+                    udp=args.udp, broadcast=args.broadcast ) as connection:
         elapsed			= cpppo.timer() - begun
         log.detail( "Client Register Rcvd %7.3f/%7.3fs" % ( elapsed, timeout ))
 

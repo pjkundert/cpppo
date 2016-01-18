@@ -39,11 +39,11 @@ from ..dotdict import dotdict
 
 log				= logging.getLogger( "network" )
 
-def readable( timeout=0 ):
+def readable( timeout=0, default=None ):
     """Decorates any function( sock, ..., [timeout=...], [...]), and waits for its sock (must be the
-    first positional arg) to report readable w/in timeout before executing.  Returns None if not
-    readable.  Supply the desired default timeout to the decorator if other than 0, or supply it
-    as an optional keyword argument to the decorated function.
+    first positional arg) to report readable w/in timeout before executing.  Returns default (None)
+    if not readable.  Supply the desired default timeout to the decorator if other than 0, or supply
+    it as an optional keyword argument to the decorated function.
 
     """
     def decorator( function ):
@@ -66,21 +66,39 @@ def readable( timeout=0 ):
                         continue
                     raise		# Not select.error, or not EINTR
                 break			# readable, or timeout expired
-            return function( *args, **kwds ) if r else None
+            return function( *args, **kwds ) if r else default
         return wrapper
     return decorator
 
 
-@readable()
+@readable( default=None )
 def recv( conn, maxlen=1024 ):
-    """Non-blocking recv via. select.  Return None if no data received within timeout (default is
-    immediate timeout).  Otherwise, the data payload; zero length data implies EOF."""
+    """Non-blocking recv via. select, accepts optional timeout= keyword parameter.  Return None if no
+    data received within timeout (default is immediate timeout).  Otherwise, the data payload; zero
+    length data (or socket error) implies EOF.
+
+    """
     try:
         msg			= conn.recv( maxlen ) # b'' (EOF) or b'<data>'
     except socket.error as exc: # No connection; same as EOF
         log.debug( "recv %s: %r", conn, exc )
         msg			= b''
     return msg
+
+
+@readable( default=(None,None) )
+def recvfrom( conn, maxlen=1024 ):
+    """Non-blocking recvfrom via. select, accepts optional timeout= keyword parameter.  Return None if
+    no data received within timeout (default is immediate timeout).  Otherwise, the data payload;
+    zero length data implies EOF.
+
+    """
+    try:
+        msg,frm			= conn.recvfrom( maxlen ) # b'' (EOF) or b'<data>'
+    except socket.error as exc: # No connection; same as EOF
+        log.debug( "recv %s: %r", conn, exc )
+        msg,frm			= b'',None
+    return msg,frm
 
 
 @readable()
@@ -192,15 +210,15 @@ class server_thread_profiling( server_thread ):
         return result
 
 
-def server_main( address, target=None, kwargs=None, idle_service=None,
-                 thread_factory=server_thread, **kwds ):
-    """A generic server main, binding to address, and serving each incoming connection with a
-    separate thread_factory (server_thread by default, a threading.Thread) instance running the
-    target function (or its overridden run method, if desired).  Each server must be passed two
-    positional arguments in the 'args' keyword (the connect socket and the peer address), plus any
-    keyword args required by the target function in the 'kwargs' keyword.  Any remaining keyword
-    parameters are passed to the thread_factory (eg. for server_thread_profiling, a 'file' keyword
-    might be appropriate )
+def server_main( address, target=None, kwargs=None, idle_service=None, thread_factory=server_thread,
+                 reuse=True, tcp=True, udp=True, **kwds ):
+    """A generic server main, binding to address (on both TCP/IP and UDP/IP by default), and serving
+    each incoming connection with a separate thread_factory (server_thread by default, a
+    threading.Thread) instance running the target function (or its overridden run method, if
+    desired).  Each server must be passed two positional arguments in the 'args' keyword (the
+    connect socket and the peer address), plus any keyword args required by the target function in
+    the 'kwargs' keyword.  Any remaining keyword parameters are passed to the thread_factory
+    (eg. for server_thread_profiling, a 'file' keyword might be appropriate )
 
     The kwargs (default: None) container is passed to each thread; it is *shared*, and each thread
     must treat its contents with appropriate care.  It can be used as a conduit to transmit
@@ -227,14 +245,6 @@ def server_main( address, target=None, kwargs=None, idle_service=None,
     incoming socket being accepted.
 
     """
-    sock			= socket.socket( socket.AF_INET, socket.SOCK_STREAM )
-    sock.setsockopt( socket.SOL_SOCKET, socket.SO_REUSEADDR, 1 ) # Avoid delay on next bind due to TIME_WAIT
-    try:
-        sock.setsockopt( socket.SOL_SOCKET, socket.SO_REUSEPORT, 1 )
-    except:
-        pass
-    sock.bind( address )
-    sock.listen( 100 ) # How may simultaneous unaccepted connection requests
 
     name			= target.__name__ if target else thread_factory.__name__
     threads			= {}
@@ -255,28 +265,56 @@ def server_main( address, target=None, kwargs=None, idle_service=None,
     control['done']		= False
     control['disable']		= False
     if 'latency' not in control:
-        control['latency']	= .1
+        control['latency']	= .5
+    control['latency']		= float( control['latency'] )
     if 'timeout' not in control:
         control['timeout']	= 2 * control.latency
-    control['latency']		= float( control['latency'] )
     control['timeout']		= float( control['timeout'] )
+
+    def thread_start( conn, addr ):
+        """Start a thread_factory Thread instance to service the given I/O 'conn'.  The peer 'addr' is
+        supplied (if known; None, otherwise).  If peer address is None, the service Thread may
+        decide to take alternative actions to determine the Peer address (ie. use socket.recvfrom).
+
+        """
+        thrd			= None
+        try:
+            thrd		= thread_factory( target=target, args=(conn, addr), kwargs=kwargs,
+                                                  **kwds )
+            thrd.daemon 	= True
+            thrd.start()
+            threads[addr]	= thrd
+        except Exception as exc:
+            # Failed to setup or start service Thread for some reason!  Don't remember
+            log.warning( "Failed to start Thread to service connection %r; %s", addr, exc )
+            conn.close()
+            del thrd
+
+    # Establish TCP/IP (listen) and/or UDP/IP (I/O) sockets
+    if udp:
+        udp_sock		= socket.socket( socket.AF_INET, socket.SOCK_DGRAM )
+        udp_sock.bind( address )
+        thread_start( udp_sock, None )
+
+    if tcp:
+        tcp_sock		= socket.socket( socket.AF_INET, socket.SOCK_STREAM )
+        if reuse:
+            tcp_sock.setsockopt( socket.SOL_SOCKET, socket.SO_REUSEADDR, 1 ) # Avoid delay on next bind due to TIME_WAIT
+            if hasattr( socket, 'SO_REUSEPORT' ):
+                tcp_sock.setsockopt( socket.SOL_SOCKET, socket.SO_REUSEPORT, 1 )
+        tcp_sock.bind( address )
+        tcp_sock.listen( 100 ) # How may simultaneous unaccepted connection requests
+
     while not control.disable and not control.done: # and report completion to external API (eg. web)
         try:
-            acceptable		= accept( sock, timeout=control['latency'] )
+            acceptable		= None
+            if tcp:
+                acceptable	= accept( tcp_sock, timeout=control['latency'] )
+            else:
+                time.sleep( control['latency'] ) # No TCP/IP; just pause
             if acceptable:
                 conn,addr	= acceptable
-                thrd		= None
-                try:
-                    thrd	= thread_factory( target=target, args=(conn, addr), kwargs=kwargs,
-                                                  **kwds )
-                    thrd.daemon = True
-                    thrd.start()
-                    threads[addr]= thrd
-                except Exception as exc:
-                    # Failed to setup or start service Thread for some reason!  Don't rmember
-                    log.warning( "Failed to start Thread to service connection %r; %s", addr, exc )
-                    conn.close()
-                    del thrd
+                thread_start( conn, addr )
             elif idle_service is not None:
                 idle_service()
         except KeyboardInterrupt as exc:
@@ -293,8 +331,8 @@ def server_main( address, target=None, kwargs=None, idle_service=None,
                 if control['disable'] or control['done'] or not threads[addr].is_alive():
                     threads[addr].join( timeout=control['timeout'] )
                     del threads[addr]
-
-    sock.close()
+    if tcp:
+        tcp_sock.close()
     log.normal( "%s server PID [%5d] shutting down (%s)", name, os.getpid(),
                 "disabled" if control['disable'] else "done" if control['done'] else "unknown reason" )
     return 0
