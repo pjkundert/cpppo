@@ -38,7 +38,8 @@ import traceback
 
 from ...dotdict import dotdict
 from ... import automata
-from .device import ( Object, Attribute, Message_Router, Connection_Manager, UCMM, Identity,
+from .device import ( Object, Attribute,
+                      Message_Router, Connection_Manager, UCMM, Identity, TCPIP,
                       resolve_element, resolve_tag, resolve, redirect_tag, lookup )
 from .parser import ( BOOL, UDINT, DINT, UINT, INT, USINT, SINT, REAL, EPATH, typed_data,
                       move_if, octets_drop, octets_noop, enip_format, status )
@@ -592,6 +593,9 @@ def setup( **kwds ):
                       Connection_Manager )()	# Class 0x06, Instance 1
         
             Unknown_Object()			# Class 0x66, Instance 1 -- Unknown purpose in Logix Controller
+
+            kwds.get( 'tcpip_class',
+                      TCPIP )()			# Class 0xF5, Instance 1
 
             setup.ucmm		= kwds.get( 'UCMM_class', UCMM )()
             if setup.ucmm.route_path:

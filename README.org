@@ -132,6 +132,55 @@
     The available types are SINT (8-bit), INT (16-bit), DINT (32-bit) integer,
     and REAL (32-bit float).  BOOL (8-bit, bit #0) and SSTRING are also supported.
 
+*** EtherNet/IP Controller Object Configuration
+
+    To replace the default values contained by default in the standard CIP
+    Objects (eg. the CIP Identity, TCP/IP Objects), place a =cpppo.cfg= file in
+    =/etc= or =%APPDATA%=, a =.cpppo.cfg= in your home directory, or a
+    =cpppo.cfg= file in the current working directory where your application is
+    run.
+
+    For example, to change the simulated EtherNet/IP CIP Identity Object
+    'Product Name' (the SSTRING at Class 0x01, Instance 1, Attribute 7), and the
+    CIP TCP/IP Object Interface Configuration and Host Name, create a
+    =cpppo.cfg= file containing:
+
+    #+BEGIN_EXAMPLE
+    [Identity]
+    # Generally, strings are not quoted
+    Product Name		= 1756-L61/B LOGIX5561
+
+    [TCPIP]
+    # However, some complex structures require JSON configuration:
+    Interface Configuration	= {
+        "ip_address":             "192.168.0.201",
+        "network_mask":           "255.255.255.0",
+        "dns_primary":            "8.8.8.8",
+        "dns_secondary":          "8.8.4.4",
+        "domain_name":            "example.com",
+        }
+    Host Name			= controller
+    #+END_EXAMPLE
+
+    See [[https://github.com/pjkundert/cpppo/blob/master/cpppo.cfg]] for details on
+    the file format ([[https://docs.python.org/3/library/configparser.html]]).
+
+
+    Place this file in one of the above-mentioned locations, and run:
+    : $ python -m cpppo.server.enip -v
+    : 01-20 07:01:29.125 ...  NORMAL  main  Loaded config files: ['cpppo.cfg']
+    : ...
+
+    Use the new EtherNet/IP CIP =cpppo.server.enip.poll= API to see the results
+
+    : $ python3 -m cpppo.server.enip.poll -v TCPIP Identity
+    : 01-20 07:04:46.253 ...  NORMAL run    Polling begins \
+    :       via: 1756-L61/C LOGIX5561 via localhost:44818[850764823]
+    :    TCPIP: [2, 48, 0, [{'class': 246}, {'instance': 1}], '192.168.0.201', \
+    :       '255.255.255.0', '0.0.0.0', '8.8.8.8', '8.8.4.4', 'example.com', 'controller']
+    : Identity: [1, 15, 54, 2836, 12640, 7079450, '1756-L61/C LOGIX5561', 255]
+
+
 *** EtherNet/IP Controller I/O Customization
 
     If you require access to the read and write I/O events streaming from
@@ -177,23 +226,46 @@
 
      #+BEGIN_EXAMPLE python
      import sys, logging, json
-     try:
+     try: # Python2
          from urllib2 import urlopen
-     except ImportError:
+         from urllib import urlencode
+     except ImportError: # Python3
          from urllib.request import urlopen
+         from urllib.parse import urlencode
      
-     from cpppo.server.enip import device
+     from cpppo.server.enip import device, REAL
      from cpppo.server.enip.main import main
      
      class Attribute_weather( device.Attribute ):
+         OPT                    = {
+             "appid": "078b5bd46e99c890482fc1252e9208d5",
+             "units": "metric",
+             "mode":     "json",
+         }
+         URI                    = "http://api.openweathermap.org/data/2.5/weather"
+     
+         def url( self, **kwds ):
+             """Produce a url by joining the class' URI and OPTs with any keyword parameters"""
+             return self.URI + "?" + urlencode( dict( self.OPT, **kwds ))
+     
          def __getitem__( self, key ):
+             """Obtain the temperature of the city's matching our Attribute's name, convert
+             it to an appropriate type; return a value appropriate to the request."""
              try:
-                 url = "http://api.openweathermap.org/data/2.5/weather?units=metric&q=%s" % self.name 
-                 weather = json.loads( urlopen( url ).read() )
-                 return [ weather['main']['temp'] ]
+                 # eg. "http://api.openweathermap.org/...?...&q=City Name"
+                 data           = urlopen( self.url( q=self.name )).read()
+                 if type( data ) is not str: # Python3 urlopen.read returns bytes
+                     data       = data.decode( 'utf-8' )
+                 weather        = json.loads( data )
+                 assert weather.get( 'cod' ) == 200 and 'main' in weather, \
+                     weather.get( 'message', "Unknown error obtaining weather data" )
+                 cast           = float if isinstance( self.parser, REAL ) else int
+                 temperature    = cast( weather['main']['temp'] )
              except Exception as exc:
-                 logging.warning( "Couldn't get temperature for %s: %s", self.name, exc )
+                 logging.warning( "Couldn't get temperature for %s via %r: %s",
+                                  self.name, self.url( q=self.name ), exc )
                  raise
+             return [ temperature ] if self._validate_key( key ) is slice else temperature
      
          def __setitem__( self, key, value ):
              raise Exception( "Changing the weather isn't that easy..." )
@@ -204,6 +276,7 @@
      By providing a specialized implementation of device.Attribute's =__getitem__=
      (which is invoked each time an Attribute is accessed), we arrange to query
      the city's weather at the given URL, and return the current temperature.
+
      Of course, =__setitem__= (which would be invoked whenever someone wishes to
      change the city's temperature) would have a much more complex
      implementation, the details of which are left as an exercise to the

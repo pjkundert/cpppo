@@ -35,12 +35,14 @@ USAGE
 """
 
 __all__				= ['main', 'address', 'timeout', 'latency',
-                                   'route_path_default', 'send_path_default']
+                                   'route_path_default', 'send_path_default',
+                                   'config_files']
 
 import argparse
 import fnmatch
 import json
 import logging
+import os
 import random
 import signal
 import sys
@@ -59,6 +61,13 @@ timeout				= 20.0	# Await completion of all I/O, thread activity (on many thread
 address				= ('', 44818)	# The default cpppo.enip.address
 route_path_default		= [{'link': 0, 'port': 1}]
 send_path_default		= [{'class': 6}, {'instance': 1}]
+config_name			= 'cpppo.cfg'
+config_files			= [
+    os.path.join( os.path.dirname( cpppo.__file__ ), config_name ),	# cpppo install dir
+    os.path.join( os.getenv( 'APPDATA', os.sep + 'etc' ), config_name ),# global app data
+    os.path.join( os.path.expanduser( '~' ), '.' + config_name ),	# user home dir
+    config_name,							# current dir
+]
 
 log				= logging.getLogger( "enip.srv" )
 
@@ -943,6 +952,11 @@ def main( argv=None, attribute_class=device.Attribute, idle_service=None, identi
     ap.add_argument( '-v', '--verbose', action="count",
                      default=0, 
                      help="Display logging information." )
+    ap.add_argument( '-c', '--config', action='append',
+                     help="Add another (higher priority) config file path." )
+    ap.add_argument( '--no-config', action='store_true',
+                     default=False, 
+                     help="Disable loading of config files (default: False)" )
     ap.add_argument( '-a', '--address',
                      default=( "%s:%d" % address ),
                      help="EtherNet/IP interface[:port] to bind to (default: %s:%d)" % (
@@ -1014,6 +1028,10 @@ def main( argv=None, attribute_class=device.Attribute, idle_service=None, identi
 
     logging.basicConfig( **cpppo.log_cfg )
 
+    # Load config file(s), if not disabled, into the device.Object class-level 'config_loader'.
+    if not args.no_config:
+        loaded			= device.Object.config_loader.read( config_files )
+        logging.normal( "Loaded config files: %r", loaded )
 
     # Pull out a 'server.control...' supplied in the keywords, and make certain it's a
     # cpppo.apidict.  We'll use this to transmit control signals to the server thread.  Set the

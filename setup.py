@@ -24,6 +24,8 @@ if sys.version_info[0:2] < (3,0):
 install_requires		= open( os.path.join( here, "requirements.txt" )).readlines()
 if sys.version_info[0:2] < (2,7):
     install_requires.append( "argparse" )
+if sys.version_info[0:2] < (3,0):
+    install_requires.append( "configparser" )
 
 setup(
     name			= "cpppo",

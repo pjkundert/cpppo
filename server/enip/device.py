@@ -34,11 +34,15 @@ __all__				= ['dialect', 'lookup', 'resolve', 'resolve_element',
                                    'Object', 'Attribute',
                                    'UCMM', 'Connection_Manager', 'Message_Router', 'Identity', 'TCPIP']
 
+import json
 import logging
+import os
 import random
 import sys
 import threading
 import traceback
+
+import configparser # Python2 requires 'pip install configparser'
 
 from ...dotdict import dotdict
 from ... import automata, misc
@@ -491,6 +495,9 @@ class Object( object ):
     transmission, or encapsulation by the next higher level of request processor (eg. a
     Message_Router, encapsulating the response into an EtherNet/IP response).
 
+    If desired, invoke Object.config_loader.read method on a sequence of configuration file names
+    (see Python3 configparser for format), before first Object is created.
+
     """
     max_instance		= 0
     lock			= threading.Lock()
@@ -500,6 +507,18 @@ class Object( object ):
     # The parser doesn't add a layer of context; run it with a path= keyword to add a layer
     parser			= automata.dfa_post( service, initial=automata.state( 'select' ),
                                                   terminal=True )
+    # No config, by default (use default values).  Allows ${<section>:<key>} interpolation, and
+    # comments anywhere via the # symbol (this implies no # allowed in any value, due to the lack of
+    # support for escape symbol).
+    # 
+    # If config files are desired, somewhere early in program initialization, add:
+    # 
+    #     Object.config_loader.read( ["<config-file>", ...] )
+    # 
+    config_loader		= configparser.ConfigParser(
+        comment_prefixes=('#',), inline_comment_prefixes=('#',),
+        allow_no_value=True, empty_lines_in_values=False,
+        interpolation=configparser.ExtendedInterpolation() )
 
     @classmethod
     def register_service_parser( cls, number, name, short, machine ):
@@ -528,13 +547,46 @@ class Object( object ):
     SA_SNG_REQ			= 0x10
     SA_SNG_RPY			= SA_SNG_REQ | 0x80
 
+    @property
+    def config( self ):
+        if self._config is None:
+            if self.name in self.config_loader:
+                self._config	= self.config_loader[self.name]
+            else:
+                self._config	= self.config_loader['DEFAULT']
+        return self._config
+
+    @misc.logresult( log=log, log_level=logging.DETAIL )
+    def config_str( self, *args, **kwds ):
+        return self.config.get( *args, **kwds )
+
+    @misc.logresult( log=log, log_level=logging.DETAIL )
+    def config_int( self, *args, **kwds ):
+        return self.config.getint( *args, **kwds )
+
+    @misc.logresult( log=log, log_level=logging.DETAIL )
+    def config_float( self, *args, **kwds ):
+        return self.config.getfloat( *args, **kwds )
+
+    @misc.logresult( log=log, log_level=logging.DETAIL )
+    def config_bool( self, *args, **kwds ):
+        return self.config.getboolean( *args, **kwds )
+
+    @misc.logresult( log=log, log_level=logging.DETAIL )
+    def config_json( self, *args, **kwds ):
+        return json.loads( self.config_str( *args, **kwds ))
+        
     def __init__( self, name=None, instance_id=None ):
-        """Create the instance (default to the next available instance_id).  An instance_id of 0 holds
-        the "class" attributes/commands.
+        """Create the instance (default to the next available instance_id).  An instance_id of 0 holds the
+        "class" attributes/commands.  Any configured values for the Object are available in
+        self.config via its get/getint/getfloat/getboolean( <name>, <default> ) methods.
+
+            [Object Name]
+            a key = some value
 
         """
+        self._config		= None
         self.name		= name or self.__class__.__name__
-
         # Allocate and/or keep track of maximum instance ID assigned thus far.
         if instance_id is None:
             instance_id		= self.__class__.max_instance + 1
@@ -567,14 +619,15 @@ class Object( object ):
 
         if self.instance_id == 0:
             # Set up the default Class-level values.
-            self.attribute['1']= Attribute( 	'Revision', 		INT, default=0 )
-            self.attribute['2']= MaxInstance( 'Max Instance',		INT,
+            self.attribute['1']= Attribute( 	'Revision', 		INT,
+                    default=self.config_int(	'Revision', 0 ))
+            self.attribute['2']= MaxInstance(	'Max Instance',		INT,
                                                 class_id=self.class_id )
-            self.attribute['3']= NumInstances( 'Num Instances',		INT,
+            self.attribute['3']= NumInstances(	'Num Instances',	INT,
                                                 class_id=self.class_id )
             # A UINT array; 1st UINT is size (default 0)
-            self.attribute['4']= Attribute( 	'Optional Attributes',	INT, default=0 )
-            
+            self.attribute['4']= Attribute( 	'Optional Attributes',	INT,
+                    default=self.config_int(	'Optional Attributes', 0 ))
 
     def __str__( self ):
         return self.name
@@ -819,17 +872,26 @@ class Identity( Object ):
             pass
         else:
             # Instance Attributes (these example defaults are from a Rockwell Logix PLC)
-            self.attribute['1']	= Attribute( 'Vendor Number', 		INT,	default=0x0001 )
-            self.attribute['2']	= Attribute( 'Device Type', 		INT,	default=0x000e )
-            self.attribute['3']	= Attribute( 'Product Code Number',	INT,	default=0x0036 )
-            self.attribute['4']	= Attribute( 'Product Revision', 	INT,	default=0x0b14 )
-            self.attribute['5']	= Attribute( 'Status Word', 		INT,	default=0x3160 )
-            self.attribute['6']	= Attribute( 'Serial Number', 		DINT,	default=0x006c061a )
-            self.attribute['7']	= Attribute( 'Product Name', 		SSTRING,default='1756-L61/B LOGIX5561' )
-            self.attribute['8']	= Attribute( 'State',			USINT,	default=0xff )
-            self.attribute['9']	= Attribute( 'Configuration Consistency Value',
-	    								UINT,	default=0 )
-            self.attribute['10']= Attribute( 'Heartbeat Interval',	USINT,	default=0 )
+            self.attribute['1']	= Attribute( 'Vendor Number', 		INT,
+	        default=self.config_int(     'Vendor Number',			0x0001 ))
+            self.attribute['2']	= Attribute( 'Device Type', 		INT,
+	        default=self.config_int(     'Device Type',			0x000e ))
+            self.attribute['3']	= Attribute( 'Product Code Number',	INT,
+	        default=self.config_int(     'Product Code Number',		0x0036 ))
+            self.attribute['4']	= Attribute( 'Product Revision', 	INT,
+	        default=self.config_int(     'Product Revision',		0x0b14 ))
+            self.attribute['5']	= Attribute( 'Status Word', 		WORD,
+	        default=self.config_int(     'Status Word',			0x3160 ))
+            self.attribute['6']	= Attribute( 'Serial Number', 		UDINT,
+	        default=self.config_int(     'Serial Number',			0x006c061a ))
+            self.attribute['7']	= Attribute( 'Product Name', 		SSTRING,
+                default=self.config_str(     'Product Name',			'1756-L61/B LOGIX5561' ))
+            self.attribute['8']	= Attribute( 'State',			USINT,
+	        default=self.config_int(     'State',				0xff ))
+            self.attribute['9']	= Attribute( 'Configuration Consistency Value', UINT,
+	        default=self.config_int(     'Configuration Consistency Value', 0 ))
+            self.attribute['10']= Attribute( 'Heartbeat Interval',	USINT,
+                default=self.config_int(     'Heartbeat Interval', 		0 ))
 
 
 class TCPIP( Object ):
@@ -844,7 +906,7 @@ class TCPIP( Object ):
 
     | Attribute | Type  | Name / bits               | Description                                 |
     |-----------+-------+---------------------------+---------------------------------------------|
-    |         1 | DWORD | Status                    | Interface Configuration Status              |
+    |         1 | DWORD | Interface Status          | Interface Configuration Status              |
     |           |       | 0-3: I'face Config Status | 0 == Not configured                         |
     |           |       |                           | 1 == BOOTP/DHCP/non-volatile storage        |
     |           |       |                           | 2 == IP address from hardware configuration |
@@ -867,26 +929,51 @@ class TCPIP( Object ):
     |           |       | 0-3: Configuration method | 0 == Use statically-assigned IP config      |
     |           |       |                           | 1 == Obtain config. via BOOTP               |
     |           |       |                           | 2 == Obtain config. via DHCP                |
-    |           |       |                           | 3-15 == Reserved                            |
+    |           |       |                           | 3-15 Reserved for future use.               |
     |           |       | 4: DNS Enable             | Resolve hostnames via DHCP                  |
     |           |       | 5-31                      | Reserved                                    |
-    |           |       |                           |                                             |
+
+    Default to values implying minimal capability, hardware configuration
     """
     class_id			= 0xF5
+
+    STS_UN_CONFIGURED		= 0
+    STS_EX_CONFIGURED		= 1 # External (eg. BOOTP/DHCP, non-volatile stored config)
+    STS_HW_CONFIGURED		= 2 # Hardware
+
+    CAP_BOOTP_CLIENT		= 1 << 0
+    CAP_DNS_CLIENT		= 1 << 1
+    CAP_DHCP_CLIENT		= 1 << 2
+    CAP_CONFIG_SETTABLE		= 1 << 4
+    CAP_HW_CONFIGURABLE		= 1 << 5
+    CAP_IF_CHG_RST_REQ		= 1 << 6
+    CAP_ADC_CAPABLE		= 1 << 7
+
+    CON_STATIC			= 0
+    CON_BOOTP			= 1
+    CON_DHCP			= 2
+    CON_DNS_ENABLE		= 1 << 4
 
     def __init__( self, name=None, **kwds ):
         super( TCPIP, self ).__init__( name=name, **kwds )
 
         if self.instance_id == 0:
-            self.attribute['0'] = Attribute( 'Revision', 		UINT,	default=3 )
+            self.attribute['0'] = Attribute( 'Revision', 		UINT,
+                    default=self.config_int( 'Revision', 			3 ))
         else:
-            # Instance Attributes (these example defaults are from a Rockwell Logix PLC)
-            self.attribute['1']	= Attribute( 'Interface Status',	DWORD,	default=0 )
-            self.attribute['2']	= Attribute( 'Interface Capability',	DWORD,	default=0 )
-            self.attribute['3']	= Attribute( 'Interface Control',	DWORD,	default=0 )
-            self.attribute['4']	= Attribute( 'Path to Physical Link ',	EPATH_padded,default=[{}] )
-            self.attribute['5']	= Attribute( 'Interface Configuration',	IFACEADDRS,default=[{}] )
-            self.attribute['6']	= Attribute( 'Host Name', 		STRING,default='' )
+            # Instance Attributes
+            self.attribute['1']	= Attribute( 'Interface Status',	DWORD,
+                default=self.config_int(     'Interface Status',		self.STS_HW_CONFIGURED ))
+            self.attribute['2']	= Attribute( 'Configuration Capability',DWORD,
+                default=self.config_int(     'Configuration Capability',	self.CAP_CONFIG_SETTABLE | self.CAP_HW_CONFIGURABLE ))
+            self.attribute['3']	= Attribute( 'Configuration Control',	DWORD,
+                default=self.config_int(     'Configuration Control',		self.CON_STATIC ))
+            self.attribute['4']	= Attribute( 'Path to Physical Link ',	EPATH_padded,
+                default=[self.config_json(   'Path to Physical Link',		'[]' )] )
+            self.attribute['5']	= Attribute( 'Interface Configuration',	IFACEADDRS,
+                default=[self.config_json(   'Interface Configuration',		'{}' )] )
+            self.attribute['6']	= Attribute( 'Host Name', 		STRING,
+                default=self.config_str(     'Host Name',			'' ))
 
 
 class UCMM( Object ):
@@ -1123,7 +1210,7 @@ class UCMM( Object ):
         cpf.item[0].communications_service \
 			= c_s	= dotdict()
         c_s.version		= 1
-        c_s.capability		= self.LISTSVCS_CIP_ENCAP
+        c_s.capability		= self.LISTSVCS_CIP_ENCAP | self.LISTSVCS_CIP_UDP
         c_s.service_name	= 'Communications'
 
         data.enip.input		= bytearray( self.parser.produce( data.enip ))
@@ -1134,7 +1221,11 @@ class UCMM( Object ):
         """The List Identity response consists of the IP address we're bound to from the TCP/IP Object,
         plus some Attribute data from the Identity object.  Look up these Objects at their
         traditional CIP Class and Instance numbers; if they exist, use their values to populate the
-        response.
+        response.  Then, produce the wire-protocol EtherNet/IP response message.
+
+        We'll get each Attribute to produce its serialized representation, and then parse itself, in
+        order to satisfy any default values, and produce any complex structs (eg. IPADDR,
+        IFACEADDRS).  From this, we can extract the values we wish to return.
 
         """
         cpf			= data.enip.CIP.list_identity.CPF
@@ -1144,37 +1235,36 @@ class UCMM( Object ):
 			= ido	= dotdict()
         ido.version		= 1
 
-        # The TCP/IP Object, Instance 1, Attribute 5 is an IFACEADDRS struct of:
-        #   | UDINT   | IP Address
-        #   | UDINT   | Network Mask
-        #   | UDINT   | Gateway
-        #   | UDINT   | DNS Primary
-        #   | UDINT   | DNS Secondary
-        #   | SSTRING | Domain Name
-        # 
-        # Each value must be a tuple/list
-        att			= lookup( class_id=TCPIP.class_id, instance_id=1, attribute_id=5 )
-        ido.sin_family		= 2
-        ido.sin_port		= 44818
-        val			= ( att.value if att.scalar else att.value[0] ) if att else None
-        ido.sin_addr		= val[0] if hasattr( val, 'getitem' ) and len( val ) >= 1 else 0
-
-        att			= lookup( class_id=Identity.class_id, instance_id=1, attribute_id=1 )
-        ido.vendor_id		= ( att.value if att.scalar else att.value[0] ) if att else 0
-        att			= lookup( class_id=Identity.class_id, instance_id=1, attribute_id=2 )
-        ido.device_type		= ( att.value if att.scalar else att.value[0] ) if att else 0
-        att			= lookup( class_id=Identity.class_id, instance_id=1, attribute_id=3 )
-        ido.product_code	= ( att.value if att.scalar else att.value[0] ) if att else 0
-        att			= lookup( class_id=Identity.class_id, instance_id=1, attribute_id=4 )
-        ido.revision		= ( att.value if att.scalar else att.value[0] ) if att else 0
-        att			= lookup( class_id=Identity.class_id, instance_id=1, attribute_id=5 )
-        ido.status		= ( att.value if att.scalar else att.value[0] ) if att else 0
-        att			= lookup( class_id=Identity.class_id, instance_id=1, attribute_id=6 )
-        ido.serial_number	= ( att.value if att.scalar else att.value[0] ) if att else 0
-        att			= lookup( class_id=Identity.class_id, instance_id=1, attribute_id=7 )
-        ido.product_name	= ( att.value if att.scalar else att.value[0] ) if att else ""
-        att			= lookup( class_id=Identity.class_id, instance_id=1, attribute_id=8 )
-        ido.state		= ( att.value if att.scalar else att.value[0] ) if att else 0
+        for nam,val,get in [
+                ( 'sin_addr',		( TCPIP.class_id, 1, 5 ),	lambda d: d.ip_address ),
+                ( 'sin_family',		2,				None ),
+                ( 'sin_port',		44818, 				None),
+                ( 'vendor_id',		( Identity.class_id, 1, 1 ),	lambda d: d.INT ),
+                ( 'device_type',	( Identity.class_id, 1, 2 ),	lambda d: d.INT ),
+                ( 'product_code',	( Identity.class_id, 1, 3 ),	lambda d: d.INT ),
+                ( 'product_revision',	( Identity.class_id, 1, 4 ),	lambda d: d.INT ),
+                ( 'status_word',	( Identity.class_id, 1, 5 ),	lambda d: d.WORD ),
+                ( 'serial_number',	( Identity.class_id, 1, 6 ),	lambda d: d.UDINT ),
+                ( 'product_name',	( Identity.class_id, 1, 7 ),	lambda d: d.SSTRING ),
+                ( 'state',		( Identity.class_id, 1, 8 ),	lambda d: d.USINT ),
+        ]:
+            if isinstance( val, tuple ):
+                att		= lookup( *val )
+                if att:
+                    raw		= att.produce( 0, 1 )
+                    dat		= dotdict()
+                    with att.parser as mch:
+                        eng	= mch.run( source=automata.peekable( raw ), data=dat )
+                        try:
+                            for m,s in eng:
+                                pass
+                        finally:
+                            eng.close()
+                            del eng
+                        val	= get( dat )
+                else:
+                    val		= 0
+            ido[nam]		= val
 
         data.enip.input		= bytearray( self.parser.produce( data.enip ))
 

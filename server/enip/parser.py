@@ -881,10 +881,15 @@ class EPATH( cpppo.dfa ):
 
         An Falsey 'data' results in an EPATH indicating a 0 size.
 
+        Supports either { "segment": [<path>] } or just [<path>].
+
         """
-        
+        segment			= data # default to iterable of path elements
+        if hasattr( data, 'get' ):
+            segment		= data.get( 'segment', [] ) # handles dict w/ empty path
+
         result			= b''
-        for seg in data.get( 'segment', [] ): # handles empty path
+        for seg in segment:
             found			= False
             for segnam, segtyp in cls.SEGMENTS.items():
                 if segnam not in seg:
@@ -1164,8 +1169,8 @@ class identity_object( cpppo.dfa ):
         szro[True]	= vndr	= UINT(	context='vendor_id' )
         vndr[True]	= dvtp	= UINT(	context='device_type' )
         dvtp[True]	= prod	= UINT( context='product_code' )
-        prod[True]	= revi	= UINT( context='revision' )
-        revi[True]	= stts	= UINT(	context='status' )		# Should be WORD
+        prod[True]	= revi	= UINT( context='product_revision' )
+        revi[True]	= stts	= WORD(	context='status_word' )		# Should be WORD
         stts[True]	= srnm	= UDINT( context='serial_number' )
         srnm[True]	= prnm	= SSTRING( context='product_name',	# May end here, b/c
                                            terminal=True )		# of CPF framing errors (eg. PowerFlex)!
@@ -1187,8 +1192,8 @@ class identity_object( cpppo.dfa ):
         result		       += UINT.produce( data.vendor_id )
         result		       += UINT.produce( data.device_type )
         result		       += UINT.produce( data.product_code )
-        result		       += UINT.produce( data.revision )
-        result		       += UINT.produce( data.status )
+        result		       += UINT.produce( data.product_revision )
+        result		       += WORD.produce( data.status_word )
         result		       += UDINT.produce( data.serial_number )
         result		       += SSTRING.produce( data.product_name )
         result		       += USINT.produce( data.state )

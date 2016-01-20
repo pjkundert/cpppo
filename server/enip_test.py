@@ -914,8 +914,8 @@ def test_enip_listidentity():
     data.vendor_id		= 0x0001 # AB
     data.device_type		= 0x007B
     data.product_code		= 0x0490
-    data.revision		= 0x010b
-    data.status			= 0x0561
+    data.product_revision	= 0x010b
+    data.status_word		= 0x0561
     data.serial_number		= 0x80491D15
     data.product_name		= "PowerFlex 753                   "	# 32 characters
     data.state			= 0xFF
@@ -1392,7 +1392,7 @@ CIP_tests			= [
                     "enip.CIP.list_identity.CPF.count": 1, 
                     "enip.CIP.list_identity.CPF.item[0].type_id": 12, 
                     "enip.CIP.list_identity.CPF.item[0].length": 66, 
-                    "enip.CIP.list_identity.CPF.item[0].identity_object.status": 1377, 
+                    "enip.CIP.list_identity.CPF.item[0].identity_object.status_word": 1377, 
                     "enip.CIP.list_identity.CPF.item[0].identity_object.sin_addr": "10.161.1.5",
                     "enip.CIP.list_identity.CPF.item[0].identity_object.vendor_id": 1, 
                     "enip.CIP.list_identity.CPF.item[0].identity_object.sin_port": 44818, 
@@ -1404,7 +1404,7 @@ CIP_tests			= [
                     "enip.CIP.list_identity.CPF.item[0].identity_object.product_code": 1168, 
                     "enip.CIP.list_identity.CPF.item[0].identity_object.product_name.length": 32, 
                     "enip.CIP.list_identity.CPF.item[0].identity_object.product_name.string": "PowerFlex 753                   ", 
-                    "enip.CIP.list_identity.CPF.item[0].identity_object.revision": 267, 
+                    "enip.CIP.list_identity.CPF.item[0].identity_object.product_revision": 267, 
                 }
             # 
             # We can handle the bad CPF framing, but won't re-generate the original message (of course)
@@ -1420,7 +1420,7 @@ CIP_tests			= [
             #         "enip.CIP.list_identity.CPF.count": 1, 
             #         "enip.CIP.list_identity.CPF.item[0].type_id": 12, 
             #         "enip.CIP.list_identity.CPF.item[0].length": 39,  # wildly incorrect (truncates 26 bytes); 
-            #         "enip.CIP.list_identity.CPF.item[0].identity_object.status": 1377, 
+            #         "enip.CIP.list_identity.CPF.item[0].identity_object.status_word": 1377, 
             #         "enip.CIP.list_identity.CPF.item[0].identity_object.sin_addr": 178323717, 
             #         "enip.CIP.list_identity.CPF.item[0].identity_object.vendor_id": 1, 
             #         "enip.CIP.list_identity.CPF.item[0].identity_object.sin_port": 44818, 
@@ -1431,7 +1431,7 @@ CIP_tests			= [
             #         "enip.CIP.list_identity.CPF.item[0].identity_object.product_code": 1168, 
             #         "enip.CIP.list_identity.CPF.item[0].identity_object.product_name.length": 32, 
             #         "enip.CIP.list_identity.CPF.item[0].identity_object.product_name.string": "PowerF", 
-            #         "enip.CIP.list_identity.CPF.item[0].identity_object.revision": 267, 
+            #         "enip.CIP.list_identity.CPF.item[0].identity_object.product_revision": 267, 
             #     }
             ), (
                 listident_2_rpy,
@@ -1444,7 +1444,7 @@ CIP_tests			= [
                     "enip.CIP.list_identity.CPF.count": 1, 
                     "enip.CIP.list_identity.CPF.item[0].type_id": 12, 
                     "enip.CIP.list_identity.CPF.item[0].length": 63, 
-                    "enip.CIP.list_identity.CPF.item[0].identity_object.status": 48, 
+                    "enip.CIP.list_identity.CPF.item[0].identity_object.status_word": 48, 
                     "enip.CIP.list_identity.CPF.item[0].identity_object.sin_addr": "10.161.1.3",
                     "enip.CIP.list_identity.CPF.item[0].identity_object.vendor_id": 1, 
                     "enip.CIP.list_identity.CPF.item[0].identity_object.sin_port": 44818, 
@@ -1456,7 +1456,7 @@ CIP_tests			= [
                     "enip.CIP.list_identity.CPF.item[0].identity_object.product_code": 149, 
                     "enip.CIP.list_identity.CPF.item[0].identity_object.product_name.length": 29, 
                     "enip.CIP.list_identity.CPF.item[0].identity_object.product_name.string": "1769-L24ER-QB1B/A LOGIX5324ER", 
-                    "enip.CIP.list_identity.CPF.item[0].identity_object.revision": 2843, 
+                    "enip.CIP.list_identity.CPF.item[0].identity_object.product_revision": 2843, 
                 }
             ), (
                 gas_m01_request,
@@ -2117,7 +2117,7 @@ def test_enip_device():
     request			= cpppo.dotdict({'service': 0x01, 'path':{'segment':[{'class':Tcpip.class_id},{'instance':Tcpip.instance_id}]}})
     gaa				= Tcpip.request( request )
     log.normal( "TCPIP Get Attributes All: %r, data: %s", gaa, enip.enip_format( request ))
-    assert request.input == b'\x81\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00'    
+    assert request.input == b'\x81\x00\x00\x00\x02\x00\x00\x00\x30\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00'
 
 
 def test_enip_logix():
