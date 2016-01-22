@@ -314,19 +314,6 @@ def test_powerflex_poll_failure():
 # 
 # python poll_test.py -- AB PowerFlex simulator for testing
 # 
-class Identity_PowerFlex( enip.Identity ):
-    """Override all Instances to denote that we are a PowerFlex. 
-
-    TODO: should identify separate PowerFlex, 20-COMM-E devices"""
-    def __init__( self, name=None, **kwds ):
-        super( Identity_PowerFlex, self ).__init__( name=name, **kwds )
-
-        if self.instance_id == 0:
-            # Extra Class-level Attributes
-            pass
-        else:
-            self.attribute['7']	= enip.Attribute( 'Product Name', enip.SSTRING, default="PowerFlex/20-COMM-E" )
-
 
 class UCMM_no_route_path( enip.UCMM ):
     """The PowerFlex/20-COMM-E UnConnected Messages Manager allows no route_path"""
@@ -391,6 +378,8 @@ class DPI_Parameters( enip.Object ):
 def main( **kwds ):
     """Set up PowerFlex/20-COMM-E objects (enip.main will set up other Logix-like objects)"""
 
+    enip.config_files 	       += [ __file__.replace( '.py', '.cfg' ) ]
+
     DPI_Parameters( name="DPI_Parameters", instance_id=0 ) # Class Object
     DPI_Parameters( name="DPI_Parameters", instance_id=DPI_Parameters.OUTPUT_FREQ )
     DPI_Parameters( name="DPI_Parameters", instance_id=DPI_Parameters.MTR_VEL_FDBK )
@@ -399,36 +388,8 @@ def main( **kwds ):
     DPI_Parameters( name="DPI_Parameters", instance_id=DPI_Parameters.ACCEL_TIME_1 )
     DPI_Parameters( name="DPI_Parameters", instance_id=DPI_Parameters.SPEED_UNITS )
 
-    # Establish a TCPIP object with some data
-    enip.TCPIP( instance_id=0 ) # Class Object
-    enip.TCPIP( instance_id=1 )
-
-    # TCPIP Attribute #1 (DWORD)	-- Status (2 == hardware IP configured)
-    enip.lookup( class_id=enip.TCPIP.class_id, instance_id=1, attribute_id=1 )[0] = 2
-    
-    # TCPIP Attribute #2 (DWORD)	-- Interface capability (bit 4: config settable, 5: h/w configurable)
-    enip.lookup( class_id=enip.TCPIP.class_id, instance_id=1, attribute_id=2 )[0] = 1<<4|1<<5
-
-    # TCPIP Attribute #3 (DWORD)	-- Configuration Control (bit 4:DNS enable, 0 == static IP)
-    enip.lookup( class_id=enip.TCPIP.class_id, instance_id=1, attribute_id=3 )[0] = 1<<4|0
-    
-    # TCPIP Attribute #4 (EPATH)	-- Physical Link Object (Ethernet Link class 0xF6, instance 1)
-    enip.lookup( class_id=enip.TCPIP.class_id, instance_id=1, attribute_id=4 )[0] = {'segment':[{'class':0xF6},{'instance':1}]}
-    
-    # TCPIP Attribute #5 (IFACEADDRS)	-- Interface Configuration
-    enip.lookup( class_id=enip.TCPIP.class_id, instance_id=1, attribute_id=5 )[0] = {
-        'ip_address': 		'10.0.0.4',
-        'gateway_address':	'10.0.0.1',
-        'network_mask':		'255.255.252.0', # /21
-        'dns_primary':		'10.0.0.1',
-        'dns_secondary':	'8.8.8.8',
-        'domain_name':		'example.com',
-    }
-    # TCPIP Attribute #6 (STRING)	-- Host Name
-    enip.lookup( class_id=enip.TCPIP.class_id, instance_id=1, attribute_id=6 )[0] = 'powerflex'
-
-    return enip.main( argv=sys.argv[1:] + ["SCADA=DINT[100]"], identity_class=Identity_PowerFlex,
-                      UCMM_class=UCMM_no_route_path )
+    # Establish Identity and TCPIP objects w/ some custom data for the test, from a config file
+    return enip.main( argv=sys.argv[1:], UCMM_class=UCMM_no_route_path )
 
 
 if __name__ == "__main__":

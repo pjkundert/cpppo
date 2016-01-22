@@ -572,9 +572,9 @@ Logix.register_service_parser( number=Logix.WR_FRG_RPY, name=Logix.WR_FRG_NAM + 
 
 
 def setup( **kwds ):
-    """Create the required CIP device Objects, return UCMM.  First one in initialize, and don't let
-    anyone else proceed 'til complete.  The UCMM isn't really an addressable CIP Object, so we just
-    have to return it.
+    """Create the required CIP device Objects (if specified class is not None), returning UCMM.  First
+    one in initialize, and don't let anyone else proceed 'til complete.  The UCMM isn't really an
+    addressable CIP Object, so we just have to return it.
 
     If an {identity,message_router,connection_manager,UCMM}_class keyword has been supplied, use it;
     otherwise, use the default Identity (of a *Logix PLC).
@@ -585,17 +585,21 @@ def setup( **kwds ):
     """
     with setup.lock:
         if not setup.ucmm:
-            kwds.get( 'identity_class',
-                      Identity )()		# Class 0x01, Instance 1
-            kwds.get( 'message_router_class',
-                      Logix )()			# Class 0x02, Instance 1 -- Message Router; knows Logix Tag requests
-            kwds.get( 'connection_manager_class',
-                      Connection_Manager )()	# Class 0x06, Instance 1
+            identity		= kwds.get( 'identity_class',		Identity )
+            if identity:
+                identity()			# Class 0x01, Instance 1
+            mr			= kwds.get( 'message_router_class',	Logix )
+            if mr:
+                mr()				# Class 0x02, Instance 1 -- Message Router; knows Logix Tag requests
+            cm			= kwds.get( 'connection_manager_class',	Connection_Manager )
+            if cm:
+                cm()				# Class 0x06, Instance 1
         
             Unknown_Object()			# Class 0x66, Instance 1 -- Unknown purpose in Logix Controller
 
-            kwds.get( 'tcpip_class',
-                      TCPIP )()			# Class 0xF5, Instance 1
+            tcpip		= kwds.get( 'tcpip_class', TCPIP )
+            if tcpip:
+                tcpip()				# Class 0xF5, Instance 1
 
             setup.ucmm		= kwds.get( 'UCMM_class', UCMM )()
             if setup.ucmm.route_path:
