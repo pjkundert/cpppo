@@ -10,7 +10,6 @@ import sys
 import threading
 import time
 
-is_pypy				= platform.python_implementation() == "PyPy"
 
 # for @profile, kernprof.py -v -l enip_test.py
 #from line_profiler import LineProfiler
@@ -677,7 +676,6 @@ rss_004_request 		= bytes(bytearray([
     0x00, 0x00                                      #/* .. */
 ]))
 
-@pytest.mark.skipif( is_pypy, reason="Not yet supported under PyPy" )
 def test_logix_remote( count=50 ):
     """Performance of executing an operation a number of times on a socket connected
     Logix simulator, within the same Python interpreter (ie. all on a single CPU
@@ -687,7 +685,7 @@ def test_logix_remote( count=50 ):
     #logging.getLogger().setLevel( logging.NORMAL )
     enip.lookup_reset() # Flush out any existing CIP Objects for a fresh start
     svraddr		        = ('localhost', 12345)
-    kwargs			= cpppo.dotdict({
+    kwargs			= {
         'argv': [
             #'-v',
             #'--log',		'/tmp/logix.log',
@@ -696,20 +694,22 @@ def test_logix_remote( count=50 ):
             'SCADA=INT[1000]'
         ],
         'server': {
-            'control':	cpppo.apidict( enip.timeout, { 
+            'control': cpppo.apidict( enip.timeout, { 
                 'done': False
-            }),
+            } ),
         },
-    })
+    }
+    logixthread_kwargs		= {
+        'count':		count,
+        'svraddr':		svraddr,
+        'kwargs':		kwargs
+    }
 
+    log.normal( "test_logix_remote w/ server.control in object %s", id( kwargs['server']['control'] ))
     # This is sort of "inside-out".  This thread will run logix_remote, which will signal the
     # enip.main (via the kwargs.server...) to shut down.  However, to do line-based performance
     # measurement, we need to be running enip.main in the "Main" thread...
-    logixthread			= threading.Thread( target=logix_remote, kwargs={
-        'count': count,
-        'svraddr': svraddr,
-        'kwargs': kwargs
-    } )
+    logixthread			= threading.Thread( target=logix_remote, kwargs=logixthread_kwargs )
     logixthread.daemon		= True
     logixthread.start()
 
@@ -718,6 +718,7 @@ def test_logix_remote( count=50 ):
     logixthread.join()
 
 def logix_remote( count, svraddr, kwargs ):
+  try:
     time.sleep(.25) # Wait for server to be established
     # Confirm that a known Register encodes as expected
     data			= cpppo.dotdict()
@@ -770,7 +771,9 @@ def logix_remote( count, svraddr, kwargs ):
     duration			= cpppo.timer() - start
     log.warning( "Client ReadFrg. Average %7.3f TPS (%7.3fs ea)." % ( count / duration, duration / count ))
 
-    kwargs['server'].control.done= True # Signal the server to terminate
+    log.normal( "Signal shutdown w/ server.control in object %s", id( kwargs['server']['control'] ))
+  finally:
+    kwargs['server']['control'].done= True # Signal the server to terminate
 
 
 

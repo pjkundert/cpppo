@@ -566,17 +566,23 @@ def test_enip_header():
 
 @pytest.mark.skipif( is_pypy, reason="Not yet supported under PyPy" )
 def test_enip_machine():
+    #logging.getLogger().setLevel( logging.DEBUG )
     ENIP			= enip.enip_machine( context='enip' )
     for pkt,tst in eip_tests:
         # Parse the headers and encapsulated command data
         data			= cpppo.dotdict()
         source			= cpppo.chainable( pkt )
         with ENIP as machine:
-            for i,(m,s) in enumerate( machine.run( source=source, data=data )):
-                log.info( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r",
-                          machine.name_centered(), i, s, source.sent, source.peek(), data )
-                if s is None and source.peek() is None:
-                    break # simulate detection of EOF
+            engine		= machine.run( source=source, data=data )
+            try:
+                for i,(m,s) in enumerate( engine ):
+                    log.info( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r",
+                              machine.name_centered(), i, s, source.sent, source.peek(), data )
+                    if s is None and source.peek() is None:
+                        break # simulate detection of EOF
+            finally:
+                engine.close()
+                del engine
             if not pkt:
                 assert i == 2		# enip_machine / enip_header reports state
             else:

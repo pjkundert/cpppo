@@ -1040,8 +1040,10 @@ def main( argv=None, attribute_class=device.Attribute, idle_service=None, identi
         assert 'control' in kwds['server'], "A 'server' keyword provided without a 'control' attribute"
         srv_ctl			= cpppo.dotdict( kwds.pop( 'server' ))
         assert isinstance( srv_ctl['control'], cpppo.apidict ), "The server.control... must be a cpppo.apidict"
+        log.detail( "External server.control in object %s", id( srv_ctl['control'] ))
     else:
         srv_ctl.control		= cpppo.apidict( timeout=timeout )
+        log.detail( "Internal server.control in object %s", id( srv_ctl['control'] ))
 
     srv_ctl.control['done']	= False
     srv_ctl.control['disable']	= False

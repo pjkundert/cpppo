@@ -258,7 +258,8 @@ def server_main( address, target=None, kwargs=None, idle_service=None, thread_fa
     control			= kwargs.get( 'server', {} ).get( 'control', {} ) if kwargs else {}
     if isinstance( control, dotdict ):
         if 'done' in control or 'disable' in control:
-            log.normal( "%s server PID [%5d] responding to external done/disable signal", name, os.getpid() )
+            log.normal( "%s server PID [%5d] responding to external done/disable signal in object %s",
+                        name, os.getpid(), id( control ))
     else:
         # It's a plain dict; force it into a dotdict, so we can use index/attr access
         control			= dotdict( control )
