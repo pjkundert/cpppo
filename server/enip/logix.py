@@ -572,9 +572,9 @@ Logix.register_service_parser( number=Logix.WR_FRG_RPY, name=Logix.WR_FRG_NAM + 
 
 
 def setup( **kwds ):
-    """Create the required CIP device Objects (if specified class is not None), returning UCMM.  First
-    one in initialize, and don't let anyone else proceed 'til complete.  The UCMM isn't really an
-    addressable CIP Object, so we just have to return it.
+    """Create the required CIP device Objects (if they don't exist, and the specified class is not
+    None), returning UCMM.  First one in initialize, and don't let anyone else proceed 'til
+    complete.  The UCMM isn't really an addressable CIP Object, so we just have to return it.
 
     If an {identity,message_router,connection_manager,UCMM}_class keyword has been supplied, use it;
     otherwise, use the default Identity (of a *Logix PLC).
@@ -584,24 +584,29 @@ def setup( **kwds ):
 
     """
     with setup.lock:
-        if not setup.ucmm:
+        if not lookup( 0x01, 1 ):
             identity		= kwds.get( 'identity_class',		Identity )
             if identity:
-                identity()			# Class 0x01, Instance 1
+                identity( instance_id=1 )	# Class 0x01, Instance 1
+        if not lookup( 0x02, 1 ):
             mr			= kwds.get( 'message_router_class',	Logix )
             if mr:
-                mr()				# Class 0x02, Instance 1 -- Message Router; knows Logix Tag requests
+                mr( instance_id=1 )		# Class 0x02, Instance 1 -- Message Router; knows Logix Tag requests
+        if not lookup( 0x06, 1 ):
             cm			= kwds.get( 'connection_manager_class',	Connection_Manager )
             if cm:
-                cm()				# Class 0x06, Instance 1
+                cm( instance_id=1 )		# Class 0x06, Instance 1
         
-            Unknown_Object()			# Class 0x66, Instance 1 -- Unknown purpose in Logix Controller
+        if not lookup( 0x66, 1 ):
+            Unknown_Object( instance_id=1 )	# Class 0x66, Instance 1 -- Unknown purpose in Logix Controller
 
-            tcpip		= kwds.get( 'tcpip_class', TCPIP )
+        if not lookup( 0xF5, 1 ):
+            tcpip		= kwds.get( 'tcpip_class', 		TCPIP )
             if tcpip:
-                tcpip()				# Class 0xF5, Instance 1
+                tcpip( instance_id=1 )		# Class 0xF5, Instance 1
 
-            setup.ucmm		= kwds.get( 'UCMM_class', UCMM )()
+        if not setup.ucmm:
+            setup.ucmm		= kwds.get( 'UCMM_class', 		UCMM )()
             if setup.ucmm.route_path:
                 log.normal( "UCMM is restricting request route_path to match: %r",
                             str( json.dumps( setup.ucmm.route_path )))

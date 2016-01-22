@@ -29,7 +29,7 @@ __license__                     = "Dual License: GPLv3 (or later) and Commercial
 enip.device	-- support for implementing an EtherNet/IP device Objects and Attributes
 
 """
-__all__				= ['dialect', 'lookup', 'resolve', 'resolve_element',
+__all__				= ['dialect', 'lookup_reset', 'lookup', 'resolve', 'resolve_element',
                                    'redirect_tag', 'resolve_tag', 
                                    'Object', 'Attribute',
                                    'UCMM', 'Connection_Manager', 'Message_Router', 'Identity', 'TCPIP']
@@ -134,6 +134,18 @@ def lookup( class_id, instance_id=0, attribute_id=None ):
 # 
 symbol				= {}
 symbol_keys			= ('class', 'instance', 'attribute')
+
+
+def lookup_reset():
+    """Clear any known CIP Objects, and any Tags referencing to their Attributes.  Note that each CIP
+    Object-derived class will retain its .max_instance variable, so future instances will get new
+    (higher) Instance IDs, unless you provide an instance_id=... to the constructor.
+
+    """
+    global directory
+    global symbol
+    directory			= dotdict()
+    symbol			= {}
 
 
 def redirect_tag( tag, address ):
