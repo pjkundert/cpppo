@@ -211,8 +211,8 @@ class server_thread_profiling( server_thread ):
 
 
 def server_main( address, target=None, kwargs=None, idle_service=None, thread_factory=server_thread,
-                 reuse=True, tcp=True, udp=True, **kwds ):
-    """A generic server main, binding to address (on both TCP/IP and UDP/IP by default), and serving
+                 reuse=True, tcp=True, udp=False, **kwds ):
+    """A generic server main, binding to address (on TCP/IP but not UDP/IP by default), and serving
     each incoming connection with a separate thread_factory (server_thread by default, a
     threading.Thread) instance running the target function (or its overridden run method, if
     desired).  Each server must be passed two positional arguments in the 'args' keyword (the
@@ -243,6 +243,10 @@ def server_main( address, target=None, kwargs=None, idle_service=None, thread_fa
 
     If supplied, the 'idle_service' function will be invoked whenever 'latency' passes without an
     incoming socket being accepted.
+
+    To successfully handle UDP/IP sessions, the target must be able to handle an 'conn' that is a
+    UDP/IP SOCK_DGRAM socket, and an 'addr' which is None (since the peer is not know, and is
+    possibly different on each request.)
 
     """
 

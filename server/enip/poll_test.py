@@ -93,6 +93,10 @@ def test_powerflex_simple( simulated_powerflex_gateway ):
     try:
         assert address, "Unable to detect PowerFlex EtherNet/IP CIP Gateway IP address"
         pf				= powerflex( host=address[0], port=address[1], timeout=1 )
+
+        # Reading a list of nothing should work...
+        assert list( pf.read( [] )) == []
+        # At the least, it ensures we have a non-None .identity
         print( "PowerFlex Identity: %s" % pf )
         assert "None" not in str( pf ), "No EtherNet/IP CIP connection, or no Identity"
 
@@ -145,6 +149,9 @@ def test_powerflex_simple( simulated_powerflex_gateway ):
         print( "TCPIP (all):    %15s: %r" % ( get[0], value ))
         assert value == [2, 48, 16, [{'class': 246}, {'instance': 1}], '10.0.0.4', '255.255.252.0', '10.0.0.1', '10.0.0.1', '8.8.8.8', u'example.com', u'powerflex']
         
+        # List Identity
+        ident			= pf.list_identity()
+        assert ident.sin_addr == "10.0.0.4"
 
     except Exception as exc:
         logging.warning( "Test terminated with exception: %s", exc )
@@ -242,7 +249,8 @@ def test_powerflex_poll_failure():
                         'server': dotdict({
                             'control': control
                         })
-                    }
+                    },
+                    'udp':	False, # no UDP server in this test
                 })
             server.daemon		= True
             server.start()
@@ -304,8 +312,7 @@ def test_powerflex_poll_failure():
             backoff		= min( backoff_max, backoff * backoff_multiplier )
             k_last		= k
 
-        # we may (accidentally) catch some values from a previous test's simulator before it's down.
-        #assert len( values ) == 0
+        assert len( values ) == 0
 
     except Exception as exc:
         logging.warning( "Test terminated with exception: %s", exc )
@@ -344,6 +351,7 @@ class DPI_Parameters( enip.Object ):
     MTR_VEL_FDBK		= 3
     OUTPUT_CURRENT		= 7
     DC_BUS_VOLTS		= 11
+    ELAPSED_KWH			= 14
     ACCEL_TIME_1		= 140
     SPEED_UNITS			= 300
     def __init__( self, name=None, **kwds ):
@@ -363,6 +371,9 @@ class DPI_Parameters( enip.Object ):
         elif self.instance_id == self.DC_BUS_VOLTS:
             self.attribute[ '9']= \
             self.attribute['10']= enip.Attribute( 'DC_Bus_Volts',	enip.REAL, default=0.08 )
+        elif self.instance_id == self.ELAPSED_KWH:
+            self.attribute[ '9']= \
+            self.attribute['10']= enip.Attribute( 'Elapsed_KwH',	enip.REAL, default=987.65 )
         elif self.instance_id == self.ACCEL_TIME_1:
             self.attribute[ '9']= \
             self.attribute['10']= enip.Attribute( 'Accel_Time_1',	enip.INT, default=567 )
@@ -385,6 +396,7 @@ def main( **kwds ):
     DPI_Parameters( name="DPI_Parameters", instance_id=DPI_Parameters.MTR_VEL_FDBK )
     DPI_Parameters( name="DPI_Parameters", instance_id=DPI_Parameters.OUTPUT_CURRENT )
     DPI_Parameters( name="DPI_Parameters", instance_id=DPI_Parameters.DC_BUS_VOLTS )
+    DPI_Parameters( name="DPI_Parameters", instance_id=DPI_Parameters.ELAPSED_KWH )
     DPI_Parameters( name="DPI_Parameters", instance_id=DPI_Parameters.ACCEL_TIME_1 )
     DPI_Parameters( name="DPI_Parameters", instance_id=DPI_Parameters.SPEED_UNITS )
 

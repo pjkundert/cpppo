@@ -24,7 +24,6 @@ try:
 except ImportError:
     pass # already available in Python3
 
-
 __author__                      = "Perry Kundert"
 __email__                       = "perry@hardconsulting.com"
 __copyright__                   = "Copyright (c) 2013 Hard Consulting Corporation"
@@ -40,18 +39,18 @@ __all__				= ['attribute_operations', 'proxy', 'proxy_simple', 'main']
     $ # Get Attributes All from Class 2, Instance 1
     $ python -m cpppo.server.enip.getattr -a controller '@2/1'
 
-A flexible proxy for a "routing" CIP device (eg. a *Logix controller) or a "simple" CIP device
-(eg. a simple EtherNet/IP CIP device such as an AB MicroLogix, or a sensor or actuator such as the
-AB PowerFlex AC Drive):
+Also provides flexible proxy class for a "routing" CIP device (eg. a *Logix controller) or
+proxy_simple for a "simple" CIP device (eg. a simple EtherNet/IP CIP device such as an AB
+MicroLogix, or a sensor or actuator such as the AB PowerFlex AC Drive):
 
 mysensors.py:
 
     from cpppo.server.enip.getattr import proxy_simple
 
     class some_sensor( proxy_simple ):
-        '''A simple (non-routing) CIP device with one parameter with a shortcut name: 'A Sensor Parameter' '''
+        '''A simple (non-routing) CIP device with one parameter named: 'A Sensor Parameter' '''
         PARAMETERS		= dict( proxy_simple.PARAMETERS,
-            a_sensor_parameter	= powerflex.parameter( '@0x93/1/10',	'REAL',	'Hz' ),
+            a_sensor_parameter	= proxy_simple.parameter( '@0x93/1/10',	'REAL',	'Hz' ),
         )
 
 
@@ -77,13 +76,14 @@ import itertools
 import json
 import logging
 import sys
+import threading
 import time
-import traceback
 
 import cpppo
 from .. import enip
 from . import client
 
+log				= logging.getLogger( "enip.get" )
 
 def attribute_operations( paths, **kwds ):
     """Replace any tag/attribute-level operations with Get Attribute Single, otherwise Get Attributes
@@ -130,7 +130,7 @@ class proxy( object ):
     [Fragmented] services.  The EtherNet/IP CIP gateway is discarded and re-opened on any Exception;
     it is created as required; if accessing the EtherNet/IP CIP device via this interface results in
     an Exception, the caller must signal the enip_proxy to discard the connection, by invoking the
-    .close_gateway method
+    .close_gateway method.
 
     Provides general "Unconnected" read/write access to CIP attributes, using either *Logix
     "Read/Write Tag [Fragmented]" service requests, or (if a type is specified), then uses the more
@@ -185,7 +185,9 @@ class proxy( object ):
         ] )
 
     PARAMETERS			= dict( # { 'Parameter Name': parameter(...), }
-        identity	= parameter( "@1/1",	[ "INT", "INT", "INT", "INT", "INT", "DINT", "SSTRING", "USINT" ], "Identity" ),
+        identity	= parameter( "@1/1",	[
+            "INT", "INT", "INT", "INT", "INT", "DINT", "SSTRING", "USINT"
+        ], "Identity" ),
         tcpip		= parameter( "@0xF5/1",	[
             "DWORD", "DWORD", "DWORD", "EPATH",
             "IPADDR", "IPADDR", "IPADDR", "IPADDR", "IPADDR", "STRING",
@@ -212,15 +214,24 @@ class proxy( object ):
                 to		= parameters.get( ti )
                 if ti in parameters:
                     att,typ,uni	= parameters[ti]
-                    logging.info( "Parameter %r (%s) --> %r", t, uni, (att,typ) )
+                    log.info( "Parameter %r (%s) --> %r", t, uni, (att,typ) )
                     t		= att,typ
                 else:
                     # Don't allow plain text Tags; must be named parameters!
                     assert pass_thru, "Unrecognized parameter name: %r" % ( t )
             yield t
-
+    
     def __init__( self, host, port=44818, timeout=None, depth=None, multiple=None,
-                  gateway_class=client.connector, route_path=None, send_path=None ):
+                  gateway_class=client.connector, route_path=None, send_path=None,
+                  identity_default=None ):
+        """Capture the desired I/O parameters for the target CIP Device.
+
+        By default, the CIP Device will be identified using a List Identity request each time a CIP
+        session is registered; provide a identity_default containing (at least) an attribute
+        product_name == 'Some Product Name', to avoid this initial List Identity request
+        (self.identity it will still be updated if .list_identity is invoked successfully).
+
+        """
         self.host		= host
         self.port		= port
         self.timeout		= 5 if timeout is None else timeout
@@ -230,54 +241,90 @@ class proxy( object ):
         self.send_path		= send_path
         self.gateway_class	= gateway_class
         self.gateway		= None
-
-        # Attempt to resolve all properties (to avoid possible recursive attempts, later)
-        logging.detail( "Identity: %s", self.identity )
+        self.gateway_lock	= threading.Lock()
+        if isinstance( identity_default, cpppo.type_str_base ):
+            identity_default	= cpppo.dotdict( product_name = identity_default )
+        assert not identity_default or hasattr( 'product_name', identity_default )
+        self.identity_default	= identity_default
+        self.identity		= identity_default
 
     def __str__( self ):
-        return "%s via %s" % ( self.identity, self.gateway )
+        return "%s at %s" % ( self.identity.product_name if self.identity else None, self.gateway )
 
     def close_gateway( self, exc=None ):
+        """Discard gateway; also forces re-reading of identity value upon next gateway connection"""
         if self.gateway is not None:
             self.gateway.close()
-            logging.warning( "Closed EtherNet/IP CIP gateway %s due to: %s",
-                             self.gateway, exc or "(unknown)" )
+            ( log.warning if exc else log.normal )(
+                "Closed EtherNet/IP CIP gateway %s due to: %s",
+                self.gateway, exc or "(unknown)" )
             self.gateway	= None
-            if hasattr( self, '_identity' ):
-                del self._identity # also re-obtain identity, next time gateway opens
-
-    @property
-    def identity( self ):
-        """Return the Gateway Identity (if possible), otherwise None"""
-        if not hasattr( self, '_identity' ):
-            # Not yet obtained.  Unpack the iterator into the one expected result, if possible,
-            # otherwise return None (no Identity yet obtained).
-            reader			= self.read( [ self.IDENTITY_PRODUCT_NAME ] )
-            try:
-                product_name,		= reader
-                self._identity		= product_name[0]
-            except Exception as exc:
-                logging.detail( "Getting identity failed: %s; %s", exc, traceback.format_exc() )
-                return None
-            finally:
-                reader.close()
-                del reader
-
-        return self._identity
+            self.identity	= self.identity_default
 
     def maintain_gateway( function ):
-        """A decorator to open the gateway (if necessary), and discard it on any Exception."""
+        """A decorator to open the gateway (if necessary), and discard it on any Exception.  Atomically
+        instantiates self.gateway, attempting to perform a List Identity and update self.identity.
+
+        This implementation is somewhat subtle, as there is no safe way to schedule the I/O required
+        to satisfy the self.identity -- it must be done immediately upon establishment of the
+        gateway, in the same Thread that opens the gateway.
+
+        After this, multiple Threads may attempt to perform I/O, and each Thread will retain
+        exclusive access via the self.gateway.frame.lock threading.Lock mutex, blocking other
+        threads from beginning their I/O 'til the current thread is done harvesting all of its
+        responses.
+
+        """
         @functools.wraps( function )
         def wrapper( inst, *args, **kwds ):
-            if inst.gateway is None:
-                inst.gateway	= inst.gateway_class( host=inst.host, port=inst.port, timeout=inst.timeout )
-                logging.detail( "Opened EtherNet/IP CIP gateway %s", inst.gateway )
+            first		= False
+            with inst.gateway_lock:
+                if inst.gateway is None:
+                    inst.gateway = inst.gateway_class( host=inst.host, port=inst.port, timeout=inst.timeout )
+                    if not inst.identity:
+                        try:
+                            rsp,ela = inst.list_identity_details()
+                            if rsp and rsp.enip.status == 0:
+                                inst.identity = rsp.enip.CIP.list_identity.CPF.item[0].identity_object
+                        except Exception as exc:
+                            inst.close_gateway( exc )
+                            raise
+                    log.normal( "Opened EtherNet/IP CIP gateway %s", inst )
+            # We have an open self.gateway; perform the I/O operation
             try:
                 return function( inst, *args, **kwds )
             except Exception as exc:
-                inst.close_gateway()
+                inst.close_gateway( exc )
                 raise
         return wrapper
+
+    @maintain_gateway
+    def list_identity( self ):
+        """List Identity for target device.  Synchronous (waits for and returns response value).  Updates
+        self.identity w/ latest value returned.
+
+        """
+        rsp,ela			= self.list_identity_details()
+        assert rsp.enip.status == 0, \
+            "List Identity responded with EtherNet/IP error status: %r" % (
+                rsp.enip.status )
+        self.identity		= rsp.enip.CIP.list_identity.CPF.item[0].identity_object
+        log.normal( "Device Identity: %r", self.identity )
+        return self.identity
+
+    def list_identity_details( self ):
+        """For simplicity, we'll assume that the send is instantaneous (correct, for all but the most
+        extreme TCP/IP output buffer conditions).  An Exception raised indicates that self.gateway
+        is no longer valid (unparsable response, or a delayed response may be in transit), and
+        .close_gateway must be invoked.  Returns the full response, and the elapsed time.
+
+        """
+        with self.gateway as connection:
+            connection.list_identity( timeout=self.timeout )
+            rsp,ela		= client.await( connection, timeout=self.timeout )
+            assert rsp, \
+                "No response to List Identity within timeout: %r" % ( self.timeout )
+            return rsp,ela
 
     @staticmethod
     def is_request( req ):
@@ -290,7 +337,7 @@ class proxy( object ):
 
         No validation of the provided <units> is done; it is passed thru unchanged.
         """
-        logging.detail( "Validating request: %r", req )
+        log.detail( "Validating request: %r", req )
         if isinstance( req, cpppo.type_str_base ):
             return True
         if is_listlike( req ) and 2 <= len( req ) <= 3:
@@ -306,8 +353,13 @@ class proxy( object ):
                         return True
         return False
 
+    @maintain_gateway
     def read( self, attributes, printing=False ):
-        """Yeilds all values, raising Exception at end if any failed."""
+        """Yields all values, raising Exception at end if any failed.  External API; maintains
+        self.gateway before operating.  Raises Exception on any erroneous status, to ensure
+        close_gateway is invoked, even if all operations completed without raising Exception.
+
+        """
         bad			= []
         reader			= self.read_details( attributes )
         try:
@@ -322,13 +374,13 @@ class proxy( object ):
         finally:
             reader.close() # PyPy compatibility; avoid deferred destruction of generators
             del reader
-        if bad:
-            raise ValueError( "read failed to access %d attributes: %s" % (
-                len( bad ), ', '.join( bad )))
+        assert len( bad ) == 0, \
+            "read failed to access %d attributes: %s" % ( len( bad ), ', '.join( bad ))
 
-    @maintain_gateway
     def read_details( self, attributes ):
-        """Read the specified CIP Tags/Attributes in the string or iterable 'attributes', using Read
+        """Assumes that self.gateway has been established; does not close_gateway on failure.
+
+        Read the specified CIP Tags/Attributes in the string or iterable 'attributes', using Read
         Tag [Fragmented] (returning the native type), or Get Attribute Single/All (converting it to
         the specified EtherNet/IP CIP type(s)).
 
@@ -433,7 +485,7 @@ class proxy( object ):
                     parser	= client.parse_operations if typ is None else attribute_operations
                     opp,	= parser( ( att, ), route_path=self.route_path, send_path=self.send_path )
                 except Exception as exc:
-                    logging.warning( "Failed to parse attribute %r; %s", att, exc )
+                    log.warning( "Failed to parse attribute %r; %s", att, exc )
                     raise
                 if typ is not None and not is_listlike( typ ):
                     t		= typ
@@ -444,7 +496,7 @@ class proxy( object ):
                     if hasattr( t, 'tag_type' ):
                         opp['tag_type'] = t.tag_type
 
-                logging.detail( "Parsed attribute %r (type %r) into operation: %r", att, typ, opp )
+                log.detail( "Parsed attribute %r (type %r) into operation: %r", att, typ, opp )
                 yield opp,(att,typ,uni)
 
         def types_decode( types ):
@@ -469,13 +521,20 @@ class proxy( object ):
         # Process all requests w/ the specified pipeline depth, Multiple Service Packet
         # configuration.  The 'idx' is the EtherNet/IP CIP request packet index; 'i' is the
         # individual I/O request index (for indexing att/typ/operations).
-        assert not self.gateway.frame.lock.locked(), "Attempting recursive read on %r" % (
-            self.gateway.frame, )
+        # 
+        # This Thread may block here attempting to gain exclusive access to the cpppo.dfa used
+        # by the cpppo.server.enip.client connector.  This uses a threading.Lock, which will raise
+        # an exception on recursive use, but block appropriately on multi-Thread contention.
+        # 
+        # assert not self.gateway.frame.lock.locked(), \
+        #     "Attempting recursive read on %r" % ( self.gateway.frame, )
+        log.info( "Acquiring gateway connection: %s",
+                      "locked" if self.gateway.frame.lock.locked() else "available" )
         with self.gateway as connection:
             for i,(idx,dsc,req,rpy,sts,val) in enumerate( connection.operate(
                     ( opr for opr,_ in operations ),
                     depth=self.depth, multiple=self.multiple, timeout=self.timeout )):
-                logging.detail( "%3d (pkt %3d) %16s %-12s: %r ", 
+                log.detail( "%3d (pkt %3d) %16s %-12s: %r ", 
                                 i, idx, dsc, sts or "OK", val )
                 _,(att,typ,uni)	= next( attrtypes )
                 if typ is None or sts not in (0,6):
@@ -642,7 +701,7 @@ which is required to carry this Send/Route Path data. """ )
             print( "%s: %3d: %s == %s" % ( time.ctime(), idx, dsc, val ))
             failures	       += 1 if sts else 0
         elapsed			= cpppo.timer() - start
-        logging.normal( "%3d requests in %7.3fs at pipeline depth %2s; %7.3f TPS" % (
+        log.normal( "%3d requests in %7.3fs at pipeline depth %2s; %7.3f TPS" % (
             idx+1, elapsed, args.depth, (idx+1) / elapsed ))
 
     if profiler:

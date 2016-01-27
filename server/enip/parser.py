@@ -35,6 +35,8 @@ import json
 import logging
 import struct
 import sys
+import traceback
+
 import ipaddress
 
 import cpppo
@@ -1156,15 +1158,15 @@ class identity_object( cpppo.dfa ):
 
     """
     def __init__( self, name=None, **kwds ):
-        name 			= name or kwds.setdefault( 'context', self.__class__.__name__ )
+        name			= name or kwds.setdefault( 'context', self.__class__.__name__ )
         
         vers			= UINT(	context='version' )
         vers[True]	= sfam	= INT_network(
-					context='sin_family' )
+                                        context='sin_family' )
         sfam[True]	= sprt	= UINT_network(
-					context='sin_port' )
+                                        context='sin_port' )
         sprt[True]	= sadd	= IPADDR(
-					context='sin_addr' )
+                                        context='sin_addr' )
         sadd[True]	= szro	= octets_drop( context='sin_zero', repeat=8 )
         szro[True]	= vndr	= UINT(	context='vendor_id' )
         vndr[True]	= dvtp	= UINT(	context='device_type' )
@@ -1172,12 +1174,22 @@ class identity_object( cpppo.dfa ):
         prod[True]	= revi	= UINT( context='product_revision' )
         revi[True]	= stts	= WORD(	context='status_word' )		# Should be WORD
         stts[True]	= srnm	= UDINT( context='serial_number' )
-        srnm[True]	= prnm	= SSTRING( context='product_name',	# May end here, b/c
-                                           terminal=True )		# of CPF framing errors (eg. PowerFlex)!
-        prnm[True]	= stat	= USINT( context='state',		# May end here, too...
+        srnm[True]	= prnm	= SSTRING( context='product_name' )
+
+        # May end here, b/c of CPF framing errors (eg. PowerFlex)!  However, may continue on.
+        # Either way, we want to move the parsed SSTRING product_name.string up one level, so that
+        # product_name is a string.  So, prepare to parse whatever is after product_name...
+        more			= cpppo.state( 'done',
+                                               terminal=True )		# We're OK with ending here...
+        more[True]	= stat	= USINT( context='state',		# May end here, too...
                                          terminal=True )
         stat[True]	= xtra	= octets( context='xtra',		# ... any extra data are ignored
                                           terminal=True )
+
+        # so, handle moving .product_name.string up to product_name, then try for more
+        prnm[None]		= move_if( 'movsstring',source='.product_name.string',
+                                                   destination='.product_name',
+                                           state=more )
 
         super( identity_object, self ).__init__( name=name, initial=vers, **kwds )
 
@@ -1196,7 +1208,9 @@ class identity_object( cpppo.dfa ):
         result		       += WORD.produce( data.status_word )
         result		       += UDINT.produce( data.serial_number )
         result		       += SSTRING.produce( data.product_name )
-        result		       += USINT.produce( data.state )
+        result		       += USINT.produce( data.state		# EtherNet/IP CIP Vol 2, Table 2-4.4:
+                                                 if 'state' in data	# If not implemented,
+                                                 else 0xFF )		# the value shall be 0xFF
         return result
 
 
@@ -1571,9 +1585,9 @@ class typed_data( cpppo.dfa ):
         sstd			= octets_noop(	'endsstring',
                                                 terminal=True )
         sstd[True]	= sstp	= SSTRING()
-        sstp[None]		= move_if( 	'movsstring',	source='.SSTRING.string',
+        sstp[None]		= move_if( 	'movstring',	source='.SSTRING.string',
                                                 destination='.SSTRING' )
-        sstp[None]		= move_if( 	'movsSSTRING',	source='.SSTRING', 
+        sstp[None]		= move_if( 	'movsstring',	source='.SSTRING', 
                                            destination='.data',	initializer=lambda **kwds: [],
                                                 state=sstd )
 

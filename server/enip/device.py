@@ -1248,7 +1248,7 @@ class UCMM( Object ):
         ido.version		= 1
 
         for nam,val,get in [
-                ( 'sin_addr',		( TCPIP.class_id, 1, 5 ),	lambda d: d.ip_address ),
+                ( 'sin_addr',		( TCPIP.class_id, 1, 5 ),	lambda d: d.IFACEADDRS.ip_address ),
                 ( 'sin_family',		2,				None ),
                 ( 'sin_port',		44818, 				None),
                 ( 'vendor_id',		( Identity.class_id, 1, 1 ),	lambda d: d.INT ),
@@ -1273,6 +1273,7 @@ class UCMM( Object ):
                         finally:
                             eng.close()
                             del eng
+                        log.info( "Parsed using %r; %r from %r", mch, dat, raw )
                         val	= get( dat )
                 else:
                     val		= 0

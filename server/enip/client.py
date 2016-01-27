@@ -282,7 +282,7 @@ def parse_operations( tags, fragment=False, **kwds ):
                 val_list,	= csv.reader(
                     [ val ], quotechar='"', delimiter=',', quoting=csv.QUOTE_ALL, skipinitialspace=True )
             except Exception as exc:
-                log.warning( "Invalid sequence of CSV values: %s; %s", val, exc )
+                log.normal( "Invalid sequence of CSV values: %s; %s", val, exc )
                 raise
             opr['data']		= list( map( cast, val_list ))
 
@@ -368,7 +368,7 @@ class client( object ):
                 if not broadcast:
                     self.conn.connect( self.addr )
             except Exception as exc:
-                log.warning( "Couldn't %s to EtherNet/IP UDP server at %s:%s: %s",
+                log.normal( "Couldn't %s to EtherNet/IP UDP server at %s:%s: %s",
                             "broadcast" if broadcast else "connect", self.addr[0], self.addr[1], exc )
                 raise
             if broadcast:
@@ -381,7 +381,7 @@ class client( object ):
             try:
                 self.conn		= socket.create_connection( self.addr, timeout=timeout )
             except Exception as exc:
-                log.warning( "Couldn't connect to EtherNet/IP TCP server at %s:%s: %s",
+                log.normal( "Couldn't connect to EtherNet/IP TCP server at %s:%s: %s",
                             self.addr[0], self.addr[1], exc )
                 raise
             try:
@@ -504,7 +504,7 @@ class client( object ):
                     return None
             # Engine has terminated w/ a recognized EtherNet/IP frame.
         except Exception as exc:
-            log.warning( "EtherNet/IP<x>%16s:%-5d err.: %s",
+            log.normal( "EtherNet/IP<x>%16s:%-5d err.: %s",
                          self.addr[0], self.addr[1], str( exc ))
             self.engine		= None
             raise
@@ -1164,7 +1164,7 @@ class connector( client ):
         requests		= 0
         complete		= 0
 
-        last			= index - 1
+        curr = last		= index - 1	# initial condition handles empty operations list
         while issuer or inflight:
             if issuer:
                 try:
@@ -1264,11 +1264,11 @@ class connector( client ):
 
             except AttributeError as exc:
                 res		= "Client %s Response missing data: %s" % ( descr, exc )
-                log.warning( "%s: %s", res, ''.join( traceback.format_exception( *sys.exc_info() )))
+                log.normal( "%s: %s", res, ''.join( traceback.format_exception( *sys.exc_info() )))
                 raise
             except Exception as exc:
                 res		= "Client %s Exception: %s" % ( descr, exc )
-                log.warning( "%s: %s", res, ''.join( traceback.format_exception( *sys.exc_info() )))
+                log.normal( "%s: %s", res, ''.join( traceback.format_exception( *sys.exc_info() )))
                 raise
 
             if elm is None:

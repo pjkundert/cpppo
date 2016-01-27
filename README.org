@@ -276,6 +276,10 @@
      By providing a specialized implementation of device.Attribute's =__getitem__=
      (which is invoked each time an Attribute is accessed), we arrange to query
      the city's weather at the given URL, and return the current temperature.
+     The data must be converted to a Python type compatible with the eventual
+     CIP type (ie. a float, if the CIP type is REAL).  Finally, it must be
+     returned as a sequence if the =__getitem__= was asked for a Python =slice=;
+     otherwise, a single indexed element is returned.
 
      Of course, =__setitem__= (which would be invoked whenever someone wishes to
      change the city's temperature) would have a much more complex
@@ -733,6 +737,162 @@
              20, 49, 55, 53, 54, 45, 76, 54, 49, 47, 66, 32, 76, 79, 71, 73, 88, 53, 53, 54, 49])
      '\x141756-L61/B LOGIX5561'
      #+END_EXAMPLE
+
+*** EtherNet/IP =cpppo.server.enip.getattr= API
+
+    Many devices such as Rockwell MicroLogix, Allen-Bradley PowerFlex that
+    advertise EtherNet/IP CIP protocol offer only very basic connectivity.
+
+    - No CIP "routing" capability, hence no Unconnected Send encapsulation,
+      including route path or send path addressing.
+    - No "Logix" style Read/Write Tag [Fragmented]; only Get/Set Attribute.
+    - Only raw 8-bit CIP SINT data; CIP data type transformations done by client
+
+    Therefore, a set of APIs are provided to "proxy" these devices, providing
+    higher level data types and maintenance of EtherNet/IP CIP connectivity.  In
+    order to retain high thruput, the API maintains the ability to "pipeline"
+    requests over high-latency links.
+
+**** =cpppo.server.enip= =getattr.proxy[_simple]= classes
+
+    Access an EtherNet/IP CIP device using either generic Get Attributes
+    All/Single, or *Logix Read Tag [Fragmented] services, as desired.  Data is
+    delivered converted to target format.
+
+    To create a "proxy" for a simple (non-routing) remote EtherNet/IP CIP sensor
+    device, such as an A-B PowerFlex, with a CIP =REAL= attribute at Class
+    0x93, Instance 1, Attribute 10:
+    #+BEGIN_EXAMPLE python
+    from cpppo.server.enip.getattr import proxy_simple
+
+    class some_sensor( proxy_simple ):
+        '''A simple (non-routing) CIP device with one parameter with a
+           shortcut name: 'A Sensor Parameter' '''
+        PARAMETERS		= dict( proxy_simple.PARAMETERS,
+            a_sensor_parameter	= powerflex.parameter( '@0x93/1/10', 'REAL', 'Hz' ),
+        )
+    #+END_EXAMPLE
+
+    Then, in your Python code, to access the parameter from the remote device:
+    #+BEGIN_EXAMPLE python
+    via				= some_sensor( host="10.0.1.2" )
+    try:
+        value,			= via.read( "A Sensor Parameter" )
+    except Exception as exc:
+        logging.warning( "Access to remote CIP device failed: %s", exc )
+        via.close_gateway( exc=exc )
+    #+END_EXAMPLE
+
+    There are several important things to note here:
+
+    1. You can =.read= 1 or more values.  Here, we supply a single Python =str=,
+       so the =proxy= deduces that you want one named parameter value.
+    2. The =.read= returns a sequence of all the requested values, so we use
+       Python =tuple= assignment to unpack a sequence containing a single value:
+       : variable, = [value]
+    3. Upon the first error accessing and/or transforming a value from the
+       remote device, the Python generator will raise an exception.  Whereever
+       in your code that you "reify" the generator's values (access them and
+       assign them to local variables), you must trap any Exception and notify
+       the =getattr.proxy= by invoking =.close_gateway=.  This prepares the
+       =getattr.proxy= to re-open the connection for a future attempt to access
+       the device.
+
+*** EtherNet/IP =cpppo.server.enip.poll= API
+
+    If regular updates of values from an EtherNet/IP CIP device are required,
+    then the =cpppo.server.enip.poll= API may be useful.
+
+    #+BEGIN_EXAMPLE python
+    # 
+    # Poll a PowerFlex 750 series at IP (or DNS name) "<hostname>" (default: localhost)
+    # 
+    #     poll_example.py <hostname>
+    #
+    import logging
+    import sys
+    import time
+    import threading
+    
+    import cpppo
+    #cpppo.log_cfg['level'] = logging.DETAIL
+    logging.basicConfig( **cpppo.log_cfg )
+    
+    from cpppo.history import timestamp # requires 'pip install pytz'
+    from cpppo.server.enip import poll
+    from cpppo.server.enip.ab import powerflex_750_series
+    
+    address		= (sys.argv[1] if len( sys.argv ) > 1 else 'localhost', 44818)
+    params		= [ "Motor Velocity", "Output Current" ]
+    timeout		= .5
+    values		= {} # { <parameter>: (<timer>, <value>), ... }
+    failed		= [] # [ (<timer>, <exc>), ... ]
+    
+    def failure( exc ):
+        failed.append( (cpppo.timer(),str(exc)) )
+    
+    def process( p, v ):
+        values[p]	= (cpppo.timer(),v)
+    process.done	= False
+    
+    poller		= threading.Thread(
+        target=poll.poll, args=(powerflex_750_series,), kwargs={ 
+            'address': 	address,
+            'cycle':	1.0,
+            'timeout':	0.5,
+            'process':	process,
+            'failure':	failure,
+            'params':	params,
+        })
+    poller.deamon	= True
+    poller.start()
+    
+    # Monitor the values and failed dicts (updated in another Thread)
+    try:
+        while True:
+            while values:
+                for par,(tmr,val) in [ values.popitem() ]:
+                    print( "%s: %16s == %r" % ( timestamp( tmr ), par, val ))
+            while failed:
+                for tmr,exc in [ failed.pop( 0 ) ]:
+                    print( "%s: %s" %( timestamp( tmr ), exc ))
+            time.sleep( .1 )
+    finally:
+        process.done	= True
+        poller.join()
+    #+END_EXAMPLE
+
+    If you start a (simulated) A-B PowerFlex (be prepared to stop and restart
+    it, to observe how the =cpppo.server.enip.poll= API handles polling failures):
+    #+BEGIN_EXAMPLE
+    $ cpppo -m cpppo.server.enip.poll_test.py
+    #+END_EXAMPLE
+
+    and then start the (above) =poll_example.py=:
+    #+BEGIN_EXAMPLE
+    $ cpppo -m cpppo.server.enip.poll_example.py
+    #+END_EXAMPLE
+    
+    you'll see something like this (make sure you stop/pause and then restart
+    the =poll_test.py= A-B PowerFlex simulator during the test):
+    #+BEGIN_EXAMPLE
+    2016-01-27 21:34:10.371:   Motor Velocity == [789.010009765625]
+    2016-01-27 21:34:11.371:   Output Current == [123.44999694824219]
+    2016-01-27 21:34:11.371:   Motor Velocity == [789.010009765625]
+    2016-01-27 21:34:12.372:   Output Current == [123.44999694824219]
+    2016-01-27 21:34:12.372:   Motor Velocity == [789.010009765625]
+    01-27 14:34:13.347   Thread-1 enip.get WARNING  close_gate Closed EtherNet/IP \
+        CIP gateway localhost:44818[1080594695] due to: [Errno 32] Broken pipe
+    2016-01-27 21:34:13.348: [Errno 32] Broken pipe
+    2016-01-27 21:34:14.352: [Errno 61] Connection refused
+    2016-01-27 21:34:15.859: [Errno 61] Connection refused
+    2016-01-27 21:34:18.117: [Errno 61] Connection refused
+    2016-01-27 21:34:21.499: [Errno 61] Connection refused
+    2016-01-27 21:34:26.636:   Output Current == [123.44999694824219]
+    2016-01-27 21:34:26.636:   Motor Velocity == [789.010009765625]
+    2016-01-27 21:34:27.376:   Output Current == [123.44999694824219]
+    2016-01-27 21:34:27.376:   Motor Velocity == [789.010009765625]
+    #+END_EXAMPLE
 
 *** Web Interface
 

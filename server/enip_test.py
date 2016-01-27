@@ -959,10 +959,10 @@ def test_enip_listidentity():
             log.info( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r", m.name_centered(),
                       i, s, source.sent, source.peek(), data )
         assert machine.terminal, "%s: Should have reached terminal state" % machine.name_centered()
-        assert i == 82
+        assert i == 83
     assert source.peek() is None
     assert 'identity_object' in data
-    assert data.identity_object.product_name.string == "PowerFlex 753                   "
+    assert data.identity_object.product_name == "PowerFlex 753                   "
 
     # Lets make sure we can handle requests with bad CPF item framing, such as from PowerFlex...
     data			= cpppo.dotdict()
@@ -972,10 +972,10 @@ def test_enip_listidentity():
             log.info( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r", m.name_centered(),
                       i, s, source.sent, source.peek(), data )
         assert machine.terminal, "%s: Should have reached terminal state" % machine.name_centered()
-        assert i == 82
+        assert i == 83
     assert source.peek() is None
     assert 'identity_object' in data
-    assert data.identity_object.product_name.string == "PowerFlex 753                   "
+    assert data.identity_object.product_name == "PowerFlex 753                   "
 
     data			= cpppo.dotdict()
     source			= cpppo.chainable( listident_2_rpy[30:] )
@@ -984,10 +984,10 @@ def test_enip_listidentity():
             log.info( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r", m.name_centered(),
                       i, s, source.sent, source.peek(), data )
         assert machine.terminal, "%s: Should have reached terminal state" % machine.name_centered()
-        assert i == 79
+        assert i == 80
     assert source.peek() is None
     assert 'identity_object' in data
-    assert data.identity_object.product_name.string == "1769-L24ER-QB1B/A LOGIX5324ER"
+    assert data.identity_object.product_name == "1769-L24ER-QB1B/A LOGIX5324ER"
 
 
 # "17","0.423597000","192.168.222.128","10.220.104.180","CIP CM","124","Unconnected Send: Unknown Service (0x52)"
@@ -1408,8 +1408,7 @@ CIP_tests			= [
                     "enip.CIP.list_identity.CPF.item[0].identity_object.sin_family": 2, 
                     "enip.CIP.list_identity.CPF.item[0].identity_object.serial_number": 2152275221, 
                     "enip.CIP.list_identity.CPF.item[0].identity_object.product_code": 1168, 
-                    "enip.CIP.list_identity.CPF.item[0].identity_object.product_name.length": 32, 
-                    "enip.CIP.list_identity.CPF.item[0].identity_object.product_name.string": "PowerFlex 753                   ", 
+                    "enip.CIP.list_identity.CPF.item[0].identity_object.product_name": "PowerFlex 753                   ", 
                     "enip.CIP.list_identity.CPF.item[0].identity_object.product_revision": 267, 
                 }
             # 
@@ -1427,7 +1426,7 @@ CIP_tests			= [
             #         "enip.CIP.list_identity.CPF.item[0].type_id": 12, 
             #         "enip.CIP.list_identity.CPF.item[0].length": 39,  # wildly incorrect (truncates 26 bytes); 
             #         "enip.CIP.list_identity.CPF.item[0].identity_object.status_word": 1377, 
-            #         "enip.CIP.list_identity.CPF.item[0].identity_object.sin_addr": 178323717, 
+            #         "enip.CIP.list_identity.CPF.item[0].identity_object.sin_addr": "10.161.1.5", 
             #         "enip.CIP.list_identity.CPF.item[0].identity_object.vendor_id": 1, 
             #         "enip.CIP.list_identity.CPF.item[0].identity_object.sin_port": 44818, 
             #         "enip.CIP.list_identity.CPF.item[0].identity_object.version": 1, 
@@ -1435,8 +1434,7 @@ CIP_tests			= [
             #         "enip.CIP.list_identity.CPF.item[0].identity_object.sin_family": 2, 
             #         "enip.CIP.list_identity.CPF.item[0].identity_object.serial_number": 2152275221, 
             #         "enip.CIP.list_identity.CPF.item[0].identity_object.product_code": 1168, 
-            #         "enip.CIP.list_identity.CPF.item[0].identity_object.product_name.length": 32, 
-            #         "enip.CIP.list_identity.CPF.item[0].identity_object.product_name.string": "PowerF", 
+            #         "enip.CIP.list_identity.CPF.item[0].identity_object.product_name": "PowerF", 
             #         "enip.CIP.list_identity.CPF.item[0].identity_object.product_revision": 267, 
             #     }
             ), (
@@ -1460,8 +1458,7 @@ CIP_tests			= [
                     "enip.CIP.list_identity.CPF.item[0].identity_object.sin_family": 2, 
                     "enip.CIP.list_identity.CPF.item[0].identity_object.serial_number": 3223204702, 
                     "enip.CIP.list_identity.CPF.item[0].identity_object.product_code": 149, 
-                    "enip.CIP.list_identity.CPF.item[0].identity_object.product_name.length": 29, 
-                    "enip.CIP.list_identity.CPF.item[0].identity_object.product_name.string": "1769-L24ER-QB1B/A LOGIX5324ER", 
+                    "enip.CIP.list_identity.CPF.item[0].identity_object.product_name": "1769-L24ER-QB1B/A LOGIX5324ER", 
                     "enip.CIP.list_identity.CPF.item[0].identity_object.product_revision": 2843, 
                 }
             ), (

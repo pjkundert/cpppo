@@ -20,13 +20,13 @@ from __future__ import print_function
 from __future__ import division
 
 try:
-    from future_builtins import map, zip
+    from future_builtins import map, zip # Use Python 3 "lazy" zip, map
 except ImportError:
     pass
 
 __author__                      = "Perry Kundert"
 __email__                       = "perry@hardconsulting.com"
-__copyright__                   = "Copyright (c) 2013 Hard Consulting Corporation"
+__copyright__                   = "Copyright (c) 2016 Hard Consulting Corporation"
 __license__                     = "Dual License: GPLv3 (or later) and Commercial (see LICENSE)"
 
 __all__				= [
@@ -45,7 +45,7 @@ from ...automata import log_cfg
 from ...misc import timer
 from .main import address as enip_address
 
-# Default poll params list.
+# Default poll params list, used if None supplied to poll; change, if desired
 PARAMS				= [
     'Output Current',
     'Motor Velocity',
@@ -65,11 +65,12 @@ def execute( via, params=None, pass_thru=None ):
     reader			= via.read(
         via.parameter_substitution( params or PARAMS, pass_thru=pass_thru ))
     try:
-        for p,v in zip( params or PARAMS, reader ):
+        for p,v in zip( params or PARAMS, reader ): # "lazy" zip
             yield p,v
     finally:
         reader.close()
         del reader
+
 
 def loop( via, cycle=None, last_poll=None, **kwds ):
     """Monitor the desired cycle time (default: 1.0 seconds), perform a poll, and return the start of
@@ -101,7 +102,7 @@ def loop( via, cycle=None, last_poll=None, **kwds ):
         missed			= dt // cycle
         if last_poll:
             if missed > 1:
-                logging.warning( "Missed %3d polls, %7.3fs past %7.3fs poll cycle",
+                logging.normal( "Missed %3d polls, %7.3fs past %7.3fs poll cycle",
                                 missed, dt-cycle, cycle )
             last_poll	       += cycle * missed
         else:
@@ -132,7 +133,8 @@ def loop( via, cycle=None, last_poll=None, **kwds ):
     return last_poll,max( 0, last_poll+cycle-done_poll ),results
 
 
-def run( via, process, failure=None, backoff_min=None, backoff_multiplier=None, backoff_max=None, **kwds ):
+def run( via, process, failure=None, backoff_min=None, backoff_multiplier=None, backoff_max=None,
+         latency=None, **kwds ):
     """Perform polling loop 'til process.done (or forever), and process each poll result.
 
     On Exception, invoke the supplied poll failure method (if any), and apply exponential back-off
@@ -140,8 +142,11 @@ def run( via, process, failure=None, backoff_min=None, backoff_multiplier=None, 
     (or 1.0) seconds, and defaults to increase up to 10 times that, at a default rate of 1.5x the
     current backoff.
 
+    One or more instance of poll.run may be using the same 'via' EtherNet/IP CIP gateway instance;
+    it is assumed that Thread blocking behaviour is performed within the I/O processing code to
+    ensure that only one Thread is performing I/O.
+
     """
-    logging.normal( "Polling begins via: %s", via )
     if backoff_min is None:
         backoff_min		= kwds.get( 'cycle' )
         if backoff_min is None:
@@ -150,10 +155,19 @@ def run( via, process, failure=None, backoff_min=None, backoff_multiplier=None, 
         backoff_max		= backoff_min * 10
     if backoff_multiplier is None:
         backoff_multiplier	= 1.5
+    if latency is None:
+        latency			= .5
+
     backoff			= None
     lst,dly			= 0,0
+    beg				= timer()
     while not hasattr( process, 'done' ) or not process.done:
-        time.sleep( dly )
+        # Await expiry of 'dly', checking flags at least every 'latency' seconds
+        ela			= timer() - beg
+        if ela < dly:
+            time.sleep( min( latency, dly - ela ))
+            continue
+        # Perform a poll.loop and/or increase exponential back-off.
         try:
             lst,dly,res		= loop( via, last_poll=lst, **kwds )
             for p,v in res:
@@ -162,22 +176,25 @@ def run( via, process, failure=None, backoff_min=None, backoff_multiplier=None, 
         except Exception as exc:
             if backoff is None:
                 backoff		= backoff_min
-                logging.warning( "Polling failure: waiting %7.3fs; %s", backoff, exc )
+                logging.normal( "Polling failure: waiting %7.3fs; %s", backoff, exc )
             else:
                 backoff		= min( backoff * backoff_multiplier, backoff_max )
-                logging.normal(  "Polling backoff: waiting %7.3fs; %s", backoff, exc )
+                logging.detail(  "Polling backoff: waiting %7.3fs; %s", backoff, exc )
             dly			= backoff
             if failure is not None:
                 failure( exc )
-    logging.normal( "Polling ending via: %s", via )
-            
+        beg			= timer()
+
 
 def poll( gateway_class, address=None, depth=None, multiple=None, timeout=None,
           params=None, pass_thru=None, cycle=None, process=None, failure=None,
-          backoff_min=None, backoff_multiplier=None, backoff_max=None ):
-    """Connect to the Device (eg. PowerFlex) using the provide gateway_class (something derived from
-    enip.getattr.proxy, probably), at the specified address (the default enip.address, if None), and
-    run polls, process (printing, by default) the results.
+          backoff_min=None, backoff_multiplier=None, backoff_max=None, latency=None ):
+    """Connect to the Device (eg. CompactLogix, MicroLogix, PowerFlex) using the provide gateway_class
+    (something derived from enip.getattr.proxy, probably), at the specified address (the default
+    enip.address, if None), and run polls, process (printing, by default) the results.
+
+    Creates a new gateway_class instance; thus, each poll.poll method uses a separate EtherNet/IP
+    CIP connection.
 
     """
     if address is None:
@@ -187,7 +204,7 @@ def poll( gateway_class, address=None, depth=None, multiple=None, timeout=None,
     via				= gateway_class(
         host=address[0], port=address[1], depth=depth, multiple=multiple, timeout=timeout )
     run( via=via, process=process, failure=failure, backoff_min=backoff_min,
-         backoff_multiplier=backoff_multiplier, backoff_max=backoff_max,
+         backoff_multiplier=backoff_multiplier, backoff_max=backoff_max, latency=latency,
          cycle=cycle, params=params, pass_thru=pass_thru )
 
 
