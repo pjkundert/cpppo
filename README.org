@@ -321,42 +321,43 @@
     : -u|--udp
     : -b|--broadcast
 
-    Send List Identity/Services requests:
+    Send List Identity/Services/Interfaces requests:
     : -i|--list-identity
     : -s|--list-services
+    : -I|--list-interfaces
 
     For example, to find the Identity of all of the EtherNet/IP CIP devices on a
     local LAN (that respond to broadcast List Identity via UDP/IP):
     #+BEGIN_EXAMPLE
-    $ python -m cpppo.server.enip.client --udp --broadcast  --list-identity -v -a
-        255.255.255.255
-    List Identity  0 from ('10.0.0.4', 44818): {
-        "sin_addr": "10.0.0.4",
-        "status_word": 12640,
-        "vendor_id": 1,
-        "product_name": "1756-L61/B LOGIX5561",
-        "sin_port": 44818,
-        "state": 255,
-        "version": 1,
-        "device_type": 14,
-        "sin_family": 2,
-        "serial_number": 7079450,
-        "product_code": 54,
-        "product_revision": 2836
+    $ python -m cpppo.server.enip.client --udp --broadcast \
+        --list-services --list-identity --list-interfaces -a 255.255.255.255
+    List Services  0 from ('192.168.0.201', 44818): {
+        "count": 1, 
+        "item[0].communications_service.capability": 32, 
+        "item[0].communications_service.service_name": "Communications", 
+        "item[0].communications_service.version": 1, 
+        "item[0].length": 19, 
+        "item[0].type_id": 256
     }
-    List Identity  1 from ('192.168.0.201', 44818): {
-        "sin_addr": "192.168.0.201",
-        "status_word": 12640,
-        "vendor_id": 1,
-        "product_name": "1756-L61/C LOGIX5561",
-        "sin_port": 44818,
-        "state": 255,
-        "version": 1,
-        "device_type": 14,
-        "sin_family": 2,
-        "serial_number": 7079450,
-        "product_code": 54,
-        "product_revision": 2836
+    List Identity  0 from ('192.168.0.201', 44818): {
+        "count": 1, 
+        "item[0].length": 54, 
+        "item[0].identity_object.sin_addr": "192.168.0.201", 
+        "item[0].identity_object.status_word": 12640, 
+        "item[0].identity_object.vendor_id": 1, 
+        "item[0].identity_object.product_name": "1756-L61/C LOGIX5561", 
+        "item[0].identity_object.sin_port": 44818, 
+        "item[0].identity_object.state": 255, 
+        "item[0].identity_object.version": 1, 
+        "item[0].identity_object.device_type": 14, 
+        "item[0].identity_object.sin_family": 2, 
+        "item[0].identity_object.serial_number": 7079450, 
+        "item[0].identity_object.product_code": 54, 
+        "item[0].identity_object.product_revision": 2836, 
+        "item[0].type_id": 12
+    }
+    List Interfaces  0 from ('192.168.0.201', 44818): {
+        "count": 0
     }
     #+END_EXAMPLE
 
@@ -578,10 +579,11 @@
 
      UDP/IP connections do not issue CIP Register requests (as they are only
      supported via TCP/IP).  Generally, these are only useful for issuing List
-     Identity or List Services requests.  If broadcast (and a "broadcast" IP
-     address such as 255.255.255.255 is used), then multiple responses should be
-     expected; the default =cpppo.server.enip.client= module entrypoint will
-     wait for the full duration of the specified =timeout= for responses.
+     Identity, List Services or List Interfaces requests.  If broadcast (and a
+     "broadcast" IP address such as 255.255.255.255 is used), then multiple
+     responses should be expected; the default =cpppo.server.enip.client= module
+     entrypoint will wait for the full duration of the specified =timeout= for
+     responses.
 
 **** =client.parse_operations=
 
@@ -828,12 +830,12 @@
      '\x141756-L61/B LOGIX5561'
      #+END_EXAMPLE
 
-**** =client.connector.list_identity= and =.list_services=
+**** =client.connector.list_identity=, =.list_services= and =.list_interfaces=
 
-     These methods issue List Identity and List Services requests, valid on
-     either UDP/IP or TCP/IP connections (or via UDP/IP broadcast).  The
-     response(s) may be harvested by awaiting for incoming activity on the
-     socket:
+     These methods issue List Identity, List Services and List Interfaces
+     requests, valid on either UDP/IP or TCP/IP connections (or via UDP/IP
+     broadcast).  The response(s) may be harvested by awaiting for incoming
+     activity on the socket:
      #+BEGIN_EXAMPLE python
      from __future__ import print_function
 
@@ -874,8 +876,8 @@
        -u, --udp             Use UDP/IP queries (default: False)
        -b, --broadcast       Allow multiple peers, and use of broadcast address
                              (default: False)
-       --identity            List Identity (default: False)
-       --interfaces          List Interfaces (default: False)
+       -i, --list-identity   List Identity (default: False)
+       -I, --list-interfaces List Interfaces (default: False)
        -t TIMEOUT, --timeout TIMEOUT
                              EtherNet/IP timeout (default: 5s)
      #+END_EXAMPLE
@@ -883,11 +885,12 @@
      It always requests List Services, and (optionally) List Identity, List
      Interfaces.  By default, it sends the requests unicast via TCP/IP, but can
      optionally send the requests via unicast or broadcast UDP/IP.  The full
-     content of each EtherNet/IP CIP response is printed, in JSON format.
+     content of each EtherNet/IP CIP response is printed.
 
      To obtain responses from all EtherNet/IP CIP devices on the local LAN:
      #+BEGIN_EXAMPLE
-     $ python -m cpppo.server.enip.list_services --identity --udp --broadcast -a 255.255.255.255
+     $ python -m cpppo.server.enip.list_services --udp --broadcast \
+           --list-identity -a 255.255.255.255
      {
          "peer": [
              "10.0.0.4",

@@ -611,6 +611,11 @@ class client( object ):
         cip.register.protocol_version = 1
         return self.cip_send( cip=cip, sender_context=sender_context, timeout=timeout )
 
+    def list_interfaces( self, timeout=None, sender_context=b'' ):
+        cip			= cpppo.dotdict()
+        cip.list_interfaces	= {}
+        return self.cip_send( cip=cip, sender_context=sender_context, timeout=timeout )
+
     def list_services( self, timeout=None, sender_context=b'' ):
         cip			= cpppo.dotdict()
         cip.list_services	= {}
@@ -1456,6 +1461,9 @@ which is required to carry this Send/Route Path data. """ )
     ap.add_argument( '-i', '--list-identity', action='store_true',
                      default=False,
                      help="Perform a CIP List Identity request upon connection (default: False)" )
+    ap.add_argument( '-I', '--list-interfaces', action='store_true',
+                     default=False,
+                     help="Perform a CIP List Interfaces request upon connection (default: False)" )
     ap.add_argument( '-P', '--profile', action='store_true',
                      default=False, 
                      help="Activate profiling (default: False)" )
@@ -1520,13 +1528,14 @@ which is required to carry this Send/Route Path data. """ )
         log.detail( "Client Register Rcvd %7.3f/%7.3fs" % ( elapsed, timeout ))
 
         # Issue List {Identity,Service} requests, if desired.  If broadcast, await (multiple)
-        # responses for the entire timeout.
-        for desc,meth,path in [
-                ("List Services", 'list_services', "enip.CIP.list_services.CPF.item[0].communications_service" ),
-                ("List Identity", 'list_identity', "enip.CIP.list_identity.CPF.item[0].identity_object" ),
-        ]:
+        # responses for the entire timeout.  Prints the CPF encapsulation payload of each response
+        # (if available; the entire parsed EtherNet/IP reply if not recognized).
+        for desc in [ "List Services", "List Identity", "List Interfaces" ]:
+            meth		= desc.lower().replace( ' ', '_' ) # List Interfaces --> list_interfaces
+            path		= '.'.join( [ 'enip', 'CIP', meth, 'CPF' ] )
             if not getattr( args, meth, None):
-                continue
+                continue # not selected (or no arg option yet)
+
             begun		= cpppo.timer()
             getattr( connection, meth )( timeout=timeout )
             elapsed		= None
@@ -1537,7 +1546,7 @@ which is required to carry this Send/Route Path data. """ )
                 log.detail( "%s reply: %r", desc, reply )
                 if reply:
                     print( "%s %2d from %r: %s" % (
-                        desc, counter, reply.peer, enip.enip_format( reply[path] )))
+                        desc, counter, reply.peer, enip.enip_format( reply.get( path, reply ))))
                     counter    += 1
                 elapsed		= cpppo.timer() - begun
             if not counter:

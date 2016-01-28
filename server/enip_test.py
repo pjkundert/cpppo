@@ -990,6 +990,52 @@ def test_enip_listidentity():
     assert data.identity_object.product_name == "1769-L24ER-QB1B/A LOGIX5324ER"
 
 
+# Basic empty List Interfaces request and response...
+listifaces_1_req		= escaped_chunks_to_bytes(
+        br'''\x64\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00'''
+)
+listifaces_1_rpy		= escaped_chunks_to_bytes(
+        br'''\x64\x00\x02\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00'''
+        br'''\x00\x00'''
+)
+
+def test_enip_listinterfaces():
+    # logging.getLogger().setLevel( logging.DETAIL )
+    # Minimal ListInterfaces request is empty
+    data			= cpppo.dotdict()
+    source			= cpppo.chainable( listifaces_1_req )
+    with enip.enip_machine( context='enip' ) as machine:
+        for i,(m,s) in enumerate( machine.run( source=source, data=data )):
+            log.detail( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r",
+                          machine.name_centered(), i, s, source.sent, source.peek(), data )
+    assert source.peek() is None
+    assert data.enip.command == 0x0064
+    assert data.enip.length  == 0
+
+    # ListIdentity reply
+    data			= cpppo.dotdict()
+    source			= cpppo.chainable( listifaces_1_rpy )
+    with enip.enip_machine( context='enip' ) as machine:
+        for i,(m,s) in enumerate( machine.run( source=source, data=data )):
+            log.detail( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r",
+                          machine.name_centered(), i, s, source.sent, source.peek(), data )
+    assert source.peek() is None
+    assert data.enip.command == 0x0064
+    assert data.enip.length  == 2
+
+    # The CPF payload hasn't been parsed...
+    data			= cpppo.dotdict()
+    source			= cpppo.chainable( listifaces_1_rpy[24:] )
+    with parser.list_identity( terminal=True ) as machine:
+        for i,(m,s) in enumerate( machine.run( source=source, data=data )):
+            log.info( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r", m.name_centered(),
+                      i, s, source.sent, source.peek(), data )
+        assert machine.terminal, "%s: Should have reached terminal state" % machine.name_centered()
+        assert i == 7
+    assert source.peek() is None
+    assert data.list_identity.CPF.count == 0
+
+
 # "17","0.423597000","192.168.222.128","10.220.104.180","CIP CM","124","Unconnected Send: Unknown Service (0x52)"
 readfrag_1_req 			= bytes(bytearray([
     0x52, 0x04, 0x91, 0x05, 0x53, 0x43, 0x41, 0x44, #/* R...SCAD */
@@ -1157,6 +1203,12 @@ CPF_tests			= [
             "CPF": {},
         }
     ), (
+        b'\x00\x00',
+        # ^^^^^^^^ count == 0.  No item list is generated/required
+        {
+            "CPF.count": 0,
+        }
+    ), (
         b'\x01\x00\x00\x01\x08\x00\x03\x00\x04\x00abc\0',
         # ^^^^^^^^ count == 1
         #         ^^^^^^^^ type_id == 0x0100
@@ -1271,6 +1323,7 @@ CPF_tests			= [
 ]
 
 def test_enip_CPF():
+    # logging.getLogger().setLevel( logging.NORMAL )
     for pkt,tst in CPF_tests:
         data			= cpppo.dotdict()
         source			= cpppo.chainable( pkt )

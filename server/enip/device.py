@@ -1213,16 +1213,29 @@ class UCMM( Object ):
             log.info( "%s Response: %s", self, enip_format( data ))
         return proceed
 
+    def list_interfaces( self, data ):
+        """List Interfaces returns zero encapsulated CPF items."""
+        cpf			= data.enip.CIP.list_interfaces.CPF
+        cpf.count		= 0 # sufficient to produce a CPF encapsulation with zero entries
+
+        data.enip.input		= bytearray( self.parser.produce( data.enip ))
+
+        return True
+
     LISTSVCS_CIP_ENCAP		= 1 << 5
-    LISTSVCS_CIP_UDP		= 1 << 8
+    LISTSVCS_CIP_UDP		= 1 << 8 # Transport Class 0 or 1 packets (no encapsulation header)
     def list_services( self, data ):
+        """List Services returns a communications_service CPF item.  We support CIP encapsulation, but do
+        not support unencapsulated UDP data.
+
+        """
         cpf			= data.enip.CIP.list_services.CPF
         cpf.item		= [ dotdict() ]
         cpf.item[0].type_id	= 0x0100
         cpf.item[0].communications_service \
 			= c_s	= dotdict()
         c_s.version		= 1
-        c_s.capability		= self.LISTSVCS_CIP_ENCAP | self.LISTSVCS_CIP_UDP
+        c_s.capability		= self.LISTSVCS_CIP_ENCAP
         c_s.service_name	= 'Communications'
 
         data.enip.input		= bytearray( self.parser.produce( data.enip ))

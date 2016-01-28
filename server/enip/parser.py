@@ -1225,7 +1225,7 @@ class CPF( cpppo.dfa ):
         .CPF.item[0].<parser>...
 
     Parse the count, and then each CPF item into cpf.item_temp, and (after parsing) moves it to
-    cpf.item[x].
+    cpf.item[x].  If count is 0, then no items are parsed, and an empty item == [] list is returned.
     
 
     A dictionary of parsers for various CPF types must be provided.  Any CPF item with a length > 0
@@ -1291,10 +1291,14 @@ class CPF( cpppo.dfa ):
                                            destination='.item', initializer=lambda **kwds: [] )
         item[None]		= cpppo.state( 	'done', terminal=True )
 
-        # Parse count, and then exactly .count CPF items (or just an empty dict, if nothing)
+        # Parse count, and then exactly .count CPF items (or just an empty dict, if nothing).  If
+        # .count is 0, we're done (we don't even initialize .items to []).
         emty			= octets_noop(	'empty',	terminal=True )
         emty.initial[None]	= move_if( 	'mark',		initializer={} )
         emty[True]	= loop	= UINT( 			context='count' )
+        loop[None]		= cpppo.decide(	'empty',
+                        state=cpppo.state( 'done', terminal=True ),
+                        predicate=lambda path=None, data=None, **kwds: data[path+'.count'] == 0 )
         loop[None]		= cpppo.dfa( 	'all', 	
                                                 initial=item,	repeat='.count',
                                                 terminal=True )
@@ -1303,12 +1307,19 @@ class CPF( cpppo.dfa ):
 
     @classmethod
     def produce( cls, data ):
-        """Regenerate a CPF message structure.   """
+        """Regenerate a CPF message structure.  An empty CPF indicates no CPF at all.  If there's a .item
+        list; any provided .count is ignored.  Otherwise, it must contain a .count == 0, indicating
+        a CPF container with no entries.
+
+        """
         result			= b''
         if not data:
             return result # An empty CPF -- indicates no CPF segment present at all
-        result		       += UINT.produce( len( data.item ))
-        for item in data.item:
+        assert 'item' in data or ( 'count' in data and data.count == 0 ), \
+            "Invalid CPF structure: no .item list, or .count != 0: %r" % ( data )
+        segments		= data.item if 'item' in data else []
+        result		       += UINT.produce( len( segments ))
+        for item in segments:
             result	       += UINT.produce( item.type_id )
             if item.type_id in cls.ITEM_PARSERS:
                 itmprs		= cls.ITEM_PARSERS[item.type_id] # eg 'unconnected_send', 'communications_service'
@@ -1396,6 +1407,9 @@ class CPF_service( cpppo.dfa ):
         return result
 
 
+class list_interfaces( CPF_service ):
+    pass
+
 class list_identity( CPF_service ):
     pass
 
@@ -1449,8 +1463,11 @@ class CIP( cpppo.dfa ):
 
     """
     COMMAND_PARSERS		= {
+	# Usually only seen via UDP/IP, but valid for TCP/IP
         (0x0004,):		list_services,
-        (0x0063,):		list_identity,	# Usually only seen via UDP
+        (0x0063,):		list_identity,
+        (0x0064,):		list_interfaces,
+	# Valid for TCP/IP only
         (0x0065,):		register,
         (0x0066,):		unregister,
         (0x006f,0x0070):	send_data,	# 0x006f (SendRRData) is default if CIP.send_data seen

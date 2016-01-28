@@ -24,7 +24,7 @@ from cpppo.server.enip import client
 
 if __name__ == "__main__":
     ap				= argparse.ArgumentParser(
-        description = "List Services (by default) on an EtherNet/IP CIP Server.",
+        description = "List Services (by default) on EtherNet/IP CIP device(s).",
         epilog = "" )
     ap.add_argument( '-v', '--verbose', action="count",
                      default=0, 
@@ -39,10 +39,10 @@ if __name__ == "__main__":
     ap.add_argument( '-b', '--broadcast', action='store_true',
                      default=False, 
                      help="Allow multiple peers, and use of broadcast address (default: False)" )
-    ap.add_argument( '--identity', action='store_true',
+    ap.add_argument( '-i', '--list-identity', action='store_true',
                      default=False, 
                      help="List Identity (default: False)" )
-    ap.add_argument( '--interfaces', action='store_true',
+    ap.add_argument( '-I', '--list-interfaces', action='store_true',
                      default=False, 
                      help="List Interfaces (default: False)" )
     ap.add_argument( '-t', '--timeout',
@@ -76,9 +76,9 @@ if __name__ == "__main__":
         with client.connector( host=addr[0], port=addr[1], timeout=timeout,
                                udp=args.udp, broadcast=args.broadcast ) as connection:
             connection.list_services()
-            if args.identity:
+            if args.list_identity:
                 connection.list_identity()
-            if args.interfaces:
+            if args.list_interfaces:
                 connection.list_interfaces()
             while connection.readable( timeout=timeout ):
                 response	= next( connection )
