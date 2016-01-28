@@ -916,7 +916,7 @@ def test_enip_listidentity():
     data.version		= 0x0001
     data.sin_family		= 0x0002				# (network byte order)
     data.sin_port		= 44818					# (network byte order)
-    data.sin_addr		= (10<<24) + (161<<16) + (1<<8) + 5	# (network byte order) 10.161.1.5
+    data.sin_addr		= "10.161.1.5"				# (network byte order) 10.161.1.5
     data.vendor_id		= 0x0001 # AB
     data.device_type		= 0x007B
     data.product_code		= 0x0490
@@ -1071,11 +1071,8 @@ tag_tests			= [
 ]
 
 def test_enip_Logix():
-    Obj				= enip.device.lookup( enip.device.Message_Router.class_id, instance_id=1 )
-    if not isinstance( Obj, logix.Logix ):
-        if Obj is not None:
-            del enip.device.directory['2']['1']
-        Obj			= logix.Logix( instance_id=1 )
+    enip.lookup_reset() # Flush out any existing CIP Objects for a fresh start
+    Obj				= logix.Logix( instance_id=1 )
 
     for pkt,tst in tag_tests:
         data			= cpppo.dotdict()
@@ -1919,11 +1916,12 @@ CIP_tests			= [
 def test_enip_CIP( repeat=10 ):
     """Most of CIP parsing run-time overhead is spent inside 'run'.
     """
+    enip.lookup_reset() # Flush out any existing CIP Objects for a fresh start
     #logging.getLogger().setLevel(logging.DETAIL)
     ENIP			= enip.enip_machine( context='enip' )
     CIP				= enip.CIP()
     # We'll use a Logix Message Router, to handle its expanded porfolio of commands
-    MR				= logix.Logix()
+    MR				= logix.Logix( instance_id=1 )
 
     for _ in range( repeat ):
       for pkt,tst in CIP_tests:
@@ -2058,11 +2056,9 @@ def test_enip_device_symbolic():
 
 
 def test_enip_device():
-    # Find a new Class ID.
-    class_found			= True
-    while class_found:
-        class_num		= random.randrange( 1, 256 )
-        class_found		= enip.device.lookup( class_id=class_num )
+    enip.lookup_reset() # Flush out any existing CIP Objects for a fresh start
+
+    class_num			= 0xF0
 
     class Test_Device( enip.device.Object ):
         class_id		= class_num
@@ -2125,7 +2121,9 @@ def test_enip_device():
 
 def test_enip_logix():
     """The logix module implements some features of a Logix Controller."""
-    Obj				= logix.Logix()
+    enip.lookup_reset() # Flush out any existing CIP Objects for a fresh start
+
+    Obj				= logix.Logix( instance_id=1 )
     Obj_a1 = Obj.attribute['1']	= enip.device.Attribute( 'Something', enip.parser.INT, default=[n for n in range( 100 )])
 
     assert len( Obj_a1 ) == 100
