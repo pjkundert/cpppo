@@ -990,6 +990,9 @@ def main( argv=None, attribute_class=device.Attribute, idle_service=None, identi
                      default=None,
                      help="Route Path, in JSON, eg. %r (default: None); 0/false to accept only empty route_path" % (
                          str( json.dumps( route_path_default ))))
+    ap.add_argument( '-S', '--simple', action='store_true',
+                     default=False,
+                     help="Simulate a simple (non-routing) EtherNet/IP CIP device (eg. MicroLogix)")
     ap.add_argument( '-P', '--profile',
                      default=None,
                      help="Output profiling data to a file (default: None)" )
@@ -1154,13 +1157,14 @@ def main( argv=None, attribute_class=device.Attribute, idle_service=None, identi
     options.setdefault( 'enip_process', logix.process )
     if identity_class:
         options.setdefault( 'identity_class', identity_class )
-    assert not UCMM_class or not args.route_path, \
-        "Specify either a route-path, or a custom UCMM_class; not both"
-    if args.route_path is not None:
+    assert not UCMM_class or not ( args.route_path or args.simple ), \
+        "Specify either -S/--simple/--route-path, or a custom UCMM_class; not both"
+    if args.route_path is not None or args.simple:
         # Must be JSON, eg. '[{"link"...}]', or '0'/'false' to explicitly specify no route_path
-        # accepted (must be empty in request)
+        # accepted (must be empty in request).  Can only get in here with a --route-path=0/false/[], or
+        # -S|--simple, which implies a --route-path=false (no routing Unconnected Send accepted).
         class UCMM_class_with_route( device.UCMM ):
-            route_path		= json.loads( args.route_path )
+            route_path		= json.loads( args.route_path ) if args.route_path else False
         UCMM_class		= UCMM_class_with_route
     if UCMM_class:
         options.setdefault( 'UCMM_class', UCMM_class )

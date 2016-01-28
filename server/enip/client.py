@@ -183,7 +183,7 @@ def format_path( segments, count=None ):
                 path	       += "[%d-%d]" % ( element, element + count - 1 )
             else:
                 path	       += "[%d]" % ( element )
-    logging.detail( "Formatted %32s from: %s", path, segments )
+    log.detail( "Formatted %32s from: %s", path, segments )
     return path
 
 
@@ -412,6 +412,16 @@ class client( object ):
         # profile data with arbitrary I/O related delays
         self.profiler		= profiler
 
+    @property
+    def udp( self ):
+        """Return True iff the socket is UDP/IP"""
+        return self.conn.family == socket.AF_INET and self.conn.type == socket.SOCK_DGRAM
+
+    @property
+    def tcp( self ):
+        """Return True iff the socket is TCP/IP"""
+        return self.conn.family == socket.AF_INET and self.conn.type == socket.SOCK_STREAM
+
     def __str__( self ):
         return "%s:%s[%r]" % ( self.addr[0], self.addr[1], self.session )
 
@@ -489,11 +499,11 @@ class client( object ):
 
         # Initiate or continue parsing input using the machine's engine; discard the engine at
         # termination or on error (Exception).  Any exception (including cpppo.NonTerminal) will be
-        # propagated.
+        # propagated.  Identifies the responding peer address, by returning it via 'result.peer'.
         result			= None
         try:
             if self.engine is None:
-                self.data	= cpppo.dotdict()
+                self.data	= cpppo.dotdict( peer=addr )
                 self.engine	= self.frame.run( source=self.source, data=self.data )
                 
             for mch,sta in self.engine:
@@ -834,12 +844,25 @@ class connector( client ):
 
     Raises an Exception if no valid connection can be established within the supplied timeout.
 
+    NOTE:
+
+    Generally doesn't make sense to "Register" using a UDP/IP connection to an EtherNet/IP CIP
+    device, as it is not considered a valid request, so we don't issue it (self.session remains
+    None).  We'll allow creation of a connector, as the client code may simply be using it to
+    perform otherwise valid requests (eg. List Identity, ...).  However, we do not check for
+    validity of requests issued over the connection.
+
     """
     def __init__( self, host, port=None, timeout=None, **kwds ): # possibly supply dialect, ...
-        """Establish a TCP/IP connection and perform a successful CIP Register within 'timeout'."""
+        """Establish a TCP/IP connection and perform a successful CIP Register within 'timeout'.  Allow the
+        full timeout for the TCP/IP connection to succeed.  CIP Register is not valid for UDP/IP
+        type connections.
+
+        """
         begun			= cpppo.timer()
-        # Allow the full timeout for the TCP/IP connection to succeed
         super( connector, self ).__init__( host=host, port=port, timeout=timeout, **kwds )
+        if not self.tcp:
+            return
         try:
             with self:
                 # The register( timeout=... ) applies to the socket send only
@@ -856,12 +879,12 @@ class connector( client ):
 
             self.session	= data.enip.session_handle
         except Exception as exc:
-            logging.warning( "Connect:  Failure in %7.3fs/%7.3fs: %s", cpppo.timer() - begun,
-                             cpppo.inf if timeout is None else timeout, exc )
+            log.warning( "Connect:  Failure in %7.3fs/%7.3fs: %s", cpppo.timer() - begun,
+                         cpppo.inf if timeout is None else timeout, exc )
             raise
 
-        logging.detail( "Connect:  Success in %7.3fs/%7.3fs", elapsed_req + elapsed_rpy,
-                        cpppo.inf if timeout is None else timeout )
+        log.detail( "Connect:  Success in %7.3fs/%7.3fs", elapsed_req + elapsed_rpy,
+                    cpppo.inf if timeout is None else timeout )
 
     def issue( self, operations, index=0, fragment=False, multiple=0, timeout=None ):
         """Issue a sequence of I/O operations, returning the corresponding sequence of:
@@ -1353,10 +1376,9 @@ def recycle( iterable, times=None ):
 
 
 def main( argv=None ):
-    """Read the specified tag(s).  Pass the desired argv (excluding the program
-    name in sys.arg[0]; typically pass argv=None, which is equivalent to
-    argv=sys.argv[1:], the default for argparse.  Requires at least one tag to
-    be defined.
+    """Read/write the specified tag(s) silently (by default); pass --print to summarize transaction to
+    standard output.  Pass the desired argv (excluding the program name in sys.arg[0]; typically
+    pass argv=None, which is equivalent to argv=sys.argv[1:], the default for argparse.
 
     """
     ap				= argparse.ArgumentParser(
@@ -1417,6 +1439,9 @@ which is required to carry this Send/Route Path data. """ )
     ap.add_argument( '--send-path',
                      default=None,
                      help="Send Path to UCMM (default: @6/1); Specify an empty string '' for no Send Path" )
+    ap.add_argument( '-S', '--simple', action='store_true',
+                     default=False,
+                     help="Access a simple (non-routing) EtherNet/IP CIP device (eg. MicroLogix)")
     ap.add_argument( '-m', '--multiple', action='store_true',
                      default=False, 
                      help="Use Multiple Service Packet request targeting ~500 bytes (default: False)" )
@@ -1465,8 +1490,12 @@ which is required to carry this Send/Route Path data. """ )
     multiple			= 500 if args.multiple else 0
     fragment			= bool( args.fragment )
     printing			= args.print
-    route_path			= json.loads( args.route_path ) if args.route_path else None # may be None/0/False
-    send_path			= args.send_path
+    # route_path may be None/0/False/'[]', send_path may be None/''/'@2/1'.  -S|--simple designates
+    # '[]', '' respectively, appropriate for non-routing CIP devices, eg. MicroLogix, PowerFlex, ...
+    route_path			= json.loads( args.route_path ) if args.route_path \
+                                      else [] if args.simple else None
+    send_path			= args.send_path                if args.send_path \
+                                      else '' if args.simple else None
 
     if '-' in args.tags:
         # Collect tags from sys.stdin 'til EOF, at position of '-' in argument list
@@ -1484,36 +1513,50 @@ which is required to carry this Send/Route Path data. """ )
 
     # Register and EtherNet/IP CIP connection to a Controller
     begun			= cpppo.timer()
+    failures			= 0
     with connector( host=addr[0], port=addr[1], timeout=timeout, profiler=profiler,
                     udp=args.udp, broadcast=args.broadcast ) as connection:
         elapsed			= cpppo.timer() - begun
         log.detail( "Client Register Rcvd %7.3f/%7.3fs" % ( elapsed, timeout ))
 
-        # Issue List {Identity,Service} requests, if desired
-        if args.list_identity:
-            connection.list_identity( timeout=timeout )
-            assert connection.readable( timeout=timeout ), \
-                "No List Identity response w/in %7.3fs timeout" % timeout
-            reply		= next( connection )
-            print( "List Identity: %s" % enip.enip_format( reply.enip.CIP.list_identity.CPF.item[0].identity_object ))
-    
-        if args.list_services:
-            connection.list_services( timeout=timeout )
-            assert connection.readable( timeout=timeout ), \
-                "No List Services response w/in %7.3fs timeout" % timeout
-            reply		= next( connection )
-            print( "List Services: %s" % enip.enip_format( reply.enip.CIP.list_services.CPF.item[0].communications_service ))
+        # Issue List {Identity,Service} requests, if desired.  If broadcast, await (multiple)
+        # responses for the entire timeout.
+        for desc,meth,path in [
+                ("List Services", 'list_services', "enip.CIP.list_services.CPF.item[0].communications_service" ),
+                ("List Identity", 'list_identity', "enip.CIP.list_identity.CPF.item[0].identity_object" ),
+        ]:
+            if not getattr( args, meth, None):
+                continue
+            begun		= cpppo.timer()
+            getattr( connection, meth )( timeout=timeout )
+            elapsed		= None
+            counter		= 0
+            while ( elapsed is None or elapsed < timeout ):
+                remains		= timeout - ( elapsed or 0 )
+                reply,_		= await( connection, timeout=remains )
+                log.detail( "%s reply: %r", desc, reply )
+                if reply:
+                    print( "%s %2d from %r: %s" % (
+                        desc, counter, reply.peer, enip.enip_format( reply[path] )))
+                    counter    += 1
+                elapsed		= cpppo.timer() - begun
+            if not counter:
+                log.warning( "No %s response w/in %7.3fs timeout", desc, timeout )
+                failures       += 1
 
-        # Issue Tag I/O operations, optionally printing a summary
-        begun			= cpppo.timer()
-        operations		= parse_operations( recycle( tags, times=repeat ),
-                                                    route_path=route_path, send_path=send_path )
-        failures,transactions	= connection.process(
-            operations=operations, depth=depth, multiple=multiple,
-            fragment=fragment, printing=printing, timeout=timeout )
-        elapsed			= cpppo.timer() - begun
-        log.normal( "Client Tag I/O  Average %7.3f TPS (%7.3fs ea)." % (
-            len( transactions ) / elapsed, elapsed / len( transactions )))
+        if tags:
+            # Issue Tag I/O operations, optionally printing a summary
+            begun		= cpppo.timer()
+            operations		= parse_operations(
+                recycle( tags, times=repeat ), route_path=route_path, send_path=send_path )
+            failed,transactions	= connection.process(
+                operations=operations, depth=depth, multiple=multiple,
+                fragment=fragment, printing=printing, timeout=timeout )
+            failures	       += failed
+            elapsed			= cpppo.timer() - begun
+            if transactions: # May be [], if from stdin, and no operations provided
+                log.normal( "Client Tag I/O  Average %7.3f TPS (%7.3fs ea)." % (
+                    len( transactions ) / elapsed, elapsed / len( transactions )))
 
     if profiler:
         s			= StringIO.StringIO()

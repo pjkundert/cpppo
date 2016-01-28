@@ -125,6 +125,11 @@
     : --route-path '[{"link": 0, "port": "192.168.1.2"}]'
     : --route-path false
     
+    Alternatively, to easily specify acceptance of no routing Unconnected Send
+    encapsulation (eg. to simulate simple non-routing CIP devices such as
+    Rockwell MicroLogix or A-B PowerFlex):
+    : -S|--simple
+
     You may specify as many tags as you like on the command line; at least one
     is required:
     : <tag>=<type>[<length>]   # eg. SCADA=INT[1000]
@@ -136,9 +141,9 @@
 
     To replace the default values contained by default in the standard CIP
     Objects (eg. the CIP Identity, TCP/IP Objects), place a =cpppo.cfg= file in
-    =/etc= or =%APPDATA%=, a =.cpppo.cfg= in your home directory, or a
-    =cpppo.cfg= file in the current working directory where your application is
-    run.
+    =/etc= or (on Windows) =%APPDATA%=, or a =.cpppo.cfg= in your home
+    directory, or a =cpppo.cfg= file in the current working directory where your
+    application is run.
 
     For example, to change the simulated EtherNet/IP CIP Identity Object
     'Product Name' (the SSTRING at Class 0x01, Instance 1, Attribute 7), and the
@@ -165,21 +170,23 @@
     See [[https://github.com/pjkundert/cpppo/blob/master/cpppo.cfg]] for details on
     the file format ([[https://docs.python.org/3/library/configparser.html]]).
 
-
     Place this file in one of the above-mentioned locations, and run:
-    : $ python -m cpppo.server.enip -v
-    : 01-20 07:01:29.125 ...  NORMAL  main  Loaded config files: ['cpppo.cfg']
-    : ...
+    #+BEGIN_EXAMPLE
+    $ python -m cpppo.server.enip -v
+    01-20 07:01:29.125 ...  NORMAL  main  Loaded config files: ['cpppo.cfg']
+    ...
+    #+END_EXAMPLE
 
-    Use the new EtherNet/IP CIP =cpppo.server.enip.poll= API to see the results
-
-    : $ python3 -m cpppo.server.enip.poll -v TCPIP Identity
-    : 01-20 07:04:46.253 ...  NORMAL run    Polling begins \
-    :       via: 1756-L61/C LOGIX5561 via localhost:44818[850764823]
-    :    TCPIP: [2, 48, 0, [{'class': 246}, {'instance': 1}], '192.168.0.201', \
-    :       '255.255.255.0', '0.0.0.0', '8.8.8.8', '8.8.4.4', 'example.com', 'controller']
-    : Identity: [1, 15, 54, 2836, 12640, 7079450, '1756-L61/C LOGIX5561', 255]
-
+    Use the new EtherNet/IP CIP =cpppo.server.enip.poll= API to poll the
+    Identity and TCPIP Objects and see the results:
+    #+BEGIN_EXAMPLE
+    $ python3 -m cpppo.server.enip.poll -v TCPIP Identity
+    01-20 07:04:46.253 ...  NORMAL run    Polling begins \
+          via: 1756-L61/C LOGIX5561 via localhost:44818[850764823]
+       TCPIP: [2, 48, 0, [{'class': 246}, {'instance': 1}], '192.168.0.201', \
+          '255.255.255.0', '0.0.0.0', '8.8.8.8', '8.8.4.4', 'example.com', 'controller']
+    Identity: [1, 15, 54, 2836, 12640, 7079450, '1756-L61/C LOGIX5561', 255]
+    #+END_EXAMPLE
 
 *** EtherNet/IP Controller I/O Customization
 
@@ -288,12 +295,18 @@
 
 *** EtherNet/IP Controller Client
 
-    A simple EtherNet/IP CIP Client is provided.  It can Register and issue a stream
-    of "Unconnected" requests to the Controller, such as Read/Write Tag
-    (optionally Fragmented) requests:
+    Cpppo provides an advanced EtherNet/IP CIP Client, for processing
+    Unconnected requests via TPC/IP or UDP/IP sessions to CIP devices -- either
+    Controllers (eg. Rockwell ControlLogix, CompactLogix) which can "route" CIP requests,
+    or simple CIP devices (eg. Rockwell MicroLogix, A-B PowerFlex, ...) which
+    can only perform basic CIP services such as "Get Attribute Single/All".
+
+    It can Register and issue a stream of "Unconnected" requests to the
+    Controller, such as Get/Set Attribute or *Logix Read/Write Tag (optionally
+    Fragmented) requests:
     : python -m cpppo.server.enip.client -v --print \
     :     SCADA[1]=99 SCADA[0-10] 'TEXT[1]=(SSTRING)"Hello, world!"' TEXT[0-3]
-    Alternatively, invoke the supplied wrapper script:
+    Alternatively, invoke the supplied =enip_client= wrapper script:
     : enip_client SCADA[1]=99 SCADA[0-10] 'TEXT[1]=(SSTRING)"Hello, world!"' TEXT[0-3]
 
     Specify a different local interface and/or port to connect to (default is :44818):
@@ -301,6 +314,51 @@
     On Windows systems, you must specify an actual interface.  For example, if you started the
     cpppo.server.enip simulator above (running on the all interfaces by default), use =--address
     localhost=.
+
+    Select the UDP/IP network protocol and optional "broadcast" support.
+    Generally, EtherNet/IP CIP devices support UDP/IP only for some basic
+    requests such as List Services, List Identity and List Interfaces:
+    : -u|--udp
+    : -b|--broadcast
+
+    Send List Identity/Services requests:
+    : -i|--list-identity
+    : -s|--list-services
+
+    For example, to find the Identity of all of the EtherNet/IP CIP devices on a
+    local LAN (that respond to broadcast List Identity via UDP/IP):
+    #+BEGIN_EXAMPLE
+    $ python -m cpppo.server.enip.client --udp --broadcast  --list-identity -v -a
+        255.255.255.255
+    List Identity  0 from ('10.0.0.4', 44818): {
+        "sin_addr": "10.0.0.4",
+        "status_word": 12640,
+        "vendor_id": 1,
+        "product_name": "1756-L61/B LOGIX5561",
+        "sin_port": 44818,
+        "state": 255,
+        "version": 1,
+        "device_type": 14,
+        "sin_family": 2,
+        "serial_number": 7079450,
+        "product_code": 54,
+        "product_revision": 2836
+    }
+    List Identity  1 from ('192.168.0.201', 44818): {
+        "sin_addr": "192.168.0.201",
+        "status_word": 12640,
+        "vendor_id": 1,
+        "product_name": "1756-L61/C LOGIX5561",
+        "sin_port": 44818,
+        "state": 255,
+        "version": 1,
+        "device_type": 14,
+        "sin_family": 2,
+        "serial_number": 7079450,
+        "product_code": 54,
+        "product_revision": 2836
+    }
+    #+END_EXAMPLE
 
     Change the verbosity (supply more to increase further):
     : -v[vv...]|--verbose
@@ -332,9 +390,12 @@
     Packet requests, either.
 
     Therefore, to communicate with simple, non-routing CIP devices (eg. AB
-    PowerFlex, ...), use:
+    PowerFlex, ...), use =-S= or =--simple=, or explicitly:
     : --send-path='' --route-path=false
 
+    Alternatively, to easily specify use of no routing Unconnected Send
+    encapsulation in requests:
+    : -S|--simple
 
     To send log output to a file (limited to 10MB, rotates through 5 copies):
     : -l|--log <file>
@@ -481,9 +542,26 @@
     : ...
     :     --repeat 25 --depth 20 --multiple 250
 
+**** =cpppo.server.enip= =client.client=
+
+     The base class =client.client= implements  all the basic I/O capabilities
+     for pipeline-capable TCP/IP and UDP/IP I/O with EtherNet/IP CIP devices.
+
+     Once connectivity is established, a sequence of CIP requests can be issued
+     using the the methods =.read=, =.write=, =.list_identity=, etc.
+
+     Later, =.readble= can report if incoming data is available.  Then, the
+     connection instance can be used as an iterable; =next( connection )= will
+     return any response available.  This response will include a =peer= entry
+     indicating the reported peer IP address and port (especially useful for
+     broadcast UDP/IP requests).
+
+     These facilities are used extensively in the =client.connector= derived
+     class to implementing request pipelining.
+
 **** =cpppo.server.enip= =client.connector= class
 
-     Register an EtherNet/IP CIP connection to a Controller, allowing the holder
+     Register a TCP/IP EtherNet/IP CIP connection to a Controller, allowing the holder
      to issue requests and receive replies as they are available, as an iterable
      sequence.  Support Read/Write Tag [Fragmented], Get/Set Attribute [All], and
      Multiple Service Packet requests, via CIP "Unconnected Send".
@@ -492,6 +570,18 @@
      : from cpppo.server.enip import client
      : with client.connector( host="some_controller" ) as conn:
      :    ...
+
+     To establish a UDP/IP connected (optionally broadcast capable) connection:
+     : from cpppo.server.enip import client
+     : with client.connector( host="some_controller",
+     :     udp=True, broadcast=True ) as conn:
+
+     UDP/IP connections do not issue CIP Register requests (as they are only
+     supported via TCP/IP).  Generally, these are only useful for issuing List
+     Identity or List Services requests.  If broadcast (and a "broadcast" IP
+     address such as 255.255.255.255 is used), then multiple responses should be
+     expected; the default =cpppo.server.enip.client= module entrypoint will
+     wait for the full duration of the specified =timeout= for responses.
 
 **** =client.parse_operations=
 
@@ -738,6 +828,115 @@
      '\x141756-L61/B LOGIX5561'
      #+END_EXAMPLE
 
+**** =client.connector.list_identity= and =.list_services=
+
+     These methods issue List Identity and List Services requests, valid on
+     either UDP/IP or TCP/IP connections (or via UDP/IP broadcast).  The
+     response(s) may be harvested by awaiting for incoming activity on the
+     socket:
+     #+BEGIN_EXAMPLE python
+     from __future__ import print_function
+
+     import sys
+    
+     import cpppo
+     from cpppo.server import enip
+     from cpppo.server.enip import client
+
+     timeout			= 1.0
+     host			= sys.argv[1] if sys.argv[1:] else '255.255.255.255'
+     with client.client( host=host, udp=True, broadcast=True ) as conn:
+         conn.list_identity( timeout=timeout )
+         while conn.readable( timeout=timeout ):
+             print( enip.enip_format( next( conn )))
+     #+END_EXAMPLE
+
+     See =cpppo.server.enip.client= for a more advanced approach which returns
+     only the relevant List Identity or List Services payload from the response,
+     and enforces a total timeout, rather than a per-response timeout.
+
+     The =cpppo.server.enip.list_services= module entrypoint provides a more
+     complete CLI interface for generating and harvesting List Services and List
+     Identity responses:
+     #+BEGIN_EXAMPLE
+     $ python -m cpppo.server.enip.list_services --help
+     usage: list_services.py [-h] [-v] [-a ADDRESS] [-u] [-b] [--identity]
+                             [--interfaces] [-t TIMEOUT]
+
+     List Services (by default) on an EtherNet/IP CIP Server.
+
+     optional arguments:
+       -h, --help            show this help message and exit
+       -v, --verbose         Display logging information.
+       -a ADDRESS, --address ADDRESS
+                             EtherNet/IP interface[:port] to bind to (default:
+                             :44818)
+       -u, --udp             Use UDP/IP queries (default: False)
+       -b, --broadcast       Allow multiple peers, and use of broadcast address
+                             (default: False)
+       --identity            List Identity (default: False)
+       --interfaces          List Interfaces (default: False)
+       -t TIMEOUT, --timeout TIMEOUT
+                             EtherNet/IP timeout (default: 5s)
+     #+END_EXAMPLE
+
+     It always requests List Services, and (optionally) List Identity, List
+     Interfaces.  By default, it sends the requests unicast via TCP/IP, but can
+     optionally send the requests via unicast or broadcast UDP/IP.  The full
+     content of each EtherNet/IP CIP response is printed, in JSON format.
+
+     To obtain responses from all EtherNet/IP CIP devices on the local LAN:
+     #+BEGIN_EXAMPLE
+     $ python -m cpppo.server.enip.list_services --identity --udp --broadcast -a 255.255.255.255
+     {
+         "peer": [
+             "10.0.0.4",
+             44818
+         ],
+         "enip.status": 0, 
+         "enip.sender_context.input": "array('c', '\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00')", 
+         "enip.session_handle": 0, 
+         "enip.length": 25, 
+         "enip.CIP.list_services.CPF.count": 1, 
+         "enip.CIP.list_services.CPF.item[0].communications_service.capability": 288, 
+         "enip.CIP.list_services.CPF.item[0].communications_service.service_name": "Communications", 
+         "enip.CIP.list_services.CPF.item[0].communications_service.version": 1, 
+         "enip.CIP.list_services.CPF.item[0].length": 19, 
+         "enip.CIP.list_services.CPF.item[0].type_id": 256, 
+         "enip.command": 4, 
+         "enip.input": "array('c', '\\x01\\x00\\x00\\x01\\x13\\x00\\x01\\x00 \\x01Communications\\x00')", 
+         "enip.options": 0
+     }
+     {
+         "peer": [
+             "10.0.0.4",
+             44818
+         ],
+         "enip.status": 0, 
+         "enip.sender_context.input": "array('c', '\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00')", 
+         "enip.session_handle": 0, 
+         "enip.length": 60, 
+         "enip.CIP.list_identity.CPF.count": 1, 
+         "enip.CIP.list_identity.CPF.item[0].length": 54, 
+         "enip.CIP.list_identity.CPF.item[0].identity_object.sin_addr": "192.168.0.201", 
+         "enip.CIP.list_identity.CPF.item[0].identity_object.status_word": 12640, 
+         "enip.CIP.list_identity.CPF.item[0].identity_object.vendor_id": 1, 
+         "enip.CIP.list_identity.CPF.item[0].identity_object.product_name": "1756-L61/C LOGIX5561", 
+         "enip.CIP.list_identity.CPF.item[0].identity_object.sin_port": 44818, 
+         "enip.CIP.list_identity.CPF.item[0].identity_object.state": 255, 
+         "enip.CIP.list_identity.CPF.item[0].identity_object.version": 1, 
+         "enip.CIP.list_identity.CPF.item[0].identity_object.device_type": 14, 
+         "enip.CIP.list_identity.CPF.item[0].identity_object.sin_family": 2, 
+         "enip.CIP.list_identity.CPF.item[0].identity_object.serial_number": 7079450, 
+         "enip.CIP.list_identity.CPF.item[0].identity_object.product_code": 54, 
+         "enip.CIP.list_identity.CPF.item[0].identity_object.product_revision": 2836, 
+         "enip.CIP.list_identity.CPF.item[0].type_id": 12, 
+         "enip.command": 99, 
+         "enip.input": "array('c', '\\x01...\\x141756-L61/C LOGIX5561\\xff')", 
+         "enip.options": 0
+     }
+     #+END_EXAMPLE
+
 *** EtherNet/IP =cpppo.server.enip.getattr= API
 
     Many devices such as Rockwell MicroLogix, Allen-Bradley PowerFlex that
@@ -865,17 +1064,15 @@
     If you start a (simulated) A-B PowerFlex (be prepared to stop and restart
     it, to observe how the =cpppo.server.enip.poll= API handles polling failures):
     #+BEGIN_EXAMPLE
-    $ cpppo -m cpppo.server.enip.poll_test.py
+    $ cpppo -m cpppo.server.enip.poll_test
     #+END_EXAMPLE
 
-    and then start the (above) =poll_example.py=:
+    and then in another terminal, start the (above) =poll_example.py= (also
+    included in the =cpppo= installation).  You'll see something like this (make
+    sure you stop/pause and then restart the =poll_test.py= A-B PowerFlex
+    simulator during the test):
     #+BEGIN_EXAMPLE
-    $ cpppo -m cpppo.server.enip.poll_example.py
-    #+END_EXAMPLE
-    
-    you'll see something like this (make sure you stop/pause and then restart
-    the =poll_test.py= A-B PowerFlex simulator during the test):
-    #+BEGIN_EXAMPLE
+    $ cpppo -m cpppo.server.enip.poll_example
     2016-01-27 21:34:10.371:   Motor Velocity == [789.010009765625]
     2016-01-27 21:34:11.371:   Output Current == [123.44999694824219]
     2016-01-27 21:34:11.371:   Motor Velocity == [789.010009765625]
@@ -892,6 +1089,45 @@
     2016-01-27 21:34:26.636:   Motor Velocity == [789.010009765625]
     2016-01-27 21:34:27.376:   Output Current == [123.44999694824219]
     2016-01-27 21:34:27.376:   Motor Velocity == [789.010009765625]
+    #+END_EXAMPLE
+
+    Likewise, for an example of polling various parameters at different rates
+    from multiple threads, via a single =proxy= EtherNet/IP CIP connection to a
+    CIP device, run =poll_example_many.py=:
+    #+BEGIN_EXAMPLE
+    $ cpppo -m cpppo.server.enip.poll_example_many
+    2016-01-28 15:25:18.366: [Errno 61] Connection refused
+    2016-01-28 15:25:18.484: [Errno 61] Connection refused
+    2016-01-28 15:25:20.057: [Errno 61] Connection refused
+    2016-01-28 15:25:20.812:   Motor Velocity == [789.010009765625]
+    2016-01-28 15:25:20.812:   Output Current == [123.44999694824219]
+    2016-01-28 15:25:20.991:      Elapsed KwH == [987.6500244140625]
+    ...
+    2016-01-28 15:25:25.766:   Motor Velocity == [789.010009765625]
+    2016-01-28 15:25:25.993:      Speed Units == [1]
+    2016-01-28 15:25:26.009:      Elapsed KwH == [987.6500244140625]
+    2016-01-28 15:25:26.112: Output Frequency == [456.7799987792969]
+    2016-01-28 15:25:26.613: Output Frequency == [456.7799987792969]
+    2016-01-28 15:25:26.765:   Output Current == [123.44999694824219]
+    2016-01-28 15:25:26.765:   Motor Velocity == [789.010009765625]
+    2016-01-28 15:25:27.112: Output Frequency == [456.7799987792969]
+    2016-01-28 15:25:27.613: Output Frequency == [456.7799987792969]
+    01-28 08:25:27.743   Thread-2 enip.get WARNING  close_gate Closed EtherNet/IP \
+        CIP gateway localhost:44818[1489429017] due to: Communication ceased before \
+        harvesting all pipeline responses:   0/  2
+    2016-01-28 15:25:27.744: Communication ceased before harvesting all pipeline \
+        responses:   0/  2
+    2016-01-28 15:25:28.096: [Errno 61] Connection refused
+    2016-01-28 15:25:28.604: [Errno 61] Connection refused
+    2016-01-28 15:25:28.751: [Errno 61] Connection refused
+    2016-01-28 15:25:29.358: [Errno 61] Connection refused
+    2016-01-28 15:25:30.259: [Errno 61] Connection refused
+    2016-01-28 15:25:30.487: [Errno 61] Connection refused
+    2016-01-28 15:25:30.981: [Errno 61] Connection refused
+    2016-01-28 15:25:32.240: Output Frequency == [456.7799987792969]
+    2016-01-28 15:25:32.538:   Output Current == [123.44999694824219]
+    2016-01-28 15:25:32.538:   Motor Velocity == [789.010009765625]
+    2016-01-28 15:25:32.611: Output Frequency == [456.7799987792969]
     #+END_EXAMPLE
 
 *** Web Interface
