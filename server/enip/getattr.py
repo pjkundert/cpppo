@@ -78,6 +78,7 @@ import logging
 import sys
 import threading
 import time
+import traceback
 
 import cpppo
 from .. import enip
@@ -154,7 +155,6 @@ class proxy( object ):
     cpppo.server.enip.client APIs require an iterable sequence of operations to perform.
 
     """
-    IDENTITY_PRODUCT_NAME	= ( "@1/1/7", "SSTRING" )	# Identity: Product Name
     CIP_TYPES			= {
         "real":		( enip.REAL,	"REAL" ),		# <name>: (<class>, <data-path> )
         "sint":		( enip.SINT,	"SINT" ),
