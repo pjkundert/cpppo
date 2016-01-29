@@ -416,6 +416,20 @@ class client( object ):
     def __str__( self ):
         return "%s:%s[%r]" % ( self.addr[0], self.addr[1], self.session )
 
+    def shutdown( self ):
+        """A client-initiated clean shutdown of the EtherNet/IP session requires the client to close the
+        outgoing half of its TCP/IP connection, while harvesting the remaining responses incoming.
+        The peer will receive EOF, and cleanly close the connection.  After the final response is
+        harvested, we will then receive EOF, and close the connection.  All TCP/IP buffers will be
+        clear, and the connection will then close in a completely clean fashion.
+
+        """
+        if not self.udp:
+            try:
+                self.conn.shutdown( socket.SHUT_WR )
+            except:
+                pass
+
     def close( self ):
         """The lifespan of an EtherNet/IP CIP client connection is defined by client.__init__() and client.close()"""
         if self.conn is not None:
@@ -477,8 +491,16 @@ class client( object ):
                     len( rcvd ) if rcvd is not None else 0, rcvd )
                 if rcvd is not None:
                     # Some input (or EOF); source is empty; chain the input and drop back into 
-                    # the framer engine.  It will detect a no-progress condition on EOF.
-                    self.source.chain( rcvd )
+                    # the framer engine.  It will detect a no-progress condition on EOF.  If we
+                    # don't have an engine, we can signal completion right here.
+                    if len( rcvd ):
+                        self.source.chain( rcvd )	# More input received
+                    else:
+                        if self.engine is None:
+                            raise StopIteration		# EOF between EtherNet/IP frames; Done.
+                        logging.info( "EOF w/ %s input available, engine %s",
+                                      "empty" if self.source.peek() is None else " some",
+                                      "off" if self.engine is None else "running" )
                 else:
                     # Don't create parsing engine 'til we have some I/O to process.  This avoids the
                     # degenerate situation where empty I/O (EOF) always matches the empty command (used
@@ -547,7 +569,7 @@ class client( object ):
                         finally:
                             engine.close() # for pypy, where gc may delay destruction of generators
                             del engine
-
+        log.info( "Returning result: %r", result )
         return result
 
     next = __next__ # Python 2/3 compatibility
@@ -815,12 +837,13 @@ def await( cli, timeout=None ):
     the client to become readable; if not, return the None.  Otherwise, loop back and continue
     trying to gain a response.
 
-    An empty response {} indicates clean termination of a session.
+    An empty response {} indicates clean termination of a session (EOF received, with no input or
+    existing partial response in process of parsing in the cli iterator.)
 
     """
-    response			= None
+    response			= cpppo.dotdict()
     begun			= cpppo.timer()
-    for response in cli:
+    for response in cli: # if StopIteration raised immediately, defaults to {} signalling completion
         if response is None:
             elapsed		= cpppo.timer() - begun
             if not timeout or elapsed <= timeout:
@@ -1068,10 +1091,10 @@ class connector( client ):
 
             # Find the replies in the response; could be single or multiple; should match requests!
             replies		= []
-            if response is None:
+            if response is None:# None response indicates timeout
                 raise StopIteration( "Response Not Received w/in %7.2fs" % (
                     cpppo.inf if timeout is None else timeout ))
-            elif not response:
+            elif not response:	# empty response indicates clean EOF
                 raise StopIteration( "Session terminated" )
             elif 'enip.status' in response and response.enip.status != 0:
                 raise Exception( "Response EtherNet/IP status: %d" % ( response.enip.status ))
@@ -1540,6 +1563,9 @@ which is required to carry this Send/Route Path data. """ )
                     print( "%s %2d from %r: %s" % (
                         desc, counter, reply.peer, enip.enip_format( reply.get( path, reply ))))
                     counter    += 1
+                else:
+                    # No reply, or EOF w'in timeout
+                    break
                 elapsed		= cpppo.timer() - begun
             if not counter:
                 log.warning( "No %s response w/in %7.3fs timeout", desc, timeout )
