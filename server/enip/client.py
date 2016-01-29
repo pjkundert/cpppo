@@ -474,6 +474,7 @@ class client( object ):
         # Harvest any input immediately available, if we're empty.  We may be coming back
         # here after already having issued a non-transition event from the existing EtherNet/IP
         # framer engine -- we can't re-enter the engine w/o getting some more input.
+        addr			= self.addr # TCP/IP; may continue parsing data rx last time thru
         if self.source.peek() is None:
             if self.profiler:
                 self.profiler.disable()
