@@ -88,7 +88,7 @@ def simulated_powerflex_gateway():
 
 
 def test_powerflex_simple( simulated_powerflex_gateway ):
-    #logging.getLogger().setLevel( logging.DETAIL )
+    # logging.getLogger().setLevel( logging.INFO )
     command,address             = simulated_powerflex_gateway
     try:
         assert address, "Unable to detect PowerFlex EtherNet/IP CIP Gateway IP address"

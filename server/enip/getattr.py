@@ -279,7 +279,6 @@ class proxy( object ):
         """
         @functools.wraps( function )
         def wrapper( inst, *args, **kwds ):
-            first		= False
             with inst.gateway_lock:
                 if inst.gateway is None:
                     inst.gateway = inst.gateway_class( host=inst.host, port=inst.port, timeout=inst.timeout )
@@ -292,7 +291,7 @@ class proxy( object ):
                             inst.close_gateway( exc )
                             raise
                     log.normal( "Opened EtherNet/IP CIP gateway %s", inst )
-            # We have an open self.gateway; perform the I/O operation
+            # We have an open inst.gateway; perform the I/O operation
             try:
                 return function( inst, *args, **kwds )
             except Exception as exc:

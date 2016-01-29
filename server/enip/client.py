@@ -361,8 +361,9 @@ class client( object ):
         self.addr		= ( addr[0] or 'localhost', addr[1] or 44818 )
         self.addr_connected	= not ( udp and broadcast )
         self.conn		= None
-
-        if udp:
+        self.udp		= udp
+        log.detail( "Connect:  %s/IP to %r", "UPD" if udp else "TCP", self.addr )
+        if self.udp:
             try:
                 self.conn		= socket.socket( socket.AF_INET, socket.SOCK_DGRAM )
                 if not broadcast:
@@ -411,16 +412,6 @@ class client( object ):
         # If provided, we'll disable/enable a profiler around the I/O code, to avoid corrupting the
         # profile data with arbitrary I/O related delays
         self.profiler		= profiler
-
-    @property
-    def udp( self ):
-        """Return True iff the socket is UDP/IP"""
-        return self.conn.family == socket.AF_INET and self.conn.type == socket.SOCK_DGRAM
-
-    @property
-    def tcp( self ):
-        """Return True iff the socket is TCP/IP"""
-        return self.conn.family == socket.AF_INET and self.conn.type == socket.SOCK_STREAM
 
     def __str__( self ):
         return "%s:%s[%r]" % ( self.addr[0], self.addr[1], self.session )
@@ -866,10 +857,10 @@ class connector( client ):
 
         """
         begun			= cpppo.timer()
-        super( connector, self ).__init__( host=host, port=port, timeout=timeout, **kwds )
-        if not self.tcp:
-            return
         try:
+            super( connector, self ).__init__( host=host, port=port, timeout=timeout, **kwds )
+            if self.udp:
+                return
             with self:
                 # The register( timeout=... ) applies to the socket send only
                 elapsed_req	= cpppo.timer() - begun
@@ -888,9 +879,9 @@ class connector( client ):
             log.warning( "Connect:  Failure in %7.3fs/%7.3fs: %s", cpppo.timer() - begun,
                          cpppo.inf if timeout is None else timeout, exc )
             raise
-
-        log.detail( "Connect:  Success in %7.3fs/%7.3fs", elapsed_req + elapsed_rpy,
-                    cpppo.inf if timeout is None else timeout )
+        else:
+            log.normal( "Connect:  Success in %7.3fs/%7.3fs", cpppo.timer() - begun,
+                        cpppo.inf if timeout is None else timeout )
 
     def issue( self, operations, index=0, fragment=False, multiple=0, timeout=None ):
         """Issue a sequence of I/O operations, returning the corresponding sequence of:
