@@ -1558,7 +1558,6 @@ which is required to carry this Send/Route Path data. """ )
             while ( elapsed is None or elapsed < timeout ):
                 remains		= timeout - ( elapsed or 0 )
                 reply,_		= await( connection, timeout=remains )
-                log.detail( "%s reply: %r", desc, reply )
                 if reply:
                     print( "%s %2d from %r: %s" % (
                         desc, counter, reply.peer, enip.enip_format( reply.get( path, reply ))))

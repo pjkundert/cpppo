@@ -292,9 +292,8 @@ class Attribute( object ):
         self.default		= type(self.default)( v )
 
     def __str__( self ):
-        return "%-12s %5s[%4d] == %s" % (
-            self.name, self.parser.__class__.__name__, len( self ),
-            repr( self.value )  if not log.isEnabledFor( logging.INFO ) else misc.reprlib.repr( self.value ))
+        return "%-24s %10s[%4d] == %r" % (
+            self.name, self.parser.__class__.__name__, len( self ), self.value )
     __repr__ 			= __str__
 
     def __len__( self ):
