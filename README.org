@@ -203,8 +203,15 @@
 **** Record Tag History
 
      For example purposes, we have implemented the cpppo.server.enip.historize
-     module which intercepts all I/O (and exceptions) and writes it to the file
-     specified in the first command-line argument to the module:
+     module which simulates an EtherNet/IP CIP device, intercepts all I/O (and
+     exceptions) and writes it to the file specified in the *first* command-line
+     argument to the module.  It uses =cpppo.history.timestamp=, and requires
+     that the Python =pytz= module be installed (via =pip install pytz=), which
+     also requires that a system timezone be set.
+
+     This example *captures the first command line argument* as a file name; all
+     subsequent arguments are the same as described for the EtherNet/IP
+     Controller Communications Simulator, above:
      : $ python -m cpppo.server.enip.historize some_file.hst Tag_Name=INT[1000] &
      : $ tail -f some_file.txt
      : # 2014-07-15 22:03:35.945: Started recording Tag: Tag_Name
@@ -360,6 +367,14 @@
         "count": 0
     }
     #+END_EXAMPLE
+
+    Sends certain "Legacy" EtherNet/IP CIP requests:
+    : -L|--legacy <command>
+    Presently, only the following Legacy commands are implemented:
+
+    | Command | Description                                                   |
+    |---------+---------------------------------------------------------------|
+    |  0x0001 | Returns some of the same network information as List Identity |
 
     Change the verbosity (supply more to increase further):
     : -v[vv...]|--verbose

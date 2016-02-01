@@ -45,6 +45,7 @@ specified).  Optionally prints results (if --print specified).
 import argparse
 import array
 import collections
+import contextlib
 import csv
 import itertools
 import json
@@ -558,17 +559,13 @@ class client( object ):
                     # Attribute All).  Use the globally-defined cpppo.server.enip.client's dialect's
                     # (eg. logix.Logix) parser to parse the contents of the CIP payload's CPF items.
                     with device.dialect.parser as machine:
-                        engine	= machine.run(
+                        with contextlib.closing( machine.run( # for pypy, where gc may delay destruction of generators
                                 source=cpppo.peekable( item.unconnected_send.request.input ),
-                                data=item.unconnected_send.request )
-                        try:
+                                data=item.unconnected_send.request )) as engine:
                             for mch,sta in engine:
                                 pass
                             assert machine.terminal, "No %r request in the EtherNet/IP CIP CPF frame: %r" % (
                                 device.dialect, result )
-                        finally:
-                            engine.close() # for pypy, where gc may delay destruction of generators
-                            del engine
         log.info( "Returning result: %r", result )
         return result
 
@@ -639,6 +636,13 @@ class client( object ):
         cip			= cpppo.dotdict()
         cip.list_identity	= {}
         return self.cip_send( cip=cip, sender_context=sender_context, timeout=timeout )
+
+    def legacy( self, command, cip=None, timeout=None, sender_context=b'' ):
+        """Transmit a Legacy EtherNet/IP CIP request, using the specified command code (eg. 0x0001).
+        If CIP is None, then no CIP payload will be generated.
+
+        """
+        return self.cip_send( cip=cip)
 
     # CIP SendRRData Requests; may be deferred (eg. for Multiple Service Packet)
     def get_attributes_all( self, path,
@@ -788,14 +792,21 @@ class client( object ):
 
         return self.cip_send( cip=cip, sender_context=sender_context, timeout=timeout )
 
-    def cip_send( self, cip, timeout=None, sender_context=b'' ):
+    def cip_send( self, cip, command=None, timeout=None, sender_context=b'' ):
         """Encapsulates the CIP request and transmits it, returning the full encapsulation structure
         used to carry the request.  The response must be harvested later; a sender_context should be
         supplied that may be used to associate the response to the originating request.
 
+        If the CIP contents can be used to deduce the correct EtherNet/IP CIP framing command
+        (eg. contains a recognized payload, such as ...CIP.list_identity or ...CIP.send_data), then
+        command may remain None.  However, if sending "legacy" CIP requests (eg. 0x0001) with no CIP
+        payload, then command may be used to specify the data.enip.command for EtherNet/IP framing.
+
         """
         data			= cpppo.dotdict()
         data.enip		= {}
+        if command:
+            data.enip.command	= command
         data.enip.session_handle= self.session or 0 # May be None, if not yet registered
         data.enip.options	= 0
         data.enip.status	= 0
@@ -807,8 +818,8 @@ class client( object ):
         if log.isEnabledFor( logging.DETAIL ):
             log.detail( "Client CIP Send: %s", enip.enip_format( data ))
 
-        data.enip.input		= bytearray( enip.CIP.produce( data.enip ))
-        data.input		= bytearray( enip.enip_encode( data.enip ))
+        data.enip.input		= bytearray( enip.CIP.produce( data.enip )) # May deduce enip.command...
+        data.input		= bytearray( enip.enip_encode( data.enip )) #   for EtherNet/IP framing
 
         log.info( "EtherNet/IP: %3d + CIP: %3d == %3d bytes total",
                   len( data.input ) - len( data.enip.input ),
@@ -1479,6 +1490,9 @@ which is required to carry this Send/Route Path data. """ )
     ap.add_argument( '-I', '--list-interfaces', action='store_true',
                      default=False,
                      help="Perform a CIP List Interfaces request upon connection (default: False)" )
+    ap.add_argument( '-L', '--legacy',
+                     default=None,
+                     help="Send a Legacy CIP request (specify command code) (default: None)" )
     ap.add_argument( '-P', '--profile', action='store_true',
                      default=False, 
                      help="Activate profiling (default: False)" )
@@ -1545,14 +1559,25 @@ which is required to carry this Send/Route Path data. """ )
         # Issue List {Identity,Service} requests, if desired.  If broadcast, await (multiple)
         # responses for the entire timeout.  Prints the CPF encapsulation payload of each response
         # (if available; the entire parsed EtherNet/IP reply if not recognized).
-        for desc in [ "List Services", "List Identity", "List Interfaces" ]:
+        for desc in [ "Legacy", "List Services", "List Identity", "List Interfaces" ]:
             meth		= desc.lower().replace( ' ', '_' ) # List Interfaces --> list_interfaces
-            path		= '.'.join( [ 'enip', 'CIP', meth, 'CPF' ] )
-            if not getattr( args, meth, None):
-                continue # not selected (or no arg option yet)
+            if not getattr( args, meth, None ):
+                continue # not selected, or no arg option yet, or no/zero --legacy command value
 
+            path		= '.'.join( [ 'enip', 'CIP', meth, 'CPF' ] )
             begun		= cpppo.timer()
-            getattr( connection, meth )( timeout=timeout )
+            meth_kwds		= dict( timeout=timeout )
+            if desc == "Legacy":
+                # All legacy EtherNet/IP commands require a command value, and an empty 'CIP.legacy'
+                # payload to be passed to client.legacy/client.cip_send (command cannot be deduced)
+                command		= int( args.legacy, 0 ) # may be hex, eg. '0x0001'
+                desc	       += " 0x%04X" % ( command )
+                meth_kwds.update(
+                    command	= command,
+                    cip		= cpppo.dotdict(
+                        legacy	= None ))
+
+            getattr( connection, meth )( **meth_kwds )
             elapsed		= None
             counter		= 0
             while ( elapsed is None or elapsed < timeout ):
@@ -1562,8 +1587,8 @@ which is required to carry this Send/Route Path data. """ )
                     print( "%s %2d from %r: %s" % (
                         desc, counter, reply.peer, enip.enip_format( reply.get( path, reply ))))
                     counter    += 1
-                else:
-                    # No reply, or EOF w'in timeout
+                if not reply or not args.broadcast:
+                    # No reply or EOF w'in timeout, or reply but not --broadcast; done waiting
                     break
                 elapsed		= cpppo.timer() - begun
             if not counter:

@@ -71,6 +71,7 @@ the CIP Volume section of each network specification.
 
 import argparse
 import collections
+import contextlib
 import functools
 import itertools
 import json
@@ -362,8 +363,8 @@ class proxy( object ):
 
         """
         bad			= []
-        reader			= self.read_details( attributes )
-        try:
+        with contextlib.closing( self.read_details( attributes )) as reader:
+            # PyPy compatibility; avoid deferred destruction of generators
             for val,(sts,(att,typ,uni)) in reader:
                 if printing:
                     # eg.   Output Current == 16.8275 Amps
@@ -372,9 +373,7 @@ class proxy( object ):
                 yield val
                 if sts not in (0,6):
                     bad.append( "%s: status %r" % ( att, sts ))
-        finally:
-            reader.close() # PyPy compatibility; avoid deferred destruction of generators
-            del reader
+
         assert len( bad ) == 0, \
             "read failed to access %d attributes: %s" % ( len( bad ), ', '.join( bad ))
 
@@ -442,11 +441,8 @@ class proxy( object ):
 
             proxy		= enip_proxy( '10.0.1.2' )
             try:
-                reader		= proxy.read( [ ("@1/1/7", "SSTRING") ] ) # CIP Device Name
-                try:
+                with contextlib.closing( proxy.read( [ ("@1/1/7", "SSTRING") ] )) as reader: # CIP Device Name
                     value	= next( reader )
-                finally:
-                    reader.close() # for pypy, other Pythons w/ GC that defer object destruction
             except Exception as exc:
                 proxy.close_gateway( exc )
 

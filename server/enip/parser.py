@@ -31,6 +31,7 @@ enip/parser.py	-- The EtherNet/IP CIP protocol parsers
 """
 
 import array
+import contextlib
 import json
 import logging
 import struct
@@ -424,7 +425,8 @@ class IFACEADDRS( STRUCT ):
         dns2[True] = domn	= STRING(		context='domain_name',
                                                         terminal=True )
         domn[None]		= move_if( 'movsstring',source='.domain_name.string',
-                                                   destination='.domain_name' )
+                                                   destination='.domain_name',
+                                           state=cpppo.state( 	'done', terminal=True ))
 
         super( IFACEADDRS, self ).__init__( name=name, initial=ipad, **kwds )
 
@@ -1214,6 +1216,91 @@ class identity_object( cpppo.dfa ):
         return result
 
 
+class legacy_CPF_0x0001( cpppo.dfa ):
+    """EtherNet/IP CIP command 0x0001 carries A CPF payload with one entry -- this undocumented
+    structure carries the IP address of the host.  It might be an early, undocumented version of
+    List Identity's IP address payload?
+
+        0030                     01 00 2a 00 00 00 00 00 00 00        ..*.......
+        0040   00 00 00 00 00 00 00 00 00 00 00 00 00 00 01 00  ................
+                                                         ^^^^^ -- 1 CPF element
+        0050   01 00 24 00 01 00 00 00 00 02 af 12 c0 a8 05 fd  ..$.............
+               ^^^^^ -- type 1
+                     ^^^^^ -- length 0x24
+                           ^^^^^ -- version 1?
+                                 ^^^^^ -- protocol 0?
+                                       ^^^^^ -- family 2 AF_INET
+                                             ^^^^^ -- port 44818
+                                                   ^^^^^ -- 192.168.5.253 in binary, big-endian
+        0060   00 00 00 00 00 00 00 00 31 39 32 2e 31 36 38 2e  ........192.168.
+               ^^^^^^^^^^^^^^^^^^^^^^^ -- 8 bytes of 0x00 fill
+                                       ^^... -- 16 byte ASCII dotted-quad, 0-padded on end
+        0070   35 2e 32 35 33 00 00 00                          5.253...
+
+    It seems to contain the binary big-endian byte ordered struct sockaddr_in (sin_family, sin_port,
+    sin_addr and sin_zero[8]), followed by the ASCII dotted-quad interpretation of the sin_addr of
+    up to 15 bytes (eg. "123.123.123.123", NUL-padded on end if less than 15 bytes).
+
+    The only indeterminate part is the first 4 bytes following the length: 0x0001 (little-endian 1)
+    and 0x0000.  This could be a version number, but the meaning of the following zero is unknown.
+
+    """
+    def __init__( self, name=None, **kwds ):
+        name			= name or kwds.setdefault( 'context', self.__class__.__name__ )
+        
+        vers			= UINT(	context='version' )
+        vers[True]	= unkn	= UINT(	context='unknown_1' )
+        unkn[True]	= sfam	= INT_network(
+                                        context='sin_family' )
+        sfam[True]	= sprt	= UINT_network(
+                                        context='sin_port' )
+        sprt[True]	= sadd	= IPADDR(
+                                        context='sin_addr' )
+        sadd[True]	= szro	= octets_drop( context='sin_zero', repeat=8 )
+        szro[True]	= addr	= cpppo.string_bytes( 'ip_address', context='ip_address',
+                                        greedy=True, initial='[^\x00]*', decode='iso-8859-1',
+                                        terminal=True )
+        addr[True]	= nuls	= octets_drop( 'NUL', repeat=1,
+                                        terminal=True )
+        nuls[True]	= nuls
+
+        super( legacy_CPF_0x0001, self ).__init__( name=name, initial=vers, **kwds )
+
+    @classmethod
+    def produce( cls, data ):
+        result			= b''
+        result	       	       += UINT.produce( data.get( 'version', 1 ))
+        result	       	       += UINT.produce( data.get( 'unknown_1', 0 ))
+        result	               += INT_network.produce( data.sin_family )
+        result	               += UINT_network.produce( data.sin_port )
+        # Contains IP information in sin_addr (network byte-order) and/or ip_address (string).
+        # Accept both/either in data (eg. product sin_addr from ip_address or vice versa)
+        sin_addr		= data.sin_addr if 'sin_addr' in data else data.ip_address
+        sin_addr_octets		= IPADDR.produce( sin_addr ) # accept 32-bit int or IP address string
+        result	               += sin_addr_octets
+        result		       += b'\0' * 8 # sin_zero
+
+        # If data.ip_address not supplied, convert the 32-bit host-ordered IP address in ip_octets
+        # to a string using the IPADDR parser.
+        ip_address		= data.get( 'ip_address' )
+        if ip_address is None:
+            ip_address_data	= cpppo.dotdict()
+            with IPADDR() as machine:
+                with contextlib.closing( machine.run(
+                        source=sin_addr_octets, data=ip_address_data )) as engine:
+                    for m,s in engine:
+                        pass
+            ip_address		= ip_address_data.IPADDR
+
+        # Use the SSTRING producer to properly encode and NUL-pad the string to 16 characters.
+        # We'll use the produced SSTRING, discarding the length.
+        sstring_data		= cpppo.dotdict( length=16, string=ip_address )
+        sstring_octets		= SSTRING.produce( sstring_data )
+
+        result		       += sstring_octets[1:]
+        return result
+
+
 class CPF( cpppo.dfa ):
 
     """A SendRRData Common Packet Format specifies the number and type of the encapsulated CIP
@@ -1234,7 +1321,8 @@ class CPF( cpppo.dfa ):
     Here is a subset of the types of CPF items to expect:
 
         0x0000: 	NULL Address (used w/Unconnected Messages)
-        0x00b2: 	Unconnected Messages (eg. used within CIP command SendRRData)
+        0x0001:		EtherNet/IP CIP Legacy command 0x0001 (undocumented) reply
+        0x00b2:		Unconnected Messages (eg. used within CIP command SendRRData)
         0x00a1:		Address for connection based requests
         0x00b1:		Connected Transport packet (eg. used within CIP command SendUnitData)
         0x0100:		ListServices response
@@ -1246,6 +1334,7 @@ class CPF( cpppo.dfa ):
 
     """
     ITEM_PARSERS		= {
+        0x0001:	legacy_CPF_0x0001,	# used in EtherNet/IP Legacy command 0x0001
         0x00b2:	unconnected_send,	# used in SendRRData request/response
         0x0100:	communications_service, # used in ListServices response
         0x000C: identity_object,	# used in ListIdentity response
@@ -1402,7 +1491,7 @@ class CPF_service( cpppo.dfa ):
     @staticmethod
     def produce( data ):
         result			= b''
-        if 'CPF' in data:
+        if data and 'CPF' in data:
             result	       += CPF.produce( data.CPF )
         return result
 
@@ -1414,6 +1503,10 @@ class list_identity( CPF_service ):
     pass
 
 class list_services( CPF_service ):
+    pass
+
+class legacy( CPF_service ):
+    """Any "Legacy" EtherNet/IP CIP command codes that may contain CPF payloads."""
     pass
 
 
@@ -1441,6 +1534,17 @@ class CIP( cpppo.dfa ):
 
     The supported command values and their formats are:
 
+    Legacy 0x0001               0x0001
+
+        0000   f0 76 1c e0 d4 ec 08 5b 0e ee a5 c0 08 00 45 00  .v.....[......E.
+        0010   00 6a 17 21 00 00 7e 06 d4 37 c0 a8 05 fd 0a 10  .j.!..~..7......
+        0020   80 80 af 12 c5 64 18 b3 61 00 e9 ad b8 78 50 18  .....d..a....xP.
+        0030   07 d0 97 49 00 00 01 00 2a 00 00 00 00 00 00 00  ...I....*.......
+        0040   00 00 00 00 00 00 00 00 00 00 00 00 00 00 01 00  ................
+        0050   01 00 24 00 01 00 00 00 00 02 af 12 c0 a8 05 fd  ..$.............
+        0060   00 00 00 00 00 00 00 00 31 39 32 2e 31 36 38 2e  ........192.168.
+        0070   35 2e 32 35 33 00 00 00                          5.253...]
+
     ListIdentity		0x0063
 
     ListInterfaces		0x0064
@@ -1463,6 +1567,8 @@ class CIP( cpppo.dfa ):
 
     """
     COMMAND_PARSERS		= {
+        # Unknown Legacy commands w/ CPF payloads
+        (0x0001,):		legacy,		# many commands may use this parser, w/ 'CIP.legacy' payloads
 	# Usually only seen via UDP/IP, but valid for TCP/IP
         (0x0004,):		list_services,
         (0x0063,):		list_identity,
@@ -1489,6 +1595,10 @@ class CIP( cpppo.dfa ):
         the bytes string encoding the command.  There is little difference between a request and a
         response at this level, except that in a request the CIP.status is usually 0, while in a
         response it may indicate an error.
+
+        This will recognize/match either:
+        1) if .command == a recognized command COMMAND_PARSERS key
+        2) if 'CIP.<something>' (where <somethign> is the )matches the 
 
         """
         for cmd,cmdcls in cls.COMMAND_PARSERS.items():

@@ -34,6 +34,7 @@ __all__				= ['dialect', 'lookup_reset', 'lookup', 'resolve', 'resolve_element',
                                    'Object', 'Attribute',
                                    'UCMM', 'Connection_Manager', 'Message_Router', 'Identity', 'TCPIP']
 
+import contextlib
 import json
 import logging
 import os
@@ -1259,37 +1260,74 @@ class UCMM( Object ):
 			= ido	= dotdict()
         ido.version		= 1
 
-        for nam,val,get in [
-                ( 'sin_addr',		( TCPIP.class_id, 1, 5 ),	lambda d: d.IFACEADDRS.ip_address ),
-                ( 'sin_family',		2,				None ),
-                ( 'sin_port',		44818, 				None),
-                ( 'vendor_id',		( Identity.class_id, 1, 1 ),	lambda d: d.INT ),
-                ( 'device_type',	( Identity.class_id, 1, 2 ),	lambda d: d.INT ),
-                ( 'product_code',	( Identity.class_id, 1, 3 ),	lambda d: d.INT ),
-                ( 'product_revision',	( Identity.class_id, 1, 4 ),	lambda d: d.INT ),
-                ( 'status_word',	( Identity.class_id, 1, 5 ),	lambda d: d.WORD ),
-                ( 'serial_number',	( Identity.class_id, 1, 6 ),	lambda d: d.UDINT ),
-                ( 'product_name',	( Identity.class_id, 1, 7 ),	lambda d: d.SSTRING ),
-                ( 'state',		( Identity.class_id, 1, 8 ),	lambda d: d.USINT ),
+        for nam,dfl,ids,get in [
+                ( 'sin_addr',		'127.0.0.1',	( TCPIP.class_id, 1, 5 ),	lambda d: d.IFACEADDRS.ip_address ),
+                ( 'sin_family',		2,		None,				None ),
+                ( 'sin_port',		44818, 		None,				None),
+                ( 'vendor_id',		0,		( Identity.class_id, 1, 1 ),	lambda d: d.INT ),
+                ( 'device_type',	0,		( Identity.class_id, 1, 2 ),	lambda d: d.INT ),
+                ( 'product_code',	0,		( Identity.class_id, 1, 3 ),	lambda d: d.INT ),
+                ( 'product_revision',	0,		( Identity.class_id, 1, 4 ),	lambda d: d.INT ),
+                ( 'status_word',	0,		( Identity.class_id, 1, 5 ),	lambda d: d.WORD ),
+                ( 'serial_number',	0,		( Identity.class_id, 1, 6 ),	lambda d: d.UDINT ),
+                ( 'product_name',	0,		( Identity.class_id, 1, 7 ),	lambda d: d.SSTRING ),
+                ( 'state',		0xff,		( Identity.class_id, 1, 8 ),	lambda d: d.USINT ),
         ]:
-            if isinstance( val, tuple ):
-                att		= lookup( *val )
+            val			= dfl
+            if ids:
+                att		= lookup( *ids )
                 if att:
                     raw		= att.produce( 0, 1 )
-                    dat		= dotdict()
+                    val		= dotdict()
                     with att.parser as mch:
-                        eng	= mch.run( source=automata.peekable( raw ), data=dat )
-                        try:
+                        with contextlib.closing( mch.run( source=raw, data=val )) as eng:
                             for m,s in eng:
                                 pass
-                        finally:
-                            eng.close()
-                            del eng
-                        log.info( "Parsed using %r; %r from %r", mch, dat, raw )
-                        val	= get( dat )
-                else:
-                    val		= 0
+                            log.info( "Parsed using %r; %r from %r", mch, val, raw )
+                        # assert mch.terminal 
+                    if get:
+                        val	= get( val )
             ido[nam]		= val
+
+        data.enip.input		= bytearray( self.parser.produce( data.enip ))
+
+        return True
+
+    def legacy( self, data ):
+        """A subset of undocumented EtherNet/IP CIP "Legacy" commands are supported."""
+        if data.enip.command == 0x0001:
+            # A command which seems to return network information similar to List Interfaces
+            return self._legacy_0x0001( data )
+        else:
+            raise AssertionError( "Unimplemented EtherNet/IP CIP Legacy command: %r" % ( data ))
+
+    def _legacy_0x0001( self, data ):
+        cpf			= data.enip.CIP.legacy.CPF
+        cpf.item		= [ dotdict() ]
+        cpf.item[0].type_id	= 0x0001
+        cpf.item[0].legacy_CPF_0x0001 \
+            		= leg	= dotdict()
+
+        for nam,dfl,ids,get in [
+                ( 'sin_addr',		'127.0.0.1',	( TCPIP.class_id, 1, 5 ),	lambda d: d.IFACEADDRS.ip_address ),
+                ( 'sin_family',		2,		None,				None ),
+                ( 'sin_port',		44818, 		None,				None),
+        ]:
+            val			= dfl
+            if ids:
+                att		= lookup( *ids )
+                if att:
+                    raw		= att.produce( 0, 1 )
+                    val		= dotdict()
+                    with att.parser as mch:
+                        with contextlib.closing( mch.run( source=raw, data=val )) as eng:
+                            for m,s in eng:
+                                pass
+                            log.info( "Parsed using %r; %r from %r", mch, val, raw )
+                        # assert mch.terminal
+                    if get:
+                        val	= get( val )
+            leg[nam]		= val
 
         data.enip.input		= bytearray( self.parser.produce( data.enip ))
 

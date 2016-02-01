@@ -34,6 +34,7 @@ __all__				= [
 ]
 
 import argparse
+import contextlib
 import importlib
 import logging
 import os
@@ -62,14 +63,10 @@ def execute( via, params=None, pass_thru=None ):
     Yields tuples of each of the supplied params, with their polled values.
     
     """
-    reader			= via.read(
-        via.parameter_substitution( params or PARAMS, pass_thru=pass_thru ))
-    try:
+    with contextlib.closing( via.read(
+            via.parameter_substitution( params or PARAMS, pass_thru=pass_thru ))) as reader:
         for p,v in zip( params or PARAMS, reader ): # "lazy" zip
             yield p,v
-    finally:
-        reader.close()
-        del reader
 
 
 def loop( via, cycle=None, last_poll=None, **kwds ):
@@ -114,15 +111,13 @@ def loop( via, cycle=None, last_poll=None, **kwds ):
     # Perform poll.  Whatever code "reifies" the powerflex.read generator must catch exceptions and
     # tell the (failed) powerflex instance to close its gateway.  This prepares the gateway for
     # subsequent I/O attempts (if any).
-    executor			= execute( via, **kwds )
     try:
-        results			= list( executor )
+        with contextlib.closing( execute( via, **kwds )) as executor:
+            # PyPy compatibility; avoid deferred destruction of generators
+            results		= list( executor )
     except Exception as exc:
         via.close_gateway( exc )
         raise
-    finally:
-        executor.close() # PyPy compatibility; avoid deferred destruction of generators
-        del executor
 
     done_poll			= timer()
     duration			= done_poll - init_poll

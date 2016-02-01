@@ -29,7 +29,7 @@ if __name__ == "__main__":
 
 import cpppo
 from   cpppo.server import network, enip
-from   cpppo.server.enip import parser, logix, device
+from   cpppo.server.enip import parser, logix, device, client
 
 log				= logging.getLogger( "enip" )
 
@@ -1195,12 +1195,32 @@ mlx_0_request			= bytes(bytearray([ # MicroLogix request
     0xa3,      0x02, b' '[0],    0x02, b'$'[0],    0x01,
 ]))
 
+cpf_type_0x0001			= bytes(bytearray([ # EtherNet/IP command 0x0001 (undocumented) reply
+                                                                                        0x01, 0x00,  #               ..
+    0x01, 0x00, 0x24, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x02, 0xaf, 0x12, 0xc0, 0xa8, 0x05, 0xfd,  # ..$.............
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x31, 0x39, 0x32, 0x2e, 0x31, 0x36, 0x38, 0x2e,  # ........192.168.
+    0x35, 0x2e, 0x32, 0x35, 0x33, 0x00, 0x00, 0x00,                                                  # 5.253...]
+]))
+
 
 CPF_tests			= [
     (
         b'',
         {
             "CPF": {},
+        }
+    ), (
+        cpf_type_0x0001,
+        {
+            "CPF.count": 1, 
+            "CPF.item[0].type_id": 1, 
+            "CPF.item[0].length": 36, 
+            "CPF.item[0].legacy_CPF_0x0001.version": 1, 
+            "CPF.item[0].legacy_CPF_0x0001.unknown_1": 0, 
+            "CPF.item[0].legacy_CPF_0x0001.sin_family": 2, 
+            "CPF.item[0].legacy_CPF_0x0001.sin_port": 44818, 
+            "CPF.item[0].legacy_CPF_0x0001.sin_addr": "192.168.5.253", 
+            "CPF.item[0].legacy_CPF_0x0001.ip_address": "192.168.5.253"
         }
     ), (
         b'\x00\x00',
@@ -1323,7 +1343,7 @@ CPF_tests			= [
 ]
 
 def test_enip_CPF():
-    # logging.getLogger().setLevel( logging.NORMAL )
+    #logging.getLogger().setLevel( logging.DETAIL )
     for pkt,tst in CPF_tests:
         data			= cpppo.dotdict()
         source			= cpppo.chainable( pkt )
@@ -1422,11 +1442,37 @@ gas_m01_reply		= bytes(bytearray([
     0x8a, 0x00, 0x08, 0x00,
 ]))
 
+# EtherNet/IP CIP Legacy command 0x0001 reply
+leg_0x1_reply		= bytes(bytearray([
+                      0x01, 0x00, 0x2a, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,                    #       ..*.......
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00,  # ................
+    0x01, 0x00, 0x24, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x02, 0xaf, 0x12, 0xc0, 0xa8, 0x05, 0xfd,  # ..$.............
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x31, 0x39, 0x32, 0x2e, 0x31, 0x36, 0x38, 0x2e,  # ........192.168.
+    0x35, 0x2e, 0x32, 0x35, 0x33, 0x00, 0x00, 0x00,                                                  # 5.253...]
+]))
  
 CIP_tests			= [
             ( 
                 # An empty request (usually indicates termination of session)
                 b'', {}
+            ), (
+                leg_0x1_reply,
+                {
+                    "enip.command": 0x0001,
+                    "enip.length": 42,
+                    "enip.options": 0, 
+                    "enip.session_handle": 0, 
+                    "enip.status": 0,
+                    "enip.CIP.legacy.CPF.count": 1, 
+                    "enip.CIP.legacy.CPF.item[0].type_id": 1, 
+                    "enip.CIP.legacy.CPF.item[0].length": 36, 
+                    "enip.CIP.legacy.CPF.item[0].legacy_CPF_0x0001.version": 1, 
+                    "enip.CIP.legacy.CPF.item[0].legacy_CPF_0x0001.unknown_1": 0, 
+                    "enip.CIP.legacy.CPF.item[0].legacy_CPF_0x0001.sin_family": 2, 
+                    "enip.CIP.legacy.CPF.item[0].legacy_CPF_0x0001.sin_port": 44818, 
+                    "enip.CIP.legacy.CPF.item[0].legacy_CPF_0x0001.sin_addr": "192.168.5.253", 
+                    "enip.CIP.legacy.CPF.item[0].legacy_CPF_0x0001.ip_address": "192.168.5.253"
+                }
             ), (
                 listident_1_req,
                 {
@@ -1966,7 +2012,7 @@ CIP_tests			= [
 ]
   
 
-def test_enip_CIP( repeat=10 ):
+def test_enip_CIP( repeat=1 ):
     """Most of CIP parsing run-time overhead is spent inside 'run'.
     """
     enip.lookup_reset() # Flush out any existing CIP Objects for a fresh start
@@ -1976,8 +2022,7 @@ def test_enip_CIP( repeat=10 ):
     # We'll use a Logix Message Router, to handle its expanded porfolio of commands
     MR				= logix.Logix( instance_id=1 )
 
-    for _ in range( repeat ):
-      for pkt,tst in CIP_tests:
+    for pkt,tst in client.recycle( CIP_tests, times=repeat ):
         # Parse just the CIP portion following the EtherNet/IP encapsulation header
         data			= cpppo.dotdict()
         source			= cpppo.chainable( pkt )

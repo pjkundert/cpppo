@@ -39,14 +39,15 @@ __all__				= ['main', 'address', 'timeout', 'latency',
                                    'config_files']
 
 import argparse
+import contextlib
 import fnmatch
 import json
 import logging
 import os
 import random
 import signal
-import sys
 import socket
+import sys
 import threading
 import time
 import traceback
@@ -649,8 +650,9 @@ def enip_srv_udp( conn, name, enip_process, **kwds ):
                 # Exception (dfa exits in non-terminal state).  Build data.request.enip:
                 begun		= cpppo.timer() # waiting for next transaction
                 addr,stats	= None,None
-                engine		= machine.run( path='request', source=source, data=data )
-                try:
+                with contextlib.closing( machine.run(
+                        path='request', source=source, data=data )) as engine:
+                    # PyPy compatibility; avoid deferred destruction of generators
                     for mch,sta in engine:
                         if sta is not None:
                             # No more transitions available.  Wait for input.  
@@ -688,9 +690,6 @@ def enip_srv_udp( conn, name, enip_process, **kwds ):
                             log.detail( "%s recv: %5d: %s", machine.name_centered(),
                                         len( msg ), cpppo.reprlib.repr( msg ))
                         source.chain( msg )
-                finally:
-                    engine.close() # PyPy compatibility; avoid deferred destruction of generators
-                    del engine
 
                 # Terminal state and EtherNet/IP header recognized; process and return response
                 assert stats
@@ -754,8 +753,9 @@ def enip_srv_tcp( conn, addr, name, enip_process, delay=None, **kwds ):
                 # If no/partial EtherNet/IP header received, parsing will fail with a NonTerminal
                 # Exception (dfa exits in non-terminal state).  Build data.request.enip:
                 begun		= cpppo.timer()
-                engine		= machine.run( path='request', source=source, data=data )
-                try:
+                with contextlib.closing( machine.run(
+                        path='request', source=source, data=data )) as engine:
+                    # PyPy compatibility; avoid deferred destruction of generators
                     for mch,sta in engine:
                         if sta is not None:
                             continue
@@ -802,9 +802,6 @@ def enip_srv_tcp( conn, addr, name, enip_process, delay=None, **kwds ):
                                     break
                                 # We're at a None (can't proceed), and no input is available.  This
                                 # is where we implement "Blocking"; just loop.
-                finally:            
-                    engine.close() # PyPy compatibility; avoid deferred destruction of generators
-                    del engine
 
                 log.detail( "Transaction parsed  after %7.3fs", cpppo.timer() - begun )
                 # Terminal state and EtherNet/IP header recognized, or clean EOF (no partial
