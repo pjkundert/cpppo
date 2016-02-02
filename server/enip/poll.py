@@ -52,15 +52,15 @@ PARAMS				= [
 ]
 
 def execute( via, params=None, pass_thru=None ):
-    """Perform a single poll via the supplied enip.getattr.gateway instance, yielding the parameters
-    and their polled values.  Supply params (a sequence of CIP ('<address>', '<type>')), as might be
-    produced by the provided via's class' parameter_substitution method...
+    """Perform a single poll via the supplied enip.get_attribute.gateway instance, yielding the
+    parameters and their polled values.  Supply params (a sequence of CIP ('<address>', '<type>')),
+    as might be produced by the provided via's class' parameter_substitution method...
 
     By default, we'll look for the parameters in the module's PARAMS list, which must be recognized
     by the supplied via's parameter_substitutions method, if pass_thru is not Truthy.
 
     Yields tuples of each of the supplied params, with their polled values.
-    
+
     """
     with contextlib.closing( via.read(
             via.parameter_substitution( params or PARAMS, pass_thru=pass_thru ))) as reader:
@@ -181,7 +181,7 @@ def poll( gateway_class, address=None, depth=None, multiple=None, timeout=None,
           params=None, pass_thru=None, cycle=None, process=None, failure=None,
           backoff_min=None, backoff_multiplier=None, backoff_max=None, latency=None ):
     """Connect to the Device (eg. CompactLogix, MicroLogix, PowerFlex) using the provide gateway_class
-    (something derived from enip.getattr.proxy, probably), at the specified address (the default
+    (something derived from enip.get_attribute.proxy, probably), at the specified address (the default
     enip.address, if None), and run polls, process (printing, by default) the results.
 
     Creates a new gateway_class instance; thus, each poll.poll method uses a separate EtherNet/IP
@@ -201,7 +201,7 @@ def poll( gateway_class, address=None, depth=None, multiple=None, timeout=None,
 
 def main( argv=None ):
     ap				= argparse.ArgumentParser(
-        description = "Poll Parameters from AB PowerFlex",
+        description = "Poll Parameters from CIP Device via gateway (AB PowerFlex 750, by default)",
         epilog = "" )
 
     ap.add_argument( '-v', '--verbose', default=0, action="count",

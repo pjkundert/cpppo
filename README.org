@@ -807,7 +807,7 @@
      substitutes =get_attributes_all= or =get_attribute_single= as appropriate.
      Use numeric addressing to the Instance or Attribute level,
      eg. =@<class>/<instance>= or =@<class>/<instance>/<attribute>=.  Roughly
-     from =cpppo/server/enip/getattr.py:
+     from =cpppo/server/enip/get_attribute.py:
      #+BEGIN_EXAMPLE python
      def attribute_operations( paths ):
          for op in client.parse_operations( paths ):
@@ -828,7 +828,7 @@
      Identity object (Class 1, Instance 1) of a Controller (Get Attributes All,
      and Get Attribute Single of Class 1, Instance 1, Attribute 7):
      #+BEGIN_EXAMPLE
-     $ python -m cpppo.server.enip.getattr --depth 3 -v  '@1/1'  '@1/1/7'
+     $ python -m cpppo.server.enip.get_attribute --depth 3 -v  '@1/1'  '@1/1/7'
      2015-04-21 14:51:14.633:   0: Single G_A_A      @0x0001/1 == [1, 0, 14, 0, 54,  \
          0, 20, 11, 96, 49, 26, 6, 108, 0, 20, 49, 55, 53, 54, 45, 76, 54, 49, 47,   \
          66, 32, 76, 79, 71, 73, 88, 53, 53, 54, 49, 255, 0, 0, 0]
@@ -985,7 +985,7 @@
      device, such as an A-B PowerFlex, with (for example) a CIP =REAL= attribute
      at Class 0x93, Instance 1, Attribute 10:
      #+BEGIN_EXAMPLE python
-     from cpppo.server.enip.getattr import proxy_simple
+     from cpppo.server.enip.get_attribute import proxy_simple
 
      class some_sensor( proxy_simple ):
          '''A simple (non-routing) CIP device with one parameter with a
@@ -1003,7 +1003,7 @@
      have a ControlLogix or CompactLogix), or =proxy_simple= (if you have a
      MicroLogix) classes in these examples, and use the "Product Name" attribute
      (which reads the CIP =SSTRING= at Class 1, Instance 1, Attribute 7: See
-     =cpppo/server/enip/getattr.py=)
+     =cpppo/server/enip/get_attribute.py=)
 
      In your Python code, to access the parameter "A Sensor Parameter" from the
      remote A-B PowerFlex device (the supplied name is transformed to
@@ -1035,8 +1035,8 @@
         remote device, the Python generator will raise an exception.  Whereever
         in your code that you "reify" the generator's values (access them and
         assign them to local variables), you must trap any Exception and notify
-        the =getattr.proxy= by invoking =.close_gateway=.  This prepares the
-        =getattr.proxy= to re-open the connection for a future attempt to access
+        the =get_attribute.proxy= by invoking =.close_gateway=.  This prepares the
+        =get_attribute.proxy= to re-open the connection for a future attempt to access
         the device.
 
      A successful =.read= (with no timeouts, no I/O errors) can return None,

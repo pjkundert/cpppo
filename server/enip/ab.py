@@ -24,7 +24,7 @@ __license__                     = "Dual License: GPLv3 (or later) and Commercial
 
 __all__				= ['powerflex', 'powerflex_750_series']
 
-from .getattr import proxy_simple
+from .get_attribute import proxy_simple
 
 # Example of simple CIP device proxy: AB PowerFlex AC controllers
 class powerflex( proxy_simple ):
