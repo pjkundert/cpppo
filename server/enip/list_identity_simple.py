@@ -10,7 +10,6 @@ from __future__ import print_function
 
 import sys
 
-import cpppo
 from cpppo.server import enip
 from cpppo.server.enip import client
 

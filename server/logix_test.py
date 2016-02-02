@@ -4,8 +4,6 @@ from __future__ import division
 
 import logging
 import os
-import platform
-import pytest
 import sys
 import threading
 import time

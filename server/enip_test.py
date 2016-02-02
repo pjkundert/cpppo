@@ -29,7 +29,7 @@ if __name__ == "__main__":
 
 import cpppo
 from   cpppo.server import network, enip
-from   cpppo.server.enip import parser, logix, device, client
+from   cpppo.server.enip import parser, logix, client
 
 log				= logging.getLogger( "enip" )
 
@@ -871,11 +871,11 @@ def escaped_chunks_to_bytes( escaped, chunk=4 ):
 
     """
     assert len( escaped ) % chunk == 0, \
-        "escaped bytes of length %d must be divisible by chunk %d" % ( len( string ), chunk )
+        "escaped bytes of length %d must be divisible by chunk %d" % ( len( escaped ), chunk )
     def escape_decode( chk ):
         res,_			= codecs.escape_decode( chk.strip( b'_' ) or b'_' )
         assert len( res ) == 1, \
-            "escaped chunk %r must yield 1 byte result instead of %d-byte %r" % ( chk, siz, res )
+            "escaped chunk %r must yield 1 byte result instead of %d-byte %r" % ( chk, len( res ), res )
         return res
     return b''.join( escape_decode( escaped[i:i+chunk] )
                      for i in range( 0, len( escaped ), chunk ))
@@ -906,6 +906,13 @@ listident_2_rpy			= escaped_chunks_to_bytes(
         br'''\x01\x00\x0c\x00?___\x00\x01\x00\x00\x02\xaf\x12\n__\xa1\x01\x03\x00\x00\x00\x00\x00\x00\x00\x00'''
         br'''\x01\x00\x0e\x00\x95\x00\x1b\x0b0___\x00^___3___\x1e\xc0\x1d1___7___6___9___-___L___2___4___E___'''
         br'''R___-___Q___B___1___B___/___A___ ___L___O___G___I___X___5___3___2___4___E___R___\x03'''
+)
+# *Logix 1796 List Identity reply, with extra payload (ignored)...
+listident_3_rpy			= escaped_chunks_to_bytes(
+        br'''c___\x00\x48\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00'''
+        br'''\x01\x00\x0c\x00\x42\x00\x01\x00\x00\x02\xaf\x12\n__\xa1\x01\x03\x00\x00\x00\x00\x00\x00\x00\x00'''
+        br'''\x01\x00\x0e\x00\x95\x00\x1b\x0b0___\x00^___3___\x1e\xc0\x1d1___7___6___9___-___L___2___4___E___'''
+        br'''R___-___Q___B___1___B___/___A___ ___L___O___G___I___X___5___3___2___4___E___R___\x03\x01\x02\x03'''
 )
 
 
@@ -1118,7 +1125,7 @@ tag_tests			= [
 
 def test_enip_Logix():
     enip.lookup_reset() # Flush out any existing CIP Objects for a fresh start
-    Obj				= logix.Logix( instance_id=1 )
+    logix.Logix( instance_id=1 )
 
     for pkt,tst in tag_tests:
         data			= cpppo.dotdict()
@@ -1544,6 +1551,30 @@ CIP_tests			= [
                     "enip.CIP.list_identity.CPF.count": 1, 
                     "enip.CIP.list_identity.CPF.item[0].type_id": 12, 
                     "enip.CIP.list_identity.CPF.item[0].length": 63, 
+                    "enip.CIP.list_identity.CPF.item[0].identity_object.status_word": 48, 
+                    "enip.CIP.list_identity.CPF.item[0].identity_object.sin_addr": "10.161.1.3",
+                    "enip.CIP.list_identity.CPF.item[0].identity_object.vendor_id": 1, 
+                    "enip.CIP.list_identity.CPF.item[0].identity_object.sin_port": 44818, 
+                    "enip.CIP.list_identity.CPF.item[0].identity_object.state": 3, 
+                    "enip.CIP.list_identity.CPF.item[0].identity_object.version": 1, 
+                    "enip.CIP.list_identity.CPF.item[0].identity_object.device_type": 14, 
+                    "enip.CIP.list_identity.CPF.item[0].identity_object.sin_family": 2, 
+                    "enip.CIP.list_identity.CPF.item[0].identity_object.serial_number": 3223204702, 
+                    "enip.CIP.list_identity.CPF.item[0].identity_object.product_code": 149, 
+                    "enip.CIP.list_identity.CPF.item[0].identity_object.product_name": "1769-L24ER-QB1B/A LOGIX5324ER", 
+                    "enip.CIP.list_identity.CPF.item[0].identity_object.product_revision": 2843, 
+                }
+            ), (
+                listident_3_rpy,
+                {
+                    "enip.command": 99,
+                    "enip.length": 72,
+                    "enip.options": 0, 
+                    "enip.session_handle": 0, 
+                    "enip.status": 0,
+                    "enip.CIP.list_identity.CPF.count": 1, 
+                    "enip.CIP.list_identity.CPF.item[0].type_id": 12, 
+                    "enip.CIP.list_identity.CPF.item[0].length": 66, 
                     "enip.CIP.list_identity.CPF.item[0].identity_object.status_word": 48, 
                     "enip.CIP.list_identity.CPF.item[0].identity_object.sin_addr": "10.161.1.3",
                     "enip.CIP.list_identity.CPF.item[0].identity_object.vendor_id": 1, 
@@ -2071,7 +2102,7 @@ def test_enip_CIP( repeat=1 ):
                     if log.getEffectiveLevel() <= logging.NORMAL:
                         log.normal( "Parsed  %3d bytes using %s.parser, into %s", 
                                     len( item.unconnected_send.request.input ),
-                                    Lx, enip.enip_format( data ))
+                                    MR, enip.enip_format( data ))
         try:
             for k,v in tst.items():
                 assert data[k] == v, ( "data[%r] == %r\n"

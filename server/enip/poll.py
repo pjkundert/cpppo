@@ -20,7 +20,7 @@ from __future__ import print_function
 from __future__ import division
 
 try:
-    from future_builtins import map, zip # Use Python 3 "lazy" zip, map
+    from future_builtins import zip # Use Python 3 "lazy" zip
 except ImportError:
     pass
 
@@ -37,7 +37,6 @@ import argparse
 import contextlib
 import importlib
 import logging
-import os
 import sys
 import time
 import traceback
@@ -111,13 +110,10 @@ def loop( via, cycle=None, last_poll=None, **kwds ):
     # Perform poll.  Whatever code "reifies" the powerflex.read generator must catch exceptions and
     # tell the (failed) powerflex instance to close its gateway.  This prepares the gateway for
     # subsequent I/O attempts (if any).
-    try:
+    with via: # ensure via.close_gateway invoked on any Exception
         with contextlib.closing( execute( via, **kwds )) as executor:
             # PyPy compatibility; avoid deferred destruction of generators
             results		= list( executor )
-    except Exception as exc:
-        via.close_gateway( exc )
-        raise
 
     done_poll			= timer()
     duration			= done_poll - init_poll

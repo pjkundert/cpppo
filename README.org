@@ -858,7 +858,6 @@
 
      import sys
     
-     import cpppo
      from cpppo.server import enip
      from cpppo.server.enip import client
 
@@ -961,10 +960,10 @@
      }
      #+END_EXAMPLE
 
-*** EtherNet/IP =cpppo.server.enip.getattr= API
+*** EtherNet/IP =cpppo.server.enip.get_attribute= API
 
-    Many devices such as Rockwell MicroLogix, Allen-Bradley PowerFlex that
-    advertise EtherNet/IP CIP protocol offer only very basic connectivity.
+    Many devices such as Rockwell MicroLogix, Allen-Bradley PowerFlex, etc. that
+    advertise EtherNet/IP CIP protocol offer only very basic connectivity:
 
     - No CIP "routing" capability, hence no Unconnected Send encapsulation,
       including route path or send path addressing.
@@ -976,50 +975,159 @@
     order to retain high thruput, the API maintains the ability to "pipeline"
     requests over high-latency links.
 
-**** =cpppo.server.enip= =getattr.proxy[_simple]= classes
+**** The =proxy= and =proxy_simple= classes
 
-    Access an EtherNet/IP CIP device using either generic Get Attributes
-    All/Single, or *Logix Read Tag [Fragmented] services, as desired.  Data is
-    delivered converted to target format.
+     Access an EtherNet/IP CIP device using either generic Get Attributes
+     All/Single, or *Logix Read Tag [Fragmented] services, as desired.  Data is
+     delivered converted to target format.
 
-    To create a "proxy" for a simple (non-routing) remote EtherNet/IP CIP sensor
-    device, such as an A-B PowerFlex, with a CIP =REAL= attribute at Class
-    0x93, Instance 1, Attribute 10:
-    #+BEGIN_EXAMPLE python
-    from cpppo.server.enip.getattr import proxy_simple
+     To create a "proxy" for a simple (non-routing) remote EtherNet/IP CIP sensor
+     device, such as an A-B PowerFlex, with (for example) a CIP =REAL= attribute
+     at Class 0x93, Instance 1, Attribute 10:
+     #+BEGIN_EXAMPLE python
+     from cpppo.server.enip.getattr import proxy_simple
 
-    class some_sensor( proxy_simple ):
-        '''A simple (non-routing) CIP device with one parameter with a
-           shortcut name: 'A Sensor Parameter' '''
-        PARAMETERS		= dict( proxy_simple.PARAMETERS,
-            a_sensor_parameter	= powerflex.parameter( '@0x93/1/10', 'REAL', 'Hz' ),
-        )
-    #+END_EXAMPLE
+     class some_sensor( proxy_simple ):
+         '''A simple (non-routing) CIP device with one parameter with a
+            shortcut name: 'A Sensor Parameter' '''
+         PARAMETERS	= dict( proxy_simple.PARAMETERS,
+             a_sensor_parameter	= powerflex.parameter( '@0x93/1/10', 'REAL', 'Hz' ),
+         )
+     #+END_EXAMPLE
 
-    Then, in your Python code, to access the parameter from the remote device:
-    #+BEGIN_EXAMPLE python
-    via				= some_sensor( host="10.0.1.2" )
-    try:
-        value,			= via.read( "A Sensor Parameter" )
-    except Exception as exc:
-        logging.warning( "Access to remote CIP device failed: %s", exc )
-        via.close_gateway( exc=exc )
-    #+END_EXAMPLE
+**** Reading Attributes Using =proxy.read=
 
-    There are several important things to note here:
+     If you have an A-B PowerFlex handy, use your custom =proxy= or
+     =proxy_simple= class called =some_sensor= defined above, and its "A Sensor
+     Parameter" attribute.  Alternatively, just use the plain =proxy= (if you
+     have a ControlLogix or CompactLogix), or =proxy_simple= (if you have a
+     MicroLogix) classes in these examples, and use the "Product Name" attribute
+     (which reads the CIP =SSTRING= at Class 1, Instance 1, Attribute 7: See
+     =cpppo/server/enip/getattr.py=)
 
-    1. You can =.read= 1 or more values.  Here, we supply a single Python =str=,
-       so the =proxy= deduces that you want one named parameter value.
-    2. The =.read= returns a sequence of all the requested values, so we use
-       Python =tuple= assignment to unpack a sequence containing a single value:
-       : variable, = [value]
-    3. Upon the first error accessing and/or transforming a value from the
-       remote device, the Python generator will raise an exception.  Whereever
-       in your code that you "reify" the generator's values (access them and
-       assign them to local variables), you must trap any Exception and notify
-       the =getattr.proxy= by invoking =.close_gateway=.  This prepares the
-       =getattr.proxy= to re-open the connection for a future attempt to access
-       the device.
+     In your Python code, to access the parameter "A Sensor Parameter" from the
+     remote A-B PowerFlex device (the supplied name is transformed to
+     =a_sensor_parameter= by lowering case and transforming ' ' to '\_', to check
+     for matching any =proxy.PARAMETER= entry):
+     #+BEGIN_EXAMPLE python
+     via		= some_sensor( host="10.0.1.2" )
+     try:
+         value,		= via.read( "A Sensor Parameter" )
+     except Exception as exc:
+         logging.warning( "Access to remote CIP device failed: %s", exc )
+         via.close_gateway( exc=exc )
+         raise
+     #+END_EXAMPLE
+
+     There are several important things to note here:
+
+     1. You can =.read= 1 or more values.  Here, we supply a single Python =str=,
+        so the =proxy= deduces that you want one named parameter value.  Provide
+        a sequence of attributes to read more than one.
+     2. The =.read= returns a sequence of all the requested values, so we use
+        Python =tuple= assignment to unpack a sequence containing a single
+        value, eg:
+        #+BEGIN_EXAMPLE python
+        variable, = [123]
+        result,   = proxy( "10.0.1.2" ).read( "A Sensor Parameter" )
+        #+END_EXAMPLE
+     3. Upon the first error accessing and/or transforming a value from the
+        remote device, the Python generator will raise an exception.  Whereever
+        in your code that you "reify" the generator's values (access them and
+        assign them to local variables), you must trap any Exception and notify
+        the =getattr.proxy= by invoking =.close_gateway=.  This prepares the
+        =getattr.proxy= to re-open the connection for a future attempt to access
+        the device.
+
+     A successful =.read= (with no timeouts, no I/O errors) can return None,
+     instead of valid data, if the CIP device reports an error status code for a
+     request.  This is only case where the results of a =.read= will be "Falsey"
+     (evaluate =False= in a boolean test).  All successful reads of valid data
+     will return a non-empty list of results, and are "Truthy" (evalute
+     =True=).   Each returned value must be tested.
+
+     To guarantee that an Exception is raised if any result is not returned, you
+     can set =.read='s =checking= parameter to =True=:
+     #+BEGIN_EXAMPLE python
+     via		= some_sensor( host="10.0.1.2" )
+     try:
+         # Will raise Exception (closing gateway) on any failure to get data
+         value,		= read( "A Sensor Parameter", checking=True )
+     except Exception as exc:
+         via.close_gateway( exc )
+         raise
+     # value is *always* guaranteed to be [<value>]
+     #+END_EXAMPLE
+
+**** Using the =proxy= Context Manager API
+
+     There is a simple mechanism provided to ensure that all of the above
+     maintenance of the =proxy='s gateway occurs: the =proxy= class provides a
+     Context Manager API, which ensures that the =proxy='s gateway is opened, and
+     that the =proxy='s =.close_gateway= is invoked on any Exception that occurs
+     while reifying the generator returned by =proxy.read=:
+     #+BEGIN_EXAMPLE python
+     via		= some_sensor( host="10.0.1.2" )
+     with via:
+         value,		= via.read( "A Sensor Parameter" )
+     # value may be something like [1.23], or None if returned error status
+     #+END_EXAMPLE
+
+     Wherever in your code that you plan to use the results obtained from a
+     proxy, ensure that you enclose it in a =with <proxy>:= block.  You may even
+     call the =.read= method elsewhere (it is already protected against
+     Exceptions raised during initial processing): just ensure that the context
+     manager is invoked before you begin to use the results, so that Exceptions
+     caused by I/O errors are properly captured:
+     #+BEGIN_EXAMPLE python
+     from __future__ import print_function
+     via		= some_sensor( host="10.0.1.2" )
+     reader		= via.read( "A Sensor Parameter" )
+     # ... later ...
+     with via:
+         for value in reader:
+             print( "Got: %r" % ( value ))
+     #+END_EXAMPLE
+
+**** The =proxy= Device's Identity
+
+     As soon as a =proxy='s gateway is opened, the =.instance= attribute is
+     populated with the results of the device's CIP "List Identity" response.
+     At any time, the =proxy.__str__= method can be used to print the device
+     Identity's Product Name, network address, and CIP session id.
+
+     The connection and List Identity request doesn't occur 'til the =proxy= is
+     accessed using =.read=, or the Context Manager is invoked using =with
+     <proxy>:=
+     #+BEGIN_EXAMPLE python
+     from __future__ import print_function
+     via		= some_sensor( host="10.0.1.2" )
+     print( "Not yet connected: %s" % ( via ))
+     reader		= via.read( "A Sensor Parameter" )
+     print( "Connected! %s" % ( via ))
+     #+END_EXAMPLE
+
+     Producing the output:
+     : Not yet connected: None at None
+     : Connected! 1756-L61/C LOGIX5561 at localhost:44818[2206679763]
+
+     If you wish to avoid getting the device's identity using CIP List Identity,
+     simply pass a product name string ="Something"= (or a
+     =cpppo.dotdict({"product_name":"Something"}))=) in the =identity_default=
+     parameter:
+     #+BEGIN_EXAMPLE python
+     from __future__ import print_function
+     via		= proxy( host="localhost", identity_default="Something" )
+     print( "Not yet connected: %s" % ( via ))
+     reader		= via.read( "Product Name" )
+     print( "Connected! %s" % ( via ))
+     #+END_EXAMPLE
+
+     This would produce something like:
+     #+BEGIN_EXAMPLE
+     Not yet connected: Something at None
+     Connected! Something at localhost:44818[576509498]
+     #+END_EXAMPLE
 
 *** EtherNet/IP =cpppo.server.enip.poll= API
 

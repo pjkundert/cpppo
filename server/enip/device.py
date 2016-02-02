@@ -37,7 +37,6 @@ __all__				= ['dialect', 'lookup_reset', 'lookup', 'resolve', 'resolve_element',
 import contextlib
 import json
 import logging
-import os
 import random
 import sys
 import threading
@@ -47,8 +46,8 @@ import configparser # Python2 requires 'pip install configparser'
 
 from ...dotdict import dotdict
 from ... import automata, misc
-from .parser import ( DINT, UDINT, UDINT_network, DWORD, INT, UINT, WORD, USINT,
-                      EPATH, EPATH_padded, SSTRING, STRING, STRUCT, IFACEADDRS,
+from .parser import ( UDINT, DWORD, INT, UINT, WORD, USINT,
+                      EPATH, EPATH_padded, SSTRING, STRING, IFACEADDRS,
                       CIP, typed_data,
                       octets, octets_encode, octets_noop, octets_drop, move_if,
                       struct, enip_format, status )
@@ -1284,7 +1283,6 @@ class UCMM( Object ):
                             for m,s in eng:
                                 pass
                             log.info( "Parsed using %r; %r from %r", mch, val, raw )
-                        # assert mch.terminal 
                     if get:
                         val	= get( val )
             ido[nam]		= val
@@ -1306,7 +1304,7 @@ class UCMM( Object ):
         cpf.item		= [ dotdict() ]
         cpf.item[0].type_id	= 0x0001
         cpf.item[0].legacy_CPF_0x0001 \
-            		= leg	= dotdict()
+                        = leg   = dotdict()
 
         for nam,dfl,ids,get in [
                 ( 'sin_addr',		'127.0.0.1',	( TCPIP.class_id, 1, 5 ),	lambda d: d.IFACEADDRS.ip_address ),
@@ -1324,7 +1322,6 @@ class UCMM( Object ):
                             for m,s in eng:
                                 pass
                             log.info( "Parsed using %r; %r from %r", mch, val, raw )
-                        # assert mch.terminal
                     if get:
                         val	= get( val )
             leg[nam]		= val

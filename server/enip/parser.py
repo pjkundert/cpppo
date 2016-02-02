@@ -36,7 +36,6 @@ import json
 import logging
 import struct
 import sys
-import traceback
 
 import ipaddress
 
@@ -377,7 +376,6 @@ class IPADDR( UDINT_network ):
     UDINT_network to produce an IPv4 dotted-quad address string.
 
     """
-
     def terminate( self, exc, machine, path, data ):
         """Post-process a parsed UDINT IP address to produce it in dotted-quad string form"""
         super( IPADDR, self ).terminate( exc, machine=machine, path=path, data=data )
@@ -422,11 +420,10 @@ class IFACEADDRS( STRUCT ):
         nmsk[True] = gwad	= IPADDR(	context='gateway_address' )
         gwad[True] = dns1	= IPADDR(	context='dns_primary' )
         dns1[True] = dns2	= IPADDR(	context='dns_secondary' )
-        dns2[True] = domn	= STRING(		context='domain_name',
-                                                        terminal=True )
-        domn[None]		= move_if( 'movsstring',source='.domain_name.string',
-                                                   destination='.domain_name',
-                                           state=cpppo.state( 	'done', terminal=True ))
+        dns2[True] = domn	= STRING(	context='domain_name',
+                                                terminal=True )
+        domn[None]		= move_if( 'movsstring', source='.domain_name.string',
+                                                    destination='.domain_name' )
 
         super( IFACEADDRS, self ).__init__( name=name, initial=ipad, **kwds )
 
@@ -1185,8 +1182,9 @@ class identity_object( cpppo.dfa ):
                                                terminal=True )		# We're OK with ending here...
         more[True]	= stat	= USINT( context='state',		# May end here, too...
                                          terminal=True )
-        stat[True]	= xtra	= octets( context='xtra',		# ... any extra data are ignored
+        stat[True]	= xtra	= octets( context='extra', octets_extension='',	# ... any extra data are ignored
                                           terminal=True )
+        xtra[True]	= xtra
 
         # so, handle moving .product_name.string up to product_name, then try for more
         prnm[None]		= move_if( 'movsstring',source='.product_name.string',
@@ -1213,6 +1211,8 @@ class identity_object( cpppo.dfa ):
         result		       += USINT.produce( data.state		# EtherNet/IP CIP Vol 2, Table 2-4.4:
                                                  if 'state' in data	# If not implemented,
                                                  else 0xFF )		# the value shall be 0xFF
+        if 'extra' in data and data.extra:
+            result	       += bytes(bytearray( data.extra ))
         return result
 
 

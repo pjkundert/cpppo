@@ -2,18 +2,9 @@ from __future__ import absolute_import
 from __future__ import print_function
 from __future__ import division
 
-try:
-    from future_builtins import map, zip
-except ImportError:
-    pass
-
-import errno
+import contextlib
 import logging
-import multiprocessing
 import random
-import socket
-import threading
-import time
 
 import cpppo
 from . import parser
@@ -28,8 +19,10 @@ def test_IPADDR():
     # But, we parse them as Network byte-ordered UDINTs and present them as IP addresses
     result			= cpppo.dotdict()
     with parser.IPADDR() as machine:
-        for m,s in machine.run( source=source, data=result ):
-            pass
+        with contextlib.closing( machine.run( source=source, data=result )) as engine:
+            for m,s in engine:
+                if s is None:
+                    assert m.terminal
     assert result.IPADDR == '10.0.0.1'
 
 
@@ -47,8 +40,9 @@ def test_IFACEADDRS():
 
     result			= cpppo.dotdict()
     with parser.IFACEADDRS() as machine:
-        for m,s in machine.run( source=source, data=result ):
-            pass
+        with contextlib.closing( machine.run( source=source, data=result )) as engine:
+            for m,s in engine:
+                pass
     assert result.IFACEADDRS == data
 
 
@@ -62,8 +56,10 @@ def test_STRINGs():
 
         result			= cpppo.dotdict()
         with parser.STRING() as machine:
-            for m,s in machine.run( source=encoded, data=result ):
-                pass
+            with contextlib.closing( machine.run( source=encoded, data=result )) as engine:
+                for m,s in engine:
+                    pass
+
         assert result.STRING.length == len( original )
         assert result.STRING.string == original
 
@@ -76,7 +72,8 @@ def test_STRINGs():
 
         result			= cpppo.dotdict()
         with parser.SSTRING() as machine:
-            for m,s in machine.run( source=encoded, data=result ):
-                pass
+            with contextlib.closing( machine.run( source=encoded, data=result )) as engine:
+                for m,s in engine:
+                    pass
         assert result.SSTRING.length == len( original )
         assert result.SSTRING.string == original

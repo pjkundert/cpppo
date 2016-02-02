@@ -20,7 +20,7 @@ from __future__ import print_function
 from __future__ import division
 
 try:
-    from future_builtins import map, zip
+    from future_builtins import map
 except ImportError:
     pass # already available in Python3
 
@@ -134,6 +134,17 @@ class proxy( object ):
     an Exception, the caller must signal the enip_proxy to discard the connection, by invoking the
     .close_gateway method.
 
+    The simplest way to ensure that the proxy's gateway is correctly closed, is to use its "context" API, which
+    ensures via's gateway is opened, and that .close_gateway is invoked on Exception:
+    
+        via = proxy( 'hostname' )
+
+        with via:
+            vendor,product_name = via.read( [('@1/1/1','INT'), ('@1/1/7','SSTRING)] )
+
+        # via is now ready for future I/O, even if last I/O raised Exception
+
+
     Provides general "Unconnected" read/write access to CIP attributes, using either *Logix
     "Read/Write Tag [Fragmented]" service requests, or (if a type is specified), then uses the more
     basic "Get/Set Attribute Single" service requests.
@@ -182,10 +193,11 @@ class proxy( object ):
         'parameter', [
             'attribute',	# eg. "@0x93/3/10"
             'types',		# eg. "REAL" or ("UINT",...,"SSTRING")
-            'units',		# eg. "Hz"
+            'units',		# eg. "Hz" or None
         ] )
 
     PARAMETERS			= dict( # { 'Parameter Name': parameter(...), }
+        product_name	= parameter( "@1/1/7", "SSTRING", None ),
         identity	= parameter( "@1/1",	[
             "INT", "INT", "INT", "INT", "INT", "DINT", "SSTRING", "USINT"
         ], "Identity" ),
@@ -212,7 +224,6 @@ class proxy( object ):
         for t in iterable:
             if isinstance( t, cpppo.type_str_base ):
                 ti 		= t.strip().lower().replace( ' ', '_' )
-                to		= parameters.get( ti )
                 if ti in parameters:
                     att,typ,uni	= parameters[ti]
                     log.info( "Parameter %r (%s) --> %r", t, uni, (att,typ) )
@@ -245,12 +256,23 @@ class proxy( object ):
         self.gateway_lock	= threading.Lock()
         if isinstance( identity_default, cpppo.type_str_base ):
             identity_default	= cpppo.dotdict( product_name = identity_default )
-        assert not identity_default or hasattr( 'product_name', identity_default )
+        assert not identity_default or hasattr( identity_default, 'product_name' )
         self.identity_default	= identity_default
         self.identity		= identity_default
 
     def __str__( self ):
         return "%s at %s" % ( self.identity.product_name if self.identity else None, self.gateway )
+
+    def __enter__( self ):
+        """Ensures that the gateway is open."""
+        self.open_gateway()
+        return self
+
+    def __exit__( self, typ, val, tbk ):
+        """If an Exception occurs, ensures that the gateway is closed."""
+        if typ is not None:
+            self.close_gateway()
+        return False
 
     def close_gateway( self, exc=None ):
         """Discard gateway; also forces re-reading of identity value upon next gateway connection"""
@@ -263,6 +285,23 @@ class proxy( object ):
                 else ''.join( traceback.format_exc() ))
             self.gateway	= None
             self.identity	= self.identity_default
+
+    def open_gateway( self ):
+        """Ensure that the gateway is open, in a Thread-safe fashion.  First Thread in creates the
+        gateway_class instance and registers a session, and (if necessary) queries the identity of the
+        device -- all under the protection of the gateway_lock Mutex."""
+        with self.gateway_lock:
+            if self.gateway is None:
+                self.gateway = self.gateway_class( host=self.host, port=self.port, timeout=self.timeout )
+                if not self.identity:
+                    try:
+                        rsp,ela = self.list_identity_details()
+                        if rsp and rsp.enip.status == 0:
+                            self.identity = rsp.enip.CIP.list_identity.CPF.item[0].identity_object
+                    except Exception as exc:
+                        self.close_gateway( exc )
+                        raise
+                log.normal( "Opened EtherNet/IP CIP gateway %s", self )
 
     def maintain_gateway( function ):
         """A decorator to open the gateway (if necessary), and discard it on any Exception.  Atomically
@@ -280,24 +319,8 @@ class proxy( object ):
         """
         @functools.wraps( function )
         def wrapper( inst, *args, **kwds ):
-            with inst.gateway_lock:
-                if inst.gateway is None:
-                    inst.gateway = inst.gateway_class( host=inst.host, port=inst.port, timeout=inst.timeout )
-                    if not inst.identity:
-                        try:
-                            rsp,ela = inst.list_identity_details()
-                            if rsp and rsp.enip.status == 0:
-                                inst.identity = rsp.enip.CIP.list_identity.CPF.item[0].identity_object
-                        except Exception as exc:
-                            inst.close_gateway( exc )
-                            raise
-                    log.normal( "Opened EtherNet/IP CIP gateway %s", inst )
-            # We have an open inst.gateway; perform the I/O operation
-            try:
+            with inst:
                 return function( inst, *args, **kwds )
-            except Exception as exc:
-                inst.close_gateway( exc )
-                raise
         return wrapper
 
     @maintain_gateway
@@ -344,9 +367,9 @@ class proxy( object ):
             return True
         if is_listlike( req ) and 2 <= len( req ) <= 3:
             try:
-                add,typ,uni	= req
+                add,typ,_	= req
             except ValueError:
-                (add,typ),uni	= req,None
+                add,typ		= req
             if isinstance( add, cpppo.type_str_base ):
                 if isinstance( typ, (cpppo.type_str_base, type) ):
                     return True
@@ -356,10 +379,23 @@ class proxy( object ):
         return False
 
     @maintain_gateway
-    def read( self, attributes, printing=False ):
-        """Yields all values, raising Exception at end if any failed.  External API; maintains
-        self.gateway before operating.  Raises Exception on any erroneous status, to ensure
-        close_gateway is invoked, even if all operations completed without raising Exception.
+    def read( self, attributes, printing=False, checking=False ):
+        """Yields all values, raising Exception at end if any failed.  This is the main external API;
+        maintains self.gateway before operating.
+
+        Note that an unsuccessful read of an attribute will successfully return the value None,
+        which is Falsey!  All other valid, successful responses will return an array with 1 or more
+        values, which is Truthy. Since there is no other way to get a Falsey response, each yielded
+        result can simply be tested for Truthyness to determine if it is valid.
+
+        If 'checking' is True, an Exception is raised if any erroneous reply status is detected,
+        even if all operations completed without raising Exception.  This will (unnecessarily) close
+        the gateway, causing a delay on the next I/O attempt.  However, it allows the use of the
+        proxy without worrying about whether or not the surrounding code correctly catches
+        Exceptions and invokes .close_gateway.  If efficiency is paramount, it is better to
+        individually check the results for Truthyness, to determine which (if any) failed, and to
+        ensure that Exceptions are caught, or the context manager is used to ensure .close_gateway
+        is invoked.
 
         """
         bad			= []
@@ -369,16 +405,22 @@ class proxy( object ):
                 if printing:
                     # eg.   Output Current == 16.8275 Amps
                     print( "%16s == %s %s" % (
-                        att, 'N/A' if ( val is not None ) else ', '.join( map( str, v )), uni ))
+                        att, 'N/A' if val is None else ', '.join( map( str, val )), uni or '' ))
                 yield val
                 if sts not in (0,6):
                     bad.append( "%s: status %r" % ( att, sts ))
 
-        assert len( bad ) == 0, \
-            "read failed to access %d attributes: %s" % ( len( bad ), ', '.join( bad ))
+        if checking:
+            assert len( bad ) == 0, \
+                "read failed to access %d attributes: %s" % ( len( bad ), ', '.join( bad ))
 
     def read_details( self, attributes ):
-        """Assumes that self.gateway has been established; does not close_gateway on failure.
+        """Assumes that self.gateway has been established; does not close_gateway on Exception.  If you
+        use this interface, ensure that you maintain the gateway (eg. ):
+
+            via = proxy( 'hostname' )
+            with via:
+                for val,(sts,(att,typ,uni) in via.read_details( [...] ):
 
         Read the specified CIP Tags/Attributes in the string or iterable 'attributes', using Read
         Tag [Fragmented] (returning the native type), or Get Attribute Single/All (converting it to
@@ -533,7 +575,7 @@ class proxy( object ):
                     depth=self.depth, multiple=self.multiple, timeout=self.timeout )):
                 log.detail( "%3d (pkt %3d) %16s %-12s: %r ", 
                                 i, idx, dsc, sts or "OK", val )
-                _,(att,typ,uni)	= next( attrtypes )
+                opr,(att,typ,uni) = next( attrtypes )
                 if typ is None or sts not in (0,6):
                     # No type conversion; just return whatever type produced by Read Tag.  Also, if
                     # failure status (OK if no error, or if just not all data could be returned), we
