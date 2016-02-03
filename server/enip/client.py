@@ -910,8 +910,8 @@ class connector( client ):
 
             self.session	= data.enip.session_handle
         except Exception as exc:
-            log.warning( "Connect:  Failure in %7.3fs/%7.3fs: %s", cpppo.timer() - begun,
-                         cpppo.inf if timeout is None else timeout, exc )
+            log.normal( "Connect:  Failure in %7.3fs/%7.3fs: %s", cpppo.timer() - begun,
+                        cpppo.inf if timeout is None else timeout, exc )
             raise
         else:
             log.normal( "Connect:  Success in %7.3fs/%7.3fs", cpppo.timer() - begun,

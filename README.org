@@ -1149,50 +1149,53 @@
     #cpppo.log_cfg['level'] = logging.DETAIL
     logging.basicConfig( **cpppo.log_cfg )
     
-    from cpppo.history import timestamp # requires 'pip install pytz'
     from cpppo.server.enip import poll
-    from cpppo.server.enip.ab import powerflex_750_series
-    
-    address		= (sys.argv[1] if len( sys.argv ) > 1 else 'localhost', 44818)
-    params		= [ "Motor Velocity", "Output Current" ]
-    timeout		= .5
-    values		= {} # { <parameter>: (<timer>, <value>), ... }
-    failed		= [] # [ (<timer>, <exc>), ... ]
-    
+    #from cpppo.server.enip.get_attribute import proxy_simple as device # MicroLogix
+    #from cpppo.server.enip.get_attribute import proxy as device # ControlLogix
+    from cpppo.server.enip.ab import powerflex_750_series as device # PowerFlex 750
+
+    # Device IP in 1st arg, or 'localhost' (run: python -m cpppo.server.enip.poll_test)
+    hostname			= sys.argv[1] if len( sys.argv ) > 1 else 'localhost'
+
+    # Parameters valid for device; for *Logix, others, try:
+    # params			= [('@1/1/1','INT'),('@1/1/7','SSTRING')]
+    params			= [ "Motor Velocity", "Output Current" ]
+
     def failure( exc ):
-        failed.append( (cpppo.timer(),str(exc)) )
+        failure.string.append( str(exc) )
+    failure.string		= [] # [ (<timer>, <exc>), ... ]
     
-    def process( p, v ):
-        values[p]	= (cpppo.timer(),v)
-    process.done	= False
-    
-    poller		= threading.Thread(
-        target=poll.poll, args=(powerflex_750_series,), kwargs={ 
-            'address': 	address,
+    def process( par, val ):
+        process.values[par]	= val
+    process.done		= False
+    process.values		= {} # { <parameter>: (<timer>, <value>), ... }
+
+    poller			= threading.Thread(
+        target=poll.poll, args=(device,), kwargs={ 
+            'address': 	(hostname, 44818),
             'cycle':	1.0,
             'timeout':	0.5,
             'process':	process,
             'failure':	failure,
             'params':	params,
         })
-    poller.deamon	= True
     poller.start()
-    
-    # Monitor the values and failed dicts (updated in another Thread)
+
+    # Monitor the process.values {} and failure.string [] (updated in another Thread)
     try:
         while True:
-            while values:
-                for par,(tmr,val) in [ values.popitem() ]:
-                    print( "%s: %16s == %r" % ( timestamp( tmr ), par, val ))
-            while failed:
-                for tmr,exc in [ failed.pop( 0 ) ]:
-                    print( "%s: %s" %( timestamp( tmr ), exc ))
+            while process.values:
+                par,val		= process.values.popitem()
+                print( "%s: %16s == %r" % ( time.ctime(), par, val ))
+            while failure.string:
+                exc		= failure.string.pop( 0 )
+                print( "%s: %s" %( time.ctime(), exc ))
             time.sleep( .1 )
     finally:
-        process.done	= True
+        process.done		= True
         poller.join()
     #+END_EXAMPLE
-
+    
     If you start a (simulated) A-B PowerFlex (be prepared to stop and restart
     it, to observe how the =cpppo.server.enip.poll= API handles polling failures):
     #+BEGIN_EXAMPLE
@@ -1205,27 +1208,35 @@
     simulator during the test):
     #+BEGIN_EXAMPLE
     $ cpppo -m cpppo.server.enip.poll_example
-    2016-01-27 21:34:10.371:   Motor Velocity == [789.010009765625]
-    2016-01-27 21:34:11.371:   Output Current == [123.44999694824219]
-    2016-01-27 21:34:11.371:   Motor Velocity == [789.010009765625]
-    2016-01-27 21:34:12.372:   Output Current == [123.44999694824219]
-    2016-01-27 21:34:12.372:   Motor Velocity == [789.010009765625]
-    01-27 14:34:13.347   Thread-1 enip.get WARNING  close_gate Closed EtherNet/IP \
-        CIP gateway localhost:44818[1080594695] due to: [Errno 32] Broken pipe
-    2016-01-27 21:34:13.348: [Errno 32] Broken pipe
-    2016-01-27 21:34:14.352: [Errno 61] Connection refused
-    2016-01-27 21:34:15.859: [Errno 61] Connection refused
-    2016-01-27 21:34:18.117: [Errno 61] Connection refused
-    2016-01-27 21:34:21.499: [Errno 61] Connection refused
-    2016-01-27 21:34:26.636:   Output Current == [123.44999694824219]
-    2016-01-27 21:34:26.636:   Motor Velocity == [789.010009765625]
-    2016-01-27 21:34:27.376:   Output Current == [123.44999694824219]
-    2016-01-27 21:34:27.376:   Motor Velocity == [789.010009765625]
+    Wed Feb  3 11:47:58 2016: [Errno 61] Connection refused
+    Wed Feb  3 11:47:59 2016: [Errno 61] Connection refused
+    Wed Feb  3 11:48:00 2016: [Errno 61] Connection refused
+    Wed Feb  3 11:48:03 2016:   Motor Velocity == [789.010009765625]
+    Wed Feb  3 11:48:03 2016:   Output Current == [123.44999694824219]
+    Wed Feb  3 11:48:04 2016:   Motor Velocity == [789.010009765625]
+    Wed Feb  3 11:48:04 2016:   Output Current == [123.44999694824219]
+    Wed Feb  3 11:48:05 2016:   Motor Velocity == [789.010009765625]
+    Wed Feb  3 11:48:05 2016:   Output Current == [123.44999694824219]
+    Wed Feb  3 11:48:06 2016:   Motor Velocity == [789.010009765625]
+    Wed Feb  3 11:48:06 2016:   Output Current == [123.44999694824219]
+    Wed Feb  3 11:48:07 2016:   Motor Velocity == [789.010009765625]
+    Wed Feb  3 11:48:07 2016:   Output Current == [123.44999694824219]
+    Wed Feb  3 11:48:08 2016: Communication ceased before harvesting all pipeline responses:   0/  2
+    Wed Feb  3 11:48:10 2016: Failed to receive any response
+    Wed Feb  3 11:48:12 2016: Failed to receive any response
+    Wed Feb  3 11:48:14 2016: Failed to receive any response
+    Wed Feb  3 11:48:18 2016:   Motor Velocity == [789.010009765625]
+    Wed Feb  3 11:48:18 2016:   Output Current == [123.44999694824219]
+    Wed Feb  3 11:48:19 2016:   Motor Velocity == [789.010009765625]
+    Wed Feb  3 11:48:19 2016:   Output Current == [123.44999694824219]
+    Wed Feb  3 11:48:20 2016:   Motor Velocity == [789.010009765625]
+    Wed Feb  3 11:48:20 2016:   Output Current == [123.44999694824219]
     #+END_EXAMPLE
 
     Likewise, for an example of polling various parameters at different rates
     from multiple threads, via a single =proxy= EtherNet/IP CIP connection to a
-    CIP device, run =poll_example_many.py=:
+    CIP device, run =poll_example_many.py= (note: uses =cpppo.history='s
+    =timestamp=, so requires Python Timezone support, via: =pip install pytz=):
     #+BEGIN_EXAMPLE
     $ cpppo -m cpppo.server.enip.poll_example_many
     2016-01-28 15:25:18.366: [Errno 61] Connection refused
@@ -1244,9 +1255,6 @@
     2016-01-28 15:25:26.765:   Motor Velocity == [789.010009765625]
     2016-01-28 15:25:27.112: Output Frequency == [456.7799987792969]
     2016-01-28 15:25:27.613: Output Frequency == [456.7799987792969]
-    01-28 08:25:27.743   Thread-2 enip.get WARNING  close_gate Closed EtherNet/IP \
-        CIP gateway localhost:44818[1489429017] due to: Communication ceased before \
-        harvesting all pipeline responses:   0/  2
     2016-01-28 15:25:27.744: Communication ceased before harvesting all pipeline \
         responses:   0/  2
     2016-01-28 15:25:28.096: [Errno 61] Connection refused

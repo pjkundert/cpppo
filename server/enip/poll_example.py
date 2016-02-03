@@ -14,44 +14,47 @@ import cpppo
 #cpppo.log_cfg['level'] = logging.DETAIL
 logging.basicConfig( **cpppo.log_cfg )
 
-from cpppo.history import timestamp # requires 'pip install pytz'
 from cpppo.server.enip import poll
-from cpppo.server.enip.ab import powerflex_750_series
+#from cpppo.server.enip.get_attribute import proxy_simple as device # MicroLogix
+#from cpppo.server.enip.get_attribute import proxy as device # ControlLogix
+from cpppo.server.enip.ab import powerflex_750_series as device # PowerFlex 750
 
-address				= (sys.argv[1] if len( sys.argv ) > 1 else 'localhost', 44818)
+# Device IP in 1st arg, or 'localhost' (run: python -m cpppo.server.enip.poll_test)
+hostname			= sys.argv[1] if len( sys.argv ) > 1 else 'localhost'
+
+# Parameters valid for device; for *Logix, others, try:
+# params			= [('@1/1/1','INT'),('@1/1/7','SSTRING')]
 params				= [ "Motor Velocity", "Output Current" ]
-timeout				= .5
-values				= {} # { <parameter>: (<timer>, <value>), ... }
-failed				= [] # [ (<timer>, <exc>), ... ]
 
 def failure( exc ):
-    failed.append( (cpppo.timer(),str(exc)) )
+    failure.string.append( str(exc) )
+failure.string			= [] # [ (<timer>, <exc>), ... ]
 
-def process( p, v ):
-    values[p]			= (cpppo.timer(),v)
+def process( par, val ):
+    process.values[par]		= val
 process.done			= False
+process.values			= {} # { <parameter>: (<timer>, <value>), ... }
 
 poller				= threading.Thread(
-    target=poll.poll, args=(powerflex_750_series,), kwargs={ 
-        'address': 	address,
+    target=poll.poll, args=(device,), kwargs={ 
+        'address': 	(hostname, 44818),
         'cycle':	1.0,
         'timeout':	0.5,
         'process':	process,
         'failure':	failure,
         'params':	params,
     })
-poller.deamon			= True
 poller.start()
 
-# Monitor the values and failed dicts (updated in another Thread)
+# Monitor the process.values {} and failure.string [] (updated in another Thread)
 try:
     while True:
-        while values:
-            for par,(tmr,val) in [ values.popitem() ]:
-                print( "%s: %16s == %r" % ( timestamp( tmr ), par, val ))
-        while failed:
-            for tmr,exc in [ failed.pop( 0 ) ]:
-                print( "%s: %s" %( timestamp( tmr ), exc ))
+        while process.values:
+            par,val		= process.values.popitem()
+            print( "%s: %16s == %r" % ( time.ctime(), par, val ))
+        while failure.string:
+            exc			= failure.string.pop( 0 )
+            print( "%s: %s" %( time.ctime(), exc ))
         time.sleep( .1 )
 finally:
     process.done		= True

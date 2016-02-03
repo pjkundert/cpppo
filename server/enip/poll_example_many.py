@@ -3,6 +3,8 @@
 # 
 # Poll a PowerFlex 750 series at IP (or DNS name) "<hostname>" (default: localhost)
 # 
+# Multiple Threads are used to poll at differing rates.
+# 
 #     poll_example_many.py <hostname>
 #
 import logging
@@ -29,6 +31,7 @@ timeout				= .5
 values				= {} # { <parameter>: (<timer>, <value>), ... }
 failed				= [] # [ (<timer>, <exc>), ... ]
 
+# Capture a timestamp with each event
 def failure( exc ):
     failed.append( (cpppo.timer(),str(exc)) )
 
@@ -47,29 +50,19 @@ for cycle,params in targets.items():
         'failure':	failure,
         'params':	params,
     })]
-    poller[-1].deamon		= True
     poller[-1].start()
 
 # Monitor the values and failed containers (updated in another Thread)
 try:
     while True:
         while values:
-            for par,(tmr,val) in [ values.popitem() ]:
-                print( "%s: %16s == %r" % ( timestamp( tmr ), par, val ))
+            par,(tmr,val)	= values.popitem()
+            print( "%s: %16s == %r" % ( timestamp( tmr ), par, val ))
         while failed:
-            for tmr,exc in [ failed.pop( 0 ) ]:
-                print( "%s: %s" %( timestamp( tmr ), exc ))
+            tmr,exc		= failed.pop( 0 )
+            print( "%s: %s" %( timestamp( tmr ), exc ))
         time.sleep( .1 )
 finally:
     process.done		= True
     for p in poller:
         p.join()
-
-    '''
-    # See if there are any interesting memory leaks
-    import objgraph
-    objgraph.show_most_common_types()
-    objs = objgraph.by_type("dict")[:100]
-    objgraph.show_backrefs( objs, max_depth=15, highlight=lambda v: v in objs,
-                            filename='cpppo.png' )
-    '''
