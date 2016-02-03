@@ -28,12 +28,12 @@ params				= [ "Motor Velocity", "Output Current" ]
 
 def failure( exc ):
     failure.string.append( str(exc) )
-failure.string			= [] # [ (<timer>, <exc>), ... ]
+failure.string			= [] # [ <exc>, ... ]
 
 def process( par, val ):
     process.values[par]		= val
 process.done			= False
-process.values			= {} # { <parameter>: (<timer>, <value>), ... }
+process.values			= {} # { <parameter>: <value>, ... }
 
 poller				= threading.Thread(
     target=poll.poll, args=(device,), kwargs={ 

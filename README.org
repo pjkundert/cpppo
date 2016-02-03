@@ -9,25 +9,20 @@
 
    Cpppo depends on several Python packages:
 
-   | Package  | For?      | Description                                              |
-   |----------+-----------+----------------------------------------------------------|
-   | greenery | all       | Regular Expression parsing and state machinery library   |
-   | web      | web API   | The web.py HTTP web application framework                |
-   | pytz     | history   | The Python time-zone library                             |
-   | tzlocal  | history   | Access to system's local timezone (on Mac, Windows)      |
-   | pymodbus | remote    | Modbus/TCP support for polling Schneider compatible PLCs |
-   | pytest   | unit test | A Python unit-test framework                             |
+   | Package      | For?       | Description                                              |
+   |--------------+------------+----------------------------------------------------------|
+   | greenery     | all        | Regular Expression parsing and state machinery library   |
+   | ipaddress    | all        | IP address manipulation                                  |
+   | argparse     | all (<2.7) | Command-line argument parsing                            |
+   | configparser | all (<3.0) | Parsing for CIP Object configuration files               |
+   | pytz         | history    | The Python time-zone library                             |
+   | tzlocal      | history    | Access to system's local timezone (on Mac, Windows)      |
+   | pymodbus     | remote     | Modbus/TCP support for polling Schneider compatible PLCs |
+   | pytest       | unit test  | A Python unit-test framework                             |
+   | web          | web API    | The web.py HTTP web application framework (optional)     |
    
-   To install 'cpppo' and its required dependency 'greenery' using pip:
+   To install 'cpppo' and its required dependencies using pip (recommended):
    : $ pip install cpppo
-
-   To install all required and optional Python modules, use:
-   : pip install -r requirements.txt
-   : pip install -r requirements-optional.txt
-
-   If you need system admin privileges to install packages, you may need to use
-   'sudo' on the above pip commands:
-   : $ sudo pip install ...
 
 *** Installing from source
 
@@ -38,10 +33,17 @@
     : $ cd cpppo
     : $ python setup.py install
 
+   If you do not install using =pip install cpppo= or =python setup.py install=
+   (recommended), you will need to install these dependencies manually.  To
+   install all required and optional Python modules, use:
+   : pip install -r requirements.txt
+   : pip install -r requirements-optional.txt
+   For Python2, you will also need to =pip install configparser= manually.
+
 *** Python Version and OS Support
 
     Cpppo is implemented and fully tested on both Python 2 (2.6 and 2.7), and
-    Python 3 (3.3 and 3.4).  The EtherNet/IP CIP protocol implementation is
+    Python 3 (3.3 to 3.5).  The EtherNet/IP CIP protocol implementation is
     fully tested and widely used in both Python 2 and 3.
 
     Some of cpppo's modules are not (yet) fully supported in both versions:
@@ -49,8 +51,8 @@
     - The pymodbus module does not support Python 3, so Modbus/TCP support for
       polling remote PLCs is only available for Python 2.
     - Greenery supports both Python 2 and 3, but doesn't provide meaningful
-      Unicode (UTF-8) support in Python 2, so regular expression based DFAs are
-      only supported for Python 3.
+      Unicode (UTF-8) support in Python 2, so regular expression based DFAs
+      dealing in UTF-8 are only supported for Python 3.
 
     Linux (native or Docker containerized), Mac and Windows OSs are supported.
     However, Linux or Mac are recommended for stability, performance and ease of
@@ -666,14 +668,14 @@
      Must be provided a sequence of 'operations' to perform, each as a dict
      containing:
 
-     | Key       | Description                                                       |
-     |-----------+-------------------------------------------------------------------|
-     | method    | 'read', 'write', 'set/get_attribute_single', 'get_attributes_all' |
-     | path      | The operation's path, eg [{"class": 2},{"instance": 1},...]       |
-     | offset    | A byte offset, for Fragmented read/write                          |
-     | elements  | The number of elements to read/write                              |
-     | tag\_type | The EtherNet/IP type, eg. 0x00ca for "REAL"                       |
-     | data      | For write, set\_attribute\_single; the sequence of data to write  |
+     | Key       | Description                                                           |
+     |-----------+-----------------------------------------------------------------------|
+     | method    | 'read', 'write', 'set/get\_attribute\_single', 'get\_attributes\_all' |
+     | path      | The operation's path, eg [{"class": 2},{"instance": 1},...]           |
+     | offset    | A byte offset, for Fragmented read/write                              |
+     | elements  | The number of elements to read/write                                  |
+     | tag\_type | The EtherNet/IP type, eg. 0x00ca for "REAL"                           |
+     | data      | For write, set\_attribute\_single; the sequence of data to write      |
 
      Use =client.parse_operations= to convert a sequence of simple Tag assignments
      to a sequence suitable for 'operations':
@@ -684,7 +686,7 @@
      | Keyword    | Description                                                   |
      |------------+---------------------------------------------------------------|
      | operations | A sequence of operations                                      |
-     | index      | The starting index used for "sender_context"                  |
+     | index      | The starting index used for "sender\_context"                 |
      | fragment   | If True, forces use of Fragmented read/write                  |
      | multiple   | If >0, uses Multiple Service Packets of up to this many bytes |
      | timeout    | A timeout, in seconds.                                        |
@@ -712,7 +714,7 @@
 
      | Item    | Description                                                 |
      |---------+-------------------------------------------------------------|
-     | 0 - idx | The index of the operation, sent as the "sender_context"    |
+     | 0 - idx | The index of the operation, sent as the "sender\_context"   |
      | 1 - dsc | A description of the operation                              |
      | 2 - req | The request                                                 |
      | 3 - rpy | The reply                                                   |
@@ -807,7 +809,7 @@
      substitutes =get_attributes_all= or =get_attribute_single= as appropriate.
      Use numeric addressing to the Instance or Attribute level,
      eg. =@<class>/<instance>= or =@<class>/<instance>/<attribute>=.  Roughly
-     from =cpppo/server/enip/get_attribute.py:
+     from =cpppo/server/enip/get_attribute.py=:
      #+BEGIN_EXAMPLE python
      def attribute_operations( paths ):
          for op in client.parse_operations( paths ):
@@ -1163,12 +1165,12 @@
 
     def failure( exc ):
         failure.string.append( str(exc) )
-    failure.string		= [] # [ (<timer>, <exc>), ... ]
+    failure.string		= [] # [ <exc>, ... ]
     
     def process( par, val ):
         process.values[par]	= val
     process.done		= False
-    process.values		= {} # { <parameter>: (<timer>, <value>), ... }
+    process.values		= {} # { <parameter>: <value>, ... }
 
     poller			= threading.Thread(
         target=poll.poll, args=(device,), kwargs={ 
