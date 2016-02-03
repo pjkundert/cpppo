@@ -4,13 +4,10 @@ from __future__ import division
 
 import logging
 import os
-import platform
-import pytest
 import sys
 import threading
 import time
 
-is_pypy				= platform.python_implementation() == "PyPy"
 
 # for @profile, kernprof.py -v -l enip_test.py
 #from line_profiler import LineProfiler
@@ -126,11 +123,8 @@ def test_logix_multiple():
     non-Logix Message_Router that presently exist.
 
     """
-    Obj				= enip.device.lookup( enip.device.Message_Router.class_id, instance_id=1 )
-    if not isinstance( Obj, logix.Logix ):
-        if Obj is not None:
-            del enip.device.directory['2']['1']
-        Obj			= logix.Logix( instance_id=1 )
+    enip.lookup_reset() # Flush out any existing CIP Objects for a fresh start
+    Obj				= logix.Logix( instance_id=1 )
 
     # Create some Attributes to test, but mask the big ones from Get Attributes All.
     size			= 1000
@@ -617,11 +611,8 @@ def logix_performance( repeat=1000 ):
     then parsing the reply.  No network I/O is involved.
 
     """
-    Obj				= enip.device.lookup( enip.device.Message_Router.class_id, instance_id=1 )
-    if not isinstance( Obj, logix.Logix ):
-        if Obj is not None:
-            del enip.device.directory['2']['1']
-        Obj			= logix.Logix( instance_id=1 )
+    enip.lookup_reset() # Flush out any existing CIP Objects for a fresh start
+    Obj				= logix.Logix( instance_id=1 )
 
     size			= 1000
     Obj_a1 = Obj.attribute['1']	= enip.device.Attribute( 'Something', enip.parser.INT, default=[n for n in range( size )])
@@ -683,15 +674,16 @@ rss_004_request 		= bytes(bytearray([
     0x00, 0x00                                      #/* .. */
 ]))
 
-@pytest.mark.skipif( is_pypy, reason="Not yet supported under PyPy" )
-def test_logix_remote( count=100 ):
+def test_logix_remote( count=50 ):
     """Performance of executing an operation a number of times on a socket connected
     Logix simulator, within the same Python interpreter (ie. all on a single CPU
     thread).
 
     """
+    #logging.getLogger().setLevel( logging.NORMAL )
+    enip.lookup_reset() # Flush out any existing CIP Objects for a fresh start
     svraddr		        = ('localhost', 12345)
-    kwargs			= cpppo.dotdict({
+    kwargs			= {
         'argv': [
             #'-v',
             #'--log',		'/tmp/logix.log',
@@ -700,20 +692,22 @@ def test_logix_remote( count=100 ):
             'SCADA=INT[1000]'
         ],
         'server': {
-            'control':	cpppo.apidict( enip.timeout, { 
+            'control': cpppo.apidict( enip.timeout, { 
                 'done': False
-            }),
+            } ),
         },
-    })
+    }
+    logixthread_kwargs		= {
+        'count':		count,
+        'svraddr':		svraddr,
+        'kwargs':		kwargs
+    }
 
+    log.normal( "test_logix_remote w/ server.control in object %s", id( kwargs['server']['control'] ))
     # This is sort of "inside-out".  This thread will run logix_remote, which will signal the
     # enip.main (via the kwargs.server...) to shut down.  However, to do line-based performance
     # measurement, we need to be running enip.main in the "Main" thread...
-    logixthread			= threading.Thread( target=logix_remote, kwargs={
-        'count': count,
-        'svraddr': svraddr,
-        'kwargs': kwargs
-    } )
+    logixthread			= threading.Thread( target=logix_remote, kwargs=logixthread_kwargs )
     logixthread.daemon		= True
     logixthread.start()
 
@@ -722,8 +716,8 @@ def test_logix_remote( count=100 ):
     logixthread.join()
 
 def logix_remote( count, svraddr, kwargs ):
+  try:
     time.sleep(.25) # Wait for server to be established
-
     # Confirm that a known Register encodes as expected
     data			= cpppo.dotdict()
     data.enip			= {}
@@ -775,7 +769,9 @@ def logix_remote( count, svraddr, kwargs ):
     duration			= cpppo.timer() - start
     log.warning( "Client ReadFrg. Average %7.3f TPS (%7.3fs ea)." % ( count / duration, duration / count ))
 
-    kwargs['server'].control.done= True # Signal the server to terminate
+    log.normal( "Signal shutdown w/ server.control in object %s", id( kwargs['server']['control'] ))
+  finally:
+    kwargs['server']['control'].done= True # Signal the server to terminate
 
 
 

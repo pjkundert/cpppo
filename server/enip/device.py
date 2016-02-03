@@ -29,20 +29,26 @@ __license__                     = "Dual License: GPLv3 (or later) and Commercial
 enip.device	-- support for implementing an EtherNet/IP device Objects and Attributes
 
 """
-__all__				= ['dialect', 'lookup', 'resolve', 'resolve_element',
+__all__				= ['dialect', 'lookup_reset', 'lookup', 'resolve', 'resolve_element',
                                    'redirect_tag', 'resolve_tag', 
                                    'Object', 'Attribute',
-                                   'UCMM', 'Connection_Manager', 'Message_Router', 'Identity']
+                                   'UCMM', 'Connection_Manager', 'Message_Router', 'Identity', 'TCPIP']
 
+import contextlib
+import json
 import logging
 import random
 import sys
 import threading
 import traceback
 
+import configparser # Python2 requires 'pip install configparser'
+
 from ...dotdict import dotdict
 from ... import automata, misc
-from .parser import ( DINT, INT, UINT, USINT, EPATH, SSTRING, CIP, typed_data,
+from .parser import ( UDINT, DWORD, INT, UINT, WORD, USINT,
+                      EPATH, EPATH_padded, SSTRING, STRING, IFACEADDRS,
+                      CIP, typed_data,
                       octets, octets_encode, octets_noop, octets_drop, move_if,
                       struct, enip_format, status )
 
@@ -128,6 +134,18 @@ def lookup( class_id, instance_id=0, attribute_id=None ):
 # 
 symbol				= {}
 symbol_keys			= ('class', 'instance', 'attribute')
+
+
+def lookup_reset():
+    """Clear any known CIP Objects, and any Tags referencing to their Attributes.  Note that each CIP
+    Object-derived class will retain its .max_instance variable, so future instances will get new
+    (higher) Instance IDs, unless you provide an instance_id=... to the constructor.
+
+    """
+    global directory
+    global symbol
+    directory			= dotdict()
+    symbol			= {}
 
 
 def redirect_tag( tag, address ):
@@ -263,7 +281,7 @@ class Attribute( object ):
         self.scalar		= isinstance( default, automata.type_str_base ) or not hasattr( default, '__len__' )
         self.parser		= type_cls()
         self.error		= error		# If an error code is desired on access
-        self.mask		= mask		# May be hidden from Get Attribute(s) All/SIngle
+        self.mask		= mask		# May be hidden from Get Attribute(s) All/Single
 
     @property
     def value( self ):
@@ -274,9 +292,8 @@ class Attribute( object ):
         self.default		= type(self.default)( v )
 
     def __str__( self ):
-        return "%-12s %5s[%4d] == %s" % (
-            self.name, self.parser.__class__.__name__, len( self ),
-            repr( self.value )  if not log.isEnabledFor( logging.INFO ) else misc.reprlib.repr( self.value ))
+        return "%-24s %10s[%4d] == %r" % (
+            self.name, self.parser.__class__.__name__, len( self ), self.value )
     __repr__ 			= __str__
 
     def __len__( self ):
@@ -421,8 +438,9 @@ class NumInstances( MaxInstance ):
 class Object( object ):
     """An EtherNet/IP device.Object is capable of parsing and processing a number of requests.  It has
     a class_id and an instance_id; an instance_id of 0 indicates the "class" instance of the
-    device.Object, which has different (class level) Attributes (and may respond to different commands)
-    than the other instance_id's.
+    device.Object, which has different (class level) Attributes (and may respond to different
+    commands) than the other instance_id's.  An instance_id will be dynamically allocated, if one
+    isn't specified.
 
     Each Object has a single class-level parser, which is used to register all of its available
     service request parsers.  The next available symbol designates the type of service request,
@@ -488,6 +506,9 @@ class Object( object ):
     transmission, or encapsulation by the next higher level of request processor (eg. a
     Message_Router, encapsulating the response into an EtherNet/IP response).
 
+    If desired, invoke Object.config_loader.read method on a sequence of configuration file names
+    (see Python3 configparser for format), before first Object is created.
+
     """
     max_instance		= 0
     lock			= threading.Lock()
@@ -497,6 +518,18 @@ class Object( object ):
     # The parser doesn't add a layer of context; run it with a path= keyword to add a layer
     parser			= automata.dfa_post( service, initial=automata.state( 'select' ),
                                                   terminal=True )
+    # No config, by default (use default values).  Allows ${<section>:<key>} interpolation, and
+    # comments anywhere via the # symbol (this implies no # allowed in any value, due to the lack of
+    # support for escape symbol).
+    # 
+    # If config files are desired, somewhere early in program initialization, add:
+    # 
+    #     Object.config_loader.read( ["<config-file>", ...] )
+    # 
+    config_loader		= configparser.ConfigParser(
+        comment_prefixes=('#',), inline_comment_prefixes=('#',),
+        allow_no_value=True, empty_lines_in_values=False,
+        interpolation=configparser.ExtendedInterpolation() )
 
     @classmethod
     def register_service_parser( cls, number, name, short, machine ):
@@ -525,13 +558,46 @@ class Object( object ):
     SA_SNG_REQ			= 0x10
     SA_SNG_RPY			= SA_SNG_REQ | 0x80
 
+    @property
+    def config( self ):
+        if self._config is None:
+            if self.name in self.config_loader:
+                self._config	= self.config_loader[self.name]
+            else:
+                self._config	= self.config_loader['DEFAULT']
+        return self._config
+
+    @misc.logresult( log=log, log_level=logging.DETAIL )
+    def config_str( self, *args, **kwds ):
+        return self.config.get( *args, **kwds )
+
+    @misc.logresult( log=log, log_level=logging.DETAIL )
+    def config_int( self, *args, **kwds ):
+        return self.config.getint( *args, **kwds )
+
+    @misc.logresult( log=log, log_level=logging.DETAIL )
+    def config_float( self, *args, **kwds ):
+        return self.config.getfloat( *args, **kwds )
+
+    @misc.logresult( log=log, log_level=logging.DETAIL )
+    def config_bool( self, *args, **kwds ):
+        return self.config.getboolean( *args, **kwds )
+
+    @misc.logresult( log=log, log_level=logging.DETAIL )
+    def config_json( self, *args, **kwds ):
+        return json.loads( self.config_str( *args, **kwds ))
+        
     def __init__( self, name=None, instance_id=None ):
-        """Create the instance (default to the next available instance_id).  An instance_id of 0 holds
-        the "class" attributes/commands.
+        """Create the instance (default to the next available instance_id).  An instance_id of 0 holds the
+        "class" attributes/commands.  Any configured values for the Object are available in
+        self.config via its get/getint/getfloat/getboolean( <name>, <default> ) methods.
+
+            [Object Name]
+            a key = some value
 
         """
+        self._config		= None
         self.name		= name or self.__class__.__name__
-
         # Allocate and/or keep track of maximum instance ID assigned thus far.
         if instance_id is None:
             instance_id		= self.__class__.max_instance + 1
@@ -564,14 +630,15 @@ class Object( object ):
 
         if self.instance_id == 0:
             # Set up the default Class-level values.
-            self.attribute['1']= Attribute( 	'Revision', 		INT, default=0 )
-            self.attribute['2']= MaxInstance( 'Max Instance',		INT,
+            self.attribute['1']= Attribute( 	'Revision', 		INT,
+                    default=self.config_int(	'Revision', 0 ))
+            self.attribute['2']= MaxInstance(	'Max Instance',		INT,
                                                 class_id=self.class_id )
-            self.attribute['3']= NumInstances( 'Num Instances',		INT,
+            self.attribute['3']= NumInstances(	'Num Instances',	INT,
                                                 class_id=self.class_id )
             # A UINT array; 1st UINT is size (default 0)
-            self.attribute['4']= Attribute( 	'Optional Attributes',	INT, default=0 )
-            
+            self.attribute['4']= Attribute( 	'Optional Attributes',	INT,
+                    default=self.config_int(	'Optional Attributes', 0 ))
 
     def __str__( self ):
         return self.name
@@ -816,17 +883,108 @@ class Identity( Object ):
             pass
         else:
             # Instance Attributes (these example defaults are from a Rockwell Logix PLC)
-            self.attribute['1']	= Attribute( 'Vendor Number', 		INT,	default=0x0001 )
-            self.attribute['2']	= Attribute( 'Device Type', 		INT,	default=0x000e )
-            self.attribute['3']	= Attribute( 'Product Code Number',	INT,	default=0x0036 )
-            self.attribute['4']	= Attribute( 'Product Revision', 	INT,	default=0x0b14 )
-            self.attribute['5']	= Attribute( 'Status Word', 		INT,	default=0x3160 )
-            self.attribute['6']	= Attribute( 'Serial Number', 		DINT,	default=0x006c061a )
-            self.attribute['7']	= Attribute( 'Product Name', 		SSTRING,default='1756-L61/B LOGIX5561' )
-            self.attribute['8']	= Attribute( 'State',			USINT,	default=0xff )
-            self.attribute['9']	= Attribute( 'Configuration Consistency Value',
-									UINT,	default=0 )
-            self.attribute['10']= Attribute( 'Heartbeat Interval',	USINT,	default=0 )
+            self.attribute['1']	= Attribute( 'Vendor Number', 		INT,
+	        default=self.config_int(     'Vendor Number',			0x0001 ))
+            self.attribute['2']	= Attribute( 'Device Type', 		INT,
+	        default=self.config_int(     'Device Type',			0x000e ))
+            self.attribute['3']	= Attribute( 'Product Code Number',	INT,
+	        default=self.config_int(     'Product Code Number',		0x0036 ))
+            self.attribute['4']	= Attribute( 'Product Revision', 	INT,
+	        default=self.config_int(     'Product Revision',		0x0b14 ))
+            self.attribute['5']	= Attribute( 'Status Word', 		WORD,
+	        default=self.config_int(     'Status Word',			0x3160 ))
+            self.attribute['6']	= Attribute( 'Serial Number', 		UDINT,
+	        default=self.config_int(     'Serial Number',			0x006c061a ))
+            self.attribute['7']	= Attribute( 'Product Name', 		SSTRING,
+                default=self.config_str(     'Product Name',			'1756-L61/B LOGIX5561' ))
+            self.attribute['8']	= Attribute( 'State',			USINT,
+	        default=self.config_int(     'State',				0xff ))
+            self.attribute['9']	= Attribute( 'Configuration Consistency Value', UINT,
+	        default=self.config_int(     'Configuration Consistency Value', 0 ))
+            self.attribute['10']= Attribute( 'Heartbeat Interval',	USINT,
+                default=self.config_int(     'Heartbeat Interval', 		0 ))
+
+
+class TCPIP( Object ):
+    """Contains the TCP/IP network details of a CIP device.  See Volume 2: EtherNet/IP Adaptation of
+    CIP, Chapter 5-4, TCP/IP Interface Object.
+
+    According to Volume 2: EtherNet/IP Adaptation of CIP, Table 5-4.13, the Get_Attributes_All
+    formatting of the Domain Name and Host Name are CIP STRINGs consist of 2-byte (UINT) length, followed
+    by the string, followed by a 1-byte PAD if the string is of odd length.
+
+    As per Volume 2: 5-4.3, the Instance Attributes 1-6 are Required:
+
+    | Attribute | Type  | Name / bits               | Description                                 |
+    |-----------+-------+---------------------------+---------------------------------------------|
+    |         1 | DWORD | Interface Status          | Interface Configuration Status              |
+    |           |       | 0-3: I'face Config Status | 0 == Not configured                         |
+    |           |       |                           | 1 == BOOTP/DHCP/non-volatile storage        |
+    |           |       |                           | 2 == IP address from hardware configuration |
+    |           |       | 4: M'cast Pending         | (not if Attribute 2, bit 5 False)           |
+    |           |       | 5: I'face Config Pending  |                                             |
+    |           |       | 6: AcdStatus              |                                             |
+    |           |       | 7: AcdFault               |                                             |
+    |           |       | 8-31:                     | Reserved                                    |
+    |         2 | DWORD | Configuration Capability  |                                             |
+    |           |       | 0: BOOTP Client           | Capable of config. w/BOOTP                  |
+    |           |       | 1: DNS Client             | Can resolve hostname w/DNS                  |
+    |           |       | 2: DHCP Client            | Can obtain network config w/DHCP            |
+    |           |       | 3: DHCP-DNS Update        | Shall be 0                                  |
+    |           |       | 4: Config. Settable       | Interface Config. Attr. is settable         |
+    |           |       | 5: Hardware Configurable  | IP can be configured from h/w               |
+    |           |       | 6: I'face Chg. Reset      | Restart required on IP config change        |
+    |           |       | 7: AcdCapable             | Indicates ACD capable                       |
+    |           |       | 8-31:                     | Reserved                                    |
+    |         3 | DWORD | Configuration Control     |                                             |
+    |           |       | 0-3: Configuration method | 0 == Use statically-assigned IP config      |
+    |           |       |                           | 1 == Obtain config. via BOOTP               |
+    |           |       |                           | 2 == Obtain config. via DHCP                |
+    |           |       |                           | 3-15 Reserved for future use.               |
+    |           |       | 4: DNS Enable             | Resolve hostnames via DHCP                  |
+    |           |       | 5-31                      | Reserved                                    |
+
+    Default to values implying minimal capability, hardware configuration
+    """
+    class_id			= 0xF5
+
+    STS_UN_CONFIGURED		= 0
+    STS_EX_CONFIGURED		= 1 # External (eg. BOOTP/DHCP, non-volatile stored config)
+    STS_HW_CONFIGURED		= 2 # Hardware
+
+    CAP_BOOTP_CLIENT		= 1 << 0
+    CAP_DNS_CLIENT		= 1 << 1
+    CAP_DHCP_CLIENT		= 1 << 2
+    CAP_CONFIG_SETTABLE		= 1 << 4
+    CAP_HW_CONFIGURABLE		= 1 << 5
+    CAP_IF_CHG_RST_REQ		= 1 << 6
+    CAP_ADC_CAPABLE		= 1 << 7
+
+    CON_STATIC			= 0
+    CON_BOOTP			= 1
+    CON_DHCP			= 2
+    CON_DNS_ENABLE		= 1 << 4
+
+    def __init__( self, name=None, **kwds ):
+        super( TCPIP, self ).__init__( name=name, **kwds )
+
+        if self.instance_id == 0:
+            self.attribute['0'] = Attribute( 'Revision', 		UINT,
+                    default=self.config_int( 'Revision', 			3 ))
+        else:
+            # Instance Attributes
+            self.attribute['1']	= Attribute( 'Interface Status',	DWORD,
+                default=self.config_int(     'Interface Status',		self.STS_HW_CONFIGURED ))
+            self.attribute['2']	= Attribute( 'Configuration Capability',DWORD,
+                default=self.config_int(     'Configuration Capability',	self.CAP_CONFIG_SETTABLE | self.CAP_HW_CONFIGURABLE ))
+            self.attribute['3']	= Attribute( 'Configuration Control',	DWORD,
+                default=self.config_int(     'Configuration Control',		self.CON_STATIC ))
+            self.attribute['4']	= Attribute( 'Path to Physical Link ',	EPATH_padded,
+                default=[self.config_json(   'Path to Physical Link',		'[]' )] )
+            self.attribute['5']	= Attribute( 'Interface Configuration',	IFACEADDRS,
+                default=[self.config_json(   'Interface Configuration',		'{}' )] )
+            self.attribute['6']	= Attribute( 'Host Name', 		STRING,
+                default=self.config_str(     'Host Name',			'' ))
 
 
 class UCMM( Object ):
@@ -1054,14 +1212,27 @@ class UCMM( Object ):
             log.info( "%s Response: %s", self, enip_format( data ))
         return proceed
 
+    def list_interfaces( self, data ):
+        """List Interfaces returns zero encapsulated CPF items."""
+        cpf			= data.enip.CIP.list_interfaces.CPF
+        cpf.count		= 0 # sufficient to produce a CPF encapsulation with zero entries
+
+        data.enip.input		= bytearray( self.parser.produce( data.enip ))
+
+        return True
+
     LISTSVCS_CIP_ENCAP		= 1 << 5
-    LISTSVCS_CIP_UDP		= 1 << 8
+    LISTSVCS_CIP_UDP		= 1 << 8 # Transport Class 0 or 1 packets (no encapsulation header)
     def list_services( self, data ):
+        """List Services returns a communications_service CPF item.  We support CIP encapsulation, but do
+        not support unencapsulated UDP data.
+
+        """
         cpf			= data.enip.CIP.list_services.CPF
         cpf.item		= [ dotdict() ]
         cpf.item[0].type_id	= 0x0100
         cpf.item[0].communications_service \
-            		= c_s	= dotdict()
+			= c_s	= dotdict()
         c_s.version		= 1
         c_s.capability		= self.LISTSVCS_CIP_ENCAP
         c_s.service_name	= 'Communications'
@@ -1069,6 +1240,96 @@ class UCMM( Object ):
         data.enip.input		= bytearray( self.parser.produce( data.enip ))
 
         return True
+
+    def list_identity( self, data ):
+        """The List Identity response consists of the IP address we're bound to from the TCP/IP Object,
+        plus some Attribute data from the Identity object.  Look up these Objects at their
+        traditional CIP Class and Instance numbers; if they exist, use their values to populate the
+        response.  Then, produce the wire-protocol EtherNet/IP response message.
+
+        We'll get each Attribute to produce its serialized representation, and then parse itself, in
+        order to satisfy any default values, and produce any complex structs (eg. IPADDR,
+        IFACEADDRS).  From this, we can extract the values we wish to return.
+
+        """
+        cpf			= data.enip.CIP.list_identity.CPF
+        cpf.item		= [ dotdict() ]
+        cpf.item[0].type_id	= 0x000C
+        cpf.item[0].identity_object \
+			= ido	= dotdict()
+        ido.version		= 1
+
+        for nam,dfl,ids,get in [
+                ( 'sin_addr',		'127.0.0.1',	( TCPIP.class_id, 1, 5 ),	lambda d: d.IFACEADDRS.ip_address ),
+                ( 'sin_family',		2,		None,				None ),
+                ( 'sin_port',		44818, 		None,				None),
+                ( 'vendor_id',		0,		( Identity.class_id, 1, 1 ),	lambda d: d.INT ),
+                ( 'device_type',	0,		( Identity.class_id, 1, 2 ),	lambda d: d.INT ),
+                ( 'product_code',	0,		( Identity.class_id, 1, 3 ),	lambda d: d.INT ),
+                ( 'product_revision',	0,		( Identity.class_id, 1, 4 ),	lambda d: d.INT ),
+                ( 'status_word',	0,		( Identity.class_id, 1, 5 ),	lambda d: d.WORD ),
+                ( 'serial_number',	0,		( Identity.class_id, 1, 6 ),	lambda d: d.UDINT ),
+                ( 'product_name',	0,		( Identity.class_id, 1, 7 ),	lambda d: d.SSTRING ),
+                ( 'state',		0xff,		( Identity.class_id, 1, 8 ),	lambda d: d.USINT ),
+        ]:
+            val			= dfl
+            if ids:
+                att		= lookup( *ids )
+                if att:
+                    raw		= att.produce( 0, 1 )
+                    val		= dotdict()
+                    with att.parser as mch:
+                        with contextlib.closing( mch.run( source=raw, data=val )) as eng:
+                            for m,s in eng:
+                                pass
+                            log.info( "Parsed using %r; %r from %r", mch, val, raw )
+                    if get:
+                        val	= get( val )
+            ido[nam]		= val
+
+        data.enip.input		= bytearray( self.parser.produce( data.enip ))
+
+        return True
+
+    def legacy( self, data ):
+        """A subset of undocumented EtherNet/IP CIP "Legacy" commands are supported."""
+        if data.enip.command == 0x0001:
+            # A command which seems to return network information similar to List Interfaces
+            return self._legacy_0x0001( data )
+        else:
+            raise AssertionError( "Unimplemented EtherNet/IP CIP Legacy command: %r" % ( data ))
+
+    def _legacy_0x0001( self, data ):
+        cpf			= data.enip.CIP.legacy.CPF
+        cpf.item		= [ dotdict() ]
+        cpf.item[0].type_id	= 0x0001
+        cpf.item[0].legacy_CPF_0x0001 \
+                        = leg   = dotdict()
+
+        for nam,dfl,ids,get in [
+                ( 'sin_addr',		'127.0.0.1',	( TCPIP.class_id, 1, 5 ),	lambda d: d.IFACEADDRS.ip_address ),
+                ( 'sin_family',		2,		None,				None ),
+                ( 'sin_port',		44818, 		None,				None),
+        ]:
+            val			= dfl
+            if ids:
+                att		= lookup( *ids )
+                if att:
+                    raw		= att.produce( 0, 1 )
+                    val		= dotdict()
+                    with att.parser as mch:
+                        with contextlib.closing( mch.run( source=raw, data=val )) as eng:
+                            for m,s in eng:
+                                pass
+                            log.info( "Parsed using %r; %r from %r", mch, val, raw )
+                    if get:
+                        val	= get( val )
+            leg[nam]		= val
+
+        data.enip.input		= bytearray( self.parser.produce( data.enip ))
+
+        return True
+
 
 class Message_Router( Object ):
     """Processes incoming requests.  Normally a derived class would expand the normal set of Services

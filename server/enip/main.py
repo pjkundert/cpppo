@@ -35,16 +35,19 @@ USAGE
 """
 
 __all__				= ['main', 'address', 'timeout', 'latency',
-                                   'route_path_default', 'send_path_default']
+                                   'route_path_default', 'send_path_default',
+                                   'config_files']
 
 import argparse
+import contextlib
 import fnmatch
 import json
 import logging
+import os
 import random
 import signal
-import sys
 import socket
+import sys
 import threading
 import time
 import traceback
@@ -59,6 +62,13 @@ timeout				= 20.0	# Await completion of all I/O, thread activity (on many thread
 address				= ('', 44818)	# The default cpppo.enip.address
 route_path_default		= [{'link': 0, 'port': 1}]
 send_path_default		= [{'class': 6}, {'instance': 1}]
+config_name			= 'cpppo.cfg'
+config_files			= [
+    os.path.join( os.path.dirname( cpppo.__file__ ), config_name ),	# cpppo install dir
+    os.path.join( os.getenv( 'APPDATA', os.sep + 'etc' ), config_name ),# global app data
+    os.path.join( os.path.expanduser( '~' ), '.' + config_name ),	# user home dir
+    config_name,							# current dir
+]
 
 log				= logging.getLogger( "enip.srv" )
 
@@ -534,8 +544,30 @@ def web_api( http=None):
 # 
 # The EtherNet/IP CIP Main and Server Thread
 # 
-#     An instance of this function runs in a Thread for each active connection.
+# stats_for	-- Finds/creates the stats entry for a specified peer (if any)
+# enip_srv	-- This function runs in a Thread for each active connection.
+# enip_srv_udp	-- Service multiple UDP/IP peers (limited web interface control)
+# enip_srv_tcp	-- Service one TCP/IP peer
 # 
+def stats_for( peer ):
+    """If no peer address provided, we won't have a stats entry 'til first data received."""
+    global connections
+    if peer is None:
+        return None,None
+    connkey			= "%s_%d" % ( peer[0].replace( '.', '_' ), peer[1] )
+    stats			= connections.get( connkey )
+    if stats is not None:
+        return stats,connkey
+    stats			= cpppo.apidict( timeout=timeout )
+    connections[connkey]	= stats
+    stats['requests']		= 0
+    stats['received']		= 0
+    stats['eof']		= False
+    stats['interface']		= peer[0]
+    stats['port']		= peer[1]
+    return stats,connkey
+
+
 def enip_srv( conn, addr, enip_process=None, delay=None, **kwds ):
     """Serve one Ethernet/IP client 'til EOF; then close the socket.  Parses headers and encapsulated
     EtherNet/IP request data 'til either the parser fails (the Client has submitted an un-parsable
@@ -558,31 +590,150 @@ def enip_srv( conn, addr, enip_process=None, delay=None, **kwds ):
     use.
 
     All remaining keywords are passed along to the supplied enip_process function.
+
+    For UDP a socket 'conn', there is no 'addr' (it is None).  For each incoming request, we'll use
+    socket.recvfrom to gain a source address, and create (if necessary) a connections[<connkey>]
+    stats entry.  The 'eof' entry doesn't have the same meaning as for a TCP connection, of course.
+
     """
     global latency
     global timeout
 
-    name			= "enip_%s" % addr[1]
+    name			= "enip_%s" % ( addr[1] if addr else "UDP" )
     log.normal( "EtherNet/IP Server %s begins serving peer %s", name, addr )
 
-    # Configure TCP_NODELAY (for no NAGLE delay in transmitting response data) and SO_KEEPALIVE (to
-    # ensure that we eventually detect half-open connections -- connections where we are listening
-    # only, and where the peer has closed by the FIN or RST has been lost.
-    try:
-        conn.setsockopt( socket.IPPROTO_TCP, socket.TCP_NODELAY, 1 )
-    except Exception as exc:
-        log.warning( "%s unable to set TCP_NODELAY for client %s:%s: %s",
-                     name, addr[0], addr[1], exc )
-    try:
-        conn.setsockopt( socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1 )
-    except Exception as exc:
-        log.warning( "%s unable to set SO_KEEPALIVE for client %s:%s: %s",
-                     name, addr[0], addr[1], exc )
+    assert enip_process is not None, \
+        "Must specify an EtherNet/IP processing function via 'enip_process'"
+
+    # We can handle TCP/IP or UDP/IP sockets, and expect not have an addr for UDP/IP
+    tcp				= ( conn.family == socket.AF_INET and conn.type == socket.SOCK_STREAM )
+    udp				= ( conn.family == socket.AF_INET and conn.type == socket.SOCK_DGRAM )
+    assert tcp ^ udp, \
+        "Unknown socket family %s (should be AF_INET == %s) or type %s (should be SOCK_STREAM/DGRAM %s/%s)" % (
+            conn.family, socket.AF_INET, conn.type, socket.SOCK_STREAM, socket.SOCK_DGRAM )
+    assert tcp and addr or udp and not addr, \
+        (( "TCP connections must have address" if tcp else "UDP must not" ) + ": %s" ) % ( addr )
+
+    # For TCP/IP sockets, configure TCP_NODELAY (for no NAGLE delay in transmitting response data)
+    # and SO_KEEPALIVE (to ensure that we eventually detect half-open connections -- connections
+    # where we are listening only, and where the peer has closed by the FIN or RST has been lost.
+    if tcp:
+        try:
+            conn.setsockopt( socket.IPPROTO_TCP, socket.TCP_NODELAY, 1 )
+        except Exception as exc:
+            log.warning( "%s unable to set TCP_NODELAY for client %r: %s",
+                         name, addr, exc )
+        try:
+            conn.setsockopt( socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1 )
+        except Exception as exc:
+            log.warning( "%s unable to set SO_KEEPALIVE for client %r: %s",
+                         name, addr, exc )
+        enip_srv_tcp( conn, addr, name=name, enip_process=enip_process, delay=delay, **kwds )
+    elif udp:
+        enip_srv_udp( conn, name=name, enip_process=enip_process, **kwds )
+    else:
+        raise NotImplemented( "Unknown socket protocol for EtherNet/IP CIP" )
 
 
+def enip_srv_udp( conn, name, enip_process, **kwds ):
+    """Processes UDP packets from multiple clients, as they arrive.  No concept of EOF, but we'll
+    respect the setting of 'eof' in stats, and ignore requests from that client.
+
+    """
+    with parser.enip_machine( name=name, context='enip' ) as machine:
+        while not kwds['server']['control']['done'] and not kwds['server']['control']['disable']:
+            try:
+                source		= cpppo.rememberable()
+                data		= cpppo.dotdict()
+
+                # If no/partial EtherNet/IP header received, parsing will fail with a NonTerminal
+                # Exception (dfa exits in non-terminal state).  Build data.request.enip:
+                begun		= cpppo.timer() # waiting for next transaction
+                addr,stats	= None,None
+                with contextlib.closing( machine.run(
+                        path='request', source=source, data=data )) as engine:
+                    # PyPy compatibility; avoid deferred destruction of generators
+                    for mch,sta in engine:
+                        if sta is not None:
+                            # No more transitions available.  Wait for input.  
+                            continue
+                        assert not addr, "Incomplete UDP request from client %r" % ( addr )
+                        msg	= None
+                        while msg is None:
+                            # For UDP, we'll allow no input only at the start of a new request parse
+                            # (addr is None); anything else will be considered a failed request Back
+                            # to the trough for more symbols, after having already received a packet
+                            # from a peer?  No go!
+                            wait	= ( kwds['server']['control']['latency']
+                                            if source.peek() is None else 0 )
+                            brx		= cpppo.timer()
+                            msg,frm	= network.recvfrom( conn, timeout=wait )
+                            now		= cpppo.timer()
+                            ( log.detail if msg else log.info )(
+                                "Transaction receive after %7.3fs (%5s bytes in %7.3f/%7.3fs): %r",
+                                        now - begun, len( msg ) if msg is not None else "None",
+                                        now - brx, wait, stats_for( frm )[0] )
+                            # If we're at a None (can't proceed), and we haven't yet received input,
+                            # then this is where we implement "Blocking"; we just loop for input.
+
+                        # We have received exactly one packet from an identified peer!
+                        begun	= now
+                        addr	= frm
+                        stats,_	= stats_for( addr )
+                        # For UDP, we don't ever receive incoming EOF, or set stats['eof'].
+                        # However, we can respond to a manual eof (eg. from web interface) by
+                        # ignoring the peer's packets.
+                        assert stats and not stats.get( 'eof' ), \
+                            "Ignoring UDP request from client %r: %r" % ( addr, msg )
+                        stats['received']+= len( msg )
+                        if log.getEffectiveLevel() <= logging.DETAIL:
+                            log.detail( "%s recv: %5d: %s", machine.name_centered(),
+                                        len( msg ), cpppo.reprlib.repr( msg ))
+                        source.chain( msg )
+
+                # Terminal state and EtherNet/IP header recognized; process and return response
+                assert stats
+                if 'request' in data:
+                    stats['requests'] += 1
+                # enip_process must be able to handle no request (empty data), indicating the
+                # clean termination of the session if closed from this end (not required if
+                # enip_process returned False, indicating the connection was terminated by
+                # request.)
+                if enip_process( addr, data=data, **kwds ):
+                    # Produce an EtherNet/IP response carrying the encapsulated response data.
+                    # If no encapsulated data, ensure we also return a non-zero EtherNet/IP
+                    # status.  A non-zero status indicates the end of the session.
+                    assert 'response.enip' in data, "Expected EtherNet/IP response; none found"
+                    if 'input' not in data.response.enip or not data.response.enip.input:
+                        log.warning( "Expected EtherNet/IP response encapsulated message; none found" )
+                        assert data.response.enip.status, "If no/empty response payload, expected non-zero EtherNet/IP status"
+
+                    rpy		= parser.enip_encode( data.response.enip )
+                    if log.getEffectiveLevel() <= logging.DETAIL:
+                        log.detail( "%s send: %5d: %s", machine.name_centered(),
+                                    len( rpy ), cpppo.reprlib.repr( rpy ))
+                    conn.sendto( rpy, addr )
+
+                log.detail( "Transaction complete after %7.3fs", cpppo.timer() - begun )
+
+                stats['processed']	= source.sent
+            except:
+                # Parsing failure.  Suck out some remaining input to give us some context, but don't re-raise
+                if stats:
+                    stats['processed']= source.sent
+                memory		= bytes( bytearray( source.memory ))
+                pos		= len( source.memory )
+                future		= bytes( bytearray( b for b in source ))
+                where		= "at %d total bytes:\n%s\n%s (byte %d)" % (
+                    stats.get( 'processed', 0 ) if stats else 0,
+                    repr( memory+future ), '-' * ( len( repr( memory ))-1 ) + '^', pos )
+                log.error( "Client %r EtherNet/IP error %s\n\nFailed with exception:\n%s\n", addr, where,
+                             ''.join( traceback.format_exception( *sys.exc_info() )))
+
+
+def enip_srv_tcp( conn, addr, name, enip_process, delay=None, **kwds ):
     source			= cpppo.rememberable()
-    with parser.enip_machine( name=name, context='enip' ) as enip_mesg:
-
+    with parser.enip_machine( name=name, context='enip' ) as machine:
         # We can be provided a dotdict() to contain our stats.  If one has been passed in, then this
         # means that our stats for this connection will be available to the web API; it may set
         # stats.eof to True at any time, terminating the connection!  The web API will try to coerce
@@ -592,17 +743,9 @@ def enip_srv( conn, addr, enip_process=None, delay=None, **kwds ):
         # them.  Thus, the web API will block setting .eof, and won't return to the caller until the
         # thread is actually in the process of shutting down.  Internally, we'll use __setitem__
         # indexing to change stats values, so we don't block ourself!
-        stats			= cpppo.apidict( timeout=timeout )
-        connkey			= ( "%s_%d" % addr ).replace( '.', '_' )
-        connections[connkey]	= stats
         try:
-            assert enip_process is not None, \
-                "Must specify an EtherNet/IP processing function via 'enip_process'"
-            stats['requests']	= 0
-            stats['received']	= 0
-            stats['eof']	= False
-            stats['interface']	= addr[0]
-            stats['port']	= addr[1]
+            assert addr, "EtherNet/IP CIP server for TCP/IP must be provided a peer address"
+            stats,connkey	= stats_for( addr )
             while not stats.eof:
                 data		= cpppo.dotdict()
 
@@ -610,9 +753,12 @@ def enip_srv( conn, addr, enip_process=None, delay=None, **kwds ):
                 # If no/partial EtherNet/IP header received, parsing will fail with a NonTerminal
                 # Exception (dfa exits in non-terminal state).  Build data.request.enip:
                 begun		= cpppo.timer()
-                log.detail( "Transaction begins" )
-                for mch,sta in enip_mesg.run( path='request', source=source, data=data ):
-                    if sta is None:
+                with contextlib.closing( machine.run(
+                        path='request', source=source, data=data )) as engine:
+                    # PyPy compatibility; avoid deferred destruction of generators
+                    for mch,sta in engine:
+                        if sta is not None:
+                            continue
                         # No more transitions available.  Wait for input.  EOF (b'') will lead to
                         # termination.  We will simulate non-blocking by looping on None (so we can
                         # check our options, in case they've been changed).  If we still have input
@@ -625,7 +771,8 @@ def enip_srv( conn, addr, enip_process=None, delay=None, **kwds ):
                             brx = cpppo.timer()
                             msg	= network.recv( conn, timeout=wait )
                             now = cpppo.timer()
-                            log.detail( "Transaction receive after %7.3fs (%5s bytes in %7.3f/%7.3fs)",
+                            ( log.detail if msg else log.info )(
+                                "Transaction receive after %7.3fs (%5s bytes in %7.3f/%7.3fs)",
                                 now - begun, len( msg ) if msg is not None else "None",
                                 now - brx, wait )
 
@@ -636,13 +783,13 @@ def enip_srv( conn, addr, enip_process=None, delay=None, **kwds ):
                             # external APIs (eg. web) awaiting reception of these signals.
                             if kwds['server']['control']['done'] or kwds['server']['control']['disable']:
                                 log.detail( "%s done, due to server done/disable", 
-                                            enip_mesg.name_centered() )
+                                            machine.name_centered() )
                                 stats['eof']	= True
                             if msg is not None:
                                 stats['received']+= len( msg )
                                 stats['eof']	= stats['eof'] or not len( msg )
                                 if log.getEffectiveLevel() <= logging.DETAIL:
-                                    log.detail( "%s recv: %5d: %s", enip_mesg.name_centered(),
+                                    log.detail( "%s recv: %5d: %s", machine.name_centered(),
                                                 len( msg ), cpppo.reprlib.repr( msg ))
                                 source.chain( msg )
                             else:
@@ -677,9 +824,10 @@ def enip_srv( conn, addr, enip_process=None, delay=None, **kwds ):
                             assert data.response.enip.status, "If no/empty response payload, expected non-zero EtherNet/IP status"
 
                         rpy	= parser.enip_encode( data.response.enip )
-                        log.detail( "%s send: %5d: %s %s", enip_mesg.name_centered(),
-                                    len( rpy ), cpppo.reprlib.repr( rpy ),
-                                    ("delay: %r" % delay) if delay else "" )
+                        if log.getEffectiveLevel() <= logging.DETAIL:
+                            log.detail( "%s send: %5d: %s %s", machine.name_centered(),
+                                        len( rpy ), cpppo.reprlib.repr( rpy ),
+                                        ("delay: %r" % delay) if delay else "" )
                         if delay:
                             # A delay (anything with a delay.value attribute) == #[.#] (converible
                             # to float) is ok; may be changed via web interface.
@@ -700,8 +848,9 @@ def enip_srv( conn, addr, enip_process=None, delay=None, **kwds ):
                             stats['eof'] = True
                     else:
                         # Session terminated.  No response, just drop connection.
-                        log.detail( "Session ended (client initiated): %s",
-                                    parser.enip_format( data ))
+                        if log.getEffectiveLevel() <= logging.DETAIL:
+                            log.detail( "Session ended (client initiated): %s",
+                                        parser.enip_format( data ))
                         stats['eof'] = True
                     log.detail( "Transaction complete after %7.3fs (w/ %7.3fs delay)",
                         cpppo.timer() - begun, delayseconds )
@@ -714,11 +863,11 @@ def enip_srv( conn, addr, enip_process=None, delay=None, **kwds ):
         except:
             # Parsing failure.  We're done.  Suck out some remaining input to give us some context.
             stats['processed']	= source.sent
-            memory		= bytes(bytearray(source.memory))
+            memory		= bytes( bytearray( source.memory ))
             pos			= len( source.memory )
-            future		= bytes(bytearray( b for b in source ))
+            future		= bytes( bytearray( b for b in source ))
             where		= "at %d total bytes:\n%s\n%s (byte %d)" % (
-                stats.processed, repr(memory+future), '-' * (len(repr(memory))-1) + '^', pos )
+                stats.processed, repr( memory+future ), '-' * ( len( repr( memory ))-1) + '^', pos )
             log.error( "EtherNet/IP error %s\n\nFailed with exception:\n%s\n", where,
                          ''.join( traceback.format_exception( *sys.exc_info() )))
             raise
@@ -797,30 +946,54 @@ def main( argv=None, attribute_class=device.Attribute, idle_service=None, identi
         description = "Provide an EtherNet/IP Server",
         epilog = "" )
 
-    ap.add_argument( '-v', '--verbose', default=0, action="count",
+    ap.add_argument( '-v', '--verbose', action="count",
+                     default=0, 
                      help="Display logging information." )
+    ap.add_argument( '-c', '--config', action='append',
+                     help="Add another (higher priority) config file path." )
+    ap.add_argument( '--no-config', action='store_true',
+                     default=False, 
+                     help="Disable loading of config files (default: False)" )
     ap.add_argument( '-a', '--address',
                      default=( "%s:%d" % address ),
                      help="EtherNet/IP interface[:port] to bind to (default: %s:%d)" % (
                          address[0], address[1] ))
-    ap.add_argument( '-p', '--print', default=False, action='store_true',
+    ap.add_argument( '-u', '--udp', action='store_true',
+                     default=True, 
+                     help="Enable UDP/IP server (default: True)" )
+    ap.add_argument( '-U', '--no-udp', dest="udp", action='store_false',
+                     help="Disable UDP/IP server" )
+    ap.add_argument( '-t', '--tcp', action='store_true',
+                     default=True, 
+                     help="Enable TCP/IP server (default: True)" )
+    ap.add_argument( '-T', '--no-tcp', dest="tcp", action='store_false',
+                     help="Disable TCP/IP server" )
+    ap.add_argument( '-p', '--print', action='store_true',
+                     default=False, 
                      help="Print a summary of operations to stdout" )
     ap.add_argument( '-l', '--log',
                      help="Log file, if desired" )
-    ap.add_argument( '-w', '--web', default="",
+    ap.add_argument( '-w', '--web',
+                     default="",
                      help="Web API [interface]:[port] to bind to (default: %s, port 80)" % (
                          address[0] ))
-    ap.add_argument( '-d', '--delay', default="0.0" ,
+    ap.add_argument( '-d', '--delay',
+                     default="0.0" ,
                      help="Delay response to each request by a certain number of seconds (default: 0.0)")
     ap.add_argument( '-s', '--size',
                      help="Limit EtherNet/IP encapsulated request size to the specified number of bytes (default: None)",
                      default=None )
-    ap.add_argument( '--route-path', default=None,
+    ap.add_argument( '--route-path',
+                     default=None,
                      help="Route Path, in JSON, eg. %r (default: None); 0/false to accept only empty route_path" % (
                          str( json.dumps( route_path_default ))))
-    ap.add_argument( '-P', '--profile', default=None ,
+    ap.add_argument( '-S', '--simple', action='store_true',
+                     default=False,
+                     help="Simulate a simple (non-routing) EtherNet/IP CIP device (eg. MicroLogix)")
+    ap.add_argument( '-P', '--profile',
+                     default=None,
                      help="Output profiling data to a file (default: None)" )
-    ap.add_argument( 'tags', nargs="+",
+    ap.add_argument( 'tags', nargs="*",
                      help="Any tags, their type (default: INT), and number (default: 1), eg: tag=INT[1000]")
 
     args			= ap.parse_args( argv )
@@ -855,6 +1028,10 @@ def main( argv=None, attribute_class=device.Attribute, idle_service=None, identi
 
     logging.basicConfig( **cpppo.log_cfg )
 
+    # Load config file(s), if not disabled, into the device.Object class-level 'config_loader'.
+    if not args.no_config:
+        loaded			= device.Object.config_loader.read( config_files )
+        logging.normal( "Loaded config files: %r", loaded )
 
     # Pull out a 'server.control...' supplied in the keywords, and make certain it's a
     # cpppo.apidict.  We'll use this to transmit control signals to the server thread.  Set the
@@ -863,8 +1040,10 @@ def main( argv=None, attribute_class=device.Attribute, idle_service=None, identi
         assert 'control' in kwds['server'], "A 'server' keyword provided without a 'control' attribute"
         srv_ctl			= cpppo.dotdict( kwds.pop( 'server' ))
         assert isinstance( srv_ctl['control'], cpppo.apidict ), "The server.control... must be a cpppo.apidict"
+        log.detail( "External server.control in object %s", id( srv_ctl['control'] ))
     else:
         srv_ctl.control		= cpppo.apidict( timeout=timeout )
+        log.detail( "Internal server.control in object %s", id( srv_ctl['control'] ))
 
     srv_ctl.control['done']	= False
     srv_ctl.control['disable']	= False
@@ -975,13 +1154,14 @@ def main( argv=None, attribute_class=device.Attribute, idle_service=None, identi
     options.setdefault( 'enip_process', logix.process )
     if identity_class:
         options.setdefault( 'identity_class', identity_class )
-    assert not UCMM_class or not args.route_path, \
-        "Specify either a route-path, or a custom UCMM_class; not both"
-    if args.route_path is not None:
+    assert not UCMM_class or not ( args.route_path or args.simple ), \
+        "Specify either -S/--simple/--route-path, or a custom UCMM_class; not both"
+    if args.route_path is not None or args.simple:
         # Must be JSON, eg. '[{"link"...}]', or '0'/'false' to explicitly specify no route_path
-        # accepted (must be empty in request)
+        # accepted (must be empty in request).  Can only get in here with a --route-path=0/false/[], or
+        # -S|--simple, which implies a --route-path=false (no routing Unconnected Send accepted).
         class UCMM_class_with_route( device.UCMM ):
-            route_path		= json.loads( args.route_path )
+            route_path		= json.loads( args.route_path ) if args.route_path else False
         UCMM_class		= UCMM_class_with_route
     if UCMM_class:
         options.setdefault( 'UCMM_class', UCMM_class )
@@ -1032,7 +1212,7 @@ def main( argv=None, attribute_class=device.Attribute, idle_service=None, identi
                 disabled= False
             network.server_main( address=bind, target=enip_srv, kwargs=kwargs,
                                  idle_service=lambda: map( lambda f: f(), idle_service ),
-                                 thread_factory=tf, **tf_kwds )
+                                 udp=args.udp, tcp=args.tcp, thread_factory=tf, **tf_kwds )
         else:
             if not disabled:
                 logging.detail( "EtherNet/IP Server disabled" )

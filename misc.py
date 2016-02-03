@@ -328,24 +328,24 @@ def reprargs( *args, **kwds ):
                           for k,v in kwds.items() ])
 
 
-def logresult( prefix=None, log=logging, log_level=logging.DEBUG, exc_level=logging.WARNING, exc_swallow=False ):
+def logresult( prefix=None, log=None, log_level=logging.DEBUG, exc_level=logging.WARNING, exc_swallow=False ):
     def decorator( function ):
         @functools.wraps( function )
         def wrapper( *args, **kwds ):
             try:
                 result		= function( *args, **kwds )
-                if log.isEnabledFor( log_level ):
-                    log.log( log_level, "%s-->%r" % (
+                if ( log or logging.getLogger() ).isEnabledFor( log_level ):
+                    ( log or logging ).log( log_level, "%s-->%r" % (
                         prefix or function.__name__+'('+reprargs( *args, **kwds )+')', result ))
                 return result
             except (GeneratorExit,StopIteration) as exc:
-                if log.isEnabledFor( exc_level ):
-                    log.log( exc_level, "%s-->%r" % (
+                if ( log or logging.getLogger() ).isEnabledFor( exc_level ):
+                    ( log or logging ).log( exc_level, "%s-->%r" % (
                         prefix or function.__name__+'('+reprargs( *args, **kwds )+')', exc ))
                 raise
             except Exception as exc:
-                if log.isEnabledFor( exc_level ):
-                    log.log( exc_level, "%s-->%r" % (
+                if ( log or logging.getLogger() ).isEnabledFor( exc_level ):
+                    ( log or logging ).log( exc_level, "%s-->%r" % (
                         prefix or function.__name__+'('+reprargs( *args, **kwds )+')', exc ))
                 if not exc_swallow:
                     raise

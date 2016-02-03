@@ -4,13 +4,16 @@ python:
   - "2.7"
   - "3.3"
   - "3.4"
+  - "3.5"
   - "nightly"
-  - "pypy"   # Some unit tests don't pass, but everything seems to work
+  - "pypy"
 
 # command to install dependencies
 install:
   - pip install -r requirements.txt
   - pip install pytest pytz tzlocal
+  - pip install 'argparse; python_version < "2.7"'
+  - pip install 'configparser; python_version < "3.0"'
 
 # command to run tests
 script:

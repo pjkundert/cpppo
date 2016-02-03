@@ -45,6 +45,7 @@ specified).  Optionally prints results (if --print specified).
 import argparse
 import array
 import collections
+import contextlib
 import csv
 import itertools
 import json
@@ -183,7 +184,7 @@ def format_path( segments, count=None ):
                 path	       += "[%d-%d]" % ( element, element + count - 1 )
             else:
                 path	       += "[%d]" % ( element )
-    logging.detail( "Formatted %32s from: %s", path, segments )
+    log.detail( "Formatted %32s from: %s", path, segments )
     return path
 
 
@@ -282,7 +283,7 @@ def parse_operations( tags, fragment=False, **kwds ):
                 val_list,	= csv.reader(
                     [ val ], quotechar='"', delimiter=',', quoting=csv.QUOTE_ALL, skipinitialspace=True )
             except Exception as exc:
-                log.warning( "Invalid sequence of CSV values: %s; %s", val, exc )
+                log.normal( "Invalid sequence of CSV values: %s; %s", val, exc )
                 raise
             opr['data']		= list( map( cast, val_list ))
 
@@ -338,27 +339,63 @@ class client( object ):
     route_path_default		= enip.route_path_default
     send_path_default		= enip.send_path_default
 
-    def __init__( self, host, port=None, timeout=None, dialect=logix.Logix, profiler=None ):
-        """Connect to the EtherNet/IP client, waiting  """
-        self.addr               = (host if host is not None else enip.address[0],
-                                   port if port is not None else enip.address[1])
+    def __init__( self, host, port=None, timeout=None, dialect=logix.Logix, profiler=None,
+                  udp=False, broadcast=False ):
+        """Connect to the EtherNet/IP client, waiting up to 'timeout' for a connection.  Avoid using
+        the host OS platform default if 'host' is empty; this will be different on Mac OS-X, Linux,
+        Windows, ...  So, for an empty host, we'll default to 'localhost'; this should be IPv4/IPv6
+        compatible (vs. '127.0.0.1', for example).  Likewise, if both the supplied port and
+        enip.address ends up 0, the OS-supplied default port is not used; use 44818.
+
+        If 'udp' specified and a 'broadcast' is intended, then we won't connect the UDP socket
+        (allowing multiple peers, and we'll set OS_BROADCAST.
+
+        It is not recommended to use 'broadcast' when high reliability is required.  Since all
+        responses are parsed one after another by the same EtherNet/IP CIP response parser, an
+        invalid CIP response will cause the parser to fail.  Instead, issue a broadcast "List
+        Services/Identity/Interfaces" request, and then manually collect the peer replies and
+        addresses using recvfrom.  Then, issue individual requests to each identified peer.
+
+        """
+        addr			= ( host if host is not None else enip.address[0],
+                                    port if port is not None else enip.address[1] )
+        self.addr		= ( addr[0] or 'localhost', addr[1] or 44818 )
+        self.addr_connected	= not ( udp and broadcast )
         self.conn		= None
-        try:
-            self.conn		= socket.create_connection( self.addr, timeout=timeout )
-        except Exception as exc:
-            log.warning( "Couldn't connect to EtherNet/IP server at %s:%s: %s",
-                        self.addr[0], self.addr[1], exc )
-            raise
-        try:
-            self.conn.setsockopt( socket.IPPROTO_TCP, socket.TCP_NODELAY, 1 )
-        except Exception as exc:
-            log.warning( "Couldn't set TCP_NODELAY on socket to EtherNet/IP server at %s:%s: %s",
-                         self.addr[0], self.addr[1], exc )
-        try:
-            self.conn.setsockopt( socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1 )
-        except Exception as exc:
-            log.warning( "Couldn't set SO_KEEPALIVE on socket to EtherNet/IP server at %s:%s: %s",
-                         self.addr[0], self.addr[1], exc )
+        self.udp		= udp
+        log.detail( "Connect:  %s/IP to %r", "UPD" if udp else "TCP", self.addr )
+        if self.udp:
+            try:
+                self.conn		= socket.socket( socket.AF_INET, socket.SOCK_DGRAM )
+                if not broadcast:
+                    self.conn.connect( self.addr )
+            except Exception as exc:
+                log.normal( "Couldn't %s to EtherNet/IP UDP server at %s:%s: %s",
+                            "broadcast" if broadcast else "connect", self.addr[0], self.addr[1], exc )
+                raise
+            if broadcast:
+                try:
+                    self.conn.setsockopt( socket.SOL_SOCKET, socket.SO_BROADCAST, 1 )
+                except Exception as exc:
+                    log.warning( "Couldn't set SO_BROADCAST on socket to EtherNet/IP server at %s:%s: %s",
+                                 self.addr[0], self.addr[1], exc )
+        else:
+            try:
+                self.conn		= socket.create_connection( self.addr, timeout=timeout )
+            except Exception as exc:
+                log.normal( "Couldn't connect to EtherNet/IP TCP server at %s:%s: %s",
+                            self.addr[0], self.addr[1], exc )
+                raise
+            try:
+                self.conn.setsockopt( socket.IPPROTO_TCP, socket.TCP_NODELAY, 1 )
+            except Exception as exc:
+                log.warning( "Couldn't set TCP_NODELAY on socket to EtherNet/IP server at %s:%s: %s",
+                             self.addr[0], self.addr[1], exc )
+            try:
+                self.conn.setsockopt( socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1 )
+            except Exception as exc:
+                log.warning( "Couldn't set SO_KEEPALIVE on socket to EtherNet/IP server at %s:%s: %s",
+                             self.addr[0], self.addr[1], exc )
 
         self.session		= None	# Not set w/in client class; set manually, or in derived class
         self.source		= cpppo.chainable()
@@ -379,6 +416,20 @@ class client( object ):
 
     def __str__( self ):
         return "%s:%s[%r]" % ( self.addr[0], self.addr[1], self.session )
+
+    def shutdown( self ):
+        """A client-initiated clean shutdown of the EtherNet/IP session requires the client to close the
+        outgoing half of its TCP/IP connection, while harvesting the remaining responses incoming.
+        The peer will receive EOF, and cleanly close the connection.  After the final response is
+        harvested, we will then receive EOF, and close the connection.  All TCP/IP buffers will be
+        clear, and the connection will then close in a completely clean fashion.
+
+        """
+        if not self.udp:
+            try:
+                self.conn.shutdown( socket.SHUT_WR )
+            except:
+                pass
 
     def close( self ):
         """The lifespan of an EtherNet/IP CIP client connection is defined by client.__init__() and client.close()"""
@@ -429,18 +480,28 @@ class client( object ):
         # Harvest any input immediately available, if we're empty.  We may be coming back
         # here after already having issued a non-transition event from the existing EtherNet/IP
         # framer engine -- we can't re-enter the engine w/o getting some more input.
+        addr			= self.addr # TCP/IP; may continue parsing data rx last time thru
         if self.source.peek() is None:
             if self.profiler:
                 self.profiler.disable()
             try:
-                rcvd		= network.recv( self.conn, timeout=0 )
-                log.debug(
-                    "EtherNet/IP-->%16s:%-5d rcvd %5d: %r",
-                    self.addr[0], self.addr[1], len( rcvd ) if rcvd is not None else 0, rcvd )
+                rcvd,addr	= self.recvfrom( timeout=0 )
+                log.info(
+                    "EtherNet/IP-->%16s:%-5s rcvd %5d: %r",
+                    addr[0] if addr else None, addr[1] if addr else None,
+                    len( rcvd ) if rcvd is not None else 0, rcvd )
                 if rcvd is not None:
                     # Some input (or EOF); source is empty; chain the input and drop back into 
-                    # the framer engine.  It will detect a no-progress condition on EOF.
-                    self.source.chain( rcvd )
+                    # the framer engine.  It will detect a no-progress condition on EOF.  If we
+                    # don't have an engine, we can signal completion right here.
+                    if len( rcvd ):
+                        self.source.chain( rcvd )	# More input received
+                    else:
+                        if self.engine is None:
+                            raise StopIteration		# EOF between EtherNet/IP frames; Done.
+                        logging.info( "EOF w/ %s input available, engine %s",
+                                      "empty" if self.source.peek() is None else " some",
+                                      "off" if self.engine is None else "running" )
                 else:
                     # Don't create parsing engine 'til we have some I/O to process.  This avoids the
                     # degenerate situation where empty I/O (EOF) always matches the empty command (used
@@ -453,11 +514,11 @@ class client( object ):
 
         # Initiate or continue parsing input using the machine's engine; discard the engine at
         # termination or on error (Exception).  Any exception (including cpppo.NonTerminal) will be
-        # propagated.
+        # propagated.  Identifies the responding peer address, by returning it via 'result.peer'.
         result			= None
         try:
             if self.engine is None:
-                self.data	= cpppo.dotdict()
+                self.data	= cpppo.dotdict( peer=addr )
                 self.engine	= self.frame.run( source=self.source, data=self.data )
                 
             for mch,sta in self.engine:
@@ -468,7 +529,7 @@ class client( object ):
                     return None
             # Engine has terminated w/ a recognized EtherNet/IP frame.
         except Exception as exc:
-            log.warning( "EtherNet/IP<x>%16s:%-5d err.: %s",
+            log.normal( "EtherNet/IP<x>%16s:%-5d err.: %s",
                          self.addr[0], self.addr[1], str( exc ))
             self.engine		= None
             raise
@@ -490,7 +551,7 @@ class client( object ):
                     pass
                 assert machine.terminal, "No CIP payload in the EtherNet/IP frame: %r" % ( result )
 
-        # Parse the (eg. Logix) request responses in the EtherNet/IP CIP payload's CPF items
+        # Parse the device (eg. Logix) request responses in the EtherNet/IP CIP payload's CPF items
         if result is not None and 'enip.CIP.send_data' in result:
             for item in result.enip.CIP.send_data.CPF.item:
                 if 'unconnected_send.request' in item:
@@ -498,24 +559,37 @@ class client( object ):
                     # Attribute All).  Use the globally-defined cpppo.server.enip.client's dialect's
                     # (eg. logix.Logix) parser to parse the contents of the CIP payload's CPF items.
                     with device.dialect.parser as machine:
-                        for mch,sta in machine.run(
+                        with contextlib.closing( machine.run( # for pypy, where gc may delay destruction of generators
                                 source=cpppo.peekable( item.unconnected_send.request.input ),
-                                data=item.unconnected_send.request ):
-                            pass
-                        assert machine.terminal, "No %r request in the EtherNet/IP CIP CPF frame: %r" % (
-                            device.dialect, result )
-
+                                data=item.unconnected_send.request )) as engine:
+                            for mch,sta in engine:
+                                pass
+                            assert machine.terminal, "No %r request in the EtherNet/IP CIP CPF frame: %r" % (
+                                device.dialect, result )
+        log.info( "Returning result: %r", result )
         return result
 
     next = __next__ # Python 2/3 compatibility
+
+    def recvfrom( self, timeout=None ):
+        """Receive data (if any) and source address, if available within timeout."""
+        addr			= self.addr
+        if self.addr_connected:
+            rcvd		= network.recv( self.conn, timeout=timeout )
+        else:
+            rcvd,addr		= network.recvfrom( self.conn, timeout=timeout )
+        return rcvd,addr
 
     def send( self, request, timeout=None ):
         """Send encoded request data."""
         assert self.writable( timeout=timeout ), \
             "Failed to send to %r within %7.3fs: %r" % (
                 self.addr, cpppo.inf if timeout is None else timeout, request )
-        sent		= bytes( request )
-        self.conn.send( sent )
+        sent			= bytes( request )
+        if self.addr_connected:
+            self.conn.send( sent )
+        else:
+            self.conn.sendto( sent, self.addr )
         log.info(
             "EtherNet/IP-->%16s:%-5d send %5d: %r",
                     self.addr[0], self.addr[1], len( request ), sent )
@@ -540,26 +614,37 @@ class client( object ):
                 self.profiler.enable()
         return len( r ) > 0
 
+    # Basic CIP Requests; sent immediately
     def register( self, timeout=None, sender_context=b'' ):
-        data			= cpppo.dotdict()
-        data.enip		= {}
-        data.enip.session_handle= 0
-        data.enip.options	= 0
-        data.enip.status	= 0
-        data.enip.sender_context= {}
-        data.enip.sender_context.input = format_context( sender_context )
+        cip			= cpppo.dotdict()
+        cip.register		= {}
+        cip.register.options 	= 0
+        cip.register.protocol_version = 1
+        return self.cip_send( cip=cip, sender_context=sender_context, timeout=timeout )
 
-        data.enip.CIP		= {}
-        data.enip.CIP.register 	= {}
-        data.enip.CIP.register.options 		= 0
-        data.enip.CIP.register.protocol_version	= 1
+    def list_interfaces( self, timeout=None, sender_context=b'' ):
+        cip			= cpppo.dotdict()
+        cip.list_interfaces	= {}
+        return self.cip_send( cip=cip, sender_context=sender_context, timeout=timeout )
 
-        data.enip.input		= bytearray( enip.CIP.produce( data.enip ))
-        data.input		= bytearray( enip.enip_encode( data.enip ))
+    def list_services( self, timeout=None, sender_context=b'' ):
+        cip			= cpppo.dotdict()
+        cip.list_services	= {}
+        return self.cip_send( cip=cip, sender_context=sender_context, timeout=timeout )
 
-        self.send( data.input, timeout=timeout )
-        return data
+    def list_identity( self, timeout=None, sender_context=b'' ):
+        cip			= cpppo.dotdict()
+        cip.list_identity	= {}
+        return self.cip_send( cip=cip, sender_context=sender_context, timeout=timeout )
 
+    def legacy( self, command, cip=None, timeout=None, sender_context=b'' ):
+        """Transmit a Legacy EtherNet/IP CIP request, using the specified command code (eg. 0x0001).
+        If CIP is None, then no CIP payload will be generated.
+
+        """
+        return self.cip_send( cip=cip)
+
+    # CIP SendRRData Requests; may be deferred (eg. for Multiple Service Packet)
     def get_attributes_all( self, path,
               route_path=None, send_path=None, timeout=None, send=True,
               sender_context=b'',
@@ -659,11 +744,7 @@ class client( object ):
 
     def unconnected_send( self, request, route_path=None, send_path=None, timeout=None,
                           sender_context=b'' ):
-        """Encapsulates the request and transmits it, returning the full encapsulation structure used to
-        carry the request.  The response must be harvested later; a sender_context should be
-        supplied that may be used to associate the response to the originating request.
-
-        The default route_path is the CPU in chassis (link 0), port 1, and the default send_path is
+        """The default route_path is the CPU in chassis (link 0), port 1, and the default send_path is
         to its Connection Manager (Class 6, Instance 1).  These defaults can be configured on a
         class or per-instance basis by changing the {route,send}_path_default attributes in either
         the client class or instance.
@@ -680,17 +761,10 @@ class client( object ):
             # Default to the Connection Manager
             send_path		= self.send_path_default
 
-        data			= cpppo.dotdict()
-        data.enip		= {}
-        data.enip.session_handle= self.session
-        data.enip.options	= 0
-        data.enip.status	= 0
-        data.enip.sender_context= {}
-        data.enip.sender_context.input = format_context( sender_context )
-        data.enip.CIP		= {}
-        data.enip.CIP.send_data = {}
+        cip			= cpppo.dotdict()
+        cip.send_data		= {}
 
-        sd			= data.enip.CIP.send_data
+        sd			= cip.send_data
         sd.interface		= 0
         sd.timeout		= 0
         sd.CPF			= {}
@@ -714,20 +788,43 @@ class client( object ):
                 us.route_path	= { 'segment': [ cpppo.dotdict( s ) for s in route_path ]} # must be {link/port}
         us.request		= request
 
-        if log.isEnabledFor( logging.DETAIL ):
-            log.detail( "Client Unconnected Send (route_path: %r): %s", route_path, enip.enip_format( data ))
-
         us.request.input	= bytearray( device.dialect.produce( us.request )) # eg. logix.Logix
-        sd.input		= bytearray( enip.CPF.produce( sd.CPF ))
-        data.enip.input		= bytearray( enip.CIP.produce( data.enip ))
-        data.input		= bytearray( enip.enip_encode( data.enip ))
 
-        log.info( "EtherNet/IP: %3d + CIP: %3d + CPF: %3d + Request: %3d == %3d bytes total",
+        return self.cip_send( cip=cip, sender_context=sender_context, timeout=timeout )
+
+    def cip_send( self, cip, command=None, timeout=None, sender_context=b'' ):
+        """Encapsulates the CIP request and transmits it, returning the full encapsulation structure
+        used to carry the request.  The response must be harvested later; a sender_context should be
+        supplied that may be used to associate the response to the originating request.
+
+        If the CIP contents can be used to deduce the correct EtherNet/IP CIP framing command
+        (eg. contains a recognized payload, such as ...CIP.list_identity or ...CIP.send_data), then
+        command may remain None.  However, if sending "legacy" CIP requests (eg. 0x0001) with no CIP
+        payload, then command may be used to specify the data.enip.command for EtherNet/IP framing.
+
+        """
+        data			= cpppo.dotdict()
+        data.enip		= {}
+        if command:
+            data.enip.command	= command
+        data.enip.session_handle= self.session or 0 # May be None, if not yet registered
+        data.enip.options	= 0
+        data.enip.status	= 0
+        data.enip.sender_context= {}
+        data.enip.sender_context.input = format_context( sender_context )
+
+        data.enip.CIP		= cip		# Must have content encoded already produced
+
+        if log.isEnabledFor( logging.DETAIL ):
+            log.detail( "Client CIP Send: %s", enip.enip_format( data ))
+
+        data.enip.input		= bytearray( enip.CIP.produce( data.enip )) # May deduce enip.command...
+        data.input		= bytearray( enip.enip_encode( data.enip )) #   for EtherNet/IP framing
+
+        log.info( "EtherNet/IP: %3d + CIP: %3d == %3d bytes total",
                   len( data.input ) - len( data.enip.input ),
-                  len( data.enip.input ) - len( sd.input ),
-                  len( sd.input ) - len( us.request.input ),
-                  len( us.request.input ),
-                  len( data.input ))
+                  len( data.enip.input ), len( data.input ))
+
         if self.profiler:
             self.profiler.disable()
         try:
@@ -751,12 +848,13 @@ def await( cli, timeout=None ):
     the client to become readable; if not, return the None.  Otherwise, loop back and continue
     trying to gain a response.
 
-    An empty response {} indicates clean termination of a session.
+    An empty response {} indicates clean termination of a session (EOF received, with no input or
+    existing partial response in process of parsing in the cli iterator.)
 
     """
-    response			= None
+    response			= cpppo.dotdict()
     begun			= cpppo.timer()
-    for response in cli:
+    for response in cli: # if StopIteration raised immediately, defaults to {} signalling completion
         if response is None:
             elapsed		= cpppo.timer() - begun
             if not timeout or elapsed <= timeout:
@@ -777,13 +875,26 @@ class connector( client ):
 
     Raises an Exception if no valid connection can be established within the supplied timeout.
 
+    NOTE:
+
+    Generally doesn't make sense to "Register" using a UDP/IP connection to an EtherNet/IP CIP
+    device, as it is not considered a valid request, so we don't issue it (self.session remains
+    None).  We'll allow creation of a connector, as the client code may simply be using it to
+    perform otherwise valid requests (eg. List Identity, ...).  However, we do not check for
+    validity of requests issued over the connection.
+
     """
     def __init__( self, host, port=None, timeout=None, **kwds ): # possibly supply dialect, ...
-        """Establish a TCP/IP connection and perform a successful CIP Register within 'timeout'."""
+        """Establish a TCP/IP connection and perform a successful CIP Register within 'timeout'.  Allow the
+        full timeout for the TCP/IP connection to succeed.  CIP Register is not valid for UDP/IP
+        type connections.
+
+        """
         begun			= cpppo.timer()
-        # Allow the full timeout for the TCP/IP connection to succeed
-        super( connector, self ).__init__( host=host, port=port, timeout=timeout, **kwds )
         try:
+            super( connector, self ).__init__( host=host, port=port, timeout=timeout, **kwds )
+            if self.udp:
+                return
             with self:
                 # The register( timeout=... ) applies to the socket send only
                 elapsed_req	= cpppo.timer() - begun
@@ -799,11 +910,11 @@ class connector( client ):
 
             self.session	= data.enip.session_handle
         except Exception as exc:
-            logging.warning( "Connect:  Failure in %7.3fs/%7.3fs: %s", cpppo.timer() - begun,
-                             cpppo.inf if timeout is None else timeout, exc )
+            log.normal( "Connect:  Failure in %7.3fs/%7.3fs: %s", cpppo.timer() - begun,
+                        cpppo.inf if timeout is None else timeout, exc )
             raise
-
-        logging.detail( "Connect:  Success in %7.3fs/%7.3fs", elapsed_req + elapsed_rpy,
+        else:
+            log.normal( "Connect:  Success in %7.3fs/%7.3fs", cpppo.timer() - begun,
                         cpppo.inf if timeout is None else timeout )
 
     def issue( self, operations, index=0, fragment=False, multiple=0, timeout=None ):
@@ -991,10 +1102,10 @@ class connector( client ):
 
             # Find the replies in the response; could be single or multiple; should match requests!
             replies		= []
-            if response is None:
+            if response is None:# None response indicates timeout
                 raise StopIteration( "Response Not Received w/in %7.2fs" % (
                     cpppo.inf if timeout is None else timeout ))
-            elif not response:
+            elif not response:	# empty response indicates clean EOF
                 raise StopIteration( "Session terminated" )
             elif 'enip.status' in response and response.enip.status != 0:
                 raise Exception( "Response EtherNet/IP status: %d" % ( response.enip.status ))
@@ -1107,7 +1218,7 @@ class connector( client ):
         requests		= 0
         complete		= 0
 
-        last			= index - 1
+        curr = last		= index - 1	# initial condition handles empty operations list
         while issuer or inflight:
             if issuer:
                 try:
@@ -1207,11 +1318,11 @@ class connector( client ):
 
             except AttributeError as exc:
                 res		= "Client %s Response missing data: %s" % ( descr, exc )
-                log.warning( "%s: %s", res, ''.join( traceback.format_exception( *sys.exc_info() )))
+                log.normal( "%s: %s", res, ''.join( traceback.format_exception( *sys.exc_info() )))
                 raise
             except Exception as exc:
                 res		= "Client %s Exception: %s" % ( descr, exc )
-                log.warning( "%s: %s", res, ''.join( traceback.format_exception( *sys.exc_info() )))
+                log.normal( "%s: %s", res, ''.join( traceback.format_exception( *sys.exc_info() )))
                 raise
 
             if elm is None:
@@ -1296,10 +1407,9 @@ def recycle( iterable, times=None ):
 
 
 def main( argv=None ):
-    """Read the specified tag(s).  Pass the desired argv (excluding the program
-    name in sys.arg[0]; typically pass argv=None, which is equivalent to
-    argv=sys.argv[1:], the default for argparse.  Requires at least one tag to
-    be defined.
+    """Read/write the specified tag(s) silently (by default); pass --print to summarize transaction to
+    standard output.  Pass the desired argv (excluding the program name in sys.arg[0]; typically
+    pass argv=None, which is equivalent to argv=sys.argv[1:], the default for argparse.
 
     """
     ap				= argparse.ArgumentParser(
@@ -1335,8 +1445,15 @@ which is required to carry this Send/Route Path data. """ )
     ap.add_argument( '-a', '--address',
                      default=( "%s:%d" % enip.address ),
                      help="EtherNet/IP interface[:port] to connect to (default: %s:%d)" % (
-                         enip.address[0], enip.address[1] ))
-    ap.add_argument( '-p', '--print', default=False, action='store_true',
+                         enip.address[0] or 'localhost', enip.address[1] or 44818 ))
+    ap.add_argument( '-u', '--udp', action='store_true',
+                     default=False, 
+                     help="Use a UDP/IP connection (default: False)" )
+    ap.add_argument( '-b', '--broadcast', action='store_true',
+                     default=False, 
+                     help="Allow multiple peers, and use of broadcast address (default: False)" )
+    ap.add_argument( '-p', '--print', action='store_true',
+                     default=False, 
                      help="Print a summary of operations to stdout" )
     ap.add_argument( '-l', '--log',
                      help="Log file, if desired" )
@@ -1353,16 +1470,33 @@ which is required to carry this Send/Route Path data. """ )
     ap.add_argument( '--send-path',
                      default=None,
                      help="Send Path to UCMM (default: @6/1); Specify an empty string '' for no Send Path" )
+    ap.add_argument( '-S', '--simple', action='store_true',
+                     default=False,
+                     help="Access a simple (non-routing) EtherNet/IP CIP device (eg. MicroLogix)")
     ap.add_argument( '-m', '--multiple', action='store_true',
+                     default=False, 
                      help="Use Multiple Service Packet request targeting ~500 bytes (default: False)" )
     ap.add_argument( '-d', '--depth', default=1,
                      help="Pipeline requests to this depth (default: 1)" )
     ap.add_argument( '-f', '--fragment', dest='fragment', action='store_true',
                      default=False,
                      help="Always use Read/Write Tag Fragmented requests (default: False)" )
+    ap.add_argument( '-s', '--list-services', action='store_true',
+                     default=False,
+                     help="Perform a CIP List Services request upon connection (default: False)" )
+    ap.add_argument( '-i', '--list-identity', action='store_true',
+                     default=False,
+                     help="Perform a CIP List Identity request upon connection (default: False)" )
+    ap.add_argument( '-I', '--list-interfaces', action='store_true',
+                     default=False,
+                     help="Perform a CIP List Interfaces request upon connection (default: False)" )
+    ap.add_argument( '-L', '--legacy',
+                     default=None,
+                     help="Send a Legacy CIP request (specify command code) (default: None)" )
     ap.add_argument( '-P', '--profile', action='store_true',
+                     default=False, 
                      help="Activate profiling (default: False)" )
-    ap.add_argument( 'tags', nargs="+",
+    ap.add_argument( 'tags', nargs="*",
                      help="Tags to read/write (- to read from stdin), eg: SCADA[1], SCADA[2-10]+4=(DINT)3,4,5" )
 
     args			= ap.parse_args( argv )
@@ -1393,8 +1527,12 @@ which is required to carry this Send/Route Path data. """ )
     multiple			= 500 if args.multiple else 0
     fragment			= bool( args.fragment )
     printing			= args.print
-    route_path			= json.loads( args.route_path ) if args.route_path else None # may be None/0/False
-    send_path			= args.send_path
+    # route_path may be None/0/False/'[]', send_path may be None/''/'@2/1'.  -S|--simple designates
+    # '[]', '' respectively, appropriate for non-routing CIP devices, eg. MicroLogix, PowerFlex, ...
+    route_path			= json.loads( args.route_path ) if args.route_path \
+                                      else [] if args.simple else None
+    send_path			= args.send_path                if args.send_path \
+                                      else '' if args.simple else None
 
     if '-' in args.tags:
         # Collect tags from sys.stdin 'til EOF, at position of '-' in argument list
@@ -1412,20 +1550,64 @@ which is required to carry this Send/Route Path data. """ )
 
     # Register and EtherNet/IP CIP connection to a Controller
     begun			= cpppo.timer()
-    with connector( host=addr[0], port=addr[1], timeout=timeout, profiler=profiler ) as connection:
+    failures			= 0
+    with connector( host=addr[0], port=addr[1], timeout=timeout, profiler=profiler,
+                    udp=args.udp, broadcast=args.broadcast ) as connection:
         elapsed			= cpppo.timer() - begun
         log.detail( "Client Register Rcvd %7.3f/%7.3fs" % ( elapsed, timeout ))
-    
-        # Issue Tag I/O operations, optionally printing a summary
-        begun			= cpppo.timer()
-        operations		= parse_operations( recycle( tags, times=repeat ),
-                                                    route_path=route_path, send_path=send_path )
-        failures,transactions	= connection.process(
-            operations=operations, depth=depth, multiple=multiple,
-            fragment=fragment, printing=printing, timeout=timeout )
-        elapsed			= cpppo.timer() - begun
-        log.normal( "Client Tag I/O  Average %7.3f TPS (%7.3fs ea)." % (
-            len( transactions ) / elapsed, elapsed / len( transactions )))
+
+        # Issue List {Identity,Service} requests, if desired.  If broadcast, await (multiple)
+        # responses for the entire timeout.  Prints the CPF encapsulation payload of each response
+        # (if available; the entire parsed EtherNet/IP reply if not recognized).
+        for desc in [ "Legacy", "List Services", "List Identity", "List Interfaces" ]:
+            meth		= desc.lower().replace( ' ', '_' ) # List Interfaces --> list_interfaces
+            if not getattr( args, meth, None ):
+                continue # not selected, or no arg option yet, or no/zero --legacy command value
+
+            path		= '.'.join( [ 'enip', 'CIP', meth, 'CPF' ] )
+            begun		= cpppo.timer()
+            meth_kwds		= dict( timeout=timeout )
+            if desc == "Legacy":
+                # All legacy EtherNet/IP commands require a command value, and an empty 'CIP.legacy'
+                # payload to be passed to client.legacy/client.cip_send (command cannot be deduced)
+                command		= int( args.legacy, 0 ) # may be hex, eg. '0x0001'
+                desc	       += " 0x%04X" % ( command )
+                meth_kwds.update(
+                    command	= command,
+                    cip		= cpppo.dotdict(
+                        legacy	= None ))
+
+            getattr( connection, meth )( **meth_kwds )
+            elapsed		= None
+            counter		= 0
+            while ( elapsed is None or elapsed < timeout ):
+                remains		= timeout - ( elapsed or 0 )
+                reply,_		= await( connection, timeout=remains )
+                if reply:
+                    print( "%s %2d from %r: %s" % (
+                        desc, counter, reply.peer, enip.enip_format( reply.get( path, reply ))))
+                    counter    += 1
+                if not reply or not args.broadcast:
+                    # No reply or EOF w'in timeout, or reply but not --broadcast; done waiting
+                    break
+                elapsed		= cpppo.timer() - begun
+            if not counter:
+                log.warning( "No %s response w/in %7.3fs timeout", desc, timeout )
+                failures       += 1
+
+        if tags:
+            # Issue Tag I/O operations, optionally printing a summary
+            begun		= cpppo.timer()
+            operations		= parse_operations(
+                recycle( tags, times=repeat ), route_path=route_path, send_path=send_path )
+            failed,transactions	= connection.process(
+                operations=operations, depth=depth, multiple=multiple,
+                fragment=fragment, printing=printing, timeout=timeout )
+            failures	       += failed
+            elapsed			= cpppo.timer() - begun
+            if transactions: # May be [], if from stdin, and no operations provided
+                log.normal( "Client Tag I/O  Average %7.3f TPS (%7.3fs ea)." % (
+                    len( transactions ) / elapsed, elapsed / len( transactions )))
 
     if profiler:
         s			= StringIO.StringIO()

@@ -31,10 +31,13 @@ enip/parser.py	-- The EtherNet/IP CIP protocol parsers
 """
 
 import array
+import contextlib
 import json
 import logging
 import struct
 import sys
+
+import ipaddress
 
 import cpppo
 
@@ -197,11 +200,17 @@ class INT( TYPE ):
     struct_format		= '<h'
     struct_calcsize		= struct.calcsize( struct_format )
 
+class WORD( UINT ):
+    tag_type			= 0x00D2
+
 class UDINT( TYPE ):
     """An EtherNet/IP UDINT; 32-bit unsigned integer"""
     tag_type			= 0x00c8
     struct_format		= '<I'
     struct_calcsize		= struct.calcsize( struct_format )
+
+class DWORD( UDINT ):
+    tag_type			= 0x00D3
 
 class DINT( TYPE ):
     """An EtherNet/IP DINT; 32-bit signed integer"""
@@ -215,9 +224,31 @@ class REAL( TYPE ):
     struct_format		= '<f'
     struct_calcsize		= struct.calcsize( struct_format )
 
+# Some network byte-order types that are occasionally used in parsing
+class UINT_network( TYPE ):
+    """An EtherNet/IP UINT; 16-bit unsigned integer, but in network byte order"""
+    struct_format		= '>H'
+    struct_calcsize		= struct.calcsize( struct_format )
+
+class INT_network( TYPE ):
+    """An EtherNet/IP INT; 16-bit integer, but in network byte order"""
+    struct_format		= '>h'
+    struct_calcsize		= struct.calcsize( struct_format )
+
+class UDINT_network( TYPE ):
+    """An EtherNet/IP UDINT; 32-bit unsigned integer, but in network byte order"""
+    struct_format		= '>I'
+    struct_calcsize		= struct.calcsize( struct_format )
+
+class DINT_network( TYPE ):
+    """An EtherNet/IP DINT; 32-bit integer, but in network byte order"""
+    struct_format		= '>i'
+    struct_calcsize		= struct.calcsize( struct_format )
+
 
 class STRUCT( cpppo.dfa, cpppo.state ):
     pass
+
 
 class SSTRING( STRUCT ):
     """Parses/produces a EtherNet/IP Short String:
@@ -265,13 +296,152 @@ class SSTRING( STRUCT ):
         desired			= value.setdefault( 'length', actual )
         if desired is None:
             value.length 	= actual
-        assert value.length < 256, "SSTRING must be < 256 bytes in length; %r" % value
+        assert value.length < 1<<8, "SSTRING must be < 256 bytes in length; %r" % value
 
         result		       += USINT.produce( value.length )
         result		       += encoded[:value.length]
         if actual < value.length:
             result	       += b'\x00' * ( value.length - actual )
         return result
+
+
+class STRING( STRUCT ):
+    """Parses/produces a EtherNet/IP String:
+
+        .STRING.length			UINT		2
+        .STRING.string			octets[*]	.length+.length%2
+
+    The produce classmethod accepts this structure, or just a plain Python str, and will output the
+    equivalent length+string.  If a zero length is provided, no string is parsed, and an empty
+    string returned.  Much like SSTRING, except:
+
+    - a 2-byte UINT specifies the length
+    - the string is padded to an even number of words with a NUL byte, if necessary
+
+    """
+    tag_type			= 0x00D0
+    struct_calcsize		= 80 # Average STRING size used for estimations
+
+    def __init__( self, name=None, **kwds):
+        name			= name or kwds.setdefault( 'context', self.__class__.__name__ )
+
+        leng			= UINT(			'length', context='length' )
+        leng[None]		= move_if(		'empty',  destination='.string', initializer='',
+                                    predicate=lambda path=None, data=None, **kwds: 0 == data[path].length,
+                                    state=octets_noop(	'done',
+                                                        terminal=True ))
+        leng[None] = sbdy	= cpppo.string_bytes(	'string',
+                                                        limit='..length',
+                                                        initial='.*',	decode='iso-8859-1' )
+        sbdy[None]		= cpppo.decide(		'string_even',
+                                    predicate=lambda path=None, data=None, **kwds: 0 == data[path].length % 2,
+                                    state=octets_noop(	'done',
+                                                        terminal=True ))
+        sbdy[None]		= octets_drop(		'pad', repeat=1,
+                                                	terminal=True )
+
+        super( STRING, self ).__init__( name=name, initial=leng, **kwds )
+
+    @classmethod
+    def produce( cls, value ):
+        """Truncate or NUL-fill the provided .string to the given .length (if provided and not None).
+        Then, emit the (two byte) length+string+pad.  Accepts either a {.length: ..., .string:... }
+        dotdict, or a plain string.  
+
+        """
+        result			= b''
+        
+        if isinstance( value, cpppo.type_str_base ):
+            value		= cpppo.dotdict( {'string': value } )
+
+        encoded			= value.string.encode( 'iso-8859-1' )
+        # If .length doesn't exist or is None, set the length to the actual string length
+        actual			= len( encoded )
+        desired			= value.setdefault( 'length', actual )
+        if desired is None:
+            value.length 	= actual
+        assert value.length < 1<<16, "STRING must be < 65536 bytes in length; %r" % value
+
+        result		       += UINT.produce( value.length )
+        result		       += encoded[:value.length]
+        if actual < value.length:
+            result	       += b'\x00' * ( value.length - actual )
+        if value.length % 2:
+            result	       += b'\x00' # pad, if length is odd
+        return result
+
+
+class IPADDR( UDINT_network ):
+    """Acts alot like a UDINT_network, but .produce takes an optional string value, and parses a
+    UDINT_network to produce an IPv4 dotted-quad address string.
+
+    """
+    def terminate( self, exc, machine, path, data ):
+        """Post-process a parsed UDINT IP address to produce it in dotted-quad string form"""
+        super( IPADDR, self ).terminate( exc, machine=machine, path=path, data=data )
+        ours			= self.context( path )
+        ipaddr			= ipaddress.ip_address( data[ours] )
+        log.info( "Converting %d --> %r", data[ours], ipaddr )
+        data[ours]		= str( ipaddr )
+
+    @classmethod
+    def produce( cls, value ):
+        if isinstance( value, cpppo.type_str_base ):
+            # Parse the supplied IP address string to an integer.  ip_address requires unicode
+            # value, even in Python2; there is no Python2/3 agnostic method for casting to unicode!
+            ipaddr		= ipaddress.ip_address(
+                ( unicode if sys.version_info[0] < 3 else str )( value ))
+            value		= int( ipaddr )
+            log.info( "Converted IP %r --> %d", ipaddr, value )
+        return UDINT_network.produce( value )
+
+
+class IFACEADDRS( STRUCT ):
+    """Parses/produces a struct of TCP/IP interface IP address data, as per. Attribute 5 of the TCPIP
+    Interface Object.  Takes a dict, eg.: {
+        'ip_address': 		0x0201000A,	# or '10.0.1.2'
+        'network_mask':		0x0000FFFF,	# or '255.255.0.0'
+        'gateway_address':	0x0100000A,	# or '10.0.0.1'
+        'dns_primary':		0x0100000A,	# or '10.0.0.1'
+        'dns_secondary':	0x0200000A,	# or '10.0.0.2'
+        'domain_name':		'acme.ca',
+    }
+
+    and produces a network byte-ordered encoding, and can parse such an encoding to restore the IP
+    addresses and domain_name.
+
+    """
+    tag_type			= None
+    def __init__( self, name=None, **kwds):
+        name			= name or kwds.setdefault( 'context', self.__class__.__name__ )
+
+        ipad			= IPADDR(	context='ip_address' )
+        ipad[True] = nmsk	= IPADDR(	context='network_mask' )
+        nmsk[True] = gwad	= IPADDR(	context='gateway_address' )
+        gwad[True] = dns1	= IPADDR(	context='dns_primary' )
+        dns1[True] = dns2	= IPADDR(	context='dns_secondary' )
+        dns2[True] = domn	= STRING(	context='domain_name',
+                                                terminal=True )
+        domn[None]		= move_if( 'movsstring', source='.domain_name.string',
+                                                    destination='.domain_name' )
+
+        super( IFACEADDRS, self ).__init__( name=name, initial=ipad, **kwds )
+
+    @classmethod
+    def produce( cls, value ):
+        """Emit the binary representation (always in Network byte-order) of the supplied IFACESADDRS value dict.
+        Allows strings, which are assumed to be textual representations of IP addresses.
+
+        """
+        result			= b''
+        result		       += IPADDR.produce( value.get( 'ip_address', 0 ))
+        result		       += IPADDR.produce( value.get( 'network_mask', 0 ))
+        result		       += IPADDR.produce( value.get( 'gateway_address', 0 ))
+        result		       += IPADDR.produce( value.get( 'dns_primary', 0 ))
+        result		       += IPADDR.produce( value.get( 'dns_secondary', 0 ))
+        result		       += STRING.produce( value.get( 'domain_name', '' ))
+        return result
+
 
 # 
 # enip_header	-- Parse an EtherNet/IP header only 
@@ -686,9 +856,16 @@ class EPATH( cpppo.dfa ):
         adrl[None]	= adrv
 
         # Parse all segments in a sub-dfa limited by the parsed path.size (in words; double)
+        # If the size is zero, we won't be parsing anything; initialize segment to []
+        def size_init( path=None, data=None, **kwds ):
+            octets		= data[path+'..size'] * 2
+            if not octets:
+                data[path+'..segment'] = []
+            return octets
+
         rest[None]		= cpppo.dfa(    'each',		context='segment__',
                                                 initial=pseg,	terminal=True,
-            limit=lambda path=None, data=None, **kwds: data[path+'..size'] * 2 )
+                                                limit=size_init )
 
         super( EPATH, self ).__init__( name=name, initial=size, **kwds )
 
@@ -705,10 +882,15 @@ class EPATH( cpppo.dfa ):
 
         An Falsey 'data' results in an EPATH indicating a 0 size.
 
+        Supports either { "segment": [<path>] } or just [<path>].
+
         """
-        
+        segment			= data # default to iterable of path elements
+        if hasattr( data, 'get' ):
+            segment		= data.get( 'segment', [] ) # handles dict w/ empty path
+
         result			= b''
-        for seg in data.segment if data and 'segment' in data else []: # handles empty path
+        for seg in segment:
             found			= False
             for segnam, segtyp in cls.SEGMENTS.items():
                 if segnam not in seg:
@@ -775,7 +957,11 @@ class EPATH( cpppo.dfa ):
         return USINT.produce( len( result ) // 2 ) + ( b'\x00' if cls.PADSIZE else b'' ) + result
 
 
-class route_path( EPATH ):
+class EPATH_padded( EPATH ):
+    PADSIZE			= True
+
+
+class route_path( EPATH_padded ):
     """Unconnected message route path.  
 
         .route_path.size		USINT		1 (in words)
@@ -783,7 +969,6 @@ class route_path( EPATH ):
         .route_path.segment 		...
 
     """
-    PADSIZE			= True
 
 
 class unconnected_send( cpppo.dfa ):
@@ -897,13 +1082,6 @@ class communications_service( cpppo.dfa ):
                                         initial='[^\x00]*', decode='iso-8859-1' )
         svnm[b'\0'[0]]		= octets_drop( 'NUL', repeat=1, terminal=True )
 
-        '''
-        capa[b'\0'[0]]	= done	= octets_drop( 'NUL', repeat=1, terminal=True )
-        capa[True]	= svnm	= octets(	context='service_name' )
-        svnm[b'\0'[0]]	= done
-        svnm[True]	= svnm
-        '''
-
         super( communications_service, self ).__init__( name=name, initial=vers, **kwds )
 
     @classmethod
@@ -913,6 +1091,213 @@ class communications_service( cpppo.dfa ):
         result	               += UINT.produce( data.capability )
         result		       += data.service_name.encode( 'iso-8859-1' )
         result		       += b'\0'
+        return result
+
+
+class identity_object( cpppo.dfa ):
+    """The ListIdentity response contains a CPF item list containing one item: an "Identity Object "
+    type_id 0x000C.
+
+    The Identity Item in the CPF list consists of the standard .type_id of 0x000C, a .length, and
+    then a payload containing a protocol version and socket address, and then identity data that
+    follows the format of a Get Attributes All of the Identity Object, instance 1, thus containing
+    at least (could be more, if the Identity Object's Get Attributes All returns more):
+
+    | Parameter              | Type      | Description                                      |
+    |------------------------+-----------+--------------------------------------------------|
+    | Item Type Code         | UINT      | 0x000C                                           |
+    | Item Length            | UINT      | Bytes to follow                                  |
+    | Encap. Proto. Version  | UINT      | Version supported (same as Register Session)     |
+    | Socket Address         | STRUCT OF | (big-endian)                                     |
+    |                        | INT       | sin_family                                       |
+    |                        | UINT      | sin_port                                         |
+    |                        | UDINT     | sin_addr                                         |
+    |                        | USINT[8]  | sin_zero                                         |
+    | Vendor ID              | UINT      | Device manufacturer's Vendor ID                  |
+    | Device Type            | UINT      | Device Type of product                           |
+    | Product Code           | UINT      | Produce Code assigned, w/ respect to Device Type |
+    | Revision               | UINT      | Device Revision                                  |
+    | Status                 | WORD      | Current status of device                         |
+    | Serial Number          | UDINT     | Serial number of device                          |
+    | Product Name           | SSTRING   | Human readable description of device             |
+    | State                  | USINT     | Current state of device                          |
+
+    Here is a UDP ListIdentity 0x0063 == 'c\x00...' request (spaced with _ so that each symbol takes
+    4 spaces):
+
+        c___\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00
+
+    And a response from a PowerFlex 753 AC Drive Controller:
+
+                  ------- incorrect EtherNet/IP CIP payload size: should be \x48\x00 == 72!
+                  ||
+                  vv
+        c___\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00
+                        -- incorrect EtherNet/IP CIP CPF item payload size: should b <___\x00 == 60!
+                        |
+                        v
+        \x01\x00\x0c\x00'___\x00\x01\x00\x00\x02\xaf\x12\n__\xa1\x01\x05\x00\x00\x00\x00\x00\x00\x00\x00
+        \x01\x00{___\x00\x90\x04\x0b\x01a___\x05\x15\x1dI___\x80 ___P___o___w___e___r___F___l___e___x___
+         ___7___5___3___ ___ ___ ___ ___ ___ ___ ___ ___ ___ ___ ___ ___ ___ ___ ___ ___ ___ ___ ___\xff
+
+    Note that this EtherNet/IP CIP response encapsulation is, in fact, incorrect: it specifies a 0
+    length.  It is from an official Allen Bradley PowerFlex 753 product, with a 20-COMM-E
+    EtherNet/IP CIP interface card.  Since it is sent via UDP, the entire request appears in a
+    single indivisible packet, so we can deduce the actual message payload size from the total size
+    of the UDP datagram, minus the 24-byte EtherNet/IP encapsulation header.  This is, however, not
+    documented EtherNet/IP CIP protocol behaviour (perhaps since it's insane).  So, its just a bug.
+    It prevents a correctly implemented parser from receiving the List Identity reply, though...
+
+    Here's a response from a Logix 1769 PLC, with correct EtherNet/IP CIP frame sizes:
+
+        c___\x00E___\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00
+        \x01\x00\x0c\x00?___\x00\x01\x00\x00\x02\xaf\x12\n__\xa1\x01\x03\x00\x00\x00\x00\x00\x00\x00\x00
+        \x01\x00\x0e\x00\x95\x00\x1b\x0b0___\x00^___3___\x1e\xc0\x1d1___7___6___9___-___L___2___4___E___
+        R___-___Q___B___1___B___/___A___ ___L___O___G___I___X___5___3___2___4___E___R___\x03
+
+    """
+    def __init__( self, name=None, **kwds ):
+        name			= name or kwds.setdefault( 'context', self.__class__.__name__ )
+        
+        vers			= UINT(	context='version' )
+        vers[True]	= sfam	= INT_network(
+                                        context='sin_family' )
+        sfam[True]	= sprt	= UINT_network(
+                                        context='sin_port' )
+        sprt[True]	= sadd	= IPADDR(
+                                        context='sin_addr' )
+        sadd[True]	= szro	= octets_drop( context='sin_zero', repeat=8 )
+        szro[True]	= vndr	= UINT(	context='vendor_id' )
+        vndr[True]	= dvtp	= UINT(	context='device_type' )
+        dvtp[True]	= prod	= UINT( context='product_code' )
+        prod[True]	= revi	= UINT( context='product_revision' )
+        revi[True]	= stts	= WORD(	context='status_word' )		# Should be WORD
+        stts[True]	= srnm	= UDINT( context='serial_number' )
+        srnm[True]	= prnm	= SSTRING( context='product_name' )
+
+        # May end here, b/c of CPF framing errors (eg. PowerFlex)!  However, may continue on.
+        # Either way, we want to move the parsed SSTRING product_name.string up one level, so that
+        # product_name is a string.  So, prepare to parse whatever is after product_name...
+        more			= cpppo.state( 'done',
+                                               terminal=True )		# We're OK with ending here...
+        more[True]	= stat	= USINT( context='state',		# May end here, too...
+                                         terminal=True )
+        stat[True]	= xtra	= octets( context='extra', octets_extension='',	# ... any extra data are ignored
+                                          terminal=True )
+        xtra[True]	= xtra
+
+        # so, handle moving .product_name.string up to product_name, then try for more
+        prnm[None]		= move_if( 'movsstring',source='.product_name.string',
+                                                   destination='.product_name',
+                                           state=more )
+
+        super( identity_object, self ).__init__( name=name, initial=vers, **kwds )
+
+    @classmethod
+    def produce( cls, data ):
+        result			= b''
+        result	       	       += UINT.produce( data.version )
+        result	               += INT_network.produce( data.sin_family )
+        result	               += UINT_network.produce( data.sin_port )
+        result	               += IPADDR.produce( data.sin_addr )
+        result		       += b'\0' * 8
+        result		       += UINT.produce( data.vendor_id )
+        result		       += UINT.produce( data.device_type )
+        result		       += UINT.produce( data.product_code )
+        result		       += UINT.produce( data.product_revision )
+        result		       += WORD.produce( data.status_word )
+        result		       += UDINT.produce( data.serial_number )
+        result		       += SSTRING.produce( data.product_name )
+        result		       += USINT.produce( data.state		# EtherNet/IP CIP Vol 2, Table 2-4.4:
+                                                 if 'state' in data	# If not implemented,
+                                                 else 0xFF )		# the value shall be 0xFF
+        if 'extra' in data and data.extra:
+            result	       += bytes(bytearray( data.extra ))
+        return result
+
+
+class legacy_CPF_0x0001( cpppo.dfa ):
+    """EtherNet/IP CIP command 0x0001 carries A CPF payload with one entry -- this undocumented
+    structure carries the IP address of the host.  It might be an early, undocumented version of
+    List Identity's IP address payload?
+
+        0030                     01 00 2a 00 00 00 00 00 00 00        ..*.......
+        0040   00 00 00 00 00 00 00 00 00 00 00 00 00 00 01 00  ................
+                                                         ^^^^^ -- 1 CPF element
+        0050   01 00 24 00 01 00 00 00 00 02 af 12 c0 a8 05 fd  ..$.............
+               ^^^^^ -- type 1
+                     ^^^^^ -- length 0x24
+                           ^^^^^ -- version 1?
+                                 ^^^^^ -- protocol 0?
+                                       ^^^^^ -- family 2 AF_INET
+                                             ^^^^^ -- port 44818
+                                                   ^^^^^ -- 192.168.5.253 in binary, big-endian
+        0060   00 00 00 00 00 00 00 00 31 39 32 2e 31 36 38 2e  ........192.168.
+               ^^^^^^^^^^^^^^^^^^^^^^^ -- 8 bytes of 0x00 fill
+                                       ^^... -- 16 byte ASCII dotted-quad, 0-padded on end
+        0070   35 2e 32 35 33 00 00 00                          5.253...
+
+    It seems to contain the binary big-endian byte ordered struct sockaddr_in (sin_family, sin_port,
+    sin_addr and sin_zero[8]), followed by the ASCII dotted-quad interpretation of the sin_addr of
+    up to 15 bytes (eg. "123.123.123.123", NUL-padded on end if less than 15 bytes).
+
+    The only indeterminate part is the first 4 bytes following the length: 0x0001 (little-endian 1)
+    and 0x0000.  This could be a version number, but the meaning of the following zero is unknown.
+
+    """
+    def __init__( self, name=None, **kwds ):
+        name			= name or kwds.setdefault( 'context', self.__class__.__name__ )
+        
+        vers			= UINT(	context='version' )
+        vers[True]	= unkn	= UINT(	context='unknown_1' )
+        unkn[True]	= sfam	= INT_network(
+                                        context='sin_family' )
+        sfam[True]	= sprt	= UINT_network(
+                                        context='sin_port' )
+        sprt[True]	= sadd	= IPADDR(
+                                        context='sin_addr' )
+        sadd[True]	= szro	= octets_drop( context='sin_zero', repeat=8 )
+        szro[True]	= addr	= cpppo.string_bytes( 'ip_address', context='ip_address',
+                                        greedy=True, initial='[^\x00]*', decode='iso-8859-1',
+                                        terminal=True )
+        addr[True]	= nuls	= octets_drop( 'NUL', repeat=1,
+                                        terminal=True )
+        nuls[True]	= nuls
+
+        super( legacy_CPF_0x0001, self ).__init__( name=name, initial=vers, **kwds )
+
+    @classmethod
+    def produce( cls, data ):
+        result			= b''
+        result	       	       += UINT.produce( data.get( 'version', 1 ))
+        result	       	       += UINT.produce( data.get( 'unknown_1', 0 ))
+        result	               += INT_network.produce( data.sin_family )
+        result	               += UINT_network.produce( data.sin_port )
+        # Contains IP information in sin_addr (network byte-order) and/or ip_address (string).
+        # Accept both/either in data (eg. product sin_addr from ip_address or vice versa)
+        sin_addr		= data.sin_addr if 'sin_addr' in data else data.ip_address
+        sin_addr_octets		= IPADDR.produce( sin_addr ) # accept 32-bit int or IP address string
+        result	               += sin_addr_octets
+        result		       += b'\0' * 8 # sin_zero
+
+        # If data.ip_address not supplied, convert the 32-bit host-ordered IP address in ip_octets
+        # to a string using the IPADDR parser.
+        ip_address		= data.get( 'ip_address' )
+        if ip_address is None:
+            ip_address_data	= cpppo.dotdict()
+            with IPADDR() as machine:
+                with contextlib.closing( machine.run(
+                        source=sin_addr_octets, data=ip_address_data )) as engine:
+                    for m,s in engine:
+                        pass
+            ip_address		= ip_address_data.IPADDR
+
+        # Use the SSTRING producer to properly encode and NUL-pad the string to 16 characters.
+        # We'll use the produced SSTRING, discarding the length.
+        sstring_data		= cpppo.dotdict( length=16, string=ip_address )
+        sstring_octets		= SSTRING.produce( sstring_data )
+
+        result		       += sstring_octets[1:]
         return result
 
 
@@ -927,7 +1312,7 @@ class CPF( cpppo.dfa ):
         .CPF.item[0].<parser>...
 
     Parse the count, and then each CPF item into cpf.item_temp, and (after parsing) moves it to
-    cpf.item[x].
+    cpf.item[x].  If count is 0, then no items are parsed, and an empty item == [] list is returned.
     
 
     A dictionary of parsers for various CPF types must be provided.  Any CPF item with a length > 0
@@ -936,18 +1321,23 @@ class CPF( cpppo.dfa ):
     Here is a subset of the types of CPF items to expect:
 
         0x0000: 	NULL Address (used w/Unconnected Messages)
-        0x00b2: 	Unconnected Messages (eg. used within CIP command SendRRData)
+        0x0001:		EtherNet/IP CIP Legacy command 0x0001 (undocumented) reply
+        0x00b2:		Unconnected Messages (eg. used within CIP command SendRRData)
         0x00a1:		Address for connection based requests
         0x00b1:		Connected Transport packet (eg. used within CIP command SendUnitData)
         0x0100:		ListServices response
+        0x000C:		ListIdentity response
 
     
-    Presently we only handle NULL Address and Unconnected Messages, and ListServices.
+    Presently we only handle NULL Address and Unconnected Messages, and ListServices
+    (communications_service), and ListIdentity (identity_object).
 
     """
     ITEM_PARSERS		= {
-            0x00b2:	unconnected_send,	# used in SendRRData request/response
-            0x0100:	communications_service, # used in ListServices response
+        0x0001:	legacy_CPF_0x0001,	# used in EtherNet/IP Legacy command 0x0001
+        0x00b2:	unconnected_send,	# used in SendRRData request/response
+        0x0100:	communications_service, # used in ListServices response
+        0x000C: identity_object,	# used in ListIdentity response
     }
 
     def __init__( self, name=None, **kwds ):
@@ -990,10 +1380,14 @@ class CPF( cpppo.dfa ):
                                            destination='.item', initializer=lambda **kwds: [] )
         item[None]		= cpppo.state( 	'done', terminal=True )
 
-        # Parse count, and then exactly .count CPF items (or just an empty dict, if nothing)
+        # Parse count, and then exactly .count CPF items (or just an empty dict, if nothing).  If
+        # .count is 0, we're done (we don't even initialize .items to []).
         emty			= octets_noop(	'empty',	terminal=True )
         emty.initial[None]	= move_if( 	'mark',		initializer={} )
         emty[True]	= loop	= UINT( 			context='count' )
+        loop[None]		= cpppo.decide(	'empty',
+                        state=cpppo.state( 'done', terminal=True ),
+                        predicate=lambda path=None, data=None, **kwds: data[path+'.count'] == 0 )
         loop[None]		= cpppo.dfa( 	'all', 	
                                                 initial=item,	repeat='.count',
                                                 terminal=True )
@@ -1002,12 +1396,19 @@ class CPF( cpppo.dfa ):
 
     @classmethod
     def produce( cls, data ):
-        """Regenerate a CPF message structure.   """
+        """Regenerate a CPF message structure.  An empty CPF indicates no CPF at all.  If there's a .item
+        list; any provided .count is ignored.  Otherwise, it must contain a .count == 0, indicating
+        a CPF container with no entries.
+
+        """
         result			= b''
         if not data:
             return result # An empty CPF -- indicates no CPF segment present at all
-        result		       += UINT.produce( len( data.item ))
-        for item in data.item:
+        assert 'item' in data or ( 'count' in data and data.count == 0 ), \
+            "Invalid CPF structure: no .item list, or .count != 0: %r" % ( data )
+        segments		= data.item if 'item' in data else []
+        result		       += UINT.produce( len( segments ))
+        for item in segments:
             result	       += UINT.produce( item.type_id )
             if item.type_id in cls.ITEM_PARSERS:
                 itmprs		= cls.ITEM_PARSERS[item.type_id] # eg 'unconnected_send', 'communications_service'
@@ -1072,26 +1473,41 @@ class unregister( octets_noop ):
         data[ours]		= True
 
 
-class list_services( cpppo.dfa ):
-    """Handle ListServices request/reply.  Services are encoded as a CPF list.  We must deduce whether
-    we are parsing a request or a reply.  The request will have a 0 length; the reply (which must
-    contain a CPF with at least an item count) will have a non-zero length.
+class CPF_service( cpppo.dfa ):
+    """Handle Service request/reply that are encoded as a CPF list.  We must deduce whether we are
+    parsing a request or a reply.  The request will have a 0 length; the reply (which must contain a
+    CPF with at least an item count) will have a non-zero length.
 
-    Even if the request is empty, we want to produce 'CIP.list_services.CPF'.
+    Even if the request is empty, we want to produce 'CIP.<service_name>.CPF'.
+
     """
     def __init__( self, name=None, **kwds ):
         name 			= name or kwds.setdefault( 'context', self.__class__.__name__ )
 
         svcs			= CPF( terminal=True )
 
-        super( list_services, self ).__init__( name=name, initial=svcs, **kwds )
+        super( CPF_service, self ).__init__( name=name, initial=svcs, **kwds )
 
     @staticmethod
     def produce( data ):
         result			= b''
-        if 'CPF' in data:
+        if data and 'CPF' in data:
             result	       += CPF.produce( data.CPF )
         return result
+
+
+class list_interfaces( CPF_service ):
+    pass
+
+class list_identity( CPF_service ):
+    pass
+
+class list_services( CPF_service ):
+    pass
+
+class legacy( CPF_service ):
+    """Any "Legacy" EtherNet/IP CIP command codes that may contain CPF payloads."""
+    pass
 
 
 class CIP( cpppo.dfa ):
@@ -1118,6 +1534,17 @@ class CIP( cpppo.dfa ):
 
     The supported command values and their formats are:
 
+    Legacy 0x0001               0x0001
+
+        0000   f0 76 1c e0 d4 ec 08 5b 0e ee a5 c0 08 00 45 00  .v.....[......E.
+        0010   00 6a 17 21 00 00 7e 06 d4 37 c0 a8 05 fd 0a 10  .j.!..~..7......
+        0020   80 80 af 12 c5 64 18 b3 61 00 e9 ad b8 78 50 18  .....d..a....xP.
+        0030   07 d0 97 49 00 00 01 00 2a 00 00 00 00 00 00 00  ...I....*.......
+        0040   00 00 00 00 00 00 00 00 00 00 00 00 00 00 01 00  ................
+        0050   01 00 24 00 01 00 00 00 00 02 af 12 c0 a8 05 fd  ..$.............
+        0060   00 00 00 00 00 00 00 00 31 39 32 2e 31 36 38 2e  ........192.168.
+        0070   35 2e 32 35 33 00 00 00                          5.253...]
+
     ListIdentity		0x0063
 
     ListInterfaces		0x0064
@@ -1140,10 +1567,16 @@ class CIP( cpppo.dfa ):
 
     """
     COMMAND_PARSERS		= {
-        (0x006f,0x0070):	send_data,	# 0x006f (SendRRData) is default if CIP.send_data seen
+        # Unknown Legacy commands w/ CPF payloads
+        (0x0001,):		legacy,		# many commands may use this parser, w/ 'CIP.legacy' payloads
+	# Usually only seen via UDP/IP, but valid for TCP/IP
+        (0x0004,):		list_services,
+        (0x0063,):		list_identity,
+        (0x0064,):		list_interfaces,
+	# Valid for TCP/IP only
         (0x0065,):		register,
         (0x0066,):		unregister,
-        (0x0004,):		list_services,
+        (0x006f,0x0070):	send_data,	# 0x006f (SendRRData) is default if CIP.send_data seen
     }
     def __init__( self, name=None, **kwds ):
         name 			= name or kwds.setdefault( 'context', self.__class__.__name__ )
@@ -1162,6 +1595,10 @@ class CIP( cpppo.dfa ):
         the bytes string encoding the command.  There is little difference between a request and a
         response at this level, except that in a request the CIP.status is usually 0, while in a
         response it may indicate an error.
+
+        This will recognize/match either:
+        1) if .command == a recognized command COMMAND_PARSERS key
+        2) if 'CIP.<something>' (where <somethign> is the )matches the 
 
         """
         for cmd,cmdcls in cls.COMMAND_PARSERS.items():
@@ -1189,6 +1626,7 @@ class typed_data( cpppo.dfa ):
     REAL	yes		= 0x00ca	# 4 bytes
     USINT	yes		= 0x00c6	# 1 byte
     UINT	yes		= 0x00c7	# 2 bytes
+    WORD			= 0x00d2	# 2 byte (16-bit boolean array)
     UDINT	yes		= 0x00c8	# 4 bytes
     DWORD			= 0x00d3	# 4 byte (32-bit boolean array)
     LINT			= 0x00c5	# 8 byte
@@ -1274,9 +1712,9 @@ class typed_data( cpppo.dfa ):
         sstd			= octets_noop(	'endsstring',
                                                 terminal=True )
         sstd[True]	= sstp	= SSTRING()
-        sstp[None]		= move_if( 	'movsstring',	source='.SSTRING.string',
+        sstp[None]		= move_if( 	'movstring',	source='.SSTRING.string',
                                                 destination='.SSTRING' )
-        sstp[None]		= move_if( 	'movsSSTRING',	source='.SSTRING', 
+        sstp[None]		= move_if( 	'movsstring',	source='.SSTRING', 
                                            destination='.data',	initializer=lambda **kwds: [],
                                                 state=sstd )
 

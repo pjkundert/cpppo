@@ -2,6 +2,7 @@ from __future__ import absolute_import
 from __future__ import print_function
 from __future__ import division
 
+import codecs
 import logging
 import os
 import platform
@@ -19,6 +20,8 @@ is_pypy				= platform.python_implementation() == "PyPy"
 if __name__ == "__main__":
     # Allow relative imports when executing within package directory, for
     # running tests directly
+    if __package__ is None:
+        __package__ = "cpppo.server"
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
     from cpppo.automata import log_cfg
     logging.basicConfig( **log_cfg )
@@ -26,7 +29,7 @@ if __name__ == "__main__":
 
 import cpppo
 from   cpppo.server import network, enip
-from   cpppo.server.enip import parser, logix
+from   cpppo.server.enip import parser, logix, client
 
 log				= logging.getLogger( "enip" )
 
@@ -558,21 +561,28 @@ def test_enip_header():
             assert origin.peek() is not None
    
         for k,v in tst.items():
-            assert data[k] == v
+                assert data[k] == v, ( "data[%r] == %r\n"
+                                       "expected:   %r" % ( k, data[k], v ))
 
 @pytest.mark.skipif( is_pypy, reason="Not yet supported under PyPy" )
 def test_enip_machine():
+    #logging.getLogger().setLevel( logging.DEBUG )
     ENIP			= enip.enip_machine( context='enip' )
     for pkt,tst in eip_tests:
         # Parse the headers and encapsulated command data
         data			= cpppo.dotdict()
         source			= cpppo.chainable( pkt )
         with ENIP as machine:
-            for i,(m,s) in enumerate( machine.run( source=source, data=data )):
-                log.info( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r",
-                          machine.name_centered(), i, s, source.sent, source.peek(), data )
-                if s is None and source.peek() is None:
-                    break # simulate detection of EOF
+            engine		= machine.run( source=source, data=data )
+            try:
+                for i,(m,s) in enumerate( engine ):
+                    log.info( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r",
+                              machine.name_centered(), i, s, source.sent, source.peek(), data )
+                    if s is None and source.peek() is None:
+                        break # simulate detection of EOF
+            finally:
+                engine.close()
+                del engine
             if not pkt:
                 assert i == 2		# enip_machine / enip_header reports state
             else:
@@ -582,7 +592,8 @@ def test_enip_machine():
         log.normal( "EtherNet/IP Request: %s", enip.enip_format( data ))
         try:
             for k,v in tst.items():
-                assert data[k] == v
+                assert data[k] == v, ( "data[%r] == %r\n"
+                                       "expected:   %r" % ( k, data[k], v ))
         except:
             log.warning( "%r not in data, or != %r: %s", k, v, enip.enip_format( data ))
             raise
@@ -791,7 +802,8 @@ def test_enip_EPATH():
                           machine.name_centered(), i, s, source.sent, source.peek(), data )
         try:
             for k,v in tst.items():
-                assert data[k] == v
+                assert data[k] == v, ( "data[%r] == %r\n"
+                                       "expected:   %r" % ( k, data[k], v ))
         except:
             log.warning( "%r not in data, or != %r: %s", k, v, enip.enip_format( data ))
             raise
@@ -851,7 +863,185 @@ def test_enip_listservices():
     assert source.peek() is None
     assert data.enip.command == 0x0004
     assert data.enip.length  == 0
+
+
+def escaped_chunks_to_bytes( escaped, chunk=4 ):
+    """Produce un-escapbed bytes from an escaped, padded, chunked input like br'c___\x01\n__'.
+    Providing just padding produces the pad symbol, eg.  '____' --> '_'.
+
+    """
+    assert len( escaped ) % chunk == 0, \
+        "escaped bytes of length %d must be divisible by chunk %d" % ( len( escaped ), chunk )
+    def escape_decode( chk ):
+        res,_			= codecs.escape_decode( chk.strip( b'_' ) or b'_' )
+        assert len( res ) == 1, \
+            "escaped chunk %r must yield 1 byte result instead of %d-byte %r" % ( chk, len( res ), res )
+        return res
+    return b''.join( escape_decode( escaped[i:i+chunk] )
+                     for i in range( 0, len( escaped ), chunk ))
+
+listident_1_req			= escaped_chunks_to_bytes(
+        br'''c___\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00'''
+)
+# PowerFlex 753 List Identity reply, with (corrected) EtherNet/IP framing and CPF framing errors...
+listident_1_rpy			= escaped_chunks_to_bytes(
+        #              vv      -- EtherNet/IP frame size wrong (was \x00\x00)...
+        br'''c___\x00\x48\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00'''
+        #                    v -- CPF item size wrong (was '___\x00)...
+        br'''\x01\x00\x0c\x00B___\x00\x01\x00\x00\x02\xaf\x12\n__\xa1\x01\x05\x00\x00\x00\x00\x00\x00\x00\x00'''
+        br'''\x01\x00{___\x00\x90\x04\x0b\x01a___\x05\x15\x1dI___\x80 ___P___o___w___e___r___F___l___e___x___'''
+        br''' ___7___5___3___ ___ ___ ___ ___ ___ ___ ___ ___ ___ ___ ___ ___ ___ ___ ___ ___ ___ ___ ___\xff'''
+)
+listident_1_rpy_bad_CPF_framing	= escaped_chunks_to_bytes(
+        #              vv      -- EtherNet/IP frame size wrong (was \x00\x00)...
+        br'''c___\x00\x48\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00'''
+        #                    v -- CPF item size wrong; will truncate 'product_name', omit 'state'
+        br'''\x01\x00\x0c\x00'___\x00\x01\x00\x00\x02\xaf\x12\n__\xa1\x01\x05\x00\x00\x00\x00\x00\x00\x00\x00'''
+        br'''\x01\x00{___\x00\x90\x04\x0b\x01a___\x05\x15\x1dI___\x80 ___P___o___w___e___r___F___l___e___x___'''
+        br''' ___7___5___3___ ___ ___ ___ ___ ___ ___ ___ ___ ___ ___ ___ ___ ___ ___ ___ ___ ___ ___ ___\xff'''
+)
+# *Logix 1796 List Identity reply, with no errors...
+listident_2_rpy			= escaped_chunks_to_bytes(
+        br'''c___\x00E___\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00'''
+        br'''\x01\x00\x0c\x00?___\x00\x01\x00\x00\x02\xaf\x12\n__\xa1\x01\x03\x00\x00\x00\x00\x00\x00\x00\x00'''
+        br'''\x01\x00\x0e\x00\x95\x00\x1b\x0b0___\x00^___3___\x1e\xc0\x1d1___7___6___9___-___L___2___4___E___'''
+        br'''R___-___Q___B___1___B___/___A___ ___L___O___G___I___X___5___3___2___4___E___R___\x03'''
+)
+# *Logix 1796 List Identity reply, with extra payload (ignored)...
+listident_3_rpy			= escaped_chunks_to_bytes(
+        br'''c___\x00\x48\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00'''
+        br'''\x01\x00\x0c\x00\x42\x00\x01\x00\x00\x02\xaf\x12\n__\xa1\x01\x03\x00\x00\x00\x00\x00\x00\x00\x00'''
+        br'''\x01\x00\x0e\x00\x95\x00\x1b\x0b0___\x00^___3___\x1e\xc0\x1d1___7___6___9___-___L___2___4___E___'''
+        br'''R___-___Q___B___1___B___/___A___ ___L___O___G___I___X___5___3___2___4___E___R___\x03\x01\x02\x03'''
+)
+
+
+def test_enip_listidentity():
+    # The CPF item produced by the ListIdentity command has item (type_id = 0x000C).
+
+    data			= cpppo.dotdict()
+    data.version		= 0x0001
+    data.sin_family		= 0x0002				# (network byte order)
+    data.sin_port		= 44818					# (network byte order)
+    data.sin_addr		= "10.161.1.5"				# (network byte order) 10.161.1.5
+    data.vendor_id		= 0x0001 # AB
+    data.device_type		= 0x007B
+    data.product_code		= 0x0490
+    data.product_revision	= 0x010b
+    data.status_word		= 0x0561
+    data.serial_number		= 0x80491D15
+    data.product_name		= "PowerFlex 753                   "	# 32 characters
+    data.state			= 0xFF
+
+    result			= parser.identity_object.produce( data )
     
+    assert result == listident_1_rpy[30:] # 24-byte EtherNet/IP header + 6-byte CPF count/size/type
+
+    # Minimal ListIdentity request is empty
+    data			= cpppo.dotdict()
+    source			= cpppo.chainable( listident_1_req )
+    with enip.enip_machine( context='enip' ) as machine:
+        for i,(m,s) in enumerate( machine.run( source=source, data=data )):
+            log.detail( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r",
+                          machine.name_centered(), i, s, source.sent, source.peek(), data )
+    assert source.peek() is None
+    assert data.enip.command == 0x0063
+    assert data.enip.length  == 0
+
+    # ListIdentity reply
+    data			= cpppo.dotdict()
+    source			= cpppo.chainable( listident_1_rpy )
+    with enip.enip_machine( context='enip' ) as machine:
+        for i,(m,s) in enumerate( machine.run( source=source, data=data )):
+            log.detail( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r",
+                          machine.name_centered(), i, s, source.sent, source.peek(), data )
+    assert source.peek() is None
+    assert data.enip.command == 0x0063
+    assert data.enip.length  == 72
+    
+    data			= cpppo.dotdict()
+    source			= cpppo.chainable( listident_1_rpy[30:] )
+    with parser.identity_object( terminal=True ) as machine:
+        for i,(m,s) in enumerate( machine.run( source=source, data=data )):
+            log.info( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r", m.name_centered(),
+                      i, s, source.sent, source.peek(), data )
+        assert machine.terminal, "%s: Should have reached terminal state" % machine.name_centered()
+        assert i == 83
+    assert source.peek() is None
+    assert 'identity_object' in data
+    assert data.identity_object.product_name == "PowerFlex 753                   "
+
+    # Lets make sure we can handle requests with bad CPF item framing, such as from PowerFlex...
+    data			= cpppo.dotdict()
+    source			= cpppo.chainable( listident_1_rpy_bad_CPF_framing[30:] )
+    with parser.identity_object( terminal=True ) as machine:
+        for i,(m,s) in enumerate( machine.run( source=source, data=data )):
+            log.info( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r", m.name_centered(),
+                      i, s, source.sent, source.peek(), data )
+        assert machine.terminal, "%s: Should have reached terminal state" % machine.name_centered()
+        assert i == 83
+    assert source.peek() is None
+    assert 'identity_object' in data
+    assert data.identity_object.product_name == "PowerFlex 753                   "
+
+    data			= cpppo.dotdict()
+    source			= cpppo.chainable( listident_2_rpy[30:] )
+    with parser.identity_object( terminal=True ) as machine:
+        for i,(m,s) in enumerate( machine.run( source=source, data=data )):
+            log.info( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r", m.name_centered(),
+                      i, s, source.sent, source.peek(), data )
+        assert machine.terminal, "%s: Should have reached terminal state" % machine.name_centered()
+        assert i == 80
+    assert source.peek() is None
+    assert 'identity_object' in data
+    assert data.identity_object.product_name == "1769-L24ER-QB1B/A LOGIX5324ER"
+
+
+# Basic empty List Interfaces request and response...
+listifaces_1_req		= escaped_chunks_to_bytes(
+        br'''\x64\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00'''
+)
+listifaces_1_rpy		= escaped_chunks_to_bytes(
+        br'''\x64\x00\x02\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00'''
+        br'''\x00\x00'''
+)
+
+def test_enip_listinterfaces():
+    # logging.getLogger().setLevel( logging.DETAIL )
+    # Minimal ListInterfaces request is empty
+    data			= cpppo.dotdict()
+    source			= cpppo.chainable( listifaces_1_req )
+    with enip.enip_machine( context='enip' ) as machine:
+        for i,(m,s) in enumerate( machine.run( source=source, data=data )):
+            log.detail( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r",
+                          machine.name_centered(), i, s, source.sent, source.peek(), data )
+    assert source.peek() is None
+    assert data.enip.command == 0x0064
+    assert data.enip.length  == 0
+
+    # ListIdentity reply
+    data			= cpppo.dotdict()
+    source			= cpppo.chainable( listifaces_1_rpy )
+    with enip.enip_machine( context='enip' ) as machine:
+        for i,(m,s) in enumerate( machine.run( source=source, data=data )):
+            log.detail( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r",
+                          machine.name_centered(), i, s, source.sent, source.peek(), data )
+    assert source.peek() is None
+    assert data.enip.command == 0x0064
+    assert data.enip.length  == 2
+
+    # The CPF payload hasn't been parsed...
+    data			= cpppo.dotdict()
+    source			= cpppo.chainable( listifaces_1_rpy[24:] )
+    with parser.list_identity( terminal=True ) as machine:
+        for i,(m,s) in enumerate( machine.run( source=source, data=data )):
+            log.info( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r", m.name_centered(),
+                      i, s, source.sent, source.peek(), data )
+        assert machine.terminal, "%s: Should have reached terminal state" % machine.name_centered()
+        assert i == 7
+    assert source.peek() is None
+    assert data.list_identity.CPF.count == 0
+
 
 # "17","0.423597000","192.168.222.128","10.220.104.180","CIP CM","124","Unconnected Send: Unknown Service (0x52)"
 readfrag_1_req 			= bytes(bytearray([
@@ -934,11 +1124,8 @@ tag_tests			= [
 ]
 
 def test_enip_Logix():
-    Obj				= enip.device.lookup( enip.device.Message_Router.class_id, instance_id=1 )
-    if not isinstance( Obj, logix.Logix ):
-        if Obj is not None:
-            del enip.device.directory['2']['1']
-        Obj			= logix.Logix( instance_id=1 )
+    enip.lookup_reset() # Flush out any existing CIP Objects for a fresh start
+    logix.Logix( instance_id=1 )
 
     for pkt,tst in tag_tests:
         data			= cpppo.dotdict()
@@ -949,7 +1136,8 @@ def test_enip_Logix():
                           machine.name_centered(), i, s, source.sent, source.peek(), data )
         try:
             for k,v in tst.items():
-                assert data[k] == v
+                assert data[k] == v, ( "data[%r] == %r\n"
+                                       "expected:   %r" % ( k, data[k], v ))
         except:
             log.warning( "%r not in data, or != %r: %s", k, v, enip.enip_format( data ))
             raise
@@ -1014,12 +1202,38 @@ mlx_0_request			= bytes(bytearray([ # MicroLogix request
     0xa3,      0x02, b' '[0],    0x02, b'$'[0],    0x01,
 ]))
 
+cpf_type_0x0001			= bytes(bytearray([ # EtherNet/IP command 0x0001 (undocumented) reply
+                                                                                        0x01, 0x00,  #               ..
+    0x01, 0x00, 0x24, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x02, 0xaf, 0x12, 0xc0, 0xa8, 0x05, 0xfd,  # ..$.............
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x31, 0x39, 0x32, 0x2e, 0x31, 0x36, 0x38, 0x2e,  # ........192.168.
+    0x35, 0x2e, 0x32, 0x35, 0x33, 0x00, 0x00, 0x00,                                                  # 5.253...]
+]))
+
 
 CPF_tests			= [
     (
         b'',
         {
             "CPF": {},
+        }
+    ), (
+        cpf_type_0x0001,
+        {
+            "CPF.count": 1, 
+            "CPF.item[0].type_id": 1, 
+            "CPF.item[0].length": 36, 
+            "CPF.item[0].legacy_CPF_0x0001.version": 1, 
+            "CPF.item[0].legacy_CPF_0x0001.unknown_1": 0, 
+            "CPF.item[0].legacy_CPF_0x0001.sin_family": 2, 
+            "CPF.item[0].legacy_CPF_0x0001.sin_port": 44818, 
+            "CPF.item[0].legacy_CPF_0x0001.sin_addr": "192.168.5.253", 
+            "CPF.item[0].legacy_CPF_0x0001.ip_address": "192.168.5.253"
+        }
+    ), (
+        b'\x00\x00',
+        # ^^^^^^^^ count == 0.  No item list is generated/required
+        {
+            "CPF.count": 0,
         }
     ), (
         b'\x01\x00\x00\x01\x08\x00\x03\x00\x04\x00abc\0',
@@ -1136,6 +1350,7 @@ CPF_tests			= [
 ]
 
 def test_enip_CPF():
+    #logging.getLogger().setLevel( logging.DETAIL )
     for pkt,tst in CPF_tests:
         data			= cpppo.dotdict()
         source			= cpppo.chainable( pkt )
@@ -1164,7 +1379,8 @@ def test_enip_CPF():
 
         try:
             for k,v in tst.items():
-                assert data[k] == v
+                assert data[k] == v, ( "data[%r] == %r\n"
+                                       "expected:   %r" % ( k, data[k], v ))
         except:
             log.warning( "%r not in data, or != %r: %s", k, v, enip.enip_format( data ))
             raise
@@ -1233,17 +1449,150 @@ gas_m01_reply		= bytes(bytearray([
     0x8a, 0x00, 0x08, 0x00,
 ]))
 
+# EtherNet/IP CIP Legacy command 0x0001 reply
+leg_0x1_reply		= bytes(bytearray([
+                      0x01, 0x00, 0x2a, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,                    #       ..*.......
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00,  # ................
+    0x01, 0x00, 0x24, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x02, 0xaf, 0x12, 0xc0, 0xa8, 0x05, 0xfd,  # ..$.............
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x31, 0x39, 0x32, 0x2e, 0x31, 0x36, 0x38, 0x2e,  # ........192.168.
+    0x35, 0x2e, 0x32, 0x35, 0x33, 0x00, 0x00, 0x00,                                                  # 5.253...]
+]))
  
 CIP_tests			= [
             ( 
-                # An empty
+                # An empty request (usually indicates termination of session)
                 b'', {}
+            ), (
+                leg_0x1_reply,
+                {
+                    "enip.command": 0x0001,
+                    "enip.length": 42,
+                    "enip.options": 0, 
+                    "enip.session_handle": 0, 
+                    "enip.status": 0,
+                    "enip.CIP.legacy.CPF.count": 1, 
+                    "enip.CIP.legacy.CPF.item[0].type_id": 1, 
+                    "enip.CIP.legacy.CPF.item[0].length": 36, 
+                    "enip.CIP.legacy.CPF.item[0].legacy_CPF_0x0001.version": 1, 
+                    "enip.CIP.legacy.CPF.item[0].legacy_CPF_0x0001.unknown_1": 0, 
+                    "enip.CIP.legacy.CPF.item[0].legacy_CPF_0x0001.sin_family": 2, 
+                    "enip.CIP.legacy.CPF.item[0].legacy_CPF_0x0001.sin_port": 44818, 
+                    "enip.CIP.legacy.CPF.item[0].legacy_CPF_0x0001.sin_addr": "192.168.5.253", 
+                    "enip.CIP.legacy.CPF.item[0].legacy_CPF_0x0001.ip_address": "192.168.5.253"
+                }
+            ), (
+                listident_1_req,
+                {
+                    "enip.command": 99,
+                    "enip.length": 0,
+                    "enip.options": 0, 
+                    "enip.session_handle": 0, 
+                    "enip.status": 0,
+                    "enip.CIP.list_identity.CPF": {}, 
+                }
+            ), (
+                listident_1_rpy,
+                {
+                    "enip.command": 99,
+                    "enip.length": 72,
+                    "enip.options": 0, 
+                    "enip.session_handle": 0, 
+                    "enip.status": 0,
+                    "enip.CIP.list_identity.CPF.count": 1, 
+                    "enip.CIP.list_identity.CPF.item[0].type_id": 12, 
+                    "enip.CIP.list_identity.CPF.item[0].length": 66, 
+                    "enip.CIP.list_identity.CPF.item[0].identity_object.status_word": 1377, 
+                    "enip.CIP.list_identity.CPF.item[0].identity_object.sin_addr": "10.161.1.5",
+                    "enip.CIP.list_identity.CPF.item[0].identity_object.vendor_id": 1, 
+                    "enip.CIP.list_identity.CPF.item[0].identity_object.sin_port": 44818, 
+                    "enip.CIP.list_identity.CPF.item[0].identity_object.state": 255, 
+                    "enip.CIP.list_identity.CPF.item[0].identity_object.version": 1, 
+                    "enip.CIP.list_identity.CPF.item[0].identity_object.device_type": 123, 
+                    "enip.CIP.list_identity.CPF.item[0].identity_object.sin_family": 2, 
+                    "enip.CIP.list_identity.CPF.item[0].identity_object.serial_number": 2152275221, 
+                    "enip.CIP.list_identity.CPF.item[0].identity_object.product_code": 1168, 
+                    "enip.CIP.list_identity.CPF.item[0].identity_object.product_name": "PowerFlex 753                   ", 
+                    "enip.CIP.list_identity.CPF.item[0].identity_object.product_revision": 267, 
+                }
+            # 
+            # We can handle the bad CPF framing, but won't re-generate the original message (of course)
+            # 
+            # ), (
+            #     listident_1_rpy_bad_CPF_framing,
+            #     {
+            #         "enip.command": 99,
+            #         "enip.length": 72,
+            #         "enip.options": 0, 
+            #         "enip.session_handle": 0, 
+            #         "enip.status": 0,
+            #         "enip.CIP.list_identity.CPF.count": 1, 
+            #         "enip.CIP.list_identity.CPF.item[0].type_id": 12, 
+            #         "enip.CIP.list_identity.CPF.item[0].length": 39,  # wildly incorrect (truncates 26 bytes); 
+            #         "enip.CIP.list_identity.CPF.item[0].identity_object.status_word": 1377, 
+            #         "enip.CIP.list_identity.CPF.item[0].identity_object.sin_addr": "10.161.1.5", 
+            #         "enip.CIP.list_identity.CPF.item[0].identity_object.vendor_id": 1, 
+            #         "enip.CIP.list_identity.CPF.item[0].identity_object.sin_port": 44818, 
+            #         "enip.CIP.list_identity.CPF.item[0].identity_object.version": 1, 
+            #         "enip.CIP.list_identity.CPF.item[0].identity_object.device_type": 123, 
+            #         "enip.CIP.list_identity.CPF.item[0].identity_object.sin_family": 2, 
+            #         "enip.CIP.list_identity.CPF.item[0].identity_object.serial_number": 2152275221, 
+            #         "enip.CIP.list_identity.CPF.item[0].identity_object.product_code": 1168, 
+            #         "enip.CIP.list_identity.CPF.item[0].identity_object.product_name": "PowerF", 
+            #         "enip.CIP.list_identity.CPF.item[0].identity_object.product_revision": 267, 
+            #     }
+            ), (
+                listident_2_rpy,
+                {
+                    "enip.command": 99,
+                    "enip.length": 69,
+                    "enip.options": 0, 
+                    "enip.session_handle": 0, 
+                    "enip.status": 0,
+                    "enip.CIP.list_identity.CPF.count": 1, 
+                    "enip.CIP.list_identity.CPF.item[0].type_id": 12, 
+                    "enip.CIP.list_identity.CPF.item[0].length": 63, 
+                    "enip.CIP.list_identity.CPF.item[0].identity_object.status_word": 48, 
+                    "enip.CIP.list_identity.CPF.item[0].identity_object.sin_addr": "10.161.1.3",
+                    "enip.CIP.list_identity.CPF.item[0].identity_object.vendor_id": 1, 
+                    "enip.CIP.list_identity.CPF.item[0].identity_object.sin_port": 44818, 
+                    "enip.CIP.list_identity.CPF.item[0].identity_object.state": 3, 
+                    "enip.CIP.list_identity.CPF.item[0].identity_object.version": 1, 
+                    "enip.CIP.list_identity.CPF.item[0].identity_object.device_type": 14, 
+                    "enip.CIP.list_identity.CPF.item[0].identity_object.sin_family": 2, 
+                    "enip.CIP.list_identity.CPF.item[0].identity_object.serial_number": 3223204702, 
+                    "enip.CIP.list_identity.CPF.item[0].identity_object.product_code": 149, 
+                    "enip.CIP.list_identity.CPF.item[0].identity_object.product_name": "1769-L24ER-QB1B/A LOGIX5324ER", 
+                    "enip.CIP.list_identity.CPF.item[0].identity_object.product_revision": 2843, 
+                }
+            ), (
+                listident_3_rpy,
+                {
+                    "enip.command": 99,
+                    "enip.length": 72,
+                    "enip.options": 0, 
+                    "enip.session_handle": 0, 
+                    "enip.status": 0,
+                    "enip.CIP.list_identity.CPF.count": 1, 
+                    "enip.CIP.list_identity.CPF.item[0].type_id": 12, 
+                    "enip.CIP.list_identity.CPF.item[0].length": 66, 
+                    "enip.CIP.list_identity.CPF.item[0].identity_object.status_word": 48, 
+                    "enip.CIP.list_identity.CPF.item[0].identity_object.sin_addr": "10.161.1.3",
+                    "enip.CIP.list_identity.CPF.item[0].identity_object.vendor_id": 1, 
+                    "enip.CIP.list_identity.CPF.item[0].identity_object.sin_port": 44818, 
+                    "enip.CIP.list_identity.CPF.item[0].identity_object.state": 3, 
+                    "enip.CIP.list_identity.CPF.item[0].identity_object.version": 1, 
+                    "enip.CIP.list_identity.CPF.item[0].identity_object.device_type": 14, 
+                    "enip.CIP.list_identity.CPF.item[0].identity_object.sin_family": 2, 
+                    "enip.CIP.list_identity.CPF.item[0].identity_object.serial_number": 3223204702, 
+                    "enip.CIP.list_identity.CPF.item[0].identity_object.product_code": 149, 
+                    "enip.CIP.list_identity.CPF.item[0].identity_object.product_name": "1769-L24ER-QB1B/A LOGIX5324ER", 
+                    "enip.CIP.list_identity.CPF.item[0].identity_object.product_revision": 2843, 
+                }
             ), (
                 gas_m01_request,
                 {
                     "enip.status": 0, 
                     "enip.session_handle": 2, 
-                    "enip.encapsulated": {}, 
                     "enip.length": 54, 
                     "enip.CIP.send_data.interface": 0, 
                     "enip.CIP.send_data.CPF.count": 2, 
@@ -1288,7 +1637,6 @@ CIP_tests			= [
                 {
                     "enip.status": 0, 
                     "enip.session_handle": 2, 
-                    "enip.encapsulated": {}, 
                     "enip.length": 20, 
                     "enip.CIP.send_data.interface": 0, 
                     "enip.CIP.send_data.CPF.count": 2, 
@@ -1308,7 +1656,6 @@ CIP_tests			= [
                 {
                     "enip.status": 0, 
                     "enip.session_handle": 2, 
-                    "enip.encapsulated": {}, 
                     "enip.length": 24, 
                     "enip.CIP.send_data.interface": 0, 
                     "enip.CIP.send_data.CPF.count": 2, 
@@ -1331,7 +1678,6 @@ CIP_tests			= [
                 {
                     "enip.status": 0, 
                     "enip.session_handle": 2, 
-                    "enip.encapsulated": {}, 
                     "enip.length": 24, 
                     "enip.CIP.send_data.interface": 0, 
                     "enip.CIP.send_data.CPF.count": 2, 
@@ -1362,6 +1708,21 @@ CIP_tests			= [
                     "enip.session_handle": 0, 
                     "enip.status": 0,
                     "enip.CIP.list_services.CPF": {}, 
+                }
+            ), (
+                b'\x04\x00\x19\x00\xdc\xa5\xeaN\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\x01\x13\x00\x01\x00 \x00Communications\x00',
+               {
+                   "enip.status": 0, 
+                   "enip.session_handle": 1324000732, 
+                   "enip.length": 25, 
+                   "enip.CIP.list_services.CPF.count": 1, 
+                   "enip.CIP.list_services.CPF.item[0].communications_service.capability": 32, 
+                   "enip.CIP.list_services.CPF.item[0].communications_service.service_name": "Communications", 
+                   "enip.CIP.list_services.CPF.item[0].communications_service.version": 1, 
+                   "enip.CIP.list_services.CPF.item[0].length": 19, 
+                   "enip.CIP.list_services.CPF.item[0].type_id": 256, 
+                   "enip.command": 4, 
+                   "enip.options": 0
                 }
             ), (
                 rss_004_request,
@@ -1682,14 +2043,17 @@ CIP_tests			= [
 ]
   
 
-def test_enip_CIP( repeat=10 ):
+def test_enip_CIP( repeat=1 ):
     """Most of CIP parsing run-time overhead is spent inside 'run'.
     """
+    enip.lookup_reset() # Flush out any existing CIP Objects for a fresh start
     #logging.getLogger().setLevel(logging.DETAIL)
     ENIP			= enip.enip_machine( context='enip' )
     CIP				= enip.CIP()
-    for _ in range( repeat ):
-      for pkt,tst in CIP_tests:
+    # We'll use a Logix Message Router, to handle its expanded porfolio of commands
+    MR				= logix.Logix( instance_id=1 )
+
+    for pkt,tst in client.recycle( CIP_tests, times=repeat ):
         # Parse just the CIP portion following the EtherNet/IP encapsulation header
         data			= cpppo.dotdict()
         source			= cpppo.chainable( pkt )
@@ -1707,9 +2071,6 @@ def test_enip_CIP( repeat=10 ):
             log.normal( "EtherNet/IP Request: %s", enip.enip_format( data ))
             
         # Parse the encapsulated .input
-
-        data.enip.encapsulated	= cpppo.dotdict()
-        
         with CIP as machine:
             for i,(m,s) in enumerate( machine.run( path='enip', source=cpppo.peekable( data.enip.get( 'input', b'' )), data=data )):
                 log.detail( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r",
@@ -1721,16 +2082,15 @@ def test_enip_CIP( repeat=10 ):
         # Assume the request in the CIP's CPF items are Logix requests.
         # Now, parse the encapsulated message(s).  We'll assume it is destined for a Logix Object.
         if 'enip.CIP.send_data' in data:
-            Lx		= logix.Logix()
             for item in data.enip.CIP.send_data.CPF.item:
                 if 'unconnected_send.request' in item:
                     # An Unconnected Send that contained an encapsulated request (ie. not just a Get
                     # Attribute All)
-                    with Lx.parser as machine:
+                    with MR.parser as machine:
                         if log.getEffectiveLevel() <= logging.NORMAL:
                             log.normal( "Parsing %3d bytes using %s.parser, from %s", 
                                         len( item.unconnected_send.request.input ),
-                                        Lx, enip.enip_format( item ))
+                                        MR, enip.enip_format( item ))
                         # Parse the unconnected_send.request.input octets, putting parsed items into the
                         # same request context
                         for i,(m,s) in enumerate( machine.run(
@@ -1742,11 +2102,11 @@ def test_enip_CIP( repeat=10 ):
                     if log.getEffectiveLevel() <= logging.NORMAL:
                         log.normal( "Parsed  %3d bytes using %s.parser, into %s", 
                                     len( item.unconnected_send.request.input ),
-                                    Lx, enip.enip_format( data ))
-
+                                    MR, enip.enip_format( data ))
         try:
             for k,v in tst.items():
-                assert data[k] == v
+                assert data[k] == v, ( "data[%r] == %r\n"
+                                       "expected:   %r" % ( k, data[k], v ))
         except:
             log.warning( "%r not in data, or != %r: %s", k, v, enip.enip_format( data ))
             raise
@@ -1763,11 +2123,10 @@ def test_enip_CIP( repeat=10 ):
                 cpf		= data.enip.CIP.send_data
                 for item in cpf.CPF.item:
                     if 'unconnected_send' in item:
-                        item.unconnected_send.request.input	= bytearray( Lx.produce( item.unconnected_send.request ))
+                        item.unconnected_send.request.input	= bytearray( MR.produce( item.unconnected_send.request ))
                         log.normal("Produce Logix message from: %r", item.unconnected_send.request )
-                log.normal( "Produce CPF message from: %r", cpf.CPF )
-                cpf.input		= bytearray( enip.CPF.produce( cpf.CPF )) 
-            # Next, reconstruct the CIP Register, SendRRData or ListServices.  The CIP.produce must
+
+            # Next, reconstruct the CIP Register, ListIdentity, ListServices, or SendRRData.  The CIP.produce must
             # be provided the EtherNet/IP header, because it contains data (such as .command)
             # relevant to interpreting the .CIP... contents.
             data.enip.input		= bytearray( enip.CIP.produce( data.enip ))
@@ -1826,11 +2185,9 @@ def test_enip_device_symbolic():
 
 
 def test_enip_device():
-    # Find a new Class ID.
-    class_found			= True
-    while class_found:
-        class_num		= random.randrange( 1, 256 )
-        class_found		= enip.device.lookup( class_id=class_num )
+    enip.lookup_reset() # Flush out any existing CIP Objects for a fresh start
+
+    class_num			= 0xF0
 
     class Test_Device( enip.device.Object ):
         class_id		= class_num
@@ -1858,8 +2215,6 @@ def test_enip_device():
         "%16s: %s" % ( k, enip.device.directory[k] )
         for k in sorted( enip.device.directory.keys(), key=cpppo.natural)))
 
-
-
     Ix				= enip.device.Identity( 'Test Identity' )
     attrs			= enip.device.directory[str(Ix.class_id)+'.'+str(Ix.instance_id)]
     log.normal( "New Identity Instance directory: %s", enip.enip_format( attrs ))
@@ -1884,10 +2239,20 @@ def test_enip_device():
     assert '2' in O.attribute
     assert enip.device.lookup( *enip.device.resolve( path, attribute=True )) is Oa1
 
+    # Volume 2, Table 5-4.13 is very explicit about the expected TCP/IP Object response encoding to
+    # a Get_Attributes_All request
+    Tcpip			= enip.device.TCPIP( 'Test TCP/IP' )
+    request			= cpppo.dotdict({'service': 0x01, 'path':{'segment':[{'class':Tcpip.class_id},{'instance':Tcpip.instance_id}]}})
+    gaa				= Tcpip.request( request )
+    log.normal( "TCPIP Get Attributes All: %r, data: %s", gaa, enip.enip_format( request ))
+    assert request.input == b'\x81\x00\x00\x00\x02\x00\x00\x00\x30\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00'
+
 
 def test_enip_logix():
     """The logix module implements some features of a Logix Controller."""
-    Obj				= logix.Logix()
+    enip.lookup_reset() # Flush out any existing CIP Objects for a fresh start
+
+    Obj				= logix.Logix( instance_id=1 )
     Obj_a1 = Obj.attribute['1']	= enip.device.Attribute( 'Something', enip.parser.INT, default=[n for n in range( 100 )])
 
     assert len( Obj_a1 ) == 100
@@ -1949,6 +2314,7 @@ draindelay			= 10.  		# long in case server very slow (eg. logging), but immedia
 
 def enip_cli( number, tests=None ):
     """Sends a series of test messages, testing response for expected results."""
+    #logging.getLogger().setLevel(logging.NORMAL)
     log.info( "EtherNet/IP Client %3d connecting... PID [%5d]", number, os.getpid() )
     conn			= socket.socket( socket.AF_INET, socket.SOCK_STREAM )
     conn.connect( enip.address )
@@ -2063,7 +2429,7 @@ enip_svr_kwds_basic		= {
     },
 }
 
-def test_enip_bench_basic():
+def enip_bench_basic():
     failed			= cpppo.server.network.bench( server_func=enip.main,
                                                               server_kwds=enip_svr_kwds_basic,
                                                               client_func=enip_cli,
@@ -2077,6 +2443,8 @@ def test_enip_bench_basic():
 
     return failed
 
+def test_enip_bench_basic():
+    assert not enip_bench_basic(), "One or more enip_bench_basic clients reported failure"
 
 enip_cli_kwds_logix		= {
 	'tests':	[
@@ -2094,7 +2462,9 @@ enip_cli_kwds_logix		= {
             ), ( 
                 gaa_011_request,
                 {
-                    "response.enip.length": 		55, 
+                    # Size depends on the Identity Object's Attributes; will
+                    # change if Identity modified...
+                    "response.enip.length": 		59,
                 }
             ), ( 
                 unk_014_request, # Read Frag, 1 element
@@ -2129,7 +2499,7 @@ enip_svr_kwds_logix 		= {
 }
 
 
-def test_enip_bench_logix():
+def enip_bench_logix():
     failed			= cpppo.server.network.bench( server_func=enip.main,
                                                               server_kwds=enip_svr_kwds_logix,
                                                               client_func=enip_cli,
@@ -2143,6 +2513,8 @@ def test_enip_bench_logix():
 
     return failed
 
+def test_enip_bench_logix():
+    assert not enip_bench_logix(), "One or more enip_bench_logix clients reported failure"
 
 if __name__ == "__main__":
     '''
@@ -2170,7 +2542,7 @@ if __name__ == "__main__":
     '''
 
     '''
-    test_enip_bench_logix()
+    enip_bench_logix()
     '''
     '''
     print( "\nFunction Total:" )

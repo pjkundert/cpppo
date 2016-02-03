@@ -6,7 +6,7 @@ To see the Tag operations succeed, fire up:
 """
 import sys, logging
 import cpppo
-from cpppo.server.enip import (address, client)
+from cpppo.server.enip import address, client
 
 if __name__ == "__main__":
     logging.basicConfig( **cpppo.log_cfg )
