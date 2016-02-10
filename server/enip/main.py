@@ -968,9 +968,11 @@ def main( argv=None, attribute_class=device.Attribute, idle_service=None, identi
                      help="Enable TCP/IP server (default: True)" )
     ap.add_argument( '-T', '--no-tcp', dest="tcp", action='store_false',
                      help="Disable TCP/IP server" )
+    ap.add_argument( '--no-print', action='store_false', dest='print',
+                     help="Disable printing of summary of operations to stdout" )
     ap.add_argument( '-p', '--print', action='store_true',
-                     default=False, 
-                     help="Print a summary of operations to stdout" )
+                     default=False,
+                     help="Print a summary of operations to stdout (default: False)" )
     ap.add_argument( '-l', '--log',
                      help="Log file, if desired" )
     ap.add_argument( '-w', '--web',
@@ -1135,15 +1137,82 @@ def main( argv=None, attribute_class=device.Attribute, idle_service=None, identi
         except:
             raise AssertionError( "Invalid tag size: %r" % tag_size )
 
+        # Detect specific CIP Class, Instance and Attribute addressing pre-defined for a Tag.  If it
+        # exists, this Class, Instance and Attribute will be used. Otherwise, we'll create it.
+        # Allow tags to specify down to an element.  Historically, we always created and sent the
+        # Attribute instance, and expected the enip_srv --> enip_process complex to assign it an
+        # (arbitrary) address.  However, we can now specify Tag@cls/ins/att[elm], so each Tag may
+        # actually indicate an existing Attribute.  So, create and send an Attribute for plain Tag,
+        # but send address, type and size info for each addressed tag, and let the back-end find
+        # and/or create the appropriate Attribute(s).
+        tag_address		= None
+        if '@' in tag_name:
+            tag_name,tag_address= tag_name.split( '@', 1 )
+
+        # If a specific CIP address was specified for this Tag, find it and/or create it; otherwise,
+        # just pass it thru, and let the underlying enip_srv --> enip_process deal with it.  We'll
+        # let a Tag to be specified down to an attribute, or a single element; allows either
+        # @c/i/a/e or @c/i/a[e] format.  We always find/create the Attribute, but not always the 
+        path,attribute		= None,None
+        if tag_address:
+            # Resolve the @cls/ins/att, and optionally [elm] or /elm
+            segments,elm,cnt	= device.parse_path_elements( '@'+tag_address )
+            assert not cnt or cnt == 1, \
+                "A Tag may be specified to indicate a single element: %s" % ( tag_address )
+            path		= {'segment': segments}
+            cls,ins,att		= device.resolve( path, attribute=True )
+            assert ins > 0, "Cannot specify the Class' instance for a tag's address"
+            elm			= device.resolve_element( path )
+            # Look thru defined tags for one assigned to same cls/ins/att (maybe different elm);
+            # must be same type/size.
+            for tn,te in dict.items( tags ):
+                if device.resolve( te['path'], attribute=True ) == (cls,ins,att):
+                    assert te.attribute.parser.__class__ is tag_class and len( te.attribute ) == tag_size, \
+                        "Incompatible Attribute types for tags %r and %r" % ( tn, tag_name )
+                    attribute	= te.attribute
+                    break
+            '''
+            instance		= device.lookup( cls, ins )
+            if not instance:
+                # Create an Object-derived class w/ the appropriate class_id.  Find the existing
+                # meta-class for this class number, and use it's class; otherwise, whip one up
+                class_ins_0	= device.lookup( cls, 0 )
+                if class_ins_0:
+                    class_type	= class_ins_0.__class__
+                else:
+                    class_type	= type( 'Class 0x%04X' % cls, (device.Object,), {'class_id': cls} )
+                instance	= class_type( instance_id=ins )
+            attribute		= device.lookup( cls, ins, att )
+            '''
+        if not attribute:
+            # No Attribute found
+            attribute		= ( Attribute_print if args.print else attribute_class )(
+                tag_name, tag_class, default=( tag_default if tag_size == 1 else [tag_default] * tag_size ))
+            '''
+            if tag_address:
+                # We're doing the Tag --> cls/ins/att assignment, and it didn't exist.  Place it in
+                # the Instance.
+                instance.attribute[str(att)] \
+				= attribute
+            '''
+        '''
+        if tag_address:
+            # A Tag@1/2/3 address was specified, and we have an Instance (perhaps just freshly
+            # created), and (now) have an Attribute.  Point this tag at this address.
+            device.redirect_tag( tag_name, {'class': cls, 'instance': ins, 'attribute': att })
+        '''
+
         # Ready to create the tag and its Attribute (and error code to return, if any).  If tag_size
         # is 1, it will be a scalar Attribute.  Since the tag_name may contain '.', we don't want
         # the normal dotdict.__setitem__ resolution to parse it; use plain dict.__setitem__.
-        log.normal( "Creating tag: %s=%s[%d]", tag_name, tag_type, tag_size )
+        log.normal( "Creating tag: %-14s%-10s %10s[%4d]", tag_name, '@'+tag_address if tag_address else '',
+                    attribute.parser.__class__.__name__, len( attribute ) )
         tag_entry		= cpppo.dotdict()
-        tag_entry.attribute	= ( Attribute_print if args.print else attribute_class )(
-            tag_name, tag_class, default=( tag_default if tag_size == 1 else [tag_default] * tag_size ))
+        tag_entry.attribute	= attribute	# The Attribute (may be shared by multiple tags)
+        tag_entry.path		= path		# Desired Attribute path (may include element)
         tag_entry.error		= 0x00
         dict.__setitem__( tags, tag_name, tag_entry )
+
 
     # Use the Logix simulator and all the basic required default CIP message processing classes by
     # default (unless some other one was supplied as a keyword options to main(), loaded above into
@@ -1151,15 +1220,23 @@ def main( argv=None, attribute_class=device.Attribute, idle_service=None, identi
     # available for the web API to report/manipulate.  By default, we'll specify no route_path, so
     # any request route_path will be accepted.  Otherwise, we'll create a UCMM-derived class with
     # the specified route_path, which will filter only requests w/ the correct route_path.
+    # 
+    # It is also logix.process that calls logix.setup, to automatically create non-existent tags.  If
+    # using some other dialect, it may be necessary to set up all required CIP Objects, and any
+    # Object/instance/attributes required by any defined tags, before starting the
+    # network.server_main --> enip_srv --> enip_process complex.  If we detect explicit CIP
+    # Object/instance/attribute addressing for a tag, we'll do that here.  This prevents the Logix
+    # setup from just allocating new Attributes in the Logix Message Router object by default.
     options.setdefault( 'enip_process', logix.process )
     if identity_class:
         options.setdefault( 'identity_class', identity_class )
     assert not UCMM_class or not ( args.route_path or args.simple ), \
         "Specify either -S/--simple/--route-path, or a custom UCMM_class; not both"
     if args.route_path is not None or args.simple:
-        # Must be JSON, eg. '[{"link"...}]', or '0'/'false' to explicitly specify no route_path
-        # accepted (must be empty in request).  Can only get in here with a --route-path=0/false/[], or
-        # -S|--simple, which implies a --route-path=false (no routing Unconnected Send accepted).
+        # Must be JSON, eg. '[{"link":<link>,"port":<port>}]', or '0'/'false' to explicitly specify
+        # no route_path accepted (must be empty in request).  Can only get in here with a
+        # --route-path=0/false/[], or -S|--simple, which implies a --route-path=false (no routing
+        # Unconnected Send accepted).
         class UCMM_class_with_route( device.UCMM ):
             route_path		= json.loads( args.route_path ) if args.route_path else False
         UCMM_class		= UCMM_class_with_route
