@@ -10,6 +10,7 @@ except ImportError:
 import errno
 import logging
 import multiprocessing
+import threading
 import os
 import random
 import socket
@@ -72,14 +73,18 @@ def test_client_api():
     thread).
 
     """
-    # TODO: work in progress; not operational yet (only one clitest Thread)
+    #logging.getLogger().setLevel( logging.NORMAL )
+
+    taglen			= 100 # able to fit request for Attribute into 1 packet
 
     svraddr		        = ('localhost', 12399)
     svrkwds			= dotdict({
         'argv': [
             #'-v',
             '--address',	'%s:%d' % svraddr,
-            'Tag=INT[1000]'
+            'Int=INT[%d]' % ( taglen ),
+            'Real=REAL[%d]' % ( taglen ),
+            'DInt=DINT[%d]' % ( taglen ),
         ],
         'server': {
             'control':	apidict( enip.timeout, { 
@@ -87,16 +92,18 @@ def test_client_api():
             }),
         },
     })
-    clitimeout			= 5.0
-    clidepth			= 3		# requests in-flight
-    climultiple			= 500		# bytes of req/rpy per Multiple Service Packet
+    clitimes			= 100
+    clitimeout			= 15.0
+    clidepth			= 5		# max. requests in-flight
+    climultiple			= 500		# max. bytes of req/rpy per Multiple Service Packet
     clicount			= 7
     clipool			= 5
 
-    def tagtests( total, name="Tag", length=1000, size=2 ):
-        """Generate random reads and writes to Tag.  All writes write a value equal to the index, all
-        reads should report the correct value (or 0, if the element was never written).  Randomly
-        supply an offset (force Read/Write Tag Fragmented).
+    def tagtests( total, name="Int", length=taglen, tag_class=enip.INT ):
+        """Generate random reads and writes to Tag 'name' (default "Int", tag_class enip.INT); can only
+        handle types with real, not estimated, sizes (ie. not SSTRING).  All writes write a value
+        equal to the index, all reads should report the correct value (or 0, if the element was
+        never written).  Randomly supply an offset (force Read/Write Tag Fragmented).
 
         Yields the effective (elm,cnt), and the tag=val,val,... .
 
@@ -112,18 +119,19 @@ def test_client_api():
                 val		= list( range( elm + ( off or 0 ), elm + cnt ))
             tag			= "%s[%d-%d]" % ( name, elm, elm + cnt - 1 )
             if off is not None:
-                tag	       += "+%d" % ( off * size )
+                tag	       += "+%d" % ( off * tag_class.struct_calcsize )
             if val is not None:
-                tag	       += '=' + ','.join( map( str, val ))
+                tag	       += '=(%s)' % tag_class.__name__ + ','.join( map( str, val ))
 
             yield (elm+( off or 0 ),cnt-( off or 0 )),tag
 
     def clitest( n ):
-        times			= 100  # How many I/O per client
-        # take apart the sequence of ( ..., ((elm,cnt), "Tag[1-2]=1,2"), ...)
-        # into two sequences: (..., (elm,cnt), ...) and (..., "Tag[1-2]=1,2", ...)
-        name			= 'Tag'
-        regs,tags		= zip( *list( tagtests( total=times, name=name )))
+        times			= clitimes  # How many I/O per client
+        # take apart the sequence of ( ..., ((elm,cnt), "Int[1-2]=1,2"), ...)
+        # into two sequences: (..., (elm,cnt), ...) and (..., "Int[1-2]=1,2", ...)
+        tag_targets		= [('Int',enip.INT), ('DInt',enip.DINT), ('Real',enip.REAL)]
+        name,tag_class		= random.choice( tag_targets )
+        regs,tags		= zip( *list( tagtests( total=times, name=name, tag_class=tag_class )))
         connection		= None
         while not connection:
             try:
@@ -136,9 +144,11 @@ def test_client_api():
         results			= []
         failures		= 0
         with connection:
-            for idx,dsc,req,rpy,sts,val in connection.pipeline( 
-                    operations=enip.client.parse_operations( tags ),
-                    multiple=climultiple, timeout=clitimeout, depth=clidepth ):
+            multiple		= random.randint( 0, 4 ) * climultiple // 4 	# eg. 0, 125, 250, 375, 500
+            depth		= random.randint( 0, clidepth )			# eg. 0 .. 5
+            for idx,dsc,req,rpy,sts,val in connection.pipeline(
+                    operations=enip.client.parse_operations( tags ), timeout=clitimeout,
+                    multiple=multiple, depth=depth ):
                 log.detail( "Client %3d: %s --> %r ", n, dsc, val )
                 if not val:
                     log.warning( "Client %d harvested %d/%d results; failed request: %s",
@@ -157,7 +167,8 @@ def test_client_api():
                 log.warning( "Failure in test %3d: operation %34s (%34s) on %5s[%3d-%-3d]: %s",
                              i, tag, dsc, name, elm, elm + cnt - 1, val )
                 failures       += 1
-            if isinstance( val, list ):
+            if isinstance( val, list ): # write returns True; read returns list of data
+                #print( "%s testing %10s[%5d-%-5d]: %r" % ( threading.current_thread().name, tag, elm, elm + cnt - 1, val ))
                 if not all( v in (e,0) for v,e in zip( val, range( elm, elm + cnt ))):
                     log.warning( "Failure in test %3d: operation %34s (%34s) on %5s[%3d-%-3d] didn't equal indexes: %s",
                                  i, tag, dsc, name, elm, elm + cnt - 1, val )

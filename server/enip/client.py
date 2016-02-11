@@ -29,7 +29,7 @@ __copyright__                   = "Copyright (c) 2013 Hard Consulting Corporatio
 __license__                     = "Dual License: GPLv3 (or later) and Commercial (see LICENSE)"
 
 __all__				= ['parse_int', 'parse_path', 'parse_path_elements', 'format_path',
-                                   'format_context', 'parse_context', 'parse_operations',
+                                   'format_context', 'parse_context', 'CIP_TYPES', 'parse_operations',
                                    'client', 'await', 'connector', 'recycle', 'main']
 
 """enip.client	-- EtherNet/IP client API and module entry point
@@ -119,7 +119,35 @@ def parse_context( sender_context ):
     return bytes( bytearray( sender_context ).rstrip( b'\0' ))
 
 
-def parse_operations( tags, fragment=False, **kwds ):
+# 
+# client.CIP_TYPES
+# 
+#     The supported CIP data types, and their CIP 'tag_type' values, byte sizes and validators.  We
+# are generous with the "signed" types (eg. SINT, INT, DINT), and we actually allow the full
+# unsigned range, plus the negative range.  There is little risk to doing this, as all provided
+# values will fit legitimately into the data type without loss.  It does however, make acceptance of
+# automatically generated data easier, as we don't need to really know if the data is signed or
+# unsigned; just that it fits into the target data type.
+# 
+
+def int_validate( x, lo, hi ):
+    res			= int( x )
+    assert lo <= res <= hi, "Invalid %d; not in range (%d,%d)" % ( res, lo, hi)
+    return res
+
+CIP_TYPES			= {
+    'SSTRING':	(enip.SSTRING.tag_type,	0,				str ),
+    'BOOL':	(enip.BOOL.tag_type,	enip.BOOL.struct_calcsize,	bool ),
+    'REAL': 	(enip.REAL.tag_type,	enip.REAL.struct_calcsize,	float ),
+    'DINT':	(enip.DINT.tag_type,	enip.DINT.struct_calcsize,	lambda x: int_validate( x, -2**31, 2**32-1 )), # extra range
+    'UDINT':	(enip.UDINT.tag_type,	enip.UDINT.struct_calcsize,	lambda x: int_validate( x,  0,     2**32-1 )),
+    'INT':	(enip.INT.tag_type,	enip.INT.struct_calcsize,	lambda x: int_validate( x, -2**15, 2**16-1 )), # extra range
+    'UINT':	(enip.UINT.tag_type,	enip.UINT.struct_calcsize,	lambda x: int_validate( x,  0,     2**16-1 )),
+    'SINT':	(enip.SINT.tag_type,	enip.SINT.struct_calcsize,	lambda x: int_validate( x, -2**7,  2**8-1 )),  # extra range
+    'USINT':	(enip.USINT.tag_type,	enip.USINT.struct_calcsize,	lambda x: int_validate( x,  0,     2**8-1 )),
+}
+
+def parse_operations( tags, fragment=False, int_type=None, **kwds ):
     """
 
     Given a sequence of tags, deduce the set of I/O desired operations, yielding each one.  Any
@@ -139,9 +167,11 @@ def parse_operations( tags, fragment=False, **kwds ):
     supply an element index of 0; default is no element in path, and a data value count of 1.  If a
     byte offset is specified, the request is forced to use Read/Write Tag Fragmented.
 
-    Default
+    Default CIP int_type for int data (data with no '.' in it, by default) is CIP 'INT'.  
 
     """
+    if int_type is None:
+        int_type		= 'INT'
     for tag in tags:
         # Compute tag (stripping val and off)
         val			= ''
@@ -167,29 +197,14 @@ def parse_operations( tags, fragment=False, **kwds ):
         if val:
             # Default between REAL/INT, by simply checking for '.' in the provided value(s)
             if '.' in val:
-                opr['tag_type']	= enip.REAL.tag_type
-                size		= enip.REAL.struct_calcsize
-                cast		= lambda x: float( x )
+                opr['tag_type'],size,cast = CIP_TYPES['REAL']
             else:
-                opr['tag_type']	= enip.INT.tag_type
-                size		= enip.INT.struct_calcsize
-                cast		= lambda x: int( x )
+                opr['tag_type'],size,cast = CIP_TYPES[int_type.strip().upper()]
             # Allow an optional (TYPE)value,value,...
             if val.strip().startswith( '(' ) and ')' in val:
-                def int_validate( x, lo, hi ):
-                    res		= int( x )
-                    assert lo <= res <= hi, "Invalid %d; not in range (%d,%d)" % ( res, lo, hi)
-                    return res
                 typ,val		= val.split( ')', 1 ) # Get leading: ['(TYPE', '), ...]
                 _,typ		= typ.split( '(', 1 )
-                opr['tag_type'],size,cast = {
-                    'BOOL':	(enip.BOOL.tag_type, enip.BOOL.struct_calcsize, bool ),
-                    'REAL': 	(enip.REAL.tag_type, enip.REAL.struct_calcsize, float ),
-                    'DINT':	(enip.DINT.tag_type, enip.DINT.struct_calcsize, lambda x: int_validate( x, -2**31, 2**31-1 )),
-                    'INT':	(enip.INT.tag_type,  enip.INT.struct_calcsize,  lambda x: int_validate( x, -2**15, 2**15-1 )),
-                    'SINT':	(enip.SINT.tag_type, enip.SINT.struct_calcsize, lambda x: int_validate( x, -2**7,  2**7-1 )),
-                    'SSTRING':	(enip.SSTRING.tag_type, 0, str ),
-                }[typ.upper()]
+                opr['tag_type'],size,cast = CIP_TYPES[typ.strip().upper()]
 
             # The provided val is a comma-separated, whitespace-padded single-line list containing
             # integers, reals and quoted strings.  Perfect for using csv.reader to parse...  Not
@@ -225,8 +240,8 @@ def parse_operations( tags, fragment=False, **kwds ):
                 beg		= byte // size
                 end		= beg + len( opr['data'] )
                 assert end <= opr['elements'], \
-                    "Number of elements (%d) provided and byte offset %d / %d-byte elements exceeds element count %d: " % (
-                        len( opr['data'] ), byte, size, opr['elements'] )
+                    "Number of elements (%d) provided and byte offset %d / %d-byte elements exceeds element count %d: %r" % (
+                        len( opr['data'] ), byte, size, opr['elements'], opr )
                 if beg != 0 or end != opr['elements']:
                     log.detail( "Partial Write Tag Fragmented; elements %d-%d of %d", beg, end-1, opr['elements'] )
 

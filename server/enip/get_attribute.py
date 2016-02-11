@@ -87,14 +87,21 @@ from . import client
 
 log				= logging.getLogger( "enip.get" )
 
-def attribute_operations( paths, **kwds ):
+def attribute_operations( paths, int_type=None, **kwds ):
     """Replace any tag/attribute-level operations with Get Attribute Single, otherwise Get Attributes
     All.  This is probably beyond "compability" with *Logix or other CIP devices, as they only allow
     Read/Write Tag [Fragmented] services to use Tags (Get/Set Attribute Single services require
-    numeric Class, Instance, Attribute addressing).  
+    numeric Class, Instance, Attribute addressing); in real CIP devices, only CIP Class, Instance
+    and Attribute EPATH elements are generally allowed.
+
+    Does not check if elements == len( data ), or for presence of offset, etc.  Only conversion of
+    simple read or write operations would generally be valid.
+
+    If no 'int_type' entry is specified, then we will assume that 'SINT' is intended (we accept an
+    enhanced range of values, up to the "unsigned" limit of the same sized integral value container.)
 
     """
-    for op in client.parse_operations( paths, **kwds ):
+    for op in client.parse_operations( paths, int_type=int_type or 'SINT', **kwds ):
         path_end		= op['path'][-1]
         if 'instance' in path_end:
             op['method'] = 'get_attributes_all'
