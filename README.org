@@ -329,11 +329,22 @@
     : $ enip_client SCADA[1]=99 SCADA[0-10] 'TEXT[1]=(SSTRING)"Hello, world!"' TEXT[0-3]
 
     To use Get Attribute Single/All requests (suitable for simpler devices,
-    usually also used the =-S= option), use these commands instead (use the
+    usually also used with the =-S= option), use these commands instead (use the
     =--help= option to see their options, which are quite similar to
-    =enip_client=):
-    : $ python -m cpppo.sever.enip.get_attribute -S ...
+    =cpppo.server.enip.client= and =enip_client=):
+    : $ python -m cpppo.server.enip.get_attribute -S ...
     : $ enip_get_attribute -S ...
+    All data is read/written as arrays of =SINT=; however, if you specify a data
+    type for writing data, we will convert it to an array of =SINT= for you.  For example,
+    if you know that you are writing to a =REAL= Attribute:
+    #+BEGIN_EXAMPLE
+    $ python -m cpppo.server.enip -v 'Motor_Velocity@0x93/3/10=REAL' # In another terminal...
+    $ python -m cpppo.server.enip.get_attribute '@0x93/3/10=(REAL)1.0' '@0x93/3/10'
+    Sat Feb 20 08:24:13 2016:   0: Single S_A_S      @0x0093/3/10 == True
+    Sat Feb 20 08:24:13 2016:   1: Single G_A_S      @0x0093/3/10 == [0, 0, 128, 63]
+    $ python -m cpppo.server.enip.client --print Motor_Velocity
+      Motor_Velocity              == [1.0]: 'OK'
+    #+END_EXAMPLE
 
     Specify a different local interface and/or port to connect to (default is :44818):
     : -a|--address [<interface>][:<port>]
@@ -972,6 +983,10 @@
 
      To access Get Attribute data with CIP type conversion, use
      =cpppo.server.enip.get_attribute='s =proxy= classes, instead.
+
+**** =client.connector.set_attribute_single=
+
+     
 
 **** =client.connector.list_identity=, =.list_services= and =.list_interfaces=
 

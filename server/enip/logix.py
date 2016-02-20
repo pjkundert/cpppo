@@ -628,7 +628,7 @@ def setup( **kwds ):
                 # See if the tag's Instance exists.  If not, we'll need to create it.  If the Class'
                 # "meta" Instance exists, we'll use it to create the Instance (its always at
                 # Instance 0).  Otherwise, we'll create an Object class with the appropriate
-                # class_id to sue.
+                # class_id to use.
                 instance	= lookup( cls, ins )
                 if instance is None:
                     # Instance doesn't exist; we'll need to instantiate the right Object Class.
@@ -636,8 +636,13 @@ def setup( **kwds ):
                     if class_meta:
                         class_type = class_meta.__class__
                     else:
-                        # Nope, no Class "meta" object.  Create Class Object on-the-fly.
-                        class_type= type( 'Class %5d/0x%04X' % ( cls, cls ), (Object,), {'class_id': cls} )
+                        # Nope, no Class "meta" object.  Create class Object on-the-fly, derived
+                        # from our Message Router CIP Object's class.  Thus, these dynamically
+                        # created Objects will understand all of the esoteric *Logix (or whatever
+                        # Message Router's) services (eg. Read Tag [Fragmented]).
+                        class_type= type( 'Class %5d/0x%04X' % ( cls, cls ),
+                                          ( lookup( 0x02, 0 ).__class__,),
+                                          {'class_id': cls} )
                     instance	= class_type( instance_id=ins )
                     log.normal( "%-24s Instance %3d created", instance, ins )
 
