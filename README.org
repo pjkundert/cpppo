@@ -87,10 +87,18 @@
 *** EtherNet/IP Controller Communications Simulator
 
     To run a simulation of a subset of a ControlLogix(tm) Controller
-    communications, with the tag 'SCADA' for you to read/write, run:
-    : $ python -m cpppo.server.enip --print SCADA=INT[1000] TEXT=SSTRING[100]
-    Alternatively, invoke the supplied wrapper script:
-    : enip_server --print SCADA=INT[1000] TEXT=SSTRING[100]
+    communications, with the array Tags 'SCADA' and 'TEXT' and scalar Tag 'FLOAT'
+    for you to read/write, run =python -m cpppo.server.enip= or =enip_server=:
+    #+BEGIN_EXAMPLE
+    enip_server --print SCADA=INT[1000] TEXT=SSTRING[100] FLOAT=REAL
+    #+END_EXAMPLE
+
+    Each Tag references a specific CIP Class/Instance/Attribute, which can be
+    specified, if you desire (eg. to use numeric CIP addressing, typically
+    required for Get/Set Attribute Single requests):
+    #+BEGIN_EXAMPLE
+    enip_server --print SCADA@22/1/1=INT[1000] TEXT@22/1/2=SSTRING[100] FLOAT@22/1/3=REAL
+    #+END_EXAMPLE
 
     (See =cpppo/server/enip/poll_test.py='s =main= method (at the end of the
     file) for an example of how to implement a completely custom set of CIP
@@ -218,13 +226,17 @@
      This example *captures the first command line argument* as a file name; all
      subsequent arguments are the same as described for the EtherNet/IP
      Controller Communications Simulator, above:
-     : $ python -m cpppo.server.enip.historize some_file.hst Tag_Name=INT[1000] &
-     : $ tail -f some_file.txt
-     : # 2014-07-15 22:03:35.945: Started recording Tag: Tag_Name
-     : 2014-07-15 22:03:44.186 ["Tag_Name", [0, 3]]    {"write": [0, 1, 2, 3]}
-     : ...
+     #+BEGIN_EXAMPLE
+     $ python -m cpppo.server.enip.historize some_file.hst Tag_Name=INT[1000] &
+     $ tail -f some_file.txt
+     # 2014-07-15 22:03:35.945: Started recording Tag: Tag_Name
+     2014-07-15 22:03:44.186 ["Tag_Name", [0, 3]]    {"write": [0, 1, 2, 3]}
+     ...
+     #+END_EXAMPLE
      (in another terminal)
-     : $ python -m cpppo.server.enip.client Tag_Name[0-3]=[0,1,2,3]
+     #+BEGIN_EXAMPLE
+     $ python -m cpppo.server.enip.client Tag_Name[0-3]=[0,1,2,3]
+     #+END_EXAMPLE
    
      You can examine the code in cpppo/server/enip/historize.py to see how to
      easily implement your own customization of the EtherNet/IP CIP Controller
@@ -308,32 +320,52 @@
 
 *** EtherNet/IP Controller Client
 
-    Cpppo provides an advanced EtherNet/IP CIP Client =enip_client ...=, for
-    processing Unconnected requests via TPC/IP or UDP/IP sessions to CIP devices
-    -- either Controllers (eg. Rockwell ControlLogix, CompactLogix) which can
-    "route" CIP requests, or the =enip_get_attribute -S ...= command for access
-    to simple CIP devices (eg. Rockwell MicroLogix, A-B PowerFlex, ...) which
-    can only perform basic CIP services such as "Get Attribute Single/All", and
-    do not understand the "routing" CIP Unconnected Send encapsulation required
-    by the more advanced "routing" Controllers.
-    
-    These commands can Register and issue a stream of "Unconnected" requests to
-    the Controller, such as Get/Set Attribute or *Logix Read/Write Tag
-    (optionally Fragmented) requests.
+    Cpppo provides an advanced EtherNet/IP CIP Client =enip_client=, for
+    processing "Unconnected" (or "Explicit") requests via TPC/IP or UDP/IP
+    sessions to CIP devices -- either Controllers (eg. Rockwell ControlLogix,
+    CompactLogix) which can "route" CIP requests, or w/ the =-S= option for
+    access to simple CIP devices (eg. Rockwell MicroLogix, A-B PowerFlex, ...)
+    which do not understand the "routing" CIP Unconnected Send encapsulation
+    required by the more advanced "routing" Controllers.
 
-    For Read/Write Tag [Fragmented] requests, by default to a "routing" device
-    (eg. ControlLogix, CompactLogix):
+    Cpppo does not presently implement the CIP "Forward Open" request, nor the
+    resulting "Connected" or "Implicit" I/O requests, typically used in direct
+    PLC-to-PLC communications.  Only the TCP/IP "Unconnected"/"Explicit"
+    requests that pass over the initially created and CIP Registered session are
+    implemented.
+
+    The =python -m cpppo.server.enip.client= module entry-point or API and the
+    =enip_client= command can Register and issue a stream of "Unconnected"
+    requests to the Controller, such as Get/Set Attribute or (by default) *Logix
+    Read/Write Tag (optionally Fragmented) requests.  The
+    =cpppo.server.enip.get_attribute= module entry-point or API and the
+    =enip_get_attribute= command defaults to use Get/Set Attribute operations.
+
+    It is critical to use the correct API with the correct address type and
+    options, to achieve communications with your device.  Some devices can use
+    "Unconnected" requests, while others cannot.  The MicroLogix is such an
+    example; you may use "Unconnected" requests to access basic CIP Objects
+    (such as Identity), but not much else.  Most other devices can support
+    "Unconnected" access to their data.  Some devices can only perform basic CIP
+    services such as "Get/Set Attribute Single/All" using numeric CIP Class,
+    Instance and Attribute addressing, while others support the *Logix
+    "Read/Write Tag [Fragmented]" requests using Tag names.  You need to know
+    (or experiment) to discover their capability.  Still others such as the
+    CompactLogix and ControlLogix Controllers can support "routing" requests;
+    many others require the =-S= option to disable this functionality, or they
+    will respond with an error status.
+
+    To issue Read/Write Tag [Fragmented] requests, by default to a "routing"
+    device (eg. ControlLogix, CompactLogix), here to a CIP =INT= array Tag called
+    =SCADA=, and a CIP =SSTRING= (Short String) array Tag called =TEXT=:
     : $ python -m cpppo.server.enip.client -v --print \
     :     SCADA[1]=99 SCADA[0-10] 'TEXT[1]=(SSTRING)"Hello, world!"' TEXT[0-3]
-    Alternatively, invoke the supplied =enip_client= wrapper script:
-    : $ enip_client SCADA[1]=99 SCADA[0-10] 'TEXT[1]=(SSTRING)"Hello, world!"' TEXT[0-3]
 
-    To use Get Attribute Single/All requests (suitable for simpler devices,
-    usually also used with the =-S= option), use these commands instead (use the
-    =--help= option to see their options, which are quite similar to
-    =cpppo.server.enip.client= and =enip_client=):
+    To use only Get Attribute Single/All requests (suitable for simpler devices,
+    usually also used with the =-S= option, for no routing path), use this API
+    instead (use the =--help= option to see their options, which are quite
+    similar to =cpppo.server.enip.client= and =enip_client=):
     : $ python -m cpppo.server.enip.get_attribute -S ...
-    : $ enip_get_attribute -S ...
     All data is read/written as arrays of =SINT=; however, if you specify a data
     type for writing data, we will convert it to an array of =SINT= for you.  For example,
     if you know that you are writing to a =REAL= Attribute:
@@ -546,7 +578,6 @@
 
     To send log output to a file (limited to 10MB, rotates through 5 copies):
     : -l|--log <file>
-
 
     To print a summary of PLC I/O to stdout, use =--print=.  Perhaps
     surprisingly, unless you provide a =--print= or =-v= option, you will see no
