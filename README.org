@@ -973,16 +973,11 @@
      Create a simple generator wrapper around =client.parse_operations=, which
      substitutes =get_attributes_all= or =get_attribute_single= as appropriate.
      Use numeric addressing to the Instance or Attribute level,
-     eg. =@<class>/<instance>= or =@<class>/<instance>/<attribute>=.  Roughly
-     from =cpppo/server/enip/get_attribute.py=:
+     eg. =@<class>/<instance>= or =@<class>/<instance>/<attribute>=.  One is
+     implemented in =cpppo/server/enip/get_attribute.py=:
      #+BEGIN_EXAMPLE python
-     def attribute_operations( paths ):
-         for op in client.parse_operations( paths ):
-             if 'attribute' in op['path'][-1]:
-                 op['method']	= 'get_attribute_single'
-             else:
-                 op['method']	= 'get_attributes_all'
-             yield op
+     from cpppo.server.enip.get_attribute import attribute_operations
+
      timeout			= None # Wait forever, or <float> seconds
      depth			= 0    # No pipelining, or <int> in-flight
      with client.connector( host=args.address, timeout=timeout ) as conn:
@@ -1017,7 +1012,28 @@
 
 **** =client.connector.set_attribute_single=
 
-     
+     To use Set Attribute Single, provide an array of CIP =USINT= or =SINT=
+     values appropriate to the size of the target Attribute.  Alternatively,
+     provide a =tag_type= number corresponding to the CIP data type.  If the
+     tag_type is supported by =cpppo.server.enip.parser='s =typed_data=
+     implementation, we'll convert it to =USINT= for you (=[U]SINT=, =[U]INT=,
+     =[U]DINT=, =REAL= and =SSTRING= are presently supported).
+
+     Typically, you will invoke =client.connector.set_attribute_single=
+     indirectly by providing =attribute_operations= a sequence containing tag
+     operation such as =@<class>/<instance>/<attribute>=(REAL)1.1= (see
+     =get_attribute_single=, above.)  If you start the =enip_server
+     ... FLOAT@22/1/3=REAL= command, above, and then run:
+     #+BEGIN_EXAMPLE
+     $ python -m cpppo.server.enip.get_attribute '@22/1/3=(REAL)1.0' '@22/1/3'
+     Mon Feb 22 15:29:51 2016:   0: Single S_A_S      @0x0016/1/3 == True
+     Mon Feb 22 15:29:51 2016:   1: Single G_A_S      @0x0016/1/3 == [0, 0, 128, 63]     
+     #+END_EXAMPLE
+     Confirm that you wrote the correct floating-ponit value:
+     #+BEGIN_EXAMPLE
+     $ python -m cpppo.server.enip.client 'FLOAT'
+               FLOAT              == [1.0]: 'OK'
+     #+END_EXAMPLE
 
 **** =client.connector.list_identity=, =.list_services= and =.list_interfaces=
 
