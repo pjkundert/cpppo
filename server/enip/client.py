@@ -29,7 +29,7 @@ __copyright__                   = "Copyright (c) 2013 Hard Consulting Corporatio
 __license__                     = "Dual License: GPLv3 (or later) and Commercial (see LICENSE)"
 
 __all__				= ['parse_int', 'parse_path', 'parse_path_elements', 'format_path',
-                                   'format_context', 'parse_context', 'parse_operations',
+                                   'format_context', 'parse_context', 'CIP_TYPES', 'parse_operations',
                                    'client', 'await', 'connector', 'recycle', 'main']
 
 """enip.client	-- EtherNet/IP client API and module entry point
@@ -58,93 +58,9 @@ import traceback
 import cpppo
 from .. import network, enip
 from . import logix, device, parser
+from .device import parse_int, parse_path, parse_path_elements # used to be defined here...
 
 log				= logging.getLogger( "enip.cli" )
-
-def parse_int( x, base=10 ):
-    """Try parsing in the target base, but then also try deducing the base (eg. if we are provided with
-    an explicit base such as 0x..., 0o..., 0b...).
-
-    The reason this is necessary (instead of just using int( x, base=0 ) directly) is because we
-    don't want leading zeros (eg. "012") to be interpreted as indicating octal (which is the default).
-
-    """
-    try:
-        return int( x, base=base )
-    except ValueError:
-        return int( x, base=0 )
-
-
-def parse_path( path ):
-    """Convert a "Tag" or "@<class>/<instance>/<attribute>" to a list of EtherNet/IP path segments (if a
-    string is supplied). Numeric form allows <class>[/<instance>[/<attribute>[/<element>]]] by
-    default, or any segment type at all by providing it in JSON form, eg. .../{"connection":100}.
-    Any numeric path elements not in the recognized default order will be encoded as JSON.
-
-    Resultant path will be a list of the form [{'symbolic': "Tag"}, {'element': 3}], or [{'class':
-    511}, {'instance': 1}, {'attribute': 2}].
-
-    If strings are supplied for path or element, any numeric data (eg. class, instance, attribute or
-    element numbers) default to integer (eg. 26), but may be escaped with the normal base indicators
-    (eg. 0x1A, 0o49, 0b100110).  Leading zeros do NOT imply octal.
-
-    Also supported is the manual assembly of the segments of a path.  If the segment doesn't match
-    the expected default
-
-    @{"class":0x04}/instance=5/{"connection":100}
-
-    """
-    if isinstance( path, cpppo.type_str_base ):
-        if path.startswith( '@' ):
-            # Numeric. @<class>/<instance>/<attribute>/<element> (up to 4 segments)
-            segments		= []
-            try:
-                defaults	= ('class','instance','attribute','element')
-                for i,seg in enumerate( path[1:].split( '/' )):
-                    if seg.startswith( '{' ):
-                        trm	= json.loads( seg )
-                    else:
-                        assert i < len( defaults ), "No default segment type beyond %r" % ( defaults )
-                        trm	= {defaults[i]: parse_int( seg )}
-                    segments.append( trm )
-            except Exception as exc:
-                raise Exception( "Invalid @%s; 1-4 (default decimal) terms, eg. 26, 0x1A, {\"connection\":100}, 0o46, 0b100110: %s" % (
-                    '/'.join( '<%s>' % d for d in defaults ), exc ))
-        else:
-            # Symbolic.  <segment>.<segment>... (no limit on number of dot-separated segments)
-            segments		= [{'symbolic': p} for p in path.split('.')]
-    else:
-        # Already better be a list-like path...
-        segments		= path
-    return segments
-
-
-def parse_path_elements( path ):
-    """Returns (<path>,<element>,<count>).  If an element is specified (eg. Tag[#]), then it will be
-    added to the path (or replace any existing element segment at the end of the path) and returned,
-    otherwise None will be returned.  If a count is specified (eg. Tag[#-#]), then it will be
-    returned; otherwise a None will be returned.
-
-    """
-    cnt,elm			= None,None
-    if isinstance( path, cpppo.type_str_base ):
-        if '[' in path:
-            path,elm		= path.split( '[', 1 )
-            elm,_		= elm.split( ']' )
-            lst			= None
-            if '-' in elm:
-                elm,lst		= elm.split( '-' )
-                lst		= int( lst )
-            elm			= int( elm )
-            if lst is not None:
-                cnt		= lst + 1 - elm
-                assert cnt > 0, "Invalid element range %d-%d" % ( elm, lst )
-    path			= parse_path( path )
-    if elm is not None:
-        if not path or 'element' not in path[-1]:
-            path.append( {} )
-        path[-1]['element']	= elm
-    return parse_path( path ),elm,cnt
 
 
 def format_path( segments, count=None ):
@@ -203,7 +119,35 @@ def parse_context( sender_context ):
     return bytes( bytearray( sender_context ).rstrip( b'\0' ))
 
 
-def parse_operations( tags, fragment=False, **kwds ):
+# 
+# client.CIP_TYPES
+# 
+#     The supported CIP data types, and their CIP 'tag_type' values, byte sizes and validators.  We
+# are generous with the "signed" types (eg. SINT, INT, DINT), and we actually allow the full
+# unsigned range, plus the negative range.  There is little risk to doing this, as all provided
+# values will fit legitimately into the data type without loss.  It does however, make acceptance of
+# automatically generated data easier, as we don't need to really know if the data is signed or
+# unsigned; just that it fits into the target data type.
+# 
+
+def int_validate( x, lo, hi ):
+    res			= int( x )
+    assert lo <= res <= hi, "Invalid %d; not in range (%d,%d)" % ( res, lo, hi)
+    return res
+
+CIP_TYPES			= {
+    'SSTRING':	(enip.SSTRING.tag_type,	0,				str ),
+    'BOOL':	(enip.BOOL.tag_type,	enip.BOOL.struct_calcsize,	bool ),
+    'REAL': 	(enip.REAL.tag_type,	enip.REAL.struct_calcsize,	float ),
+    'DINT':	(enip.DINT.tag_type,	enip.DINT.struct_calcsize,	lambda x: int_validate( x, -2**31, 2**32-1 )), # extra range
+    'UDINT':	(enip.UDINT.tag_type,	enip.UDINT.struct_calcsize,	lambda x: int_validate( x,  0,     2**32-1 )),
+    'INT':	(enip.INT.tag_type,	enip.INT.struct_calcsize,	lambda x: int_validate( x, -2**15, 2**16-1 )), # extra range
+    'UINT':	(enip.UINT.tag_type,	enip.UINT.struct_calcsize,	lambda x: int_validate( x,  0,     2**16-1 )),
+    'SINT':	(enip.SINT.tag_type,	enip.SINT.struct_calcsize,	lambda x: int_validate( x, -2**7,  2**8-1 )),  # extra range
+    'USINT':	(enip.USINT.tag_type,	enip.USINT.struct_calcsize,	lambda x: int_validate( x,  0,     2**8-1 )),
+}
+
+def parse_operations( tags, fragment=False, int_type=None, **kwds ):
     """
 
     Given a sequence of tags, deduce the set of I/O desired operations, yielding each one.  Any
@@ -223,9 +167,11 @@ def parse_operations( tags, fragment=False, **kwds ):
     supply an element index of 0; default is no element in path, and a data value count of 1.  If a
     byte offset is specified, the request is forced to use Read/Write Tag Fragmented.
 
-    Default
+    Default CIP int_type for int data (data with no '.' in it, by default) is CIP 'INT'.  
 
     """
+    if int_type is None:
+        int_type		= 'INT'
     for tag in tags:
         # Compute tag (stripping val and off)
         val			= ''
@@ -251,29 +197,14 @@ def parse_operations( tags, fragment=False, **kwds ):
         if val:
             # Default between REAL/INT, by simply checking for '.' in the provided value(s)
             if '.' in val:
-                opr['tag_type']	= enip.REAL.tag_type
-                size		= enip.REAL.struct_calcsize
-                cast		= lambda x: float( x )
+                opr['tag_type'],size,cast = CIP_TYPES['REAL']
             else:
-                opr['tag_type']	= enip.INT.tag_type
-                size		= enip.INT.struct_calcsize
-                cast		= lambda x: int( x )
+                opr['tag_type'],size,cast = CIP_TYPES[int_type.strip().upper()]
             # Allow an optional (TYPE)value,value,...
             if val.strip().startswith( '(' ) and ')' in val:
-                def int_validate( x, lo, hi ):
-                    res		= int( x )
-                    assert lo <= res <= hi, "Invalid %d; not in range (%d,%d)" % ( res, lo, hi)
-                    return res
                 typ,val		= val.split( ')', 1 ) # Get leading: ['(TYPE', '), ...]
                 _,typ		= typ.split( '(', 1 )
-                opr['tag_type'],size,cast = {
-                    'BOOL':	(enip.BOOL.tag_type, enip.BOOL.struct_calcsize, bool ),
-                    'REAL': 	(enip.REAL.tag_type, enip.REAL.struct_calcsize, float ),
-                    'DINT':	(enip.DINT.tag_type, enip.DINT.struct_calcsize, lambda x: int_validate( x, -2**31, 2**31-1 )),
-                    'INT':	(enip.INT.tag_type,  enip.INT.struct_calcsize,  lambda x: int_validate( x, -2**15, 2**15-1 )),
-                    'SINT':	(enip.SINT.tag_type, enip.SINT.struct_calcsize, lambda x: int_validate( x, -2**7,  2**7-1 )),
-                    'SSTRING':	(enip.SSTRING.tag_type, 0, str ),
-                }[typ.upper()]
+                opr['tag_type'],size,cast = CIP_TYPES[typ.strip().upper()]
 
             # The provided val is a comma-separated, whitespace-padded single-line list containing
             # integers, reals and quoted strings.  Perfect for using csv.reader to parse...  Not
@@ -309,8 +240,8 @@ def parse_operations( tags, fragment=False, **kwds ):
                 beg		= byte // size
                 end		= beg + len( opr['data'] )
                 assert end <= opr['elements'], \
-                    "Number of elements (%d) provided and byte offset %d / %d-byte elements exceeds element count %d: " % (
-                        len( opr['data'] ), byte, size, opr['elements'] )
+                    "Number of elements (%d) provided and byte offset %d / %d-byte elements exceeds element count %d: %r" % (
+                        len( opr['data'] ), byte, size, opr['elements'], opr )
                 if beg != 0 or end != opr['elements']:
                     log.detail( "Partial Write Tag Fragmented; elements %d-%d of %d", beg, end-1, opr['elements'] )
 
@@ -671,6 +602,37 @@ class client( object ):
                 sender_context=sender_context )
         return req
 
+    def set_attribute_single( self, path, data, elements=1, tag_type=None,
+              route_path=None, send_path=None, timeout=None, send=True,
+              sender_context=b'' ):
+        """Convert the supplied tag_type data into USINTs if necessary, and perform the Set Attribute
+        Single.  If no/None tag_type supplied, the data is assumed to be SINT/USINT.
+
+        """
+        # If a tag_type has been specified, then we need to convert the data to SINT/USINT.
+        if elements is None:
+            elemements		= len( data )
+        else:
+            assert elements == len( data ), \
+                "Inconsistent elements: %d doesn't match data length: %d" % ( elements, len( data ))
+        if tag_type not in (None,enip.SINT.tag_type,enip.USINT.tag_type):
+            usints		= [ v for v in bytearray(
+                parser.typed_data.produce( data={'tag_type': tag_type, 'data': data } )) ]
+            log.detail( "Converted %s[%d] to USINT[%d]",
+                        parser.typed_data.TYPES_SUPPORTED[tag_type], elements, len( usints ))
+            data,elements	= usints,len( usints )
+        req			= cpppo.dotdict()
+        req.path		= { 'segment': [ cpppo.dotdict( d ) for d in parse_path( path ) ]}
+        req.set_attribute_single= {
+            'data':		data,
+            'elements':		elements,
+        }
+        if send:
+            self.unconnected_send(
+                request=req, route_path=route_path, send_path=send_path, timeout=timeout,
+                sender_context=sender_context )
+        return req
+
     def read( self, path, elements=1, offset=0,
               route_path=None, send_path=None, timeout=None, send=True,
               sender_context=b'',
@@ -981,6 +943,12 @@ class connector( client ):
                 else:
                     rpyest     += parser.typed_data.datasize(
                         tag_type=op.get( 'tag_type' ) or enip.DINT.tag_type, size=op.get( 'elements', 1 ))
+            elif method == 'set_attribute_single':
+                descr	       += "S_A_S "
+                req		= self.set_attribute_single( timeout=timeout, send=not multiple, **op )
+                reqest		= 8 + parser.typed_data.datasize(
+                    tag_type=op.get( 'tag_type' ) or enip.USINT.tag_type, size=len( op['data'] ))
+                rpyest		= 4
             elif method == 'get_attribute_single':
                 descr	       += "G_A_S "
                 req		= self.get_attribute_single( timeout=timeout, send=not multiple, **op )
@@ -1131,6 +1099,8 @@ class connector( client ):
                         val	= reply.read_frag.data
                     elif 'read_tag' in reply:
                         val	= reply.read_tag.data
+                    elif 'set_attribute_single' in reply:
+                        val	= True
                     elif 'get_attribute_single' in reply:
                         val	= reply.get_attribute_single.data
                     elif 'get_attributes_all' in reply:
@@ -1452,9 +1422,11 @@ which is required to carry this Send/Route Path data. """ )
     ap.add_argument( '-b', '--broadcast', action='store_true',
                      default=False, 
                      help="Allow multiple peers, and use of broadcast address (default: False)" )
+    ap.add_argument( '--no-print', action='store_false', dest='print',
+                     help="Disable printing of summary of operations to stdout" )
     ap.add_argument( '-p', '--print', action='store_true',
-                     default=False, 
-                     help="Print a summary of operations to stdout" )
+                     default=False, # inconsistent default from get_attribute.py, for historical reasons
+                     help="Print a summary of operations to stdout (default: False)" )
     ap.add_argument( '-l', '--log',
                      help="Log file, if desired" )
     ap.add_argument( '-t', '--timeout',

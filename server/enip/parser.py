@@ -1610,10 +1610,11 @@ class CIP( cpppo.dfa ):
 
 
 class typed_data( cpppo.dfa ):
-    """Parses CIP typed data, of the form specified by the datatype (must be a relative path within
-    the data artifact, or an integer data type).  Data elements are parsed 'til exhaustion of input, so the caller should
-    use limit= to define the limits of the data in the source symbol input stream; only complete
-    data items must be parsed, so this must be exact, and match the specified data type.
+    """Parses CIP typed data, of the form specified by the datatype (must be a relative path within the
+    data artifact, or an integer data type).  Data elements are parsed 'til exhaustion of input, so
+    the caller should use limit= to define the limits of the data in the source symbol input stream;
+    only complete data items must be parsed, so this must be exact, and match the specified data
+    type.
 
     The known data types are:
 
@@ -1750,13 +1751,14 @@ class typed_data( cpppo.dfa ):
 
     @classmethod
     def produce( cls, data, tag_type=None ):
-        """Expects to find .type (if tag_type is None) and .data list, and produces the data encoded to bytes."""
+        """Expects to find .type or .tag_type (if tag_type is None) and .data list, and produces the data
+        encoded to bytes."""
         if tag_type is None:
-            tag_type		= data.get( 'type' )
-        assert hasattr( data, '__iter__' ) and 'data' in data and tag_type in cls.TYPES_SUPPORTED, \
+            tag_type		= data.get( 'type' ) or data.get( 'tag_type' )
+        assert 'data' in data and hasattr( data.get( 'data' ), '__iter__' ) and tag_type in cls.TYPES_SUPPORTED, \
             "Unknown (or no) typed data found for tag_type %r: %r" % ( tag_type, data )
         produce			= cls.TYPES_SUPPORTED[tag_type].produce
-        return b''.join( produce( v ) for v in data.data )
+        return b''.join( produce( v ) for v in data.get( 'data' ))
 
     @classmethod
     def datasize( cls, tag_type, size=1 ):

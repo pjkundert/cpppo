@@ -37,7 +37,7 @@ import threading
 import traceback
 
 from ...dotdict import dotdict
-from ... import automata
+from ... import automata, misc
 from .device import ( Object, Attribute,
                       Message_Router, Connection_Manager, UCMM, Identity, TCPIP,
                       resolve_element, resolve_tag, resolve, redirect_tag, lookup )
@@ -611,23 +611,71 @@ def setup( **kwds ):
                 log.normal( "UCMM is restricting request route_path to match: %r",
                             str( json.dumps( setup.ucmm.route_path )))
 
-
-        # If tags are specified, check that we've got them all set up right.  If the tag doesn't exist,
-        # add it.  If it's error code doesn't match, change it.  Since it is possible that the Tags
-        # and/or their Error codes could change between calls, we check them
+        # If tags are specified, check that we've got them all set up right.  If the tag doesn't
+        # exist, add it.  If it's error code doesn't match, change it.  Since it is possible that
+        # the Tags and/or their Error codes could change between calls, we check them.  If a
+        # tags[name].path is provided, then we'll try to place the Attribute at that path
+        # (eg. {'segment':[{'class':123},...]})
         for key,val in dict.items( kwds.get( 'tags', {} )): # Don't want dotdict depth-first iteration...
             res			= resolve_tag( key )
             if not res:
-                # A new tag!  Allocate a new attribute ID in the Logix (Message Router).
-                cls, ins	= 0x02, 1 # The Logix Message Router
-                Lx		= lookup( cls, ins )
-                att		= len( Lx.attribute )
-                while ( str( att ) in Lx.attribute ):
+                # A new tag!  Allocate a new attribute ID in the Logix (Message Router) by default,
+                # or at the specified path.  If a path specified, find the Object, creating it if it
+                # doesn't exist.  Then, find the Attribute, ensuring it is consistent if it exists.
+                cls,ins,att	= 0x02,1,None # The (Logix?) Message Router, by default
+                if 'path' in val and val['path']:
+                    cls,ins,att	= resolve( val['path'], attribute=True )
+                # See if the tag's Instance exists.  If not, we'll need to create it.  If the Class'
+                # "meta" Instance exists, we'll use it to create the Instance (its always at
+                # Instance 0).  Otherwise, we'll create an Object class with the appropriate
+                # class_id to use.
+                instance	= lookup( cls, ins )
+                if instance is None:
+                    # Instance doesn't exist; we'll need to instantiate the right Object Class.
+                    class_meta	= lookup( cls )
+                    if class_meta:
+                        class_type = class_meta.__class__
+                    else:
+                        # Nope, no Class "meta" object.  Create class Object on-the-fly, derived
+                        # from our Message Router CIP Object's class.  Thus, these dynamically
+                        # created Objects will understand all of the esoteric *Logix (or whatever
+                        # Message Router's) services (eg. Read Tag [Fragmented]).
+                        class_type= type( 'Class %5d/0x%04X' % ( cls, cls ),
+                                          ( lookup( 0x02, 0 ).__class__,),
+                                          {'class_id': cls} )
+                    instance	= class_type( instance_id=ins )
+                    log.normal( "%-24s Instance %3d created", instance, ins )
+
+                # We know that the required Instance of the designated Class now exists.  Now, if
+                # we've been given an tag address, see if the attribute is known; use it, if so (and
+                # compatible w/ the supplied one), or use the supplied Attribute.
+                attribute	= None
+                if att: # not None, must be > 0
+                    attribute	= lookup( cls, ins, att )
+                    if attribute:
+                        # The Attribute is known.  Better be consistent w/ the required one!
+                        assert attribute.parser.__class__ is val.attribute.parser.__class__ \
+                            and len( attribute ) == len( val.attribute ), \
+                            "Incompatible Attribute types for tag %r: %s and %s" % (
+                                key, attribute, val.attribute )
+                else:
+                    # No required Attribute number assigned.  Find the next available one in the
+                    # Class Instance.  Start at the largest Attribute index.  Indices are stored as
+                    # str, so use 'natural' ordering so they end up sorted numerically.
+                    att		= int( sorted( instance.attribute, key=misc.natural )[-1] ) if instance.attribute else 0
                     att	       += 1
-                log.normal( "%24s.%s Attribute %3d added", Lx, val['attribute'], att )
-                Lx.attribute[str(att)]= val['attribute']
+
+                if not attribute:
+                    # No Attribute found; either specified path but no Attribute yet at that path,
+                    # or no specified path. 
+                    attribute	= instance.attribute[str(att)] \
+				= val.attribute
+                log.normal( "%-24s Instance %3d, Attribute %3d added: %s", instance, ins, att, attribute )
+
+                # Finally, set tag 'key' to point to the (now existing) Class, Instance, Attribute
                 redirect_tag( key, {'class': cls, 'instance': ins, 'attribute': att })
                 res		= resolve_tag( key )
+            assert res, "Unable to find tag %r" % ( key )
 
             # Attribute (now) exists; find it, and make sure its error code is right.
             if 'error' in val:

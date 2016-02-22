@@ -87,12 +87,23 @@
 *** EtherNet/IP Controller Communications Simulator
 
     To run a simulation of a subset of a ControlLogix(tm) Controller
-    communications, with the tag 'SCADA' for you to read/write, run:
-    : $ python -m cpppo.server.enip --print SCADA=INT[1000] TEXT=SSTRING[100]
-    Alternatively, invoke the supplied wrapper script:
-    : enip_server --print SCADA=INT[1000] TEXT=SSTRING[100]
-    This is especially handy under Python 2.6, where you must manually specify
-    the module entry point, eg. =cpppo.server.enip.__main__=.
+    communications, with the array Tags 'SCADA' and 'TEXT' and scalar Tag 'FLOAT'
+    for you to read/write, run =python -m cpppo.server.enip= or =enip_server=:
+    #+BEGIN_EXAMPLE
+    enip_server --print SCADA=INT[1000] TEXT=SSTRING[100] FLOAT=REAL
+    #+END_EXAMPLE
+
+    Each Tag references a specific CIP Class/Instance/Attribute, which can be
+    specified, if you desire (eg. to use numeric CIP addressing, typically
+    required for Get/Set Attribute Single requests):
+    #+BEGIN_EXAMPLE
+    enip_server --print SCADA@22/1/1=INT[1000] TEXT@22/1/2=SSTRING[100] FLOAT@22/1/3=REAL
+    #+END_EXAMPLE
+
+    (See =cpppo/server/enip/poll_test.py='s =main= method (at the end of the
+    file) for an example of how to implement a completely custom set of CIP
+    Objects and Attributes, to simulate some aspects of some specific device (in
+    this case, an Allen-Bradley PowerFlex 750).
 
     The following options are available when you execute the cpppo.server.enip module:
 
@@ -116,6 +127,7 @@
 
     To print a summary of PLC I/O to stdout:
     : -p|--print
+    : --no-print (the default)
 
     To specify and check for a specific route_path in incoming Unconnected Send
     requests, provide one in JSON format; the default is to ignore the specified
@@ -214,13 +226,17 @@
      This example *captures the first command line argument* as a file name; all
      subsequent arguments are the same as described for the EtherNet/IP
      Controller Communications Simulator, above:
-     : $ python -m cpppo.server.enip.historize some_file.hst Tag_Name=INT[1000] &
-     : $ tail -f some_file.txt
-     : # 2014-07-15 22:03:35.945: Started recording Tag: Tag_Name
-     : 2014-07-15 22:03:44.186 ["Tag_Name", [0, 3]]    {"write": [0, 1, 2, 3]}
-     : ...
+     #+BEGIN_EXAMPLE
+     $ python -m cpppo.server.enip.historize some_file.hst Tag_Name=INT[1000] &
+     $ tail -f some_file.txt
+     # 2014-07-15 22:03:35.945: Started recording Tag: Tag_Name
+     2014-07-15 22:03:44.186 ["Tag_Name", [0, 3]]    {"write": [0, 1, 2, 3]}
+     ...
+     #+END_EXAMPLE
      (in another terminal)
-     : $ python -m cpppo.server.enip.client Tag_Name[0-3]=[0,1,2,3]
+     #+BEGIN_EXAMPLE
+     $ python -m cpppo.server.enip.client Tag_Name[0-3]=[0,1,2,3]
+     #+END_EXAMPLE
    
      You can examine the code in cpppo/server/enip/historize.py to see how to
      easily implement your own customization of the EtherNet/IP CIP Controller
@@ -304,19 +320,63 @@
 
 *** EtherNet/IP Controller Client
 
-    Cpppo provides an advanced EtherNet/IP CIP Client, for processing
-    Unconnected requests via TPC/IP or UDP/IP sessions to CIP devices -- either
-    Controllers (eg. Rockwell ControlLogix, CompactLogix) which can "route" CIP requests,
-    or simple CIP devices (eg. Rockwell MicroLogix, A-B PowerFlex, ...) which
-    can only perform basic CIP services such as "Get Attribute Single/All".
+    Cpppo provides an advanced EtherNet/IP CIP Client =enip_client=, for
+    processing "Unconnected" (or "Explicit") requests via TPC/IP or UDP/IP
+    sessions to CIP devices -- either Controllers (eg. Rockwell ControlLogix,
+    CompactLogix) which can "route" CIP requests, or w/ the =-S= option for
+    access to simple CIP devices (eg. Rockwell MicroLogix, A-B PowerFlex, ...)
+    which do not understand the "routing" CIP Unconnected Send encapsulation
+    required by the more advanced "routing" Controllers.
 
-    It can Register and issue a stream of "Unconnected" requests to the
-    Controller, such as Get/Set Attribute or *Logix Read/Write Tag (optionally
-    Fragmented) requests:
-    : python -m cpppo.server.enip.client -v --print \
+    Cpppo does not presently implement the CIP "Forward Open" request, nor the
+    resulting "Connected" or "Implicit" I/O requests, typically used in direct
+    PLC-to-PLC communications.  Only the TCP/IP "Unconnected"/"Explicit"
+    requests that pass over the initially created and CIP Registered session are
+    implemented.
+
+    The =python -m cpppo.server.enip.client= module entry-point or API and the
+    =enip_client= command can Register and issue a stream of "Unconnected"
+    requests to the Controller, such as Get/Set Attribute or (by default) *Logix
+    Read/Write Tag (optionally Fragmented) requests.  The
+    =cpppo.server.enip.get_attribute= module entry-point or API and the
+    =enip_get_attribute= command defaults to use Get/Set Attribute operations.
+
+    It is critical to use the correct API with the correct address type and
+    options, to achieve communications with your device.  Some devices can use
+    "Unconnected" requests, while others cannot.  The MicroLogix is such an
+    example; you may use "Unconnected" requests to access basic CIP Objects
+    (such as Identity), but not much else.  Most other devices can support
+    "Unconnected" access to their data.  Some devices can only perform basic CIP
+    services such as "Get/Set Attribute Single/All" using numeric CIP Class,
+    Instance and Attribute addressing, while others support the *Logix
+    "Read/Write Tag [Fragmented]" requests using Tag names.  You need to know
+    (or experiment) to discover their capability.  Still others such as the
+    CompactLogix and ControlLogix Controllers can support "routing" requests;
+    many others require the =-S= option to disable this functionality, or they
+    will respond with an error status.
+
+    To issue Read/Write Tag [Fragmented] requests, by default to a "routing"
+    device (eg. ControlLogix, CompactLogix), here to a CIP =INT= array Tag called
+    =SCADA=, and a CIP =SSTRING= (Short String) array Tag called =TEXT=:
+    : $ python -m cpppo.server.enip.client -v --print \
     :     SCADA[1]=99 SCADA[0-10] 'TEXT[1]=(SSTRING)"Hello, world!"' TEXT[0-3]
-    Alternatively, invoke the supplied =enip_client= wrapper script:
-    : enip_client SCADA[1]=99 SCADA[0-10] 'TEXT[1]=(SSTRING)"Hello, world!"' TEXT[0-3]
+
+    To use only Get Attribute Single/All requests (suitable for simpler devices,
+    usually also used with the =-S= option, for no routing path), use this API
+    instead (use the =--help= option to see their options, which are quite
+    similar to =cpppo.server.enip.client= and =enip_client=):
+    : $ python -m cpppo.server.enip.get_attribute -S ...
+    All data is read/written as arrays of =SINT=; however, if you specify a data
+    type for writing data, we will convert it to an array of =SINT= for you.  For example,
+    if you know that you are writing to a =REAL= Attribute:
+    #+BEGIN_EXAMPLE
+    $ python -m cpppo.server.enip -v 'Motor_Velocity@0x93/3/10=REAL' # In another terminal...
+    $ python -m cpppo.server.enip.get_attribute '@0x93/3/10=(REAL)1.0' '@0x93/3/10'
+    Sat Feb 20 08:24:13 2016:   0: Single S_A_S      @0x0093/3/10 == True
+    Sat Feb 20 08:24:13 2016:   1: Single G_A_S      @0x0093/3/10 == [0, 0, 128, 63]
+    $ python -m cpppo.server.enip.client --print Motor_Velocity
+      Motor_Velocity              == [1.0]: 'OK'
+    #+END_EXAMPLE
 
     Specify a different local interface and/or port to connect to (default is :44818):
     : -a|--address [<interface>][:<port>]
@@ -336,37 +396,77 @@
     : -I|--list-interfaces
 
     For example, to find the Identity of all of the EtherNet/IP CIP devices on a
-    local LAN (that respond to broadcast List Identity via UDP/IP):
+    local LAN with broadcast address 192.168.1.255 (that respond to broadcast
+    List Identity via UDP/IP):
     #+BEGIN_EXAMPLE
-    $ python -m cpppo.server.enip.client --udp --broadcast \
-        --list-services --list-identity --list-interfaces -a 255.255.255.255
-    List Services  0 from ('192.168.0.201', 44818): {
-        "count": 1, 
-        "item[0].communications_service.capability": 32, 
-        "item[0].communications_service.service_name": "Communications", 
-        "item[0].communications_service.version": 1, 
-        "item[0].length": 19, 
-        "item[0].type_id": 256
-    }
-    List Identity  0 from ('192.168.0.201', 44818): {
-        "count": 1, 
-        "item[0].length": 54, 
-        "item[0].identity_object.sin_addr": "192.168.0.201", 
-        "item[0].identity_object.status_word": 12640, 
-        "item[0].identity_object.vendor_id": 1, 
-        "item[0].identity_object.product_name": "1756-L61/C LOGIX5561", 
-        "item[0].identity_object.sin_port": 44818, 
-        "item[0].identity_object.state": 255, 
-        "item[0].identity_object.version": 1, 
-        "item[0].identity_object.device_type": 14, 
-        "item[0].identity_object.sin_family": 2, 
-        "item[0].identity_object.serial_number": 7079450, 
-        "item[0].identity_object.product_code": 54, 
-        "item[0].identity_object.product_revision": 2836, 
+    $ python -m cpppo.server.enip.client --udp --broadcast --list-identity -a 192.168.1.255
+    List Identity  0 from ('192.168.1.5', 44818): {
+        "count": 1,
+        "item[0].length": 58,
+        "item[0].identity_object.sin_addr": "192.168.1.5",
+        "item[0].identity_object.status_word": 48,
+        "item[0].identity_object.vendor_id": 1,
+        "item[0].identity_object.product_name": "1769-L18ER/A LOGIX5318ER",
+        "item[0].identity_object.sin_port": 44818,
+        "item[0].identity_object.state": 3,
+        "item[0].identity_object.version": 1,
+        "item[0].identity_object.device_type": 14,
+        "item[0].identity_object.sin_family": 2,
+        "item[0].identity_object.serial_number": 1615052645,
+        "item[0].identity_object.product_code": 154,
+        "item[0].identity_object.product_revision": 2837,
         "item[0].type_id": 12
     }
-    List Interfaces  0 from ('192.168.0.201', 44818): {
-        "count": 0
+    List Identity  1 from ('192.168.1.4', 44818): {
+        "count": 1,
+        "item[0].length": 63,
+        "item[0].identity_object.sin_addr": "192.168.1.4",
+        "item[0].identity_object.status_word": 48,
+        "item[0].identity_object.vendor_id": 1,
+        "item[0].identity_object.product_name": "1769-L23E-QBFC1 Ethernet Port",
+        "item[0].identity_object.sin_port": 44818,
+        "item[0].identity_object.state": 3,
+        "item[0].identity_object.version": 1,
+        "item[0].identity_object.device_type": 12,
+        "item[0].identity_object.sin_family": 2,
+        "item[0].identity_object.serial_number": 3223288659,
+        "item[0].identity_object.product_code": 191,
+        "item[0].identity_object.product_revision": 3092,
+        "item[0].type_id": 12
+    }
+    List Identity  2 from ('192.168.1.3', 44818): {
+        "count": 1,
+        "item[0].length": 53,
+        "item[0].identity_object.sin_addr": "192.168.1.3",
+        "item[0].identity_object.status_word": 4,
+        "item[0].identity_object.vendor_id": 1,
+        "item[0].identity_object.product_name": "1766-L32BXBA A/7.00",
+        "item[0].identity_object.sin_port": 44818,
+        "item[0].identity_object.state": 0,
+        "item[0].identity_object.version": 1,
+        "item[0].identity_object.device_type": 14,
+        "item[0].identity_object.sin_family": 2,
+        "item[0].identity_object.serial_number": 1078923367,
+        "item[0].identity_object.product_code": 90,
+        "item[0].identity_object.product_revision": 1793,
+        "item[0].type_id": 12
+    }
+    List Identity  3 from ('192.168.1.2', 44818): {
+        "count": 1,
+        "item[0].length": 52,
+        "item[0].identity_object.sin_addr": "192.168.1.2",
+        "item[0].identity_object.status_word": 4,
+        "item[0].identity_object.vendor_id": 1,
+        "item[0].identity_object.product_name": "1763-L16DWD B/7.00",
+        "item[0].identity_object.sin_port": 44818,
+        "item[0].identity_object.state": 0,
+        "item[0].identity_object.version": 1,
+        "item[0].identity_object.device_type": 12,
+        "item[0].identity_object.sin_family": 2,
+        "item[0].identity_object.serial_number": 1929488436,
+        "item[0].identity_object.product_code": 185,
+        "item[0].identity_object.product_revision": 1794,
+        "item[0].type_id": 12
     }
     #+END_EXAMPLE
 
@@ -377,6 +477,67 @@
     | Command | Description                                                   |
     |---------+---------------------------------------------------------------|
     |  0x0001 | Returns some of the same network information as List Identity |
+
+    This command is not documented, and is not implemented on all types of
+    devices
+    |          IP | Device          | Product Name                  |
+    |-------------+-----------------+-------------------------------|
+    | 192.168.1.2 | MicroLogix 1100 | 1763-L16DWD B/7.00            |
+    | 192.168.1.3 | MicroLogix 1400 | 1766-L32BXBA A/7.00           |
+    | 192.168.1.4 | CompactLogix    | 1769-L23E-QBFC1 Ethernet Port |
+    | 192.168.1.5 | CompactLogix    | 1769-L18ER/A LOGIX5318ER      |
+    |             |                 |                               |
+    
+    #+BEGIN_EXAMPLE
+    $ python -m cpppo.server.enip.client --udp --broadcast --legacy 0x0001 -a
+        192.168.1.255
+    Legacy 0x0001  0 from ('192.168.1.3', 44818): {
+        "count": 1,
+        "item[0].legacy_CPF_0x0001.sin_addr": "192.168.1.3",
+        "item[0].legacy_CPF_0x0001.unknown_1": 0,
+        "item[0].legacy_CPF_0x0001.sin_port": 44818,
+        "item[0].legacy_CPF_0x0001.version": 1,
+        "item[0].legacy_CPF_0x0001.sin_family": 2,
+        "item[0].legacy_CPF_0x0001.ip_address": "192.168.1.3",
+        "item[0].length": 36,
+        "item[0].type_id": 1
+    }
+    Legacy 0x0001  1 from ('192.168.1.5', 44818): {
+        "peer": [
+            "192.168.1.5",
+            44818
+        ],
+        "enip.status": 1,
+        "enip.sender_context.input": "array('c',
+        '\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00')",
+        "enip.session_handle": 0,
+        "enip.length": 0,
+        "enip.command": 1,
+        "enip.options": 0
+    }
+    Legacy 0x0001  2 from ('192.168.1.4', 44818): {
+        "count": 1,
+        "item[0].legacy_CPF_0x0001.sin_addr": "192.168.1.4",
+        "item[0].legacy_CPF_0x0001.unknown_1": 0,
+        "item[0].legacy_CPF_0x0001.sin_port": 44818,
+        "item[0].legacy_CPF_0x0001.version": 1,
+        "item[0].legacy_CPF_0x0001.sin_family": 2,
+        "item[0].legacy_CPF_0x0001.ip_address": "192.168.1.4",
+        "item[0].length": 36,
+        "item[0].type_id": 1
+    }
+    Legacy 0x0001  3 from ('192.168.1.2', 44818): {
+        "count": 1,
+        "item[0].legacy_CPF_0x0001.sin_addr": "192.168.1.2",
+        "item[0].legacy_CPF_0x0001.unknown_1": 0,
+        "item[0].legacy_CPF_0x0001.sin_port": 44818,
+        "item[0].legacy_CPF_0x0001.version": 1,
+        "item[0].legacy_CPF_0x0001.sin_family": 2,
+        "item[0].legacy_CPF_0x0001.ip_address": "192.168.1.2",
+        "item[0].length": 36,
+        "item[0].type_id": 1
+    }
+    #+END_EXAMPLE
 
     Change the verbosity (supply more to increase further):
     : -v[vv...]|--verbose
@@ -418,8 +579,12 @@
     To send log output to a file (limited to 10MB, rotates through 5 copies):
     : -l|--log <file>
 
-    To print a summary of PLC I/O to stdout:
+    To print a summary of PLC I/O to stdout, use =--print=.  Perhaps
+    surprisingly, unless you provide a =--print= or =-v= option, you will see no
+    output from the =python -m cpppo.server.enip.client= or =enip_client=
+    command, at all.  The I/O operations will be performed, however:
     : -p|--print
+    : --no-print (the default) 
 
     To force use of the Multiple Service Packet request, which carries multiple
     Read/Write Tag [Fragmented] requests in a single EtherNet/IP CIP I/O
@@ -808,16 +973,11 @@
      Create a simple generator wrapper around =client.parse_operations=, which
      substitutes =get_attributes_all= or =get_attribute_single= as appropriate.
      Use numeric addressing to the Instance or Attribute level,
-     eg. =@<class>/<instance>= or =@<class>/<instance>/<attribute>=.  Roughly
-     from =cpppo/server/enip/get_attribute.py=:
+     eg. =@<class>/<instance>= or =@<class>/<instance>/<attribute>=.  One is
+     implemented in =cpppo/server/enip/get_attribute.py=:
      #+BEGIN_EXAMPLE python
-     def attribute_operations( paths ):
-         for op in client.parse_operations( paths ):
-             if 'attribute' in op['path'][-1]:
-                 op['method']	= 'get_attribute_single'
-             else:
-                 op['method']	= 'get_attributes_all'
-             yield op
+     from cpppo.server.enip.get_attribute import attribute_operations
+
      timeout			= None # Wait forever, or <float> seconds
      depth			= 0    # No pipelining, or <int> in-flight
      with client.connector( host=args.address, timeout=timeout ) as conn:
@@ -845,6 +1005,34 @@
      >>> ''.join( chr( x ) for x in [
              20, 49, 55, 53, 54, 45, 76, 54, 49, 47, 66, 32, 76, 79, 71, 73, 88, 53, 53, 54, 49])
      '\x141756-L61/B LOGIX5561'
+     #+END_EXAMPLE
+
+     To access Get Attribute data with CIP type conversion, use
+     =cpppo.server.enip.get_attribute='s =proxy= classes, instead.
+
+**** =client.connector.set_attribute_single=
+
+     To use Set Attribute Single, provide an array of CIP =USINT= or =SINT=
+     values appropriate to the size of the target Attribute.  Alternatively,
+     provide a =tag_type= number corresponding to the CIP data type.  If the
+     tag_type is supported by =cpppo.server.enip.parser='s =typed_data=
+     implementation, we'll convert it to =USINT= for you (=[U]SINT=, =[U]INT=,
+     =[U]DINT=, =REAL= and =SSTRING= are presently supported).
+
+     Typically, you will invoke =client.connector.set_attribute_single=
+     indirectly by providing =attribute_operations= a sequence containing tag
+     operation such as =@<class>/<instance>/<attribute>=(REAL)1.1= (see
+     =get_attribute_single=, above.)  If you start the =enip_server
+     ... FLOAT@22/1/3=REAL= command, above, and then run:
+     #+BEGIN_EXAMPLE
+     $ python -m cpppo.server.enip.get_attribute '@22/1/3=(REAL)1.0' '@22/1/3'
+     Mon Feb 22 15:29:51 2016:   0: Single S_A_S      @0x0016/1/3 == True
+     Mon Feb 22 15:29:51 2016:   1: Single G_A_S      @0x0016/1/3 == [0, 0, 128, 63]     
+     #+END_EXAMPLE
+     Confirm that you wrote the correct floating-ponit value:
+     #+BEGIN_EXAMPLE
+     $ python -m cpppo.server.enip.client 'FLOAT'
+               FLOAT              == [1.0]: 'OK'
      #+END_EXAMPLE
 
 **** =client.connector.list_identity=, =.list_services= and =.list_interfaces=
@@ -909,13 +1097,14 @@
      optionally send the requests via unicast or broadcast UDP/IP.  The full
      content of each EtherNet/IP CIP response is printed.
 
-     To obtain responses from all EtherNet/IP CIP devices on the local LAN:
+     To obtain responses from all EtherNet/IP CIP devices on the local LAN with
+     broadcast address 192.168.0.255:
      #+BEGIN_EXAMPLE
      $ python -m cpppo.server.enip.list_services --udp --broadcast \
-           --list-identity -a 255.255.255.255
+           --list-identity -a 192.168.0.255
      {
          "peer": [
-             "10.0.0.4",
+             "192.168.0.201",
              44818
          ],
          "enip.status": 0, 
@@ -934,7 +1123,7 @@
      }
      {
          "peer": [
-             "10.0.0.4",
+             "192.168.0.201",
              44818
          ],
          "enip.status": 0, 

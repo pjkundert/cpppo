@@ -87,19 +87,29 @@ from . import client
 
 log				= logging.getLogger( "enip.get" )
 
-def attribute_operations( paths, **kwds ):
+def attribute_operations( paths, int_type=None, **kwds ):
     """Replace any tag/attribute-level operations with Get Attribute Single, otherwise Get Attributes
     All.  This is probably beyond "compability" with *Logix or other CIP devices, as they only allow
     Read/Write Tag [Fragmented] services to use Tags (Get/Set Attribute Single services require
-    numeric Class, Instance, Attribute addressing).  
+    numeric Class, Instance, Attribute addressing); in real CIP devices, only CIP Class, Instance
+    and Attribute EPATH elements are generally allowed.
+
+    Does not check if elements == len( data ), or for presence of offset, etc.  Only conversion of
+    simple read or write operations would generally be valid.
+
+    If no 'int_type' entry is specified, then we will assume that 'SINT' is intended (we accept an
+    enhanced range of values, up to the "unsigned" limit of the same sized integral value container.)
 
     """
-    for op in client.parse_operations( paths, **kwds ):
-        path_end		=  op['path'][-1]
-        if 'attribute' in path_end or 'symbolic' in path_end:
-            op['method'] = 'get_attribute_single'
-        else:
+    for op in client.parse_operations( paths, int_type=int_type or 'SINT', **kwds ):
+        path_end		= op['path'][-1]
+        if 'instance' in path_end:
             op['method'] = 'get_attributes_all'
+            assert 'data' not in op, "All Attributes cannot be operated on using Set Attribute services"
+        elif 'symbolic' in path_end or 'attribute' in path_end or 'element':
+            op['method'] = 'set_attribute_single' if 'data' in op else 'get_attribute_single'
+        else:
+            raise AssertionError( "Path invalid for Attribute services: %r", op['path'] )
         yield op
 
 
@@ -663,6 +673,11 @@ which is required to carry this Send/Route Path data. """ )
                      default=( "%s:%d" % enip.address ),
                      help="EtherNet/IP interface[:port] to connect to (default: %s:%d)" % (
                          enip.address[0], enip.address[1] ))
+    ap.add_argument( '--no-print', action='store_false', dest='print',
+                     help="Disable printing of summary of operations to stdout" )
+    ap.add_argument( '--print', action='store_true',
+                     default=True, # inconsistent default from client.py, for historical reasons
+                     help="Printing a summary of operations to stdout (default: True)" )
     ap.add_argument( '-m', '--multiple', action='store_true',
                      help="Use Multiple Service Packet request targeting ~500 bytes (default: False)" )
     ap.add_argument( '-d', '--depth',
@@ -683,6 +698,9 @@ which is required to carry this Send/Route Path data. """ )
     ap.add_argument( '--send-path',
                      default=None,
                      help="Send Path to UCMM (default: @6/1); Specify an empty string '' for no Send Path" )
+    ap.add_argument( '-S', '--simple', action='store_true',
+                     default=False,
+                     help="Access a simple (non-routing) EtherNet/IP CIP device (eg. MicroLogix)")
     ap.add_argument( '-P', '--profile', action='store_true',
                      help="Activate profiling (default: False)" )
     ap.add_argument( 'tags', nargs="+",
@@ -713,8 +731,10 @@ which is required to carry this Send/Route Path data. """ )
     timeout			= float( args.timeout )
     depth			= int( args.depth )
     multiple			= 500 if args.multiple else 0
-    route_path			= json.loads( args.route_path ) if args.route_path else None # may be None/0/False
-    send_path			= args.send_path
+    route_path			= json.loads( args.route_path ) if args.route_path \
+                                  else [] if args.simple else None # may be None/0/False/[]
+    send_path			= args.send_path                if args.send_path \
+                                  else '' if args.simple else None # uses '@2/1/1' by default
 
     if '-' in args.tags:
         # Collect tags from sys.stdin 'til EOF, at position of '-' in argument list
@@ -737,7 +757,8 @@ which is required to carry this Send/Route Path data. """ )
         operations		= attribute_operations( tags, route_path=route_path, send_path=send_path )
         for idx,dsc,op,rpy,sts,val in connection.pipeline(
                 operations=operations, depth=depth, multiple=multiple, timeout=timeout ):
-            print( "%s: %3d: %s == %s" % ( time.ctime(), idx, dsc, val ))
+            if args.print:
+                print( "%s: %3d: %s == %s" % ( time.ctime(), idx, dsc, val ))
             failures	       += 1 if sts else 0
         elapsed			= cpppo.timer() - start
         log.normal( "%3d requests in %7.3fs at pipeline depth %2s; %7.3f TPS" % (

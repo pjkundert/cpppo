@@ -31,6 +31,7 @@ enip.device	-- support for implementing an EtherNet/IP device Objects and Attrib
 """
 __all__				= ['dialect', 'lookup_reset', 'lookup', 'resolve', 'resolve_element',
                                    'redirect_tag', 'resolve_tag', 
+                                   'parse_int', 'parse_path', 'parse_path_elements',
                                    'Object', 'Attribute',
                                    'UCMM', 'Connection_Manager', 'Message_Router', 'Identity', 'TCPIP']
 
@@ -44,6 +45,7 @@ import traceback
 
 import configparser # Python2 requires 'pip install configparser'
 
+import cpppo
 from ...dotdict import dotdict
 from ... import automata, misc
 from .parser import ( UDINT, DWORD, INT, UINT, WORD, USINT,
@@ -99,7 +101,7 @@ def lookup( class_id, instance_id=0, attribute_id=None ):
         exception		= exc
         res			= None
     finally:
-        log.detail( "Class %5d/0x%04x, Instance %3d, Attribute %5r ==> %s",
+        log.detail( "Class %5d/0x%04X, Instance %3d, Attribute %5r ==> %s",
                     class_id, class_id, instance_id, attribute_id, 
                     res if not exception else ( "Failed: %s" % exception ))
     return res
@@ -132,6 +134,7 @@ def lookup( class_id, instance_id=0, attribute_id=None ):
 # 
 # The initial segments of the path must address a class and instance.
 # 
+#TODO: A Tag must be able to (optionally) specify an element
 symbol				= {}
 symbol_keys			= ('class', 'instance', 'attribute')
 
@@ -238,6 +241,91 @@ def resolve_element( path ):
             element.append( term['element'] )
             break
     return tuple( element ) if element else (0, ) 
+
+def parse_int( x, base=10 ):
+    """Try parsing in the target base, but then also try deducing the base (eg. if we are provided with
+    an explicit base such as 0x..., 0o..., 0b...).
+
+    The reason this is necessary (instead of just using int( x, base=0 ) directly) is because we
+    don't want leading zeros (eg. "012") to be interpreted as indicating octal (which is the default).
+
+    """
+    try:
+        return int( x, base=base )
+    except ValueError:
+        return int( x, base=0 )
+
+
+def parse_path( path ):
+    """Convert a "Tag" or "@<class>/<instance>/<attribute>" to a list of EtherNet/IP path segments (if a
+    string is supplied). Numeric form allows <class>[/<instance>[/<attribute>[/<element>]]] by
+    default, or any segment type at all by providing it in JSON form, eg. .../{"connection":100}.
+    Any numeric path elements not in the recognized default order will be encoded as JSON.
+
+    Resultant path will be a list of the form [{'symbolic': "Tag"}, {'element': 3}], or [{'class':
+    511}, {'instance': 1}, {'attribute': 2}].
+
+    If strings are supplied for path or element, any numeric data (eg. class, instance, attribute or
+    element numbers) default to integer (eg. 26), but may be escaped with the normal base indicators
+    (eg. 0x1A, 0o49, 0b100110).  Leading zeros do NOT imply octal.
+
+    Also supported is the manual assembly of the segments of a path.  If the segment doesn't match
+    the expected default
+
+    @{"class":0x04}/instance=5/{"connection":100}
+
+    """
+    if isinstance( path, cpppo.type_str_base ):
+        if path.startswith( '@' ):
+            # Numeric. @<class>/<instance>/<attribute>/<element> (up to 4 segments)
+            segments		= []
+            try:
+                defaults	= ('class','instance','attribute','element')
+                for i,seg in enumerate( path[1:].split( '/' )):
+                    if seg.startswith( '{' ):
+                        trm	= json.loads( seg )
+                    else:
+                        assert i < len( defaults ), "No default segment type beyond %r" % ( defaults )
+                        trm	= {defaults[i]: parse_int( seg )}
+                    segments.append( trm )
+            except Exception as exc:
+                raise Exception( "Invalid @%s; 1-4 (default decimal) terms, eg. 26, 0x1A, {\"connection\":100}, 0o46, 0b100110: %s" % (
+                    '/'.join( '<%s>' % d for d in defaults ), exc ))
+        else:
+            # Symbolic.  <segment>.<segment>... (no limit on number of dot-separated segments)
+            segments		= [{'symbolic': p} for p in path.split('.')]
+    else:
+        # Already better be a list-like path...
+        segments		= path
+    return segments
+
+
+def parse_path_elements( path ):
+    """Returns (<path>,<element>,<count>).  If an element is specified (eg. Tag[#]), then it will be
+    added to the path (or replace any existing element segment at the end of the path) and returned,
+    otherwise None will be returned.  If a count is specified (eg. Tag[#-#]), then it will be
+    returned; otherwise a None will be returned.
+
+    """
+    cnt,elm			= None,None
+    if isinstance( path, cpppo.type_str_base ):
+        if '[' in path:
+            path,elm		= path.split( '[', 1 )
+            elm,_		= elm.split( ']' )
+            lst			= None
+            if '-' in elm:
+                elm,lst		= elm.split( '-' )
+                lst		= int( lst )
+            elm			= int( elm )
+            if lst is not None:
+                cnt		= lst + 1 - elm
+                assert cnt > 0, "Invalid element range %d-%d" % ( elm, lst )
+    path			= parse_path( path )
+    if elm is not None:
+        if not path or 'element' not in path[-1]:
+            path.append( {} )
+        path[-1]['element']	= elm
+    return parse_path( path ),elm,cnt
 
 # 
 # EtherNet/IP CIP Object Attribute
