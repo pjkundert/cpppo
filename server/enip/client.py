@@ -135,9 +135,22 @@ def int_validate( x, lo, hi ):
     assert lo <= res <= hi, "Invalid %d; not in range (%d,%d)" % ( res, lo, hi)
     return res
 
+def bool_validate( b ):
+    try:
+        res = int( b ) != 0
+        return res
+    except ValueError:
+        pass
+    lowered = b.lower()
+    if lowered == "true":
+        return True
+    if lowered == "false":
+        return False
+    raise ValueError("Invalid %s; could not be interpreted as boolean" % b)
+
 CIP_TYPES			= {
     'SSTRING':	(enip.SSTRING.tag_type,	0,				str ),
-    'BOOL':	(enip.BOOL.tag_type,	enip.BOOL.struct_calcsize,	bool ),
+    'BOOL':	(enip.BOOL.tag_type,	enip.BOOL.struct_calcsize,	bool_validate ),
     'REAL': 	(enip.REAL.tag_type,	enip.REAL.struct_calcsize,	float ),
     'DINT':	(enip.DINT.tag_type,	enip.DINT.struct_calcsize,	lambda x: int_validate( x, -2**31, 2**32-1 )), # extra range
     'UDINT':	(enip.UDINT.tag_type,	enip.UDINT.struct_calcsize,	lambda x: int_validate( x,  0,     2**32-1 )),
