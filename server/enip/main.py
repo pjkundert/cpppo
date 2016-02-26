@@ -1166,6 +1166,8 @@ def main( argv=None, attribute_class=device.Attribute, idle_service=None, identi
             # Look thru defined tags for one assigned to same cls/ins/att (maybe different elm);
             # must be same type/size.
             for tn,te in dict.items( tags ):
+                if not te['path']:
+                    continue		# Ignore tags w/o pre-defined path...
                 if device.resolve( te['path'], attribute=True ) == (cls,ins,att):
                     assert te.attribute.parser.__class__ is tag_class and len( te.attribute ) == tag_size, \
                         "Incompatible Attribute types for tags %r and %r" % ( tn, tag_name )
@@ -1209,7 +1211,7 @@ def main( argv=None, attribute_class=device.Attribute, idle_service=None, identi
                     attribute.parser.__class__.__name__, len( attribute ) )
         tag_entry		= cpppo.dotdict()
         tag_entry.attribute	= attribute	# The Attribute (may be shared by multiple tags)
-        tag_entry.path		= path		# Desired Attribute path (may include element)
+        tag_entry.path		= path		# Desired Attribute path (may include element), or None
         tag_entry.error		= 0x00
         dict.__setitem__( tags, tag_name, tag_entry )
 
