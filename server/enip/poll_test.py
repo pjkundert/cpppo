@@ -275,7 +275,7 @@ def test_powerflex_poll_failure():
         backoff_multiplier	= 2.0 # --> backoff == .5, 1.0, 2.0, 4.0
         poller			= threading.Thread(
             target=poll.poll, kwargs={ 
-                'gateway_class':powerflex_750_series,
+                'proxy_class':	powerflex_750_series,
                 'address': 	('localhost',44819),
                 'cycle':	1.0,
                 'timeout':	0.5,

@@ -61,7 +61,7 @@ def test_parse_path():
     assert enip.client.parse_path_elements( "@0x22/1/2[123-456]" ) \
         == ([{"class": 0x22 }, {"instance":1}, {"attribute": 2}, {"element": 123}],123,334)
 
-    # Version >= 3.9.3 functionality.  Support for multiple levels of Tags w/ element
+    # Version >= 3.9.3 functionality.  Support for multiple levels of Tags
     assert enip.client.parse_path_elements( "Foo[1].Boo[123-456]" ) \
         == ([{"symbolic": "Foo" }, {"element": 1}, {"symbolic": "Boo" }, {"element": 123}],123,334)
     # Specify default <element>, <count>
@@ -73,6 +73,9 @@ def test_parse_path():
         == ([{"symbolic": "Foo" }, {"element": 1}, ],1,3)
     assert enip.client.parse_path_elements( "@1/2/3", elm=2, cnt=5 ) \
         == ([{"class": 1}, {"instance": 2}, {"attribute": 3}, {"element": 2}, ],2,5)
+    assert enip.client.parse_path_elements( "@1/2/3[4-9]*3", elm=2, cnt=5 ) \
+        == ([{"class": 1}, {"instance": 2}, {"attribute": 3}, {"element": 4}, ],4,6)
+
 
 def connector( **kwds ):
     """An enip.client.connector that logs and ignores socket errors (returning None)."""

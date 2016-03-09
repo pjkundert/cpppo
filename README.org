@@ -810,8 +810,15 @@
      | symbolic   | ISO-8859-1 Symbolic Tag name           |
      | port,link  | Port number, Link number or IP address |
 
-     So, you can specify something as complex as:
-     : @{"port":123,"link":"130.151.137.105"}/{"class":4}/{"instance":3}/...
+     So, you can specify something as complex as as route_path like:
+     : @{"port":123,"link":"130.151.137.105"},{"port":1,"link":2}
+
+     The number of elements in a request is normally deduced from an index
+     range; for example, to specify 10 elements:
+     : Tag[1].SubTag[0-9]
+     To manually specify a number of elements in a request, append an =*###= to
+     the request:
+     : Tag[1].SubTag[0]*10
 
 **** =client.connector='s =.synchronous=, =.pipeline= and =.operate=
 

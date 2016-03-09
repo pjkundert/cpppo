@@ -44,6 +44,7 @@ import traceback
 from ...automata import log_cfg
 from ...misc import timer
 from .main import address as enip_address
+from .client import connector
 
 # Default poll params list, used if None supplied to poll; change, if desired
 PARAMS				= [
@@ -75,9 +76,9 @@ def loop( via, cycle=None, last_poll=None, **kwds ):
 
         1449583850.949138,4.35,[(<parameter>,<value>),...]
 
-    If the poll fails, an Exception is raised (and the powerflex gateway is closed in preparation
-    for future poll attempts).  It is expected that the caller will re-attempt, after an appropriate
-    delay (eg. one or more cycles).
+    If the poll fails, an Exception is raised (and the powerflex proxy's gateway is closed in
+    preparation for future poll attempts).  It is expected that the caller will re-attempt, after an
+    appropriate delay (eg. one or more cycles).
 
     Call repeatedly (after waiting for the designated delay seconds to pass), passing the returned
     start of poll cycle in the 'last_poll' parameter.
@@ -108,8 +109,8 @@ def loop( via, cycle=None, last_poll=None, **kwds ):
     logging.info( "Polling started   %7.3fs into %7.3fs poll cycle", init_poll - last_poll, cycle )
 
     # Perform poll.  Whatever code "reifies" the powerflex.read generator must catch exceptions and
-    # tell the (failed) powerflex instance to close its gateway.  This prepares the gateway for
-    # subsequent I/O attempts (if any).
+    # tell the (failed) powerflex instance to close its gateway.  This prepares the proxy's gateway
+    # for subsequent I/O attempts (if any).
     with via: # ensure via.close_gateway invoked on any Exception
         with contextlib.closing( execute( via, **kwds )) as executor:
             # PyPy compatibility; avoid deferred destruction of generators
@@ -133,7 +134,7 @@ def run( via, process, failure=None, backoff_min=None, backoff_multiplier=None, 
     (or 1.0) seconds, and defaults to increase up to 10 times that, at a default rate of 1.5x the
     current backoff.
 
-    One or more instance of poll.run may be using the same 'via' EtherNet/IP CIP gateway instance;
+    One or more instance of poll.run may be using the same 'via' EtherNet/IP CIP proxy instance;
     it is assumed that Thread blocking behaviour is performed within the I/O processing code to
     ensure that only one Thread is performing I/O.
 
@@ -177,14 +178,16 @@ def run( via, process, failure=None, backoff_min=None, backoff_multiplier=None, 
         beg			= timer()
 
 
-def poll( gateway_class, address=None, depth=None, multiple=None, timeout=None,
+def poll( proxy_class, via=None, address=None, depth=None, multiple=None, timeout=None,
+          route_path=None, send_path=None,
           params=None, pass_thru=None, cycle=None, process=None, failure=None,
           backoff_min=None, backoff_multiplier=None, backoff_max=None, latency=None ):
-    """Connect to the Device (eg. CompactLogix, MicroLogix, PowerFlex) using the provide gateway_class
-    (something derived from enip.get_attribute.proxy, probably), at the specified address (the default
-    enip.address, if None), and run polls, process (printing, by default) the results.
+    """Connect to the Device (eg. CompactLogix, MicroLogix, PowerFlex) using the supplied 'via', or an
+    instance of the provided proxy_class (something derived from enip.get_attribute.proxy,
+    probably), at the specified address (the default enip.address, if None), and run polls, process
+    (printing, by default) the results.
 
-    Creates a new gateway_class instance; thus, each poll.poll method uses a separate EtherNet/IP
+    Creates a new proxy_class instance; thus, each poll.poll method uses a separate EtherNet/IP
     CIP connection.
 
     """
@@ -192,8 +195,10 @@ def poll( gateway_class, address=None, depth=None, multiple=None, timeout=None,
         address			= enip_address # cpppo.server.enip.address
     if process is None:
         process			= lambda p,v: print( "%15s: %r" % ( p, v ))
-    via				= gateway_class(
-        host=address[0], port=address[1], depth=depth, multiple=multiple, timeout=timeout )
+    if via is None:
+        via			= proxy_class(
+            host=address[0], port=address[1], depth=depth, multiple=multiple, timeout=timeout,
+            send_path=send_path, route_path=route_path )
     run( via=via, process=process, failure=failure, backoff_min=backoff_min,
          backoff_multiplier=backoff_multiplier, backoff_max=backoff_max, latency=latency,
          cycle=cycle, params=params, pass_thru=pass_thru )
@@ -201,24 +206,34 @@ def poll( gateway_class, address=None, depth=None, multiple=None, timeout=None,
 
 def main( argv=None ):
     ap				= argparse.ArgumentParser(
-        description = "Poll Parameters from CIP Device via gateway (AB PowerFlex 750, by default)",
+        description = "Poll Parameters from CIP Device via proxy gateway (AB PowerFlex 750, by default)",
         epilog = "" )
 
     ap.add_argument( '-v', '--verbose', default=0, action="count",
                      help="Display logging information." )
     ap.add_argument( '-a', '--address', default="%s:%s" % enip_address,
-                     help="Address of AB PowerFlex EtherNet/IP CIP gateway to connect to (default: %s:%s)" % (
+                     help="Address of EtherNet/IP CIP device to connect to (default: %s:%s)" % (
                          enip_address[0], enip_address[1] ))
     ap.add_argument( '-c', '--cycle', default=None,
                      help="Poll cycle (default: 1)" )
     ap.add_argument( '-t', '--timeout', default=None,
                      help="I/O timeout (default: 1)" )
+    ap.add_argument( '--route-path',
+                     default=None,
+                     help="Route Path, in JSON (default: %r); 0/false to specify no/empty route_path" % (
+                         str( json.dumps( connector.route_path_default ))))
+    ap.add_argument( '--send-path',
+                     default=None,
+                     help="Send Path to UCMM (default: @6/1); Specify an empty string '' for no Send Path" )
+    ap.add_argument( '-S', '--simple', action='store_true',
+                     default=False,
+                     help="Access a simple (non-routing) EtherNet/IP CIP device (eg. MicroLogix)")
     ap.add_argument( '-m', '--multiple', action='store_true',
                      help="Use Multiple Service Packet request targeting ~500 bytes (default: False)" )
     ap.add_argument( '-d', '--depth', default=None,
                      help="Pipeline requests to this depth (default: 2)" )
     ap.add_argument( '-g', '--gateway', default='ab.powerflex_750_series',
-                     help="Gateway module.class for positioning actuator (default: ab.powerflex_750_series" )
+                     help="Proxy gateway module.class for positioning actuator (default: ab.powerflex_750_series" )
     ap.add_argument( '-p', '--pass-thru', action='store_true',
                      help="Allow unrecognized parameters as Tags, CIP addresses (default: False)" )
     ap.add_argument( 'parameter', nargs="*",
@@ -244,7 +259,7 @@ def main( argv=None ):
     # Load the specified Gateway module.class, and ensure class is present
     mod,cls			= args.gateway.split( '.' )
     gateway_module		= importlib.import_module( '.'+mod, package='cpppo.server.enip' )
-    gateway_class		= getattr( gateway_module, cls )
+    proxy_class			= getattr( gateway_module, cls )
 
     # Deduce interface:port address to connect to, and correct types (default is address, above)
     address			= args.address.split( ':', 1 )
@@ -256,9 +271,13 @@ def main( argv=None ):
     depth			= int( args.depth ) if args.depth is not None else None
     timeout			= float( args.timeout ) if args.timeout is not None else None
     cycle			= float( args.cycle ) if args.cycle is not None else None
+    route_path			= json.loads( args.route_path ) if args.route_path \
+                                      else [] if args.simple else None
+    send_path			= args.send_path                if args.send_path \
+                                      else '' if args.simple else None
 
     try:
-        poll( gateway_class, address=address, depth=depth, multiple=multiple, timeout=timeout,
+        poll( proxy_class, address=address, depth=depth, multiple=multiple, timeout=timeout,
               params=args.parameter, pass_thru=args.pass_thru, cycle=cycle )
     except (KeyboardInterrupt, SystemExit) as exc:
         logging.info( "Terminated normally due to %s", exc )
