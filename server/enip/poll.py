@@ -178,8 +178,8 @@ def run( via, process, failure=None, backoff_min=None, backoff_multiplier=None, 
         beg			= timer()
 
 
-def poll( proxy_class, via=None, address=None, depth=None, multiple=None, timeout=None,
-          route_path=None, send_path=None,
+def poll( proxy_class=None, address=None, depth=None, multiple=None, timeout=None,
+          route_path=None, send_path=None, gateway_class=None, via=None,
           params=None, pass_thru=None, cycle=None, process=None, failure=None,
           backoff_min=None, backoff_multiplier=None, backoff_max=None, latency=None ):
     """Connect to the Device (eg. CompactLogix, MicroLogix, PowerFlex) using the supplied 'via', or an
@@ -187,10 +187,31 @@ def poll( proxy_class, via=None, address=None, depth=None, multiple=None, timeou
     probably), at the specified address (the default enip.address, if None), and run polls, process
     (printing, by default) the results.
 
-    Creates a new proxy_class instance; thus, each poll.poll method uses a separate EtherNet/IP
-    CIP connection.
+    Creates a new proxy_class instance, if necessary; each poll.poll method thus uses a separate
+    EtherNet/IP CIP connection.
+
+    This method does little; it may be useful to take control over the creation and lifespan of the
+    proxy instance yourself, and invoke run manually; see poll_example*.py.  For example, you can
+    run multiple poll.run methods in separate Threads, all sharing the same proxy instance, to
+    achieve polling of various CIP Attributes at differing rates, over the same EtherNet/IP CIP
+    session.
+
+    PENDING DEPRECATION
+
+    We used to call the first positional parameter 'gateway_class'; this is confusing, because the
+    proxy classes call their underlying instance of the cpppo.server.enip.client connector their
+    'gateway'.  So, we changed the name to proxy_class, and retained an optional keyword parameter
+    'gateway_class'.  We'll warn for now, and deprecate it at a later major version change.
 
     """
+    if gateway_class is not None:
+        warnings.warn(
+            "cpppo.server.enip.poll poss( gateway_class=... ) is deprecated; use proxy_class=... instead",
+            PendingDeprecationWarning )
+        assert proxy_class is None, "Cannot specify both gateway_class and proxy_class"
+        proxy_class		= gateway_class
+    if proxy_class is not None:
+        assert via is None, "Cannot specify both a proxy_class and a 'via' proxy instance"
     if address is None:
         address			= enip_address # cpppo.server.enip.address
     if process is None:

@@ -3,7 +3,11 @@
 # 
 # Poll a simple CIP device IP (or DNS name) "<hostname>" (default: localhost)
 # 
-#     poll_example_simple.py <hostname>
+#     python -m cpppo.server.enip.poll_example_simple <hostname>
+# 
+# To start a simulator on localhost suitable for polling:
+# 
+#     python -m cpppo.server.enip.poll_test
 # 
 import logging
 import sys
@@ -16,7 +20,8 @@ from cpppo.server.enip.get_attribute import proxy_simple as device
 hostname			= sys.argv[1] if len( sys.argv ) > 1 else 'localhost'
 values				= {} # { <parameter>: (<timer>, <value>), ... }
 poller				= threading.Thread(
-    target=poll.poll, args=(device,), kwargs={ 
+    target=poll.poll, kwargs={ 
+        'proxy_class':	device,
         'address': 	(hostname, 44818),
         'cycle':	1.0,
         'timeout':	0.5,
