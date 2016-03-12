@@ -28,8 +28,8 @@ __email__                       = "perry@hardconsulting.com"
 __copyright__                   = "Copyright (c) 2013 Hard Consulting Corporation"
 __license__                     = "Dual License: GPLv3 (or later) and Commercial (see LICENSE)"
 
-__all__				= ['parse_int', 'parse_path', 'parse_path_elements', 'format_path',
-                                   'format_context', 'parse_context', 'CIP_TYPES', 'parse_operations',
+__all__				= ['parse_int', 'parse_path', 'parse_path_elements', 'parse_path_component',
+                                   'format_path', 'format_context', 'parse_context', 'CIP_TYPES', 'parse_operations',
                                    'client', 'await', 'connector', 'recycle', 'main']
 
 """enip.client	-- EtherNet/IP client API and module entry point
@@ -58,7 +58,7 @@ import traceback
 import cpppo
 from .. import network, enip
 from . import logix, device, parser
-from .device import parse_int, parse_path, parse_path_elements # used to be defined here...
+from .device import parse_int, parse_path, parse_path_elements, parse_path_component # used to be defined here...
 
 log				= logging.getLogger( "enip.cli" )
 
@@ -624,7 +624,7 @@ class client( object ):
         """
         # If a tag_type has been specified, then we need to convert the data to SINT/USINT.
         if elements is None:
-            elemements		= len( data )
+            elements		= len( data )
         else:
             assert elements == len( data ), \
                 "Inconsistent elements: %d doesn't match data length: %d" % ( elements, len( data ))

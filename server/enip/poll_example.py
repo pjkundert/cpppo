@@ -3,8 +3,13 @@
 # 
 # Poll a PowerFlex 750 series at IP (or DNS name) "<hostname>" (default: localhost)
 # 
-#     poll_example.py <hostname>
-#
+#     python -m cpppo.server.enip.poll_example <hostname>
+# 
+# To start a simulator on localhost suitable for polling:
+# 
+#     python -m cpppo.server.enip.poll_test
+# 
+
 import logging
 import sys
 import time
@@ -36,7 +41,8 @@ process.done			= False
 process.values			= {} # { <parameter>: <value>, ... }
 
 poller				= threading.Thread(
-    target=poll.poll, args=(device,), kwargs={ 
+    target=poll.poll, kwargs={
+        'proxy_class':  device,
         'address': 	(hostname, 44818),
         'cycle':	1.0,
         'timeout':	0.5,

@@ -810,8 +810,15 @@
      | symbolic   | ISO-8859-1 Symbolic Tag name           |
      | port,link  | Port number, Link number or IP address |
 
-     So, you can specify something as complex as:
-     : @{"port":123,"link":"130.151.137.105"}/{"class":4}/{"instance":3}/...
+     So, you can specify something as complex as as route_path like:
+     : @{"port":123,"link":"130.151.137.105"},{"port":1,"link":2}
+
+     The number of elements in a request is normally deduced from an index
+     range; for example, to specify 10 elements:
+     : Tag[1].SubTag[0-9]
+     To manually specify a number of elements in a request, append an =*###= to
+     the request:
+     : Tag[1].SubTag[0]*10
 
 **** =client.connector='s =.synchronous=, =.pipeline= and =.operate=
 
@@ -1329,8 +1336,13 @@
     # 
     # Poll a PowerFlex 750 series at IP (or DNS name) "<hostname>" (default: localhost)
     # 
-    #     poll_example.py <hostname>
-    #
+    #     python -m cpppo.server.enip.poll_example <hostname>
+    # 
+    # To start a simulator on localhost suitable for polling:
+    # 
+    #     python -m cpppo.server.enip.poll_test
+    # 
+
     import logging
     import sys
     import time
@@ -1362,13 +1374,14 @@
     process.values		= {} # { <parameter>: <value>, ... }
 
     poller			= threading.Thread(
-        target=poll.poll, args=(device,), kwargs={ 
-            'address': 	(hostname, 44818),
-            'cycle':	1.0,
-            'timeout':	0.5,
-            'process':	process,
-            'failure':	failure,
-            'params':	params,
+        target=poll.poll, kwargs={
+            'proxy_class':  device,
+            'address':      (hostname, 44818),
+            'cycle':        1.0,
+            'timeout':      0.5,
+            'process':      process,
+            'failure':      failure,
+            'params':       params,
         })
     poller.start()
 
@@ -1460,6 +1473,77 @@
     2016-01-28 15:25:32.538:   Motor Velocity == [789.010009765625]
     2016-01-28 15:25:32.611: Output Frequency == [456.7799987792969]
     #+END_EXAMPLE
+
+**** =poll.poll=
+
+     Creates a =proxy_class= (or uses an existing =via=) to poll the target =params=.
+
+     The full set of keywords to =.poll= are:
+
+     | Keyword        | Description                                                       |
+     |----------------+-------------------------------------------------------------------|
+     | proxy\_class   | A cpppo.server.enip.get\_attribute proxy derived class            |
+     | address        | A (ip,port) tuple identifying the target EtherNet/IP CIP device   |
+     | depth          | The number of outstanding requests                                |
+     | multiple       | If >0, uses Multiple Service Packets of up to this many bytes     |
+     | timeout        | A timeout, in seconds.                                            |
+     | route\_path    | A list of {"link":...,"port":...} of the request target (or None) |
+     | send\_path     | The CIP address of the Message Router (eg. "@6/1"), or ""         |
+     | gateway\_class | The deprecated keyword identifying the proxy\_class               |
+     | via            | A proxy class instance, if desired (no proxy\_class created)      |
+     | params         | A list of Tag names or proxy parameter shortcut names             |
+     | pass\_thru     | If False, fails poll if any params bare name isn't recognized     |
+     | cycle          | Target poll cycle time                                            |
+     | process        | A callable invoked for each parameter,value tuple polled          |
+     | failure        | A callable invoked for each poll failure                          |
+     | backoff\_...   | Controls the exponential polling back-off on failure              |
+     | latency        | Maximum poll loop check time (ie. responsiveness to done signal)  |
+
+**** =poll.run=
+
+     Implements cyclic polling on an existing =proxy= instance, invoking
+     =process= on each polled (parameter,value) and =failure= for each
+     exception.  If the supplied =process= has a =.done= attribute, polling will
+     proceed until it becomes True.
+
+     The full set of keywords to =.run= are:
+
+     | Keyword      | Description                                                      |
+     |--------------+------------------------------------------------------------------|
+     | via          | A proxy class instance                                           |
+     | process      | A callable invoked for each parameter,value tuple polled         |
+     | failure      | A callable invoked for each poll failure                         |
+     | backoff\_... | Controls the exponential polling back-off on failure             |
+     | latency      | Maximum poll loop check time (ie. responsiveness to done signal) |
+     
+     Any further keywords are passed unchanged to =poll.loop=
+
+**** =poll.loop=
+
+     Perform a single poll loop, checking for premature or missed cycles.
+
+     The full set of keywords to =.loop= are:
+
+     | Keyword    | Description                                                  |
+     |------------+--------------------------------------------------------------|
+     | via        | A proxy class instance                                       |
+     | cycle      | Target poll cycle time                                       |
+     | last\_poll | The timestamp of the start of the last poll cycle            |
+     |            |                                                              |
+
+     Any further keywords are passed unchanged to =poll.execute=
+
+**** =poll.execute=
+
+     Perform a single poll.
+
+     The full set of keywords to =.execute= are:
+
+     | Keyword    | Description                                                   |
+     |------------+---------------------------------------------------------------|
+     | via        | A proxy class instance                                        |
+     | params     | A list of Tag names or proxy parameter shortcut names         |
+     | pass\_thru | If False, fails poll if any params bare name isn't recognized |
 
 *** Web Interface
 

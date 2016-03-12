@@ -10,7 +10,7 @@ except ImportError:
 import errno
 import logging
 import multiprocessing
-import threading
+#import threading
 import os
 import random
 import socket
@@ -30,6 +30,52 @@ from ... import misc, tools
 from .. import enip, network
 
 log				= logging.getLogger( "cli.test" )
+
+def test_parse_path():
+    """EPATH segment parsing, from strings."""
+    # Version <= 3.9.2 functionality
+    assert enip.client.parse_path( [{"class": 0x22}, {"instance": 1}]) \
+        == [{"class": 0x22}, {"instance": 1}]
+
+    # CIP addressing
+    assert enip.client.parse_path( '@0x22/1' ) \
+        == [{"class": 0x22}, {"instance": 1}]
+    assert enip.client.parse_path( '@0x22/1/2' ) \
+        == [{"class": 0x22}, {"instance": 1}, {"attribute": 2}]
+    assert enip.client.parse_path( '@0x22/1/2/3' ) \
+        == [{"class": 0x22}, {"instance": 1}, {"attribute": 2}, {"element": 3}]
+
+    # JSON support
+    assert enip.client.parse_path( '@{"class":4}/5/{"connection":100}' ) \
+        == [{"class": 0x04}, {"instance": 5}, {"connection": 100}]
+
+    # Tag[<begin>-<end>]
+    assert enip.client.parse_path_elements( "Boo" ) \
+        == ([{"symbolic": "Boo"}],None,None)
+    assert enip.client.parse_path_elements( "Boo[123]" ) \
+        == ([{"symbolic": "Boo" }, {"element": 123}],123,None)
+    assert enip.client.parse_path_elements( "Boo[123-456]" ) \
+        == ([{"symbolic": "Boo" }, {"element": 123}],123,334)
+
+    # CIP + element addressing combined
+    assert enip.client.parse_path_elements( "@0x22/1/2[123-456]" ) \
+        == ([{"class": 0x22 }, {"instance":1}, {"attribute": 2}, {"element": 123}],123,334)
+
+    # Version >= 3.9.3 functionality.  Support for multiple levels of Tags
+    assert enip.client.parse_path_elements( "Foo[1].Boo[123-456]" ) \
+        == ([{"symbolic": "Foo" }, {"element": 1}, {"symbolic": "Boo" }, {"element": 123}],123,334)
+    # Specify default <element>, <count>
+    assert enip.client.parse_path_elements( "Foo", elm=2, cnt=5 ) \
+        == ([{"symbolic": "Foo" }, {"element": 2}, ],2,5)
+    assert enip.client.parse_path_elements( "Foo[1]", elm=2, cnt=5 ) \
+        == ([{"symbolic": "Foo" }, {"element": 1}, ],1,5)
+    assert enip.client.parse_path_elements( "Foo[1]*3", elm=2, cnt=5 ) \
+        == ([{"symbolic": "Foo" }, {"element": 1}, ],1,3)
+    assert enip.client.parse_path_elements( "@1/2/3", elm=2, cnt=5 ) \
+        == ([{"class": 1}, {"instance": 2}, {"attribute": 3}, {"element": 2}, ],2,5)
+    assert enip.client.parse_path_elements( "@1/2/3[4-9]*3", elm=2, cnt=5 ) \
+        == ([{"class": 1}, {"instance": 2}, {"attribute": 3}, {"element": 4}, ],4,6)
+
 
 def connector( **kwds ):
     """An enip.client.connector that logs and ignores socket errors (returning None)."""

@@ -31,7 +31,7 @@ enip.device	-- support for implementing an EtherNet/IP device Objects and Attrib
 """
 __all__				= ['dialect', 'lookup_reset', 'lookup', 'resolve', 'resolve_element',
                                    'redirect_tag', 'resolve_tag', 
-                                   'parse_int', 'parse_path', 'parse_path_elements',
+                                   'parse_int', 'parse_path', 'parse_path_elements', 'parse_path_component',
                                    'Object', 'Attribute',
                                    'UCMM', 'Connection_Manager', 'Message_Router', 'Identity', 'TCPIP']
 
@@ -255,12 +255,19 @@ def parse_int( x, base=10 ):
     except ValueError:
         return int( x, base=0 )
 
-
-def parse_path( path ):
-    """Convert a "Tag" or "@<class>/<instance>/<attribute>" to a list of EtherNet/IP path segments (if a
-    string is supplied). Numeric form allows <class>[/<instance>[/<attribute>[/<element>]]] by
-    default, or any segment type at all by providing it in JSON form, eg. .../{"connection":100}.
-    Any numeric path elements not in the recognized default order will be encoded as JSON.
+# 
+# Parsing of a symbolic tag like: 'Tag.Sub_Tag[<index>].Yet_More[<index>-<index>]', or a numeric tag
+# like: '@<class>/<instance>/<attribute>/<element>' or "@<class>/{"connection":123}/<attribute>".
+# 
+# parse_path -- Returns a list containing EPATH segments.
+# parse_path_elements -- Returns '.'-separated EPATH segments, w/ element, count if any (otherwise None)
+# parse_path_component -- Parses a single 'str' EPATH component
+# 
+def parse_path( path, elm=None ):
+    """Convert a "."-separated sequence of "Tag" or "@<class>/<instance>/<attribute>" to a list of
+    EtherNet/IP EPATH segments (if a string is supplied). Numeric form allows
+    <class>[/<instance>[/<attribute>[/<element>]]] by default, or any segment type at all by
+    providing it in JSON form, eg. .../{"connection":100}.
 
     Resultant path will be a list of the form [{'symbolic': "Tag"}, {'element': 3}], or [{'class':
     511}, {'instance': 1}, {'attribute': 2}].
@@ -269,63 +276,91 @@ def parse_path( path ):
     element numbers) default to integer (eg. 26), but may be escaped with the normal base indicators
     (eg. 0x1A, 0o49, 0b100110).  Leading zeros do NOT imply octal.
 
-    Also supported is the manual assembly of the segments of a path.  If the segment doesn't match
-    the expected default
+    Also supported is the manual assembly of the path segments: @{"class":0x04}/5/{"connection":100}
 
-    @{"class":0x04}/instance=5/{"connection":100}
+    A trailing element count may be included in the path, but this interface provides no mechanism
+    to return an element count.  A default <element> 'elm' keyword (if non-None) may be supplied.
 
     """
-    if isinstance( path, cpppo.type_str_base ):
-        if path.startswith( '@' ):
-            # Numeric. @<class>/<instance>/<attribute>/<element> (up to 4 segments)
-            segments		= []
-            try:
-                defaults	= ('class','instance','attribute','element')
-                for i,seg in enumerate( path[1:].split( '/' )):
-                    if seg.startswith( '{' ):
-                        trm	= json.loads( seg )
-                    else:
-                        assert i < len( defaults ), "No default segment type beyond %r" % ( defaults )
-                        trm	= {defaults[i]: parse_int( seg )}
-                    segments.append( trm )
-            except Exception as exc:
-                raise Exception( "Invalid @%s; 1-4 (default decimal) terms, eg. 26, 0x1A, {\"connection\":100}, 0o46, 0b100110: %s" % (
-                    '/'.join( '<%s>' % d for d in defaults ), exc ))
-        else:
-            # Symbolic.  <segment>.<segment>... (no limit on number of dot-separated segments)
-            segments		= [{'symbolic': p} for p in path.split('.')]
-    else:
-        # Already better be a list-like path...
-        segments		= path
-    return segments
+    return parse_path_elements( path, elm=elm )[0]
 
 
-def parse_path_elements( path ):
+def parse_path_elements( path, elm=None, cnt=None ):
     """Returns (<path>,<element>,<count>).  If an element is specified (eg. Tag[#]), then it will be
     added to the path (or replace any existing element segment at the end of the path) and returned,
-    otherwise None will be returned.  If a count is specified (eg. Tag[#-#]), then it will be
+    otherwise None will be returned.  If a count is specified (eg. Tag[#-#] or ...*#), then it will be
     returned; otherwise a None will be returned.
 
+    Any "."-separated EPATH component (except the last) including an element index must specify
+    exactly None/one element, eg: "Tag.SubTag[5].AnotherTag[3-4]".
+
+    A default <element> 'elm' and/or <count> 'cnt' (if non-None) may be specified.
+
     """
-    cnt,elm			= None,None
-    if isinstance( path, cpppo.type_str_base ):
-        if '[' in path:
-            path,elm		= path.split( '[', 1 )
-            elm,_		= elm.split( ']' )
-            lst			= None
-            if '-' in elm:
-                elm,lst		= elm.split( '-' )
-                lst		= int( lst )
-            elm			= int( elm )
-            if lst is not None:
-                cnt		= lst + 1 - elm
-                assert cnt > 0, "Invalid element range %d-%d" % ( elm, lst )
-    path			= parse_path( path )
+    if not isinstance( path, cpppo.type_str_base ):
+        # Already better be a list-like path...
+        return path,None,None
+
+    segments			= []
+    p				= path.split( '.' )
+    while len( p ) > 1:
+        s,e,c			= parse_path_component( p.pop( 0 ))
+        assert c in (None,1), "Only final path segment may specify multiple elements: %r" % ( path )
+        segments	       += s
+    s,elm,cnt			= parse_path_component( p[0], elm=elm, cnt=cnt )
+    return segments+s,elm,cnt
+
+
+def parse_path_component( path, elm=None, cnt=None ):
+    """Parses a single str "@class/instance/attribute" or "Tag" segment, optionally followed by a
+    "[<begin>-<end>]" and/or "*<count>".  Returns <path>,<element>,<count>.  Priority for computing
+    element count is the "[<begin>-<end>]" range, any specified "*<count>", and finally the supplied
+    'cnt' (default: None).
+
+    """
+    if '*' in path:
+        path,cnt		= path.split( '*', 1 )
+        cnt			= parse_int( cnt )
+
+    if '[' in path:
+        path,elm		= path.split( '[', 1 )
+        elm,rem			= elm.split( ']' )
+        assert not rem, "Garbage after [...]: %r" % ( rem )
+        lst			= None
+        if '-' in elm:
+            elm,lst		= elm.split( '-' )
+            lst			= int( lst )
+        elm			= int( elm )
+        if lst is not None:
+            cnt			= lst + 1 - elm
+            assert cnt > 0, "Invalid element range %d-%d" % ( elm, lst )
+
+    segments			= []
+    if path.startswith( '@' ):
+        # Numeric and/or JSON. @<class>/<instance>/<attribute>/<element> (up to 4 segments)
+        try:
+            defaults		= ('class','instance','attribute','element')
+            for i,seg in enumerate( path[1:].split( '/' )):
+                if seg.startswith( '{' ):
+                    trm		= json.loads( seg )
+                else:
+                    assert i < len( defaults ), "No default segment type beyond %r" % ( defaults )
+                    trm		= {defaults[i]: parse_int( seg )}
+                segments.append( trm )
+        except Exception as exc:
+            raise Exception( "Invalid @%s; 1-4 (default decimal) terms, eg. 26, 0x1A, {\"connection\":100}, 0o46, 0b100110: %s" % (
+                '/'.join( '<%s>' % d for d in defaults ), exc ))
+    else:
+        # Symbolic Tag
+        segments.append( { "symbolic": path } )
+
     if elm is not None:
-        if not path or 'element' not in path[-1]:
-            path.append( {} )
-        path[-1]['element']	= elm
-    return parse_path( path ),elm,cnt
+        if not segments or 'element' not in segments[-1]:
+            segments.append( {} )
+        segments[-1]['element']	= elm
+
+    return segments,elm,cnt
+
 
 # 
 # EtherNet/IP CIP Object Attribute

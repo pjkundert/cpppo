@@ -5,8 +5,12 @@
 # 
 # Multiple Threads are used to poll at differing rates.
 # 
-#     poll_example_many.py <hostname>
+#     python -m cpppo.server.enip.poll_example_many <hostname>
 #
+# To start a simulator on localhost suitable for polling:
+# 
+#     python -m cpppo.server.enip.poll_test
+# 
 import logging
 import sys
 import time

@@ -638,8 +638,17 @@ class proxy_simple( proxy ):
     Defaults to disable route_path and send_path, to avoid generating CIP router-specific
     Unconnected Send encapsulation in CIP SendRRData requests.
 
+    When overriding the default values, avoid changing the API parameter defaults from None;
+    instead, test for None and override the value in the body of the __init__ method.  This allows
+    us to more reliably supply new values, or retain the default behaviours when creating new
+    instances (see poll.py's poll function).
+
     """
-    def __init__( self, host, route_path=False, send_path='', **kwds ):
+    def __init__( self, host, route_path=None, send_path=None, **kwds ):
+        if route_path is None:
+            route_path		= False
+        if send_path is None:
+            send_path		= ''
         super( proxy_simple, self ).__init__(
             host=host, route_path=route_path, send_path=send_path, **kwds )
 
