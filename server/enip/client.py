@@ -624,7 +624,7 @@ class client( object ):
         """
         # If a tag_type has been specified, then we need to convert the data to SINT/USINT.
         if elements is None:
-            elemements		= len( data )
+            elements		= len( data )
         else:
             assert elements == len( data ), \
                 "Inconsistent elements: %d doesn't match data length: %d" % ( elements, len( data ))

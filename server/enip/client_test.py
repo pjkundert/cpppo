@@ -10,7 +10,7 @@ except ImportError:
 import errno
 import logging
 import multiprocessing
-import threading
+#import threading
 import os
 import random
 import socket

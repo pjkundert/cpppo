@@ -36,10 +36,12 @@ __all__				= [
 import argparse
 import contextlib
 import importlib
+import json
 import logging
 import sys
 import time
 import traceback
+import warnings
 
 from ...automata import log_cfg
 from ...misc import timer
@@ -206,7 +208,7 @@ def poll( proxy_class=None, address=None, depth=None, multiple=None, timeout=Non
     """
     if gateway_class is not None:
         warnings.warn(
-            "cpppo.server.enip.poll poss( gateway_class=... ) is deprecated; use proxy_class=... instead",
+            "cpppo.server.enip.poll poll( gateway_class=... ) is deprecated; use proxy_class=... instead",
             PendingDeprecationWarning )
         assert proxy_class is None, "Cannot specify both gateway_class and proxy_class"
         proxy_class		= gateway_class
@@ -299,7 +301,8 @@ def main( argv=None ):
 
     try:
         poll( proxy_class, address=address, depth=depth, multiple=multiple, timeout=timeout,
-              params=args.parameter, pass_thru=args.pass_thru, cycle=cycle )
+              params=args.parameter, pass_thru=args.pass_thru, cycle=cycle,
+              route_path=route_path, send_path=send_path )
     except (KeyboardInterrupt, SystemExit) as exc:
         logging.info( "Terminated normally due to %s", exc )
         return 0

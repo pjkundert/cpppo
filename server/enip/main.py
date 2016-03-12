@@ -669,7 +669,7 @@ def enip_srv_udp( conn, name, enip_process, **kwds ):
                             brx		= cpppo.timer()
                             msg,frm	= network.recvfrom( conn, timeout=wait )
                             now		= cpppo.timer()
-                            ( log.detail if msg else log.info )(
+                            ( log.detail if msg else log.debug )(
                                 "Transaction receive after %7.3fs (%5s bytes in %7.3f/%7.3fs): %r",
                                         now - begun, len( msg ) if msg is not None else "None",
                                         now - brx, wait, stats_for( frm )[0] )
@@ -771,7 +771,7 @@ def enip_srv_tcp( conn, addr, name, enip_process, delay=None, **kwds ):
                             brx = cpppo.timer()
                             msg	= network.recv( conn, timeout=wait )
                             now = cpppo.timer()
-                            ( log.detail if msg else log.info )(
+                            ( log.detail if msg else log.debug )(
                                 "Transaction receive after %7.3fs (%5s bytes in %7.3f/%7.3fs)",
                                 now - begun, len( msg ) if msg is not None else "None",
                                 now - brx, wait )
@@ -1152,7 +1152,7 @@ def main( argv=None, attribute_class=device.Attribute, idle_service=None, identi
         # If a specific CIP address was specified for this Tag, find it and/or create it; otherwise,
         # just pass it thru, and let the underlying enip_srv --> enip_process deal with it.  We'll
         # let a Tag to be specified down to an attribute, or a single element; allows either
-        # @c/i/a/e or @c/i/a[e] format.  We always find/create the Attribute, but not always the 
+        # @c/i/a/e or @c/i/a[e] format.  We always find/create the Attribute.
         path,attribute		= None,None
         if tag_address:
             # Resolve the @cls/ins/att, and optionally [elm] or /elm
@@ -1162,7 +1162,7 @@ def main( argv=None, attribute_class=device.Attribute, idle_service=None, identi
             path		= {'segment': segments}
             cls,ins,att		= device.resolve( path, attribute=True )
             assert ins > 0, "Cannot specify the Class' instance for a tag's address"
-            elm			= device.resolve_element( path )
+            elm			= device.resolve_element( path ) # TODO: support element-level tags
             # Look thru defined tags for one assigned to same cls/ins/att (maybe different elm);
             # must be same type/size.
             for tn,te in dict.items( tags ):

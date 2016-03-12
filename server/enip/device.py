@@ -279,7 +279,7 @@ def parse_path( path, elm=None ):
     Also supported is the manual assembly of the path segments: @{"class":0x04}/5/{"connection":100}
 
     A trailing element count may be included in the path, but this interface provides no mechanism
-    to detect an element count.  A default <element> 'elm' (if non-None) may be specified.
+    to return an element count.  A default <element> 'elm' keyword (if non-None) may be supplied.
 
     """
     return parse_path_elements( path, elm=elm )[0]
