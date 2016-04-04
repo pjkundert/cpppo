@@ -1189,7 +1189,7 @@
          '''A simple (non-routing) CIP device with one parameter with a
             shortcut name: 'A Sensor Parameter' '''
          PARAMETERS	= dict( proxy_simple.PARAMETERS,
-             a_sensor_parameter	= powerflex.parameter( '@0x93/1/10', 'REAL', 'Hz' ),
+             a_sensor_parameter	= proxy_simple.parameter( '@0x93/1/10', 'REAL', 'Hz' ),
          )
      #+END_EXAMPLE
 
