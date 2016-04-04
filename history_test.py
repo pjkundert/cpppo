@@ -61,7 +61,7 @@ def test_history_timestamp_abbreviations():
     abbrev			= timestamp.support_abbreviations( 'America', 
         exclude=['America/Mazatlan', 'America/Merida', 'America/Mexico_City', 'America/Monterrey',
                  'America/Bahia_Banderas', 'America/Cancun', 'America/Chihuahua', 'America/Havana',
-                 'America/Santa_Isabel', 'America/Grand_Turk', 'America/Cayman'] )
+                 'America/Santa_Isabel', 'America/Grand_Turk', 'America/Cayman', 'America/Port-au-Prince'] )
     #print( sorted( abbrev ))
     #print( reprlib.repr( timestamp._tzabbrev ))
     if tuple( map( int, pytz.__version__.split( '.' ))) < (2015,4):
@@ -85,7 +85,10 @@ def test_history_timestamp_abbreviations():
     abbrev			= timestamp.support_abbreviations( 'Europe',
         exclude=[ 'Europe/Simferopol', 'Europe/Istanbul', 'Europe/Minsk', 'Europe/Chisinau' ] )
     #print( sorted( abbrev ))
-    assert sorted( abbrev ) == ['BST', 'EEST', 'EET', 'IST', 'MSK', 'SAMT', 'WEST', 'WET']
+    if tuple( map( int, pytz.__version__.split( '.' ))) < (2016,3):
+        assert sorted( abbrev ) == ['BST', 'EEST', 'EET', 'IST', 'MSK', 'SAMT', 'WEST', 'WET']
+    else:
+        assert sorted( abbrev ) == ['+03', '+04', 'BST', 'EEST', 'EET', 'IST', 'MSK', 'SAMT', 'WEST', 'WET']
 
     assert 'EEST' in timestamp._tzabbrev
     try:
