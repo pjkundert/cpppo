@@ -1188,8 +1188,8 @@
      class some_sensor( proxy_simple ):
          '''A simple (non-routing) CIP device with one parameter with a
             shortcut name: 'A Sensor Parameter' '''
-         PARAMETERS	= dict( proxy_simple.PARAMETERS,
-             a_sensor_parameter	= proxy_simple.parameter( '@0x93/1/10', 'REAL', 'Hz' ),
+         PARAMETERS     = dict( proxy_simple.PARAMETERS,
+             a_sensor_parameter = proxy_simple.parameter( '@0x93/1/10', 'REAL', 'Hz' ),
          )
      #+END_EXAMPLE
 
@@ -1208,9 +1208,10 @@
      =a_sensor_parameter= by lowering case and transforming ' ' to '\_', to check
      for matching any =proxy.PARAMETER= entry):
      #+BEGIN_EXAMPLE python
-     via		= some_sensor( host="10.0.1.2" )
+     via                = some_sensor( host="10.0.1.2" )
      try:
-         value,		= via.read( "A Sensor Parameter" )
+         params         = via.parameter_substitution( "A Sensor Parameter" )
+         value,         = via.read( params )
      except Exception as exc:
          logging.warning( "Access to remote CIP device failed: %s", exc )
          via.close_gateway( exc=exc )
@@ -1219,15 +1220,15 @@
 
      There are several important things to note here:
 
-     1. You can =.read= 1 or more values.  Here, we supply a single Python =str=,
-        so the =proxy= deduces that you want one named parameter value.  Provide
-        a sequence of attributes to read more than one.
+     1. You can =.read= 1 or more values.  Here, we supply a single Python
+        =str=, so the =proxy.parameter_substitution= deduces that you want one
+        named parameter value.  Provide a sequence of attributes to read more
+        than one.
      2. The =.read= returns a sequence of all the requested values, so we use
         Python =tuple= assignment to unpack a sequence containing a single
         value, eg:
         #+BEGIN_EXAMPLE python
         variable, = [123]
-        result,   = proxy( "10.0.1.2" ).read( "A Sensor Parameter" )
         #+END_EXAMPLE
      3. Upon the first error accessing and/or transforming a value from the
         remote device, the Python generator will raise an exception.  Whereever
@@ -1247,10 +1248,11 @@
      To guarantee that an Exception is raised if any result is not returned, you
      can set =.read='s =checking= parameter to =True=:
      #+BEGIN_EXAMPLE python
-     via		= some_sensor( host="10.0.1.2" )
+     via                = some_sensor( host="10.0.1.2" )
      try:
          # Will raise Exception (closing gateway) on any failure to get data
-         value,		= read( "A Sensor Parameter", checking=True )
+         params         = via.parameter_substitution( "A Sensor Parameter" )
+         value,         = via.read( params, checking=True )
      except Exception as exc:
          via.close_gateway( exc )
          raise
@@ -1265,9 +1267,10 @@
      that the =proxy='s =.close_gateway= is invoked on any Exception that occurs
      while reifying the generator returned by =proxy.read=:
      #+BEGIN_EXAMPLE python
-     via		= some_sensor( host="10.0.1.2" )
+     via                = some_sensor( host="10.0.1.2" )
      with via:
-         value,		= via.read( "A Sensor Parameter" )
+         params         = via.parameter_substitution( "A Sensor Parameter" )
+         value,         = via.read( params )
      # value may be something like [1.23], or None if returned error status
      #+END_EXAMPLE
 
@@ -1279,8 +1282,9 @@
      caused by I/O errors are properly captured:
      #+BEGIN_EXAMPLE python
      from __future__ import print_function
-     via		= some_sensor( host="10.0.1.2" )
-     reader		= via.read( "A Sensor Parameter" )
+     via                = some_sensor( host="10.0.1.2" )
+     params             = via.parameter_substitution( "A Sensor Parameter" )
+     reader             = via.read( params )
      # ... later ...
      with via:
          for value in reader:
@@ -1299,9 +1303,10 @@
      <proxy>:=
      #+BEGIN_EXAMPLE python
      from __future__ import print_function
-     via		= some_sensor( host="10.0.1.2" )
+     via                = some_sensor( host="10.0.1.2" )
      print( "Not yet connected: %s" % ( via ))
-     reader		= via.read( "A Sensor Parameter" )
+     params             = via.parameter_substitution( "A Sensor Parameter" )
+     reader             = via.read( params )
      print( "Connected! %s" % ( via ))
      #+END_EXAMPLE
 
@@ -1315,9 +1320,10 @@
      parameter:
      #+BEGIN_EXAMPLE python
      from __future__ import print_function
-     via		= proxy( host="localhost", identity_default="Something" )
+     via                = proxy( host="localhost", identity_default="Something" )
      print( "Not yet connected: %s" % ( via ))
-     reader		= via.read( "Product Name" )
+     params             = via.parameter_substitution( "Product Name" )
+     reader             = via.read( params )
      print( "Connected! %s" % ( via ))
      #+END_EXAMPLE
 

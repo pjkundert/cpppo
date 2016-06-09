@@ -60,7 +60,7 @@ def execute( via, params=None, pass_thru=None ):
     as might be produced by the provided via's class' parameter_substitution method...
 
     By default, we'll look for the parameters in the module's PARAMS list, which must be recognized
-    by the supplied via's parameter_substitutions method, if pass_thru is not Truthy.
+    by the supplied via's parameter_substitutions method, if pass_thru is not Truthy (default: True).
 
     Yields tuples of each of the supplied params, with their polled values.
 

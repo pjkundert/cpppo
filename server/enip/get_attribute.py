@@ -199,6 +199,8 @@ class proxy( object ):
     # PARAMETERS	-- Transformations from parameter "bare name" ==> parameter( attribute, types, units )
     # parameter_substitution -- perform parameter name to ( attribute, types, units ) transformations
     # 
+    # In order to access any defined PARAMETERS, pass
+    # 
     parameter			= collections.namedtuple(
         'parameter', [
             'attribute',	# eg. "@0x93/3/10"
@@ -218,19 +220,28 @@ class proxy( object ):
         ], "TCPIP" )
     )
 
-    def parameter_substitution( self, iterable, parameters=None, pass_thru=True ):
+    def parameter_substitution( self, iterable, parameters=None, pass_thru=None ):
         """Lookup bare names in the given parameters dict (or self.PARAMETERS, if None); pass
-        everything else (eg. tuples of CIP (<attribute>, <cip_type>, <units>)) thru unchanged (if pass_thru==True).
+        everything else (eg. tuples of CIP (<attribute>, <cip_type>, <units>)) thru unchanged (if
+        pass_thru==True).
+
+        If the iterable consists of a single bare name, it will be converted to a single-entry list
+        before processing.
     
         Transforms bare names by stripping surrounding whitespace, lowering case, and substituting
         intervening whitespace with underscores, eg.
 
         ' Output Freq ' --> parameters['output_freq']
     
-        Default to use the class' PARAMETERS.
+        Default to use the class' PARAMETERS, and default pass_thru to True.
+
         """
+        if isinstance( iterable, cpppo.type_str_base ):
+            iterable		= [ iterable ]
         if parameters is None:
             parameters		= self.PARAMETERS
+        if pass_thru is None:
+            pass_thru		= True
         for t in iterable:
             if isinstance( t, cpppo.type_str_base ):
                 ti 		= t.strip().lower().replace( ' ', '_' )
