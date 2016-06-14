@@ -149,6 +149,7 @@ def bool_validate( b ):
     raise ValueError("Invalid %s; could not be interpreted as boolean" % b)
 
 CIP_TYPES			= {
+    'STRING':	(enip.STRING.tag_type,	0,				str ),
     'SSTRING':	(enip.SSTRING.tag_type,	0,				str ),
     'BOOL':	(enip.BOOL.tag_type,	enip.BOOL.struct_calcsize,	bool_validate ),
     'REAL': 	(enip.REAL.tag_type,	enip.REAL.struct_calcsize,	float ),
@@ -920,7 +921,7 @@ class connector( client ):
         tag_type (undefined/None defaults to assume 4-byte types) is provided (strictly not
         necessary for read/get_attribute* calls), these will be used to calculate/estimate the
         response size.  Default assumption for Read Tag is 4-byte elements, for Get Attribute Single
-        is an average SSTRING, and for Get Attributes All is the maximum Multiple Service Packet
+        is an average [S]STRING, and for Get Attributes All is the maximum Multiple Service Packet
         size (so it isn't merged, by default)
 
         """
@@ -1269,7 +1270,7 @@ class connector( client ):
                     act		= "=="
                     if reply.status in (0x00, 0x06):
                         # Success (may be partial data); we don't try to compute actual element
-                        # offset from byte offset, because of types (eg. SSTRING) w/ indetermine len
+                        # offset from byte offset, because of types (eg. [S]STRING) w/ indetermine len
                         off	= request.read_frag.get( 'offset', 0 )
                         cnt	= len( val )
                     else:
