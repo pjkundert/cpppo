@@ -55,12 +55,12 @@ PARAMS				= [
 ]
 
 def execute( via, params=None, pass_thru=None ):
-    """Perform a single poll via the supplied enip.get_attribute.gateway instance, yielding the
-    parameters and their polled values.  Supply params (a sequence of CIP ('<address>', '<type>')),
-    as might be produced by the provided via's class' parameter_substitution method...
+    """Perform a single poll via the supplied enip.get_attribute 'proxy' instance, yielding the
+    parameters and their polled values.
 
     By default, we'll look for the parameters in the module's PARAMS list, which must be recognized
-    by the supplied via's parameter_substitutions method, if pass_thru is not Truthy (default: True).
+    by the supplied via's parameter_substitutions method, if pass_thru is not Truthy (default:
+    True).
 
     Yields tuples of each of the supplied params, with their polled values.
 

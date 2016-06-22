@@ -365,7 +365,7 @@ class proxy( object ):
         .close_gateway must be invoked.  Returns the full response, and the elapsed time.
 
         """
-        with self.gateway as connection:
+        with self.gateway as connection: # waits 'til any Thread's txn. completes
             connection.list_identity( timeout=self.timeout )
             rsp,ela		= client.await( connection, timeout=self.timeout )
             assert rsp, \
@@ -590,7 +590,7 @@ class proxy( object ):
         #     "Attempting recursive read on %r" % ( self.gateway.frame, )
         log.info( "Acquiring gateway connection: %s",
                       "locked" if self.gateway.frame.lock.locked() else "available" )
-        with self.gateway as connection:
+        with self.gateway as connection: # waits 'til any Thread's txn. completes
             for i,(idx,dsc,req,rpy,sts,val) in enumerate( connection.operate(
                     ( opr for opr,_ in operations ),
                     depth=self.depth, multiple=self.multiple, timeout=self.timeout )):
