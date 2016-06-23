@@ -242,17 +242,21 @@ class proxy( object ):
             parameters		= self.PARAMETERS
         if pass_thru is None:
             pass_thru		= True
-        for t in iterable:
-            if isinstance( t, cpppo.type_str_base ):
-                ti 		= t.strip().lower().replace( ' ', '_' )
-                if ti in parameters:
-                    att,typ,uni	= parameters[ti]
-                    log.info( "Parameter %r (%s) --> %r", t, uni, (att,typ) )
-                    t		= att,typ
+        for tag in iterable:
+            if isinstance( tag, cpppo.type_str_base ):
+                # Capture any ... = <value>, to pass w/ substitued attribute address
+                val		= tag.split( '=', 1 )[1] if '=' in tag else None
+                prm 		= tag.split( '=', 1 )[0].strip().lower().replace( ' ', '_' )
+                if prm in parameters:
+                    att,typ,uni	= parameters[prm]
+                    if val is not None:
+                        att    += '=' + val		# restore written value
+                    log.info( "Parameter %r (%s) --> %r", tag, uni, (att,typ) )
+                    tag		= att,typ
                 else:
                     # Don't allow plain text Tags; must be named parameters!
-                    assert pass_thru, "Unrecognized parameter name: %r" % ( t )
-            yield t
+                    assert pass_thru, "Unrecognized parameter name: %r" % ( tag )
+            yield tag
     
     def __init__( self, host, port=44818, timeout=None, depth=None, multiple=None,
                   gateway_class=client.connector, route_path=None, send_path=None,
@@ -426,7 +430,7 @@ class proxy( object ):
                 if printing:
                     # eg.   Output Current == 16.8275 Amps
                     print( "%16s == %s %s" % (
-                        att, 'N/A' if val is None else ', '.join( map( str, val )), uni or '' ))
+                        att, val if val in (None,True) else ', '.join( map( str, val )), uni or '' ))
                 yield val
                 if sts not in (0,6):
                     bad.append( "%s: status %r" % ( att, sts ))
@@ -539,15 +543,19 @@ class proxy( object ):
                         att,typ,uni = a if len( a ) == 3 else a+(None,)
                     else:
                         att,typ,uni = a,None,None
-                    # No conversion of data type if None; use a Read Tag [Fragmented]; works only for
-                    # SINT/INT/DINT/REAL/BOOL.  Otherwise, conversion of data type desired; get raw
-                    # data using Get Attribute Single.
+                    # No conversion of data type if None; use a Read Tag [Fragmented]; works only
+                    # for [S]STRING/SINT/INT/DINT/REAL/BOOL.  Otherwise, conversion of data type
+                    # desired; get raw data using Get Attribute Single.
                     parser	= client.parse_operations if typ is None else attribute_operations
                     opp,	= parser( ( att, ), route_path=self.route_path, send_path=self.send_path )
                 except Exception as exc:
                     log.warning( "Failed to parse attribute %r; %s", att, exc )
                     raise
-                if typ is not None and not is_listlike( typ ):
+                # For read_tag.../get_attribute..., tag_type is never required; but, it is used (if
+                # provided) to estimate data sizes for Multiple Service Packets.  For
+                # write_tag.../set_attribute..., the data has specified its data type, if not the
+                # default (INT for write_tag, SINT for set_attribute).
+                if typ is not None and not is_listlike( typ ) and 'tag_type' not in opp:
                     t		= typ
                     if isinstance( typ, cpppo.type_str_base ):
                         td	= self.CIP_TYPES.get( t.strip().lower() )
@@ -597,10 +605,11 @@ class proxy( object ):
                 log.detail( "%3d (pkt %3d) %16s %-12s: %r ", 
                                 i, idx, dsc, sts or "OK", val )
                 opr,(att,typ,uni) = next( attrtypes )
-                if typ is None or sts not in (0,6):
+                if typ is None or sts not in (0,6) or val in (True,None):
                     # No type conversion; just return whatever type produced by Read Tag.  Also, if
                     # failure status (OK if no error, or if just not all data could be returned), we
-                    # can't do any more with this value...
+                    # can't do any more with this value...  Also, if actually a Write Tag or Set
+                    # Attribute ..., then val True/None indicates success/failure (no data returned).
                     yield val,(sts,(att,typ,uni))
                     continue
 
@@ -633,15 +642,8 @@ class proxy( object ):
                 typ_types	= [t for t,_ in typ_dat] if typ_is_list else typ_dat[0][0]
                 yield res,(sts,(att,typ_types,uni))
 
-    @maintain_gateway
-    def write( self, attrvals ):
-        """Write the contents of the provided dict-like or iterable yielding ..., ("Tag",<value>),
-        (("Tag",enip.TYPE),<value>), ...
-
-        """
-        for a,v in attrvals if is_iterator( attrvals ) else attrvals.items():
-            raise NotImplementedError
-
+    # Supply "Tag = <value>" to perform a write.
+    write = read
 
 class proxy_simple( proxy ):
     """Monitor/Control a simple non-routing CIP device (eg. an AB MicroLogix, AB PowerFlex AC Drive).

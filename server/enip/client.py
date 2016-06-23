@@ -651,8 +651,11 @@ class client( object ):
               route_path=None, send_path=None, timeout=None, send=True,
               sender_context=b'',
               data_size=None, tag_type=None ):
-        """Issue a Read Tag Fragmented request for the specified path.  If no specific number of elements is specified,
-        get it from the path (if it is unparsed, eg Tag[0-9] or @0x04/5/connection=100)"""
+        """Issue a Read Tag Fragmented request for the specified path.  If no specific number of
+        elements is specified, get it from the path (if it is unparsed, eg Tag[0-9] or
+        @0x04/5/connection=100)
+
+        """
         req			= cpppo.dotdict()
         seg,elm,cnt		= parse_path_elements( path )
         if cnt is not None:
@@ -1131,8 +1134,8 @@ class connector( client ):
                 yield ctx,reply,sts,val
 
     def harvest( self, issued, timeout=None ):
-        """As we iterate over issued requests, collect the corresponding replies, match them up, and yield
-        them as: (<index>,<descr>,<request>,<reply>,<status>,<value>).  We use the "lazy"
+        """As we iterate over issued requests, collect the corresponding replies, match them up, and
+        yield them as: (<index>,<descr>,<request>,<reply>,<status>,<value>).  We use the "lazy"
         itertools.izip, to only collect responses as we need them.
 
         Invoke this directly with self.issue(...) to synchronously issue requests and collect their

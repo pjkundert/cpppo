@@ -64,30 +64,24 @@ try:
     while True:
         while values:
             par,(tmr,val)	= values.popitem()
-            print( "%s: %16s == %r" % ( timestamp( tmr ), par, val ))
+            print( "%s: %-32s == %r" % ( timestamp( tmr ), par, val ))
         while failed:
             tmr,exc		= failed.pop( 0 )
             print( "%s: %s" %( timestamp( tmr ), exc ))
         time.sleep( .1 )
         # Every 2 seconds-ish, fall thru and update 'Motor Velocity'
-        if random.randint( 0, 2*10-1 ) != 0:
+        if random.randint( 0, 2*10-1 ):
             continue
         try:
-            with via:				# establish gateway, detect Exception
-                with via.gateway as connection:	# wait for any Thread's txn to complete
-                    (att,typ),	= via.parameter_substitution( "Motor Velocity" )
-                    tag_type,size,cast = client.CIP_TYPES[typ.strip().upper()]
-                    req		= connection.set_attribute_single(
-                        att, tag_type=tag_type, data=[cast( random.uniform( 0, 1 ))],
-                        send_path=via.send_path, route_path=via.route_path )
-                    rsp,ela	= client.await( connection, timeout=timeout )
-                    if rsp:
-                        print( "%s: %s" % ( timestamp(), enip_format( rsp )))
-                    else:
-                        # No response, or connection closed.  
-                        raise Exception( "Failed to write to 'Motor Velocity'" )
+            param		= 'Motor Velocity = (REAL)%s' % (
+                round( random.uniform( 0, 100 ), 3 ))
+            with via: # establish gateway, detects Exception (closing gateway)
+                val,		= via.write(
+                    via.parameter_substitution( param ), checking=True )
+                print( "%s: %-32s == %s" % ( timestamp(), param, val ))
         except Exception as exc:
-            print( "%s: Exception: %s, %s" % ( timestamp(), exc, traceback.format_exc() ))
+            logging.detail( "Exception writing Parameter: %s, %s", exc, traceback.format_exc() )
+            failure( exc )
 finally:
     process.done		= True
     for p in poller:
