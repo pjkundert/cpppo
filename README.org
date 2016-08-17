@@ -176,7 +176,7 @@
         "network_mask":           "255.255.255.0",
         "dns_primary":            "8.8.8.8",
         "dns_secondary":          "8.8.4.4",
-        "domain_name":            "example.com",
+        "domain_name":            "example.com"
         }
     Host Name			= controller
     #+END_EXAMPLE
