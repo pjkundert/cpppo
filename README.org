@@ -149,7 +149,8 @@
     : <tag>=<type>[<length>]   # eg. SCADA=INT[1000]
 
     The available types are SINT (8-bit), INT (16-bit), DINT (32-bit) integer,
-    and REAL (32-bit float).  BOOL (8-bit, bit #0) and SSTRING are also supported.
+    and REAL (32-bit float).  BOOL (8-bit, bit #0), SSTRING and STRING are also
+    supported.
 
 *** EtherNet/IP Controller Object Configuration
 
@@ -605,14 +606,14 @@
     : <tag>=<value>                             # scalar, eg. SCADA=1
     : <tag>[<reg>-<reg>]=<value>,<value>,...    # vector range
     : <tag>[<reg>]=<value>                      # single element of a vector
-    : <tag>[<reg>-<reg>]=(DINT)<value>,<value>  # cast to SINT/INT/DINT/REAL/BOOL/SSTRING
+    : <tag>[<reg>-<reg>]=(DINT)<value>,<value>  # cast to SINT/INT/DINT/REAL/BOOL/SSTRING/STRING
 
     By default, if any <value> contains a '.' (eg. '9.9,10'), all values are
     deemed to be REAL; otherwise, they are integers and are assumed to be type
     INT.  To force a specific type (and limit the values to the appropriate
     value range), you may specify a "cast" to a specific type,
-    eg. 'TAG[4-6]=(DINT)1,2,3'.  The types SINT, INT, DINT, REAL, BOOL and
-    SSTRING are supported.
+    eg. 'TAG[4-6]=(DINT)1,2,3'.  The types SINT, INT, DINT, REAL, BOOL,
+    SSTRING and STRING are supported.
 
     In addition to symbolic Tag addressing, numeric Class/Instance/Attribute
     addressing is available.  A Class, Instance and Attribute address values are
@@ -1024,7 +1025,7 @@
      provide a =tag_type= number corresponding to the CIP data type.  If the
      tag_type is supported by =cpppo.server.enip.parser='s =typed_data=
      implementation, we'll convert it to =USINT= for you (=[U]SINT=, =[U]INT=,
-     =[U]DINT=, =REAL= and =SSTRING= are presently supported).
+     =[U]DINT=, =REAL=, =SSTRING= and =STRING= are presently supported).
 
      Typically, you will invoke =client.connector.set_attribute_single=
      indirectly by providing =attribute_operations= a sequence containing tag
