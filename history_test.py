@@ -87,9 +87,11 @@ def test_history_timestamp_abbreviations():
     #print( sorted( abbrev ))
     if tuple( map( int, pytz.__version__.split( '.' ))) < (2016,3):
         assert sorted( abbrev ) == ['BST', 'EEST', 'EET', 'IST', 'MSK', 'SAMT', 'WEST', 'WET']
-    else:
+    elif tuple( map( int, pytz.__version__.split( '.' ))) < (2016,7):
         assert sorted( abbrev ) == ['+03', '+04', 'BST', 'EEST', 'EET', 'IST', 'MSK', 'SAMT', 'WEST', 'WET']
-
+    else:
+        assert sorted( abbrev ) == ['+03', '+04', 'BST', 'EEST', 'EET', 'IST', 'MSK', 'WEST', 'WET']
+        
     assert 'EEST' in timestamp._tzabbrev
     try:
         timestamp.support_abbreviations( 'Asia' )
