@@ -549,7 +549,7 @@
     : -r|--repeat #
 
     To specify an Unconnected Send route_path (other than the default '[{"link":
-    0}, "port": 1}]", which is a guess at the location of a *Logix controller in
+    0, "port": 1}]', which is a guess at the location of a *Logix controller in
     a typical backplane), provide one in JSON format.  It must be a list
     containing one dict, usually specifying a =link= and =port= value.  The
     =link= is typically in the range 0-15, and the =port= is either an 8- or
