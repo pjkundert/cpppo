@@ -1632,6 +1632,7 @@ class typed_data( cpppo.dfa ):
     DWORD			= 0x00d3	# 4 byte (32-bit boolean array)
     LINT			= 0x00c5	# 8 byte
     SSTRING	yes		= 0x00da	# 1 byte length + <length> data
+    STRING	yes		= 0x00d0	# 2 byte length + <length> data (rounded up to 2 bytes)
 
     """
     TYPES_SUPPORTED		= {
@@ -1644,6 +1645,7 @@ class typed_data( cpppo.dfa ):
         UDINT.tag_type:		UDINT,
         REAL.tag_type:		REAL,
         SSTRING.tag_type:	SSTRING,
+        STRING.tag_type:	STRING,
     }
 
     def __init__( self, name=None, tag_type=None, **kwds ):
@@ -1707,17 +1709,26 @@ class typed_data( cpppo.dfa ):
         fltp[None]		= move_if( 	'movfloat',	source='.REAL', 
                                            destination='.data',	initializer=lambda **kwds: [],
                                                 state=fltd )
-        # Since a parsed "SSTRING": { "string": "abc", "length": 3 } is multiple layers deep, and we
+        # Since a parsed "[S]STRING": { "string": "abc", "length": 3 } is multiple layers deep, and we
         # want to completely eliminate the target container in preparation for the next loop, we'll
         # need to move it up one layer, and then into the final target.
         sstd			= octets_noop(	'endsstring',
                                                 terminal=True )
         sstd[True]	= sstp	= SSTRING()
-        sstp[None]		= move_if( 	'movstring',	source='.SSTRING.string',
+        sstp[None]		= move_if( 	'movsstrings',	source='.SSTRING.string',
                                                 destination='.SSTRING' )
         sstp[None]		= move_if( 	'movsstring',	source='.SSTRING', 
                                            destination='.data',	initializer=lambda **kwds: [],
                                                 state=sstd )
+
+        sttd			= octets_noop(	'end_string',
+                                                terminal=True )
+        sttd[True]	= sttp	= STRING()
+        sttp[None]		= move_if( 	'mov_strings',	source='.STRING.string',
+                                                destination='.STRING' )
+        sttp[None]		= move_if( 	'mov_string',	source='.STRING', 
+                                           destination='.data',	initializer=lambda **kwds: [],
+                                                state=sttd )
 
         slct[None]		= cpppo.decide(	'BOOL',	state=u_1p,
             predicate=lambda path=None, data=None, **kwds: \
@@ -1746,6 +1757,9 @@ class typed_data( cpppo.dfa ):
         slct[None]		= cpppo.decide(	'SSTRING', state=sstp,
             predicate=lambda path=None, data=None, **kwds: \
                 SSTRING.tag_type == ( data[path+tag_type] if isinstance( tag_type, cpppo.type_str_base ) else tag_type ))
+        slct[None]		= cpppo.decide(	'STRING', state=sttp,
+            predicate=lambda path=None, data=None, **kwds: \
+                STRING.tag_type == ( data[path+tag_type] if isinstance( tag_type, cpppo.type_str_base ) else tag_type ))
         
         super( typed_data, self ).__init__( name=name, initial=slct, **kwds )
 

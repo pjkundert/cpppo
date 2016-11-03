@@ -1129,6 +1129,7 @@ def main( argv=None, attribute_class=device.Attribute, idle_service=None, identi
             "SINT":	( parser.SINT,	0 ),
             "REAL":	( parser.REAL,  0.0 ),
             "SSTRING":	( parser.SSTRING, '' ),
+            "STRING":	( parser.STRING, '' ),
         }
         assert tag_type in typenames, "Invalid tag type; must be one of %r" % list( typenames )
         tag_class,tag_default	= typenames[tag_type]
