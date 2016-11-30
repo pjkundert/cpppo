@@ -1234,9 +1234,9 @@ class connector( client ):
                 complete, requests )
 
     def validate( self, harvested, printing=False ):
-        """Iterate over the harvested (<index>,<descr>,<request>,<reply>,<status>,<value>) tuples, logging
-        further details and (optionally) printing a summary to stdout if desired.  Each harvested
-        record is re-yielded.
+        """Iterate over the harvested (<index>,<descr>,<request>,<reply>,<status>,<value>) tuples,
+        logging further details and (optionally) printing a summary to stdout if desired (plain text
+        if True, JSON if 'json').  Each harvested record is re-yielded.
 
         For write_{tag,frag} requests, the incoming <value> will simply be Truthy (since the data
         array was sent in the request, and the response carried only a success/failure status).  In
@@ -1318,7 +1318,23 @@ class connector( client ):
                 line		= "%20s[%3d-%-3d]+%3d %s %r: %r" % ( tag, elm, elm + cnt - 1, off, act, val, res )
             log.normal( line )
             if printing:
-                print( line )
+                if printing == 'json':
+                    print( json.dumps( {
+                        'tag':		str( tag ),
+                        'value':	val,
+                        'element':	elm,
+                        'count':	cnt,
+                        'offset':	off,
+                        'action':	'read' if act == '==' else 'write',
+                        'status':	reply.status,
+                        'status_ext':	( None if ( not reply.status
+                                                  or 'status_ext' not in reply
+                                                  or 'size' not in reply.status_ext
+                                                  or not reply.status_ext.size )
+                                          else reply.status_ext.data )
+                    } ))
+                else:
+                    print( line )
             yield index,descr,request,reply,status,val
 
     # 
@@ -1444,6 +1460,8 @@ which is required to carry this Send/Route Path data. """ )
     ap.add_argument( '-p', '--print', action='store_true',
                      default=False, # inconsistent default from get_attribute.py, for historical reasons
                      help="Print a summary of operations to stdout (default: False)" )
+    ap.add_argument( '-j', '--json', dest='print', action='store_const', const='json',
+                     help="Print operations to stdout in JSON format (default: False)" )
     ap.add_argument( '-l', '--log',
                      help="Log file, if desired" )
     ap.add_argument( '-t', '--timeout',
@@ -1515,7 +1533,7 @@ which is required to carry this Send/Route Path data. """ )
     depth			= int( args.depth )
     multiple			= 500 if args.multiple else 0
     fragment			= bool( args.fragment )
-    printing			= args.print
+    printing			= args.print # False, True, 'json'
     # route_path may be None/0/False/'[]', send_path may be None/''/'@2/1'.  -S|--simple designates
     # '[]', '' respectively, appropriate for non-routing CIP devices, eg. MicroLogix, PowerFlex, ...
     route_path			= json.loads( args.route_path ) if args.route_path \
