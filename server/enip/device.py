@@ -672,15 +672,20 @@ class Object( object ):
     GA_ALL_CTX			= "get_attributes_all"
     GA_ALL_REQ			= 0x01
     GA_ALL_RPY			= GA_ALL_REQ | 0x80
+
     GA_SNG_NAM			= "Get Attribute Single"
     GA_SNG_CTX			= "get_attribute_single"
     GA_SNG_REQ			= 0x0e
     GA_SNG_RPY			= GA_SNG_REQ | 0x80
+
     SA_SNG_NAM			= "Set Attribute Single"
     SA_SNG_CTX			= "set_attribute_single"
     SA_SNG_REQ			= 0x10
     SA_SNG_RPY			= SA_SNG_REQ | 0x80
 
+    SV_COD_NAM			= "Service Code"
+    SV_COD_CTX			= "service_code"
+    
     @property
     def config( self ):
         if self._config is None:
@@ -782,7 +787,12 @@ class Object( object ):
         should run the Get Attribute All service, and return True if the channel should continue.
         In addition, we produce the bytes used by any higher level encapsulation.
 
-        TODO: Validate the request.
+        We can produce a generic CIP Service Code request, with an optional data payload -- but we
+        cannot (of course) execute such a request (we don't know what it is supposed to do).  A
+        derived class could be supplied that knows the semantics of such a service code, and could
+        properly parse and execute it.  But, for the purposes of sending a generic CIP Service Code
+        and its payload (eg. by cpppo.server.enip.client), this implementation is sufficient.
+
         """
         result			= b''
         if log.isEnabledFor( logging.DETAIL ):
@@ -879,18 +889,15 @@ class Object( object ):
     @classmethod
     def produce( cls, data ):
         result			= b''
-        if ( data.get( 'service' ) == cls.GA_ALL_REQ
-             or cls.GA_ALL_CTX in data and data.setdefault( 'service', cls.GA_ALL_REQ ) == cls.GA_ALL_REQ ):
+        if cls.GA_ALL_CTX in data and data.setdefault( 'service', cls.GA_ALL_REQ ) == cls.GA_ALL_REQ:
             # Get Attributes All
             result	       += USINT.produce(	data.service )
             result	       += EPATH.produce(	data.path )
-        elif ( data.get( 'service' ) == cls.GA_SNG_REQ
-               or cls.GA_SNG_CTX in data and data.setdefault( 'service', cls.GA_SNG_REQ ) == cls.GA_SNG_REQ ):
+        elif cls.GA_SNG_CTX in data and data.setdefault( 'service', cls.GA_SNG_REQ ) == cls.GA_SNG_REQ:
             # Get Attribute Single
             result	       += USINT.produce(	data.service )
             result	       += EPATH.produce(	data.path )
-        elif ( data.get( 'service' ) == cls.SA_SNG_REQ
-               or cls.SA_SNG_CTX in data and data.setdefault( 'service', cls.SA_SNG_REQ ) == cls.SA_SNG_REQ ):
+        elif cls.SA_SNG_CTX in data and data.setdefault( 'service', cls.SA_SNG_REQ ) == cls.SA_SNG_REQ:
             # Set Attribute Single
             result	       += USINT.produce(	data.service )
             result	       += EPATH.produce(	data.path )
@@ -917,6 +924,12 @@ class Object( object ):
             result	       += USINT.produce(	data.service )
             result	       += b'\x00' # reserved
             result	       += status.produce( 	data )
+        elif cls.SV_COD_CTX in data and data.get( 'service' ):
+            # Generic CIP Service Code, with possible data payload supplied.
+            result	       += USINT.produce(	data.service )
+            if 'data' in data.service_code:
+                result	       += typed_data.produce(	data.service_code,
+                                                        tag_type=USINT.tag_type )
         else:
             assert False, "%s doesn't recognize request/reply format: %r" % ( cls.__name__, data )
         return result
@@ -1510,9 +1523,8 @@ class Message_Router( Object ):
         individual requests in the payload.
 
         """
-        if ( data.get( 'service' ) == self.MULTIPLE_REQ
-             or 'multiple' in data and data.setdefault( 'service', self.MULTIPLE_REQ ) == self.MULTIPLE_REQ ):
-            # Multiple Service Packet Request
+        if ( self.MULTIPLE_CTX in data and data.setdefault( 'service', self.MULTIPLE_REQ ) == self.MULTIPLE_REQ ):
+            # Multiple Service Packet Request; '.multiple' required
             pass
         else:
             # Not recognized; more generic command?
@@ -1637,8 +1649,7 @@ class Message_Router( Object ):
 
         """
         result			= b''
-        if ( data.get( 'service' ) == cls.MULTIPLE_REQ
-             or 'multiple' in data and data.setdefault( 'service', cls.MULTIPLE_REQ ) == cls.MULTIPLE_REQ ):
+        if cls.MULTIPLE_CTX in data and data.setdefault( 'service', cls.MULTIPLE_REQ ) == cls.MULTIPLE_REQ:
             offsets		= []
             reqdata		= b''
             for r in reversed( data.multiple.request ):
@@ -1653,7 +1664,7 @@ class Message_Router( Object ):
             for o in offsets:
                 result	       += UINT.produce( 	2 + 2 * len( offsets ) + o )
             result	       += reqdata
-        elif data.get( 'service' ) == cls.MULTIPLE_RPY:
+        elif cls.MULTIPLE_CTX in data and data.get( 'service' ) == cls.MULTIPLE_RPY:
             # Collect up all (already produced) request results stored in each request[...].input
             result	       += USINT.produce(	data.service )
             result	       += USINT.produce(	0x00 )	# fill

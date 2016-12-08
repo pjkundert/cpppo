@@ -991,8 +991,9 @@ class unconnected_send( cpppo.dfa ):
     We cannot parse the encapsulated message, because it may not be destined for local Objects, so
     we may not have the correct parser; leave it in .octets.
 
-    Any other requests/replies carried in the 
-    Get Attributes All Request (0x01) and Reply (0x81).
+    If we see a C*Logix 0x52 Unconnected Send encapsulation, parse it routing.  Otherwise, any other
+    requests/replies (eg. simple Get Attributes All Request (0x01) and Reply (0x81) to non-routing
+    CIP devices) are passed through unparsed.
 
     """
     def __init__( self, name=None, **kwds ):
@@ -1022,7 +1023,7 @@ class unconnected_send( cpppo.dfa ):
         # But, if no pad, go parse the route path
         mesg[None]		= rout
 
-        # So; 0x52 Unconnected Send parses an request with a Route Path, but anything else is just
+        # So; 0x52 Unconnected Send parses a request with a Route Path, but anything else is just
         # an opaque encapsulated request; just copy all remaining bytes to the request.input.
         slct[b'\x52'[0]]	= usnd
         slct[True]	= othr	= octets(	context='request', terminal=True )

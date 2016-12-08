@@ -587,9 +587,55 @@ class client( object ):
         If CIP is None, then no CIP payload will be generated.
 
         """
-        return self.cip_send( cip=cip)
+        return self.cip_send( cip=cip )
 
     # CIP SendRRData Requests; may be deferred (eg. for Multiple Service Packet)
+    def service_code( self, code, data=None, elements=None, tag_type=None,
+                      route_path=None, send_path=None, timeout=None, send=True,
+                      sender_context=b'' ):
+        """Generic CIP Service Code, with path to target CIP Object, and supplied data payload (converted
+        to USINTs, if necessary).  Minimally, we require the service, and an indication that it is a
+        bare Service Code request w/ no data:
+
+            data.service = 0x??
+            data.service_code = True
+
+        if a data payload is required, supply 'data' (and optionally a tag_type), and this will produce:
+
+            data.service = 0x??
+            data.service_code.data = [0, 1, 2, 3]
+
+        """
+        req			= cpppo.dotdict()
+        req.service		= code
+        if data is None:
+            req.service_code	= True		# indicate a payload-free Service Code request
+        else:
+            # If a tag_type has been specified, then we need to convert the data to SINT/USINT.
+            if elements is None:
+                elements	= len( data )
+            else:
+                assert elements == len( data ), \
+                    "Inconsistent elements: %d doesn't match data length: %d" % ( elements, len( data ))
+            if tag_type not in (None,enip.SINT.tag_type,enip.USINT.tag_type):
+                usints		= [ v for v in bytearray(
+                    parser.typed_data.produce( data={'tag_type': tag_type, 'data': data } )) ]
+                log.detail( "Converted %s[%d] to USINT[%d]",
+                            parser.typed_data.TYPES_SUPPORTED[tag_type], elements, len( usints ))
+                data,elements	= usints,len( usints )
+            req.service_code	= {}
+            req.service_code.data = data
+
+        req.input		= b''
+        if data is not None:
+            req.data		= data
+            req.input	       += parser.typed_data.produce( req, tag_type=enip.USINT.tag_type )
+        if send:
+            self.unconnected_send(
+                request=req, route_path=route_path, send_path=send_path, timeout=timeout,
+                sender_context=sender_context )
+        return req
+
     def get_attributes_all( self, path,
               route_path=None, send_path=None, timeout=None, send=True,
               sender_context=b'',
@@ -754,11 +800,12 @@ class client( object ):
 
         # If a non-empty send_path or route_path is desired, we'll need to use a Logix-style service
         # 0x52 Unconnected Send within the SendRRData to carry these details.  Only Originating
-        # Devices and devices that route between links need to implement this.  Otherwise, just go
-        # straight to the command payload.
+        # Devices and devices that route between links need to implement this.  Otherwise, for
+        # simple non-routing CIP devices (eg. MicroLogix, AB PowerFlex, ...) just go straight to the
+        # command payload.
         us			= sd.CPF.item[1].unconnected_send
         if send_path or route_path:
-            us.service		= 82
+            us.service		= 0x52 # == 82
             us.status		= 0
             us.priority		= 5
             us.timeout_ticks	= 157
@@ -1249,15 +1296,20 @@ class connector( client ):
                 log.detail( "Client %s Request: %s", descr, enip.enip_format( request ))
                 log.detail( "  Yields Reply: %s", enip.enip_format( reply ))
             res			= None # result of request
-            act			= "??" # denotation of request action
+            act			= "??" # denotation of request action; may be unrecognized (eg. service_code)
             try:
-                # Get a symbolic "Tag" or numeric "@<class>/<inst>/<attr>" into 'tag', and optional
-                # element into 'elm'.  Assumes the leading path.segment elements will be either
-                # 'symbolic' or 'class', 'instance', 'attribute', and the last may be 'element'.
-                tag		= format_path( request.path.segment )
-                elm		= None					# scalar access
-                if 'element' in request.path.segment[-1]:
-                    elm		= request.path.segment[-1].element	# array access
+                if 'path' in request:
+                    # Get a symbolic "Tag" or numeric "@<class>/<inst>/<attr>" into 'tag', and optional
+                    # element into 'elm'.  Assumes the leading path.segment elements will be either
+                    # 'symbolic' or 'class', 'instance', 'attribute', and the last may be 'element'.
+                    tag		= format_path( request.path.segment )
+                    elm		= None					# scalar access
+                    if 'element' in request.path.segment[-1]:
+                        elm		= request.path.segment[-1].element	# array access
+                else:
+                    tag		= 'Service Code 0x%02X%s' % (
+                        data.service & 0x7f, ' Reply' if data.service & 0x80 else '' )
+                    elm		= None
 
                 # The response should contain either a status code (possibly with an extended
                 # status), or the read_frag request's data.  Remember; a successful response may

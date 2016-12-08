@@ -15,6 +15,7 @@ import os
 import random
 import socket
 import sys
+import threading
 import time
 
 if __name__ == "__main__":
@@ -112,14 +113,93 @@ def test_client_timeout():
     finally:
         conn.terminate()
 
+def test_client_api_simple():
+
+    logging.getLogger().setLevel( logging.DETAIL )
+
+    taglen			= 100 # able to fit request for Attribute into 1 packet
+
+    server_addr		        = ('localhost', 12398)
+    server_kwds			= dotdict({
+        'argv': [
+            '-vvv',
+            '--address',	'%s:%d' % server_addr,
+            'Int@0x99/1/1=INT[%d]' % ( taglen ),
+            'Real@0x99/1/2=REAL[%d]' % ( taglen ),
+            'DInt@0x99/1/3=DINT[%d]' % ( taglen ),
+        ],
+        'server': {
+            'control':	apidict( enip.timeout, {
+                'done': False
+            }),
+        },
+    })
+    server_func			= enip.main
+
+    Process			= threading.Thread # multiprocessing.Process
+    server			= Process( target=server_func, kwargs=server_kwds )
+    server.start()
+
+    client_timeout		= 15.0
+
+    try:
+        connection		= None
+        while not connection:
+            try:
+                connection	= enip.client.connector( *server_addr, timeout=client_timeout )
+            except socket.error as exc:
+                logging.warning( "enip.client.connector socket.error: %r", exc )
+                if exc.errno != errno.ECONNREFUSED:
+                    raise
+                time.sleep( .1 )
+            except Exception as exc:
+                logging.warning( "enip.client.connector Exception: %r", exc )
+                raise
+
+        with connection:
+            # Get Attribute Single's payload is an EPATH
+            req			= connection.service_code(
+                code=enip.Object.GA_SNG_REQ,
+                data=list( bytearray(
+                    enip.EPATH.produce( enip.parse_path( '@0x99/1/2' )))))
+            assert connection.readable( timeout=1.0 ) # receive reply
+            rpy			= next( connection )
+            assert 'enip.CIP' in rpy and 'send_data.CPF.item[1].unconnected_send.request.get_attribute_single' in rpy.enip.CIP
+
+            # Set Attribute Single's payload is an EPATH + SINT data
+            req			= connection.service_code(
+                code=enip.Object.SA_SNG_REQ,
+                data=list( bytearray(
+                    enip.EPATH.produce( enip.parse_path( '@0x99/1/2' ))
+                    + enip.typed_data.produce( { 'data': list( map( float, range( taglen ))) }, tag_type=enip.REAL.tag_type ))))
+            assert connection.readable( timeout=1.0 ) # receive reply
+            rpy			= next( connection )
+            assert 'enip.CIP' in rpy and 'send_data.CPF.item[1].unconnected_send.request.set_attribute_single' in rpy.enip.CIP
+
+        connection.shutdown()
+        assert connection.readable( timeout=1.0 ) # receive EOF
+        connection.close()
+
+    finally:
+        control			= server_kwds.get( 'server', {} ).get( 'control', {} ) if server_kwds else {}
+        if 'done' in control:
+            log.normal( "Server %r done signalled", misc.function_name( server_func ))
+            control['done']	= True	# only useful for threading.Thread; Process cannot see this
+        if hasattr( server, 'terminate' ):
+            log.normal( "Server %r done via .terminate()", misc.function_name( server_func ))
+            server.terminate() 		# only if using multiprocessing.Process(); Thread doesn't have
+        server.join( timeout=1.0 )
+
 
 def test_client_api():
     """Performance of executing an operation a number of times on a socket connected
     Logix simulator, within the same Python interpreter (ie. all on a single CPU
     thread).
 
+    We'll point the Tags to CIP Class 0x99, Instance 1, starting at Attribute 1.
+
     """
-    #logging.getLogger().setLevel( logging.NORMAL )
+    logging.getLogger().setLevel( logging.NORMAL )
 
     taglen			= 100 # able to fit request for Attribute into 1 packet
 
@@ -128,9 +208,9 @@ def test_client_api():
         'argv': [
             #'-v',
             '--address',	'%s:%d' % svraddr,
-            'Int=INT[%d]' % ( taglen ),
-            'Real=REAL[%d]' % ( taglen ),
-            'DInt=DINT[%d]' % ( taglen ),
+            'Int@0x99/1/1=INT[%d]' % ( taglen ),
+            'Real@0x99/1/2=REAL[%d]' % ( taglen ),
+            'DInt@0x99/1/3=DINT[%d]' % ( taglen ),
         ],
         'server': {
             'control':	apidict( enip.timeout, { 
@@ -171,7 +251,7 @@ def test_client_api():
 
             yield (elm+( off or 0 ),cnt-( off or 0 )),tag
 
-    def clitest( n ):
+    def clitest_tag( n ):
         times			= clitimes  # How many I/O per client
         # take apart the sequence of ( ..., ((elm,cnt), "Int[1-2]=1,2"), ...)
         # into two sequences: (..., (elm,cnt), ...) and (..., "Int[1-2]=1,2", ...)
@@ -182,7 +262,7 @@ def test_client_api():
         while not connection:
             try:
                 connection	= enip.client.connector( *svraddr, timeout=clitimeout )
-            except OSError as exc:
+            except socket.error as exc:
                 if exc.errno != errno.ECONNREFUSED:
                     raise
                 time.sleep( .1 )
@@ -222,6 +302,56 @@ def test_client_api():
 
         return 1 if failures else 0
 
+    def clitest_svc( n ):
+        """Issue a series of CIP Service Codes."""
+        times			= clitimes  #  How many I/O per client
+        connection		= None
+        while not connection:
+            try:
+                connection	= enip.client.connector( *svraddr, timeout=clitimeout )
+            except socket.error as exc:
+                if exc.errno != errno.ECONNREFUSED:
+                    raise
+                time.sleep( .1 )
+
+        # Issue a sequence of simple CIP Service Code operations.
+        operations = times * [
+            dotdict( {
+                "service": {
+                    "code": enip.Object.GA_SNG_REQ,
+                    "data": None,
+                }
+            } )
+        ]
+
+        results			= []
+        failures		= 0
+        with connection:
+            multiple		= random.randint( 0, 4 ) * climultiple // 4 	# eg. 0, 125, 250, 375, 500
+            depth		= random.randint( 0, clidepth )			# eg. 0 .. 5
+            for idx,dsc,req,rpy,sts,val in connection.pipeline(
+                    operations=operations, timeout=clitimeout,
+                    multiple=multiple, depth=depth ):
+                log.detail( "Client %3d: %s --> %r ", n, dsc, val )
+                if not val:
+                    log.warning( "Client %d harvested %d/%d results; failed request: %s",
+                                 n, len( results ), len( tags ), rpy )
+                    failures       += 1
+                results.append( (dsc,val) )
+        if len( results ) != len( tags ):
+            log.warning( "Client %d harvested %d/%d results", n, len( results ), len( tags ))
+            failures	       += 1
+            
+        return 1 if failures else 0
+
+    # Use a random one of the available testing functions
+    def clitest( n ):
+        random.choice( [
+            clitest_tag,
+            #clitest_svc,
+        ] )( n )
+
+    
     failed			= network.bench( server_func	= enip.main,
                                                  server_kwds	= svrkwds,
                                                  client_func	= clitest,
