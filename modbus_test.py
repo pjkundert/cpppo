@@ -72,8 +72,9 @@ class nonblocking_command( object ):
         else:
             logging.info( "Waiting for command (PID [%d]) to terminate", self.process.pid )
             self.process.wait()
-
-        logging.info("Command (PID [%d]) finished with status [%d]: %s", self.process.pid, self.process.returncode, self.command )
+        # Process may exit with a non-numeric returncode (eg. None)
+        logging.info( "Command (PID [%d]) finished with status %r: %s",
+                      self.process.pid, self.process.returncode, self.command )
 
     __del__			= kill
 

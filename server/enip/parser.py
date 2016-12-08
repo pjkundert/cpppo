@@ -245,6 +245,10 @@ class DINT_network( TYPE ):
     struct_format		= '>i'
     struct_calcsize		= struct.calcsize( struct_format )
 
+class REAL_network( TYPE ):
+    """An EtherNet/IP INT; 32-bit float, but in network byte order"""
+    struct_format		= '>f'
+    struct_calcsize		= struct.calcsize( struct_format )
 
 class STRUCT( cpppo.dfa, cpppo.state ):
     pass
@@ -567,8 +571,7 @@ class move_if( cpppo.decide ):
                 try:
                     data[pathdst]= ini
                 finally:
-                    if log.getEffectiveLevel() <= logging.DEBUG:
-                        log.debug( "%s -- init. data[%r] to %r in data: %s", self, pathdst, ini, data )
+                    log.debug( "%s -- init. data[%r] to %r in data: %s", self, pathdst, ini, data )
             if self.src is not None:
                 pathsrc		= path + self.src
                 # assert pathsrc in data, \
@@ -580,13 +583,11 @@ class move_if( cpppo.decide ):
                 dst		= data[pathdst]
                 if hasattr( dst, 'append' ):
                     # We're supposed to append to an existing destination list-like thing...
-                    if log.getEffectiveLevel() <= logging.DEBUG:
-                        log.debug( "%s -- append data[%r] == %r to data[%r]", self, pathsrc, src, pathdst )
+                    log.debug( "%s -- append data[%r] == %r to data[%r]", self, pathsrc, src, pathdst )
                     dst.append( src )
                 else:
                     # We're supposed to replace an existing destination object
-                    if log.getEffectiveLevel() <= logging.DEBUG:
-                        log.debug( "%s -- assign data[%r] == %r to data[%r]", self, pathsrc, src, pathdst )
+                    log.debug( "%s -- assign data[%r] == %r to data[%r]", self, pathsrc, src, pathdst )
                     data[pathdst] = src
 
         return target
@@ -991,14 +992,15 @@ class unconnected_send( cpppo.dfa ):
     We cannot parse the encapsulated message, because it may not be destined for local Objects, so
     we may not have the correct parser; leave it in .octets.
 
-    Any other requests/replies carried in the 
-    Get Attributes All Request (0x01) and Reply (0x81).
+    If we see a C*Logix 0x52 Unconnected Send encapsulation, parse it routing.  Otherwise, any other
+    requests/replies (eg. simple Get Attributes All Request (0x01) and Reply (0x81) to non-routing
+    CIP devices) are passed through unparsed.
 
     """
     def __init__( self, name=None, **kwds ):
         name 			= name or kwds.setdefault( 'context', self.__class__.__name__ )
 
-        slct			= octets_noop(	'select' )
+        slct			= octets_noop(	'sel_unc' )
 
         usnd			= USINT(	context='service' )
         usnd[True]	= path	= EPATH(	context='path' )
@@ -1022,7 +1024,7 @@ class unconnected_send( cpppo.dfa ):
         # But, if no pad, go parse the route path
         mesg[None]		= rout
 
-        # So; 0x52 Unconnected Send parses an request with a Route Path, but anything else is just
+        # So; 0x52 Unconnected Send parses a request with a Route Path, but anything else is just
         # an opaque encapsulated request; just copy all remaining bytes to the request.input.
         slct[b'\x52'[0]]	= usnd
         slct[True]	= othr	= octets(	context='request', terminal=True )
@@ -1301,6 +1303,45 @@ class legacy_CPF_0x0001( cpppo.dfa ):
         return result
 
 
+class connection_ID( cpppo.dfa ):
+    """EtherNet/IP CIP command 0x00a1 carries a CPF payload with one entry -- a 4-byte 'connection' ID.
+
+    """
+    def __init__( self, name=None, **kwds ):
+        name			= name or kwds.setdefault( 'context', self.__class__.__name__ )
+        addr			= UDINT( context='connection',
+                                         terminal=True )
+        super( connection_ID, self ).__init__( name=name, initial=addr, **kwds )
+
+    @classmethod
+    def produce( cls, data ):
+        result			= b''
+        result	       	       += UDINT.produce( data.get( 'connection', 0 ))
+        return result
+
+
+class connection_data( cpppo.dfa ):
+    """EtherNet/IP CIP command 0x00b1 carries a CPF payload with a number of bytes of 'payload' data,
+    after a 2-byte sequence number.
+
+    """
+    def __init__( self, name=None, **kwds ):
+        name			= name or kwds.setdefault( 'context', self.__class__.__name__ )
+        sequ			= UINT( 	context='sequence' )
+        sequ[True]	= data	= octets( 	context='payload', octets_extension='', # repeat='..length', # length - 2, actually: so don't check
+                                                terminal=True )
+        data[True]		= data # all remaining data...
+        
+        super( connection_data, self ).__init__( name=name, initial=sequ, **kwds )
+
+    @classmethod
+    def produce( cls, data ):
+        result			= b''
+        result		       += UINT.produce( data.sequence )
+        result		       += octets_encode( data.payload )
+        return result
+
+
 class CPF( cpppo.dfa ):
 
     """A SendRRData Common Packet Format specifies the number and type of the encapsulated CIP
@@ -1311,8 +1352,8 @@ class CPF( cpppo.dfa ):
         .CPF.item[0].length		UINT		2	Length of item encapsulated
         .CPF.item[0].<parser>...
 
-    Parse the count, and then each CPF item into cpf.item_temp, and (after parsing) moves it to
-    cpf.item[x].  If count is 0, then no items are parsed, and an empty item == [] list is returned.
+    Parse the count, and then each CPF item into CPF.item_temp, and (after parsing) moves it to
+    CPF.item[x].  If count is 0, then no items are parsed, and an empty item == [] list is returned.
     
 
     A dictionary of parsers for various CPF types must be provided.  Any CPF item with a length > 0
@@ -1327,7 +1368,6 @@ class CPF( cpppo.dfa ):
         0x00b1:		Connected Transport packet (eg. used within CIP command SendUnitData)
         0x0100:		ListServices response
         0x000C:		ListIdentity response
-
     
     Presently we only handle NULL Address and Unconnected Messages, and ListServices
     (communications_service), and ListIdentity (identity_object).
@@ -1335,9 +1375,11 @@ class CPF( cpppo.dfa ):
     """
     ITEM_PARSERS		= {
         0x0001:	legacy_CPF_0x0001,	# used in EtherNet/IP Legacy command 0x0001
+        0x00a1:	connection_ID,		# Connected session ID; used in PCCC transport, for example
+        0x00b1:	connection_data,	#   Payload data for a connected session; sequence count + payload
         0x00b2:	unconnected_send,	# used in SendRRData request/response
         0x0100:	communications_service, # used in ListServices response
-        0x000C: identity_object,	# used in ListIdentity response
+        0x000c:	identity_object,	# used in ListIdentity response
     }
 
     def __init__( self, name=None, **kwds ):
@@ -1581,7 +1623,7 @@ class CIP( cpppo.dfa ):
     def __init__( self, name=None, **kwds ):
         name 			= name or kwds.setdefault( 'context', self.__class__.__name__ )
 
-        slct			= octets_noop(	'select' )
+        slct			= octets_noop(	'sel_CIP' )
         for cmd,cls in self.COMMAND_PARSERS.items():
             slct[None]		= cpppo.decide( cls.__name__,
                     state=cls( limit='...length', terminal=True ),
@@ -1615,6 +1657,9 @@ class typed_data( cpppo.dfa ):
     the caller should use limit= to define the limits of the data in the source symbol input stream;
     only complete data items must be parsed, so this must be exact, and match the specified data
     type.
+
+    If no data is provided (or due to a limit=0), no data will be parsed, nor will .data be
+    initialized to [].
 
     The known data types are:
 
@@ -1652,7 +1697,7 @@ class typed_data( cpppo.dfa ):
         name 			= name or kwds.setdefault( 'context', self.__class__.__name__ )
         assert tag_type, "Must specify a numeric (or relative path to) the CIP data type; found: %r" % tag_type
 
-        slct			= octets_noop(	'select' )
+        slct			= octets_noop(	'sel_type' )
         
         i_8d			= octets_noop(	'end_8bit',
                                                 terminal=True )
@@ -1730,34 +1775,34 @@ class typed_data( cpppo.dfa ):
                                            destination='.data',	initializer=lambda **kwds: [],
                                                 state=sttd )
 
-        slct[None]		= cpppo.decide(	'BOOL',	state=u_1p,
+        slct[None]		= cpppo.decide(	'BOOL',	state=u_1d,
             predicate=lambda path=None, data=None, **kwds: \
                 BOOL.tag_type == ( data[path+tag_type] if isinstance( tag_type, cpppo.type_str_base ) else tag_type ))
-        slct[None]		= cpppo.decide(	'SINT',	state=i_8p,
+        slct[None]		= cpppo.decide(	'SINT',	state=i_8d,
             predicate=lambda path=None, data=None, **kwds: \
                 SINT.tag_type == ( data[path+tag_type] if isinstance( tag_type, cpppo.type_str_base ) else tag_type ))
-        slct[None]		= cpppo.decide(	'USINT',state=u_8p,
+        slct[None]		= cpppo.decide(	'USINT',state=u_8d,
             predicate=lambda path=None, data=None, **kwds: \
                 USINT.tag_type == ( data[path+tag_type] if isinstance( tag_type, cpppo.type_str_base ) else tag_type ))
-        slct[None]		= cpppo.decide(	'INT',	state=i16p,
+        slct[None]		= cpppo.decide(	'INT',	state=i16d,
             predicate=lambda path=None, data=None, **kwds: \
                 INT.tag_type == ( data[path+tag_type] if isinstance( tag_type, cpppo.type_str_base ) else tag_type ))
-        slct[None]		= cpppo.decide(	'UINT',	state=u16p,
+        slct[None]		= cpppo.decide(	'UINT',	state=u16d,
             predicate=lambda path=None, data=None, **kwds: \
                 UINT.tag_type == ( data[path+tag_type] if isinstance( tag_type, cpppo.type_str_base ) else tag_type ))
-        slct[None]		= cpppo.decide(	'DINT',	state=i32p,
+        slct[None]		= cpppo.decide(	'DINT',	state=i32d,
             predicate=lambda path=None, data=None, **kwds: \
                 DINT.tag_type == ( data[path+tag_type] if isinstance( tag_type, cpppo.type_str_base ) else tag_type ))
-        slct[None]		= cpppo.decide(	'UDINT',state=u32p,
+        slct[None]		= cpppo.decide(	'UDINT',state=u32d,
             predicate=lambda path=None, data=None, **kwds: \
                 UDINT.tag_type == ( data[path+tag_type] if isinstance( tag_type, cpppo.type_str_base ) else tag_type ))
-        slct[None]		= cpppo.decide(	'REAL',	state=fltp,
+        slct[None]		= cpppo.decide(	'REAL',	state=fltd,
             predicate=lambda path=None, data=None, **kwds: \
                 REAL.tag_type == ( data[path+tag_type] if isinstance( tag_type, cpppo.type_str_base ) else tag_type ))
-        slct[None]		= cpppo.decide(	'SSTRING', state=sstp,
+        slct[None]		= cpppo.decide(	'SSTRING', state=sstd,
             predicate=lambda path=None, data=None, **kwds: \
                 SSTRING.tag_type == ( data[path+tag_type] if isinstance( tag_type, cpppo.type_str_base ) else tag_type ))
-        slct[None]		= cpppo.decide(	'STRING', state=sttp,
+        slct[None]		= cpppo.decide(	'STRING', state=sttd,
             predicate=lambda path=None, data=None, **kwds: \
                 STRING.tag_type == ( data[path+tag_type] if isinstance( tag_type, cpppo.type_str_base ) else tag_type ))
         
@@ -1771,8 +1816,8 @@ class typed_data( cpppo.dfa ):
             tag_type		= data.get( 'type' ) or data.get( 'tag_type' )
         assert 'data' in data and hasattr( data.get( 'data' ), '__iter__' ) and tag_type in cls.TYPES_SUPPORTED, \
             "Unknown (or no) typed data found for tag_type %r: %r" % ( tag_type, data )
-        produce			= cls.TYPES_SUPPORTED[tag_type].produce
-        return b''.join( produce( v ) for v in data.get( 'data' ))
+        producer		= cls.TYPES_SUPPORTED[tag_type].produce
+        return b''.join( producer( v ) for v in data.get( 'data' ))
 
     @classmethod
     def datasize( cls, tag_type, size=1 ):

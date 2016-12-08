@@ -427,18 +427,18 @@ class Logix( Message_Router ):
         elif ( data.get( 'service' ) == cls.WR_TAG_RPY
                or data.get( 'service' ) == cls.WR_FRG_RPY ):
             result	       += USINT.produce(	data.service )
-            result	       += USINT.produce(	0x00 )
+            result	       += b'\x00' # reserved
             result	       += status.produce(	data )
         elif data.get( 'service' ) == cls.RD_TAG_RPY:
             result	       += USINT.produce(	data.service )
-            result	       += USINT.produce(	0x00 )	# fill
+            result	       += b'\x00' # reserved
             result	       += status.produce(	data )
             if data.status in (0x00, 0x06):
                 result	       += UINT.produce(		data.read_tag.type )
                 result	       += typed_data.produce(	data.read_tag )
         elif data.get( 'service' ) == cls.RD_FRG_RPY:
             result	       += USINT.produce(	data.service )
-            result	       += USINT.produce(	0x00 )
+            result	       += b'\x00' # reserved
             result	       += status.produce(	data )
             if data.status in (0x00, 0x06):
                 result	       += UINT.produce(		data.read_frag.type )
@@ -811,5 +811,7 @@ def process( addr, data, **kwds ):
         future			= bytes(bytearray( b for b in source ))
         where			= "at %d total bytes:\n%s\n%s (byte %d)" % (
             processed, repr(memory+future), '-' * (len(repr(memory))-1) + '^', pos )
-        log.error( "EtherNet/IP CIP error %s\n", where )
+        log.error( "EtherNet/IP CIP error %s\n%s", where,
+                   ( '' if log.getEffectiveLevel() >= logging.NORMAL
+                     else ''.join( traceback.format_exception( *sys.exc_info() ))))
         raise
