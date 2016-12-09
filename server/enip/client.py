@@ -1041,7 +1041,8 @@ class connector( client ):
                 log.detail( "Unrecognized operation method %s: %r", method, op )
             elapsed		= cpppo.timer() - begun
             descr	       += '    ' if 'offset' not in op else 'Frag' if op['offset'] is not None else 'Tag '
-            descr	       += ' ' + format_path( op['path'], count=op.get( 'elements' ))
+            if 'path' in op:
+                descr	       += ' ' + format_path( op['path'], count=op.get( 'elements' ))
 
             if multiple:
                 if (( not requests or max( reqsiz + reqest, rpysiz + rpyest ) < multiple )

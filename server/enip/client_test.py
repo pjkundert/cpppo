@@ -10,13 +10,13 @@ except ImportError:
 import errno
 import logging
 import multiprocessing
-#import threading
 import os
 import random
 import socket
 import sys
 import threading
 import time
+import traceback
 
 if __name__ == "__main__":
     # Allow relative imports when executing within package directory, for
@@ -315,18 +315,16 @@ def test_client_api():
                 time.sleep( .1 )
 
         # Issue a sequence of simple CIP Service Code operations.
-        operations = times * [
-            dotdict( {
-                "service": {
-                    "code": enip.Object.GA_SNG_REQ,
-                    "data": None,
-                }
-            } )
-        ]
+        operations = times * [{
+            "method":	"service_code",
+            "code":	enip.Object.GA_SNG_REQ,
+            "data":	list( bytearray( enip.EPATH.produce( enip.parse_path( '@0x99/1/2' )))),
+        }]
 
         results			= []
         failures		= 0
-        with connection:
+        try:
+          with connection:
             multiple		= random.randint( 0, 4 ) * climultiple // 4 	# eg. 0, 125, 250, 375, 500
             depth		= random.randint( 0, clidepth )			# eg. 0 .. 5
             for idx,dsc,req,rpy,sts,val in connection.pipeline(
@@ -335,11 +333,15 @@ def test_client_api():
                 log.detail( "Client %3d: %s --> %r ", n, dsc, val )
                 if not val:
                     log.warning( "Client %d harvested %d/%d results; failed request: %s",
-                                 n, len( results ), len( tags ), rpy )
+                                 n, len( results ), len( operations ), rpy )
                     failures       += 1
                 results.append( (dsc,val) )
-        if len( results ) != len( tags ):
-            log.warning( "Client %d harvested %d/%d results", n, len( results ), len( tags ))
+        except Exception as exc:
+            logging.warning( "%s: %s", exc, ''.join( traceback.format_exception( *sys.exc_info() )))
+            failures	       += 1
+
+        if len( results ) != len( operations ):
+            log.warning( "Client %d harvested %d/%d results", n, len( results ), len( operations ))
             failures	       += 1
             
         return 1 if failures else 0
@@ -348,7 +350,7 @@ def test_client_api():
     def clitest( n ):
         random.choice( [
             clitest_tag,
-            #clitest_svc,
+            clitest_svc,
         ] )( n )
 
     
