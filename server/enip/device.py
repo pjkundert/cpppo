@@ -675,7 +675,7 @@ class Object( object ):
 
     GA_SNG_NAM			= "Get Attribute Single"
     GA_SNG_CTX			= "get_attribute_single"
-    GA_SNG_REQ			= 0x0e
+    GA_SNG_REQ			= 0x0E
     GA_SNG_RPY			= GA_SNG_REQ | 0x80
 
     SA_SNG_NAM			= "Set Attribute Single"
@@ -1476,7 +1476,7 @@ class Message_Router( Object ):
 
     MULTIPLE_NAM		= "Multiple Service Packet"
     MULTIPLE_CTX		= "multiple"
-    MULTIPLE_REQ		= 0x0a
+    MULTIPLE_REQ		= 0x0A
     MULTIPLE_RPY		= MULTIPLE_REQ | 0x80
 
     ROUTE_FALSE			= 0	# Return False if invalid route
@@ -1664,7 +1664,7 @@ class Message_Router( Object ):
             for o in offsets:
                 result	       += UINT.produce( 	2 + 2 * len( offsets ) + o )
             result	       += reqdata
-        elif cls.MULTIPLE_CTX in data and data.get( 'service' ) == cls.MULTIPLE_RPY:
+        elif data.get( 'service' ) == cls.MULTIPLE_RPY: # If error status, no '.multiple' required
             # Collect up all (already produced) request results stored in each request[...].input
             result	       += USINT.produce(	data.service )
             result	       += USINT.produce(	0x00 )	# fill
