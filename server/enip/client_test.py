@@ -324,18 +324,18 @@ def test_client_api():
         results			= []
         failures		= 0
         try:
-          with connection:
-            multiple		= random.randint( 0, 4 ) * climultiple // 4 	# eg. 0, 125, 250, 375, 500
-            depth		= random.randint( 0, clidepth )			# eg. 0 .. 5
-            for idx,dsc,req,rpy,sts,val in connection.pipeline(
-                    operations=operations, timeout=clitimeout,
-                    multiple=multiple, depth=depth ):
-                log.detail( "Client %3d: %s --> %r ", n, dsc, val )
-                if not val:
-                    log.warning( "Client %d harvested %d/%d results; failed request: %s",
-                                 n, len( results ), len( operations ), rpy )
-                    failures       += 1
-                results.append( (dsc,val) )
+            with connection:
+                multiple	= random.randint( 0, 4 ) * climultiple // 4 	# eg. 0, 125, 250, 375, 500
+                depth		= random.randint( 0, clidepth )			# eg. 0 .. 5
+                for idx,dsc,req,rpy,sts,val in connection.pipeline(
+                        operations=operations, timeout=clitimeout,
+                        multiple=multiple, depth=depth ):
+                    log.detail( "Client %3d: %s --> %r ", n, dsc, val )
+                    if not val:
+                        log.warning( "Client %d harvested %d/%d results; failed request: %s",
+                                     n, len( results ), len( operations ), rpy )
+                        failures += 1
+                    results.append( (dsc,val) )
         except Exception as exc:
             logging.warning( "%s: %s", exc, ''.join( traceback.format_exception( *sys.exc_info() )))
             failures	       += 1

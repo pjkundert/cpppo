@@ -154,13 +154,15 @@ def lookup_reset():
 def redirect_tag( tag, address ):
     """Establish (or change) a tag, redirecting it to the specified class/instance/attribute address.
     Make sure we stay with only str type tags (mostly for Python2, in case somehow we get a Unicode
-    tag)"""
+    tag).  Multi-segment symboic tags are expected to be looked up as: symbol["<symbol1>.<symbol2>"]
+
+    """
     tag				= str( tag )
     assert isinstance( address, dict )
     assert all( k in symbol_keys for k in address )
     assert all( k in address     for k in symbol_keys )
     symbol[tag]			= address
-
+    return tuple( address[k] for k in symbol_keys )
 
 def resolve_tag( tag ):
     """Return the (class_id, instance_id, attribute_id) tuple corresponding to tag, or None if not specified"""
@@ -1483,13 +1485,16 @@ class Message_Router( Object ):
     ROUTE_RAISE			= 1	# Raise an Exception if invalid route
 
     def route( self, data, fail=ROUTE_FALSE ):
-        """If the request is not for this object, return the target, else None.  On invalid route (no such
-        object found), either raise Exception or return False.  Thus, we're returning a non-truthy
-        value iff not routing to another object, OR if the route was invalid.
+        """If the request has a .path and is not for this object, return the target, else None.  On
+        invalid route (no such object found), either raise Exception or return False.  Thus, we're
+        returning a non-truthy value iff not routing to another object, OR if the route was invalid.
 
         """
+        target			= None
+        if 'path' not in data:
+            return target
         try:
-            path, ids, target	= None, None, None
+            path,ids		= None,None
             path		= data.path
             ids			= resolve( path )
             if ( ids[0] == self.class_id and ids[1] == self.instance_id ):

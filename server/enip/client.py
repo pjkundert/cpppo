@@ -280,11 +280,15 @@ class client( object ):
     Provide an alternative enip.device.Message_Router Object class instead of the (default) Logix,
     to parse alternative sub-dialects of EtherNet/IP.
 
+
+    The first client created also sets the global "device.dialect"; all connections must use the
+    same dialect.  The default is Logix.
+
     """
     route_path_default		= enip.route_path_default
     send_path_default		= enip.send_path_default
 
-    def __init__( self, host, port=None, timeout=None, dialect=logix.Logix, profiler=None,
+    def __init__( self, host, port=None, timeout=None, dialect=None, profiler=None,
                   udp=False, broadcast=False ):
         """Connect to the EtherNet/IP client, waiting up to 'timeout' for a connection.  Avoid using
         the host OS platform default if 'host' is empty; this will be different on Mac OS-X, Linux,
@@ -350,10 +354,11 @@ class client( object ):
         self.frame		= enip.enip_machine( terminal=True )
         self.cip		= enip.CIP( terminal=True )	# Parses a CIP   request in an EtherNet/IP frame
 
-        # Ensure the requested dialect matches the globally selected dialect
+        # Ensure the requested dialect matches the globally selected dialect; Default to Logix
         if device.dialect is None:
-            device.dialect	= dialect
-        assert device.dialect is dialect, \
+            device.dialect	= logix.Logix if dialect is None else dialect
+        if dialect is not None:
+            assert device.dialect is dialect, \
                 "Inconsistent EtherNet/IP dialect requested: %r (vs. default: %r)" % ( dialect, device.dialect )
         # If provided, we'll disable/enable a profiler around the I/O code, to avoid corrupting the
         # profile data with arbitrary I/O related delays
@@ -591,8 +596,8 @@ class client( object ):
 
     # CIP SendRRData Requests; may be deferred (eg. for Multiple Service Packet)
     def service_code( self, code, data=None, elements=None, tag_type=None,
-                      route_path=None, send_path=None, timeout=None, send=True,
-                      sender_context=b'' ):
+                route_path=None, send_path=None, timeout=None, send=True,
+                sender_context=b'', data_size=None ): # response data_size estimation
         """Generic CIP Service Code, with path to target CIP Object, and supplied data payload (converted
         to USINTs, if necessary).  Minimally, we require the service, and an indication that it is a
         bare Service Code request w/ no data:
@@ -626,10 +631,11 @@ class client( object ):
             req.service_code	= {}
             req.service_code.data = data
 
-        req.input		= b''
+        # We always render the transmitted data payload for Service Code
+        req.input		= bytearray()
         if data is not None:
             req.data		= data
-            req.input	       += parser.typed_data.produce( req, tag_type=enip.USINT.tag_type )
+            req.input	       += bytearray( parser.typed_data.produce( req, tag_type=enip.USINT.tag_type ))
         if send:
             self.unconnected_send(
                 request=req, route_path=route_path, send_path=send_path, timeout=timeout,
@@ -1032,13 +1038,21 @@ class connector( client ):
                 rpyest		= 0
                 if op.get( 'data_size' ):
                     rpyest     += op.get( 'data_size' )
-                elif op.get( 'tag_type' ) and op.get( 'elements' ):
+                elif op.get( 'tag_type' ):
                     rpyest     += parser.typed_data.datasize(
                         tag_type=op.get( 'tag_type' ) or enip.DINT.tag_type, size=op.get( 'elements', 1 ))
                 else:
-                    rpyest	= multiple # Completely unknown; prevent merging...
+                    rpyest	= multiple
+            elif method == "service_code":
+                req		= self.service_code( timeout=timeout, send=not multiple, **op )
+                reqest		= 1 + len( req.input ) # We've rendered the Service Request payload
+                rpyest		= 0
+                if op.get( 'data_size' ): # Only explicit reply data_size is used; tag_type/element is for request
+                    rpyest     += op.get( 'data_size' )
+                else:
+                    rpyest	= multiple
             else:
-                log.detail( "Unrecognized operation method %s: %r", method, op )
+                assert False, "Unrecognized operation method %s: %r" % ( method, op )
             elapsed		= cpppo.timer() - begun
             descr	       += '    ' if 'offset' not in op else 'Frag' if op['offset'] is not None else 'Tag '
             if 'path' in op:
@@ -1159,23 +1173,18 @@ class connector( client ):
             for reply in replies:
                 val	= None
                 sts	= reply.status			# sts = # or (#,[#...])
-                if reply.status in (0x00,0x06):		# Success or Partial Data; val is Truthy
-                    if 'read_frag' in reply:
+		# Success or read w/ Partial Data; val is Truthy
+                if   reply.status in (0x00,0x06) and 'read_frag' in reply:
                         val	= reply.read_frag.data
-                    elif 'read_tag' in reply:
+                elif reply.status in (0x00,0x06) and 'read_tag' in reply:
                         val	= reply.read_tag.data
-                    elif 'set_attribute_single' in reply:
-                        val	= True
-                    elif 'get_attribute_single' in reply:
+                elif reply.status in (0x00,0x06) and 'get_attribute_single' in reply:
                         val	= reply.get_attribute_single.data
-                    elif 'get_attributes_all' in reply:
+                elif reply.status in (0x00,0x06) and 'get_attributes_all' in reply:
                         val	= reply.get_attributes_all.data
-                    elif 'write_frag' in reply:
-                        val	= True
-                    elif 'write_tag' in reply:
-                        val	= True
-                    else:
-                        raise Exception( "Reply Unrecognized: %s" % ( enip.enip_format( reply )))
+                elif reply.status in (0x00,):
+                    # eg. 'set_attribute_single', 'write_{tag,frag}', 'service_code', etc...
+                    val		= True
                 else:					# Failure; val is Falsey
                     if 'status_ext' in reply and reply.status_ext.size:
                         sts	= (reply.status,reply.status_ext.data)
