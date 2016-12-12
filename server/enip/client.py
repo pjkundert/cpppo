@@ -987,6 +987,7 @@ class connector( client ):
         requests		= []	# If we're collecting for a Multiple Service Packet
         requests_paths		= {}	# Also, must collect all op route/send_paths
         for op in operations:
+            op			= op.copy() # We'll be altering the dict, so make a shallow copy
             # Chunk up requests if using Multiple Service Request, otherwise send immediately.  Also
             # handle Get Attribute(s) Single/All, but don't include ...All in Multiple Service Packet.
             op['sender_context']= sender_context
