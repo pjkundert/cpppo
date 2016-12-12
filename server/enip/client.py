@@ -162,10 +162,9 @@ CIP_TYPES			= {
 }
 
 def parse_operations( tags, fragment=False, int_type=None, **kwds ):
-    """
-
-    Given a sequence of tags, deduce the set of I/O desired operations, yielding each one.  Any
-    additional keyword parameters are added to each operation (eg. route_path=[{'link':0,'port':0}])
+    """Given a sequence of (string) tags, deduce the set of I/O desired operations, yielding each one.
+    If a dict is seen, it is passed through.  Any additional keyword parameters are added to each
+    operation (eg. route_path = [{'link':0,'port':0}])
 
     Parse each EtherNet/IP Tag Read or Write; only write operations will have 'data'; default
     'method' is considered 'read':
@@ -181,23 +180,29 @@ def parse_operations( tags, fragment=False, int_type=None, **kwds ):
     supply an element index of 0; default is no element in path, and a data value count of 1.  If a
     byte offset is specified, the request is forced to use Read/Write Tag Fragmented.
 
-    Default CIP int_type for int data (data with no '.' in it, by default) is CIP 'INT'.  
+    Default CIP int_type for int data (data with no '.' in it, by default) is CIP 'INT'.
 
     """
     if int_type is None:
         int_type		= 'INT'
     for tag in tags:
-        # Compute tag (stripping val and off)
+        # Pass-thru (already parsed) operation?
+        if isinstance( tag, dict ):
+            tag.update( kwds )
+            yield tag
+            continue
+
+        # Compute tag (stripping val and off), discarding whitespace around tag and val/off.
         val			= ''
         opr			= {}
         if '=' in tag:
             # A write; strip off the values into 'val'
-            tag,val		= tag.split( '=', 1 )
+            tag,val		= [s.strip() for s in tag.split( '=', 1 )]
             opr['method']	= 'write'
 
         if '+' in tag:
             # A byte offset (valid for Fragmented)
-            tag,off		= tag.split( '+', 1 )
+            tag,off		= [s.strip() for s in tag.split( '+', 1 )]
             if off:
                 opr['offset']	= int( off )
 

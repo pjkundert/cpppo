@@ -20,7 +20,7 @@ if __name__ == "__main__":
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))))
     from cpppo.automata import log_cfg
     logging.basicConfig( **log_cfg )
-    logging.getLogger().setLevel( logging.DETAIL )
+    logging.getLogger().setLevel( logging.NORMAL )
 
 import cpppo
 from cpppo.dotdict import dotdict
@@ -104,42 +104,54 @@ def test_hart_packet():
     """
 
 def test_hart_simple( simulated_hart_gateway ):
+    # No Multiple Service Packet supported by HART I/O Card simulator
     hart_kwds			= dict(
         timeout		= 15.0,
         depth		= 5,		# max. requests in-flight
-        multiple	= 0#500,		# max. bytes of req/rpy per Multiple Service Packet
+        multiple	= 0,		# max. bytes of req/rpy per Multiple Service Packet
     )
+
 
     logging.getLogger().setLevel( logging.INFO )
     command,address             = simulated_hart_gateway
     try:
         assert address, "Unable to detect HART EtherNet/IP CIP Gateway IP address"
         hio				= client.connector( host=address[0], port=address[1] )
-        operations		= [{
-            "method":		"service_code",
-            "code":		HART.RD_VAR_REQ,
-            "data":		[],			# No payload
-            "data_size":	2+36,			# Known response size: command,status,<payload>
-            "send_path":	'@0x%X/8' % ( HART.class_id ), # Instance 1-8 ==> HART Channel 0-7
-        }]
-        
+        PV			= 1.23
+        operations		= [
+            'HART_7_Data.PV = (REAL)0', # may fail 'til first HART Read Dynamic Variable is done
+            {
+                "method":	"service_code",
+                "code":		HART.RD_VAR_REQ,
+                "data":		[],			# No payload
+                "data_size":	2+36,			# Known response size: command,status,<payload>
+                "send_path":	'@0x%X/8' % ( HART.class_id ), # Instance 1-8 ==> HART Channel 0-7
+            },
+            'HART_7_Data.PV = (REAL)%s' % PV,
+            {
+                "method":	"service_code",
+                "code":		HART.RD_VAR_REQ,
+                "data":		[],			# No payload
+                "data_size":	2+36,			# Known response size: command,status,<payload>
+                "send_path":	'@0x%X/8' % ( HART.class_id ), # Instance 1-8 ==> HART Channel 0-7
+            },
+        ]
 
         # Now, use the underlying client.connector to issue a HART "Read Dynamic Variable" Service Code
-        for PV in ( 0.0, 1.23, 0.0 ):
-            with hio:
-                results			= []
-                failures		= 0
-                for idx,dsc,req,rpy,sts,val in hio.pipeline(
-                        operations=operations, **hart_kwds ):
-                    logging.normal( "Client %s: %s --> %r: %s", hio, dsc, val, enip.enip_format( rpy ))
-                    if not val:
-                        logging.warning( "Client %s harvested %d/%d results; failed request: %s",
-                                         hio, len( results ), len( operations ), rpy )
-                        failures       += 1
-                    results.append( (dsc,val,rpy) )
-                assert not failures
-                rpylast	       		= results[-1][-1]
-                #assert near( rpylast.read_var.PV, PV )
+        with hio:
+            results		= []
+            failures		= 0
+            for idx,dsc,req,rpy,sts,val in hio.pipeline(
+                    operations=client.parse_operations( operations ), **hart_kwds ):
+                logging.normal( "Client %s: %s --> %r: %s", hio, dsc, val, enip.enip_format( rpy ))
+                if not val:
+                    logging.warning( "Client %s harvested %d/%d results; failed request: %s",
+                                     hio, len( results ), len( operations ), rpy )
+                    failures   += 1
+                results.append( (dsc,val,rpy) )
+            rpylast	       	= results[-1][-1]
+            assert failures in (0,1)
+            assert near( rpylast.read_var.PV, PV )
 
     except Exception as exc:
         logging.warning( "Test terminated with exception: %s", exc )
