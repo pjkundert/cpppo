@@ -245,6 +245,10 @@ class DINT_network( TYPE ):
     struct_format		= '>i'
     struct_calcsize		= struct.calcsize( struct_format )
 
+class REAL_network( TYPE ):
+    """An EtherNet/IP INT; 32-bit float, but in network byte order"""
+    struct_format		= '>f'
+    struct_calcsize		= struct.calcsize( struct_format )
 
 class STRUCT( cpppo.dfa, cpppo.state ):
     pass

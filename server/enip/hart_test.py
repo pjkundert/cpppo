@@ -8,6 +8,7 @@ import logging
 import os
 import re
 import socket
+import struct
 import sys
 import time
 import threading
@@ -103,14 +104,14 @@ def test_hart_packet():
     0070   01 00 01 02
     """
 
+hart_kwds			= dict(
+    timeout		= 15.0,
+    depth		= 5,		# max. requests in-flight
+    multiple		= 0,		# max. bytes of req/rpy per Multiple Service Packet
+)
+
 def test_hart_simple( simulated_hart_gateway ):
     # No Multiple Service Packet supported by HART I/O Card simulator
-    hart_kwds			= dict(
-        timeout		= 15.0,
-        depth		= 5,		# max. requests in-flight
-        multiple	= 0,		# max. bytes of req/rpy per Multiple Service Packet
-    )
-
 
     logging.getLogger().setLevel( logging.INFO )
     command,address             = simulated_hart_gateway
@@ -157,6 +158,184 @@ def test_hart_simple( simulated_hart_gateway ):
         logging.warning( "Test terminated with exception: %s", exc )
         raise
 
+
+def test_hart_pass_thru( simulated_hart_gateway ):
+
+    logging.getLogger().setLevel( logging.INFO )
+    command,address             = simulated_hart_gateway
+
+    # For testing, we'll hit a specific device
+    address			= ("100.100.201.10", 44818)
+    address			= ("localhost", 44818)
+    try:
+        assert address, "Unable to detect HART EtherNet/IP CIP Gateway IP address"
+        hio				= client.connector( host=address[0], port=address[1] )
+
+        operations		= [
+            {
+                "method":	"service_code",
+                "code":		HART.PT_INI_REQ,
+                "data":		[1, 0],			# HART: Read primary variable
+                "data_size":	2+2,			# Known response size: command,status,<payload>
+                "send_path":	'@0x%X/8' % ( HART.class_id ), # Instance 1-8 ==> HART Channel 0-7
+            },
+            {
+                "method":	"service_code",
+                "code":		HART.PT_QRY_REQ,
+                "data":		[99],			# HART: Pass-thru Query handle
+                "data_size":	2+5,			# Known response size: 5 (units + 4-byte real in network order)
+                "send_path":	'@0x%X/8' % ( HART.class_id ), # Instance 1-8 ==> HART Channel 0-7
+            },
+        ]
+
+        # Now, use the underlying client.connector to issue a HART "Read Dynamic Variable" Service Code
+        with hio:
+            results		= []
+            failures		= 0
+            for idx,dsc,req,rpy,sts,val in hio.pipeline(
+                    operations=client.parse_operations( operations ), **hart_kwds ):
+                logging.normal( "Client %s: %s --> %r: %s", hio, dsc, val, enip.enip_format( rpy ))
+                if not val:
+                    logging.warning( "Client %s harvested %d/%d results; failed request: %s",
+                                     hio, len( results ), len( operations ), rpy )
+                    failures   += 1
+                results.append( (dsc,val,rpy) )
+            # assert failures == 0 # statuses represent HART I/O status, not CIP response status
+            assert results[0][-1].status in ( 32, 33, 35 )	# 32 busy, 33 initiated, 35 device offline
+            assert results[1][-1].status in ( 0, 34, 35 )	# 0 success, 34 running, 35 dead
+
+    except Exception as exc:
+        logging.warning( "Test terminated with exception: %s", exc )
+        raise
+
+
+def test_hart_pass_thru_poll( simulated_hart_gateway ):
+    """To test a remote C*Logix w/ a HART card, set up a remote port forward from another host in the
+    same LAN.  Here's a windows example, using putty.  This windows machine (at 100.100.102.1)
+    forwards a port 44818 on fat2.kundert.ca, to the PLC at 100.100.102.10:44818:
+
+        C:\Users\Engineer\Desktop\putty.exe -R 44818:100.100.102.10:44818 perry@fat2.kundert.ca
+
+
+    Now, from another host that can see fat2.kundert.ca:
+
+        $ python -m cpppo.server.enip.list_services --list-identity -a fat2.kundert.ca:44818
+        {
+            "peer": [
+                "fat2.kundert.ca",
+                44818
+            ],
+            ...
+            "enip.status": 0,
+            "enip.CIP.list_services.CPF.count": 1,
+            "enip.CIP.list_services.CPF.item[0].communications_service.capability": 288,
+            "enip.CIP.list_services.CPF.item[0].communications_service.service_name": "Communications",
+        }
+        {
+            ...
+            "enip.status": 0,
+            "enip.CIP.list_identity.CPF.item[0].identity_object.sin_addr": "100.100.102.10",
+            "enip.CIP.list_identity.CPF.item[0].identity_object.status_word": 96,
+            "enip.CIP.list_identity.CPF.item[0].identity_object.vendor_id": 1,
+            "enip.CIP.list_identity.CPF.item[0].identity_object.product_name": "1756-EN2T/D",
+            "enip.CIP.list_identity.CPF.item[0].identity_object.sin_port": 44818,
+            "enip.CIP.list_identity.CPF.item[0].identity_object.state": 3,
+            "enip.CIP.list_identity.CPF.item[0].identity_object.version": 1,
+            "enip.CIP.list_identity.CPF.item[0].identity_object.device_type": 12,
+            "enip.CIP.list_identity.CPF.item[0].identity_object.sin_family": 2,
+            "enip.CIP.list_identity.CPF.item[0].identity_object.serial_number": 11866067,
+            "enip.CIP.list_identity.CPF.item[0].identity_object.product_code": 166,
+            "enip.CIP.list_identity.CPF.item[0].identity_object.product_revision": 1802,
+        }
+
+    """
+    logging.getLogger().setLevel( logging.DETAIL )
+    command,address             = simulated_hart_gateway
+
+    # For testing, we'll hit a specific device
+    address			= ("100.100.201.10", 44818)
+    address			= ("localhost", 44818)
+    address			= ("fat2.kundert.ca", 44818)
+    route_path			= None
+    route_path			= [{'link': 2, 'port': 1}]
+    try:
+        assert address, "Unable to detect HART EtherNet/IP CIP Gateway IP address"
+        hio				= client.connector( host=address[0], port=address[1] )
+
+        # Just get the primary variable, to see if the HART device is there.
+        operations		= [
+            {
+                "method":	"service_code",
+                "code":		HART.RD_VAR_REQ,
+                "data":		[],			# No payload
+                "data_size":	2+36,			# Known response size: command,status,<payload>
+                "send_path":	'@0x%X/8' % ( HART.class_id ), # Instance 1-8 ==> HART Channel 0-7
+                "route_path":	route_path,
+            },
+        ]
+        
+        with hio:
+            for idx,dsc,req,rpy,sts,val in hio.pipeline(
+                    operations=client.parse_operations( operations ), **hart_kwds ):
+                logging.normal( "Client %s: %s --> %r: %s", hio, dsc, val, enip.enip_format( rpy ))
+
+
+        # Try to start the Pass-thru "Read primary variable", and get handle
+        operations		= [
+            {
+                "method":	"service_code",
+                "code":		HART.PT_INI_REQ,
+                "data":		[1, 0],			# HART: Read primary variable
+                "data_size":	2+2,			# Known response size: command,status,<payload>
+                "send_path":	'@0x%X/8' % ( HART.class_id ), # Instance 1-8 ==> HART Channel 0-7
+                "route_path":	route_path,
+            },
+        ]
+
+        # Look for a reply status of 33 initiated
+        handle			= None
+        while handle is None:
+            time.sleep( .1 )
+            with hio:
+                for idx,dsc,req,rpy,sts,val in hio.pipeline(
+                        operations=client.parse_operations( operations ), **hart_kwds ):
+                    logging.normal( "Client %s: %s --> %r: %s", hio, dsc, val, enip.enip_format( rpy ))
+                    if rpy.status == 33:
+                        handle	= rpy.init.handle
+        logging.normal( "Read primary variable Handle: %s", handle )
+
+        # Query for success/failure (loop on running)
+        operations		= [
+            {
+                "method":	"service_code",
+                "code":		HART.PT_QRY_REQ,
+                "data":		[ handle ],		# HART: Pass-thru Query handle
+                "data_size":	2+5,			# Known response size: 5 (units + 4-byte real in network order)
+                "send_path":	'@0x%X/8' % ( HART.class_id ), # Instance 1-8 ==> HART Channel 0-7
+                "route_path":	route_path,
+            },
+        ]
+
+        reply			= {}
+        while not reply or reply.status == 34:
+            time.sleep( .1 )
+            with hio:
+                for idx,dsc,req,rpy,sts,val in hio.pipeline(
+                        operations=client.parse_operations( operations ), **hart_kwds ):
+                    logging.normal( "Client %s: %s --> %r: %s", hio, dsc, val, enip.enip_format( rpy ))
+                    reply	= rpy
+            logging.normal( "Read primary variable Status: %s", reply.status )
+
+        value			= None
+        if 'query.reply_data.data' in reply and len( reply.query.reply_data.data ) == 5:
+            packer		= struct.Struct( enip.REAL_network.struct_format )
+            value,		= packer.unpack_from( buffer=bytearray( reply.query.reply_data.data[1:] ))
+        logging.normal( "Read primary variable Value: %s", value )
+            
+    except Exception as exc:
+        logging.warning( "Test terminated with exception: %s", exc )
+        raise
+    
 # 
 # python hart_test.py -- A *Logix w/ a 16-channel HART Interface Card
 # 

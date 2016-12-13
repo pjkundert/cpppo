@@ -48,13 +48,14 @@ import logging
 import sys
 import threading
 import traceback
+import random
 
 from ...dotdict import dotdict
 from ... import automata, misc
 from .device import ( Attribute, Object,
                       Message_Router, Connection_Manager, UCMM, Identity, TCPIP,
                       resolve_element, resolve_tag, resolve, redirect_tag, lookup )
-from .parser import ( BOOL, UDINT, DINT, UINT, INT, USINT, SINT, REAL, EPATH, typed_data,
+from .parser import ( BOOL, UDINT, DINT, UINT, INT, USINT, SINT, REAL, REAL_network, EPATH, typed_data,
                       move_if, octets_drop, octets_noop, enip_format, status )
 from .logix import Logix
 
@@ -253,6 +254,10 @@ class HART( Message_Router ):
         # reply beyond this point; any exceptions generated will be captured, logged and an
         # appropriate reply .status error code returned.
 
+        if not hasattr( self, 'hart_command' ):
+            self.hart_command	= None		# Any HART Pass-thru command in process: None or (<command>,<command_data)
+        
+        
         data.service           |= 0x80
         data.status		= 0x08		# Service not supported, if not recognized or fail to access
         try:
@@ -287,6 +292,41 @@ class HART( Message_Router ):
                     data.read_var[fldnam]= attribute[0]
                     logging.detail( "%s <-- %s == %s", fldnam, attribute, data.read_var[fldnam] )
                 data.status		= 0x00
+            elif data.service == self.PT_INI_RPY:
+                # Actually store the command, return a proper handle.  The status is actually a HART
+                # command result code where 33 means initiated.
+                data.init.handle		= 99
+                data.init.queue_space		= 200
+                data.status			= 33 if self.hart_command is None else 32 # 32 busy, 33 initiated, 35 device offline
+                if self.hart_command is None:
+                    self.hart_command		= data.init.command,data.init.get( 'command_data', [] )
+                logging.normal( "%s: HART Pass-thru Init Command %r: %s", self, self.hart_command,
+                                "busy" if data.status == 33
+                                else "initiated" if data.status == 32
+                                else "unknown: %s" % data.status )
+                logging.detail( "%s HART Pass-thru Init: %r", self, data )
+            elif data.service == self.PT_QRY_RPY:
+                # TODO: just return a single network byte ordered real, for now, as if its a HART
+                # Read Primary Variable request.
+                data.query.reply_status		= 0
+                data.query.fld_dev_status	= 0
+                data.query.reply_size		= 4
+                # PV units code (unknown?) + 4-byte PV REAL (network order)
+                data.query.reply_data		= [1] + [ b for b in bytearray( REAL_network.produce( 1.234 )) ]
+                if self.hart_command is not None:
+                    data.status			= random.choice( (0, 34, 35) )
+                    data.query.command		= self.hart_command[0] # ignore command_data
+                else:
+                    data.status			= 35	# 0 success, 34 running, 35 dead
+                logging.normal( "%s: HART Pass-thru Query Command %r: %s", self, self.hart_command,
+                                "success" if data.status == 0
+                                else "running" if data.status == 34
+                                else "dead" if data.status == 35
+                                else "unknown: %s" % data.status )
+                if data.status in ( 0, 35 ):
+                    self.hart_command	= None
+                data.query.command		= 0 if self.hart_command is None else self.hart_command[0]
+                logging.detail( "%s HART Pass-thru Query: %r", self, data )
             else:
                 assert False, "Not Implemented: {data!r}".format( data=data )
 
@@ -334,11 +374,42 @@ class HART( Message_Router ):
         elif data.get( 'service' ) == cls.RD_VAR_RPY:
             result	       += USINT.produce(	data.service )
             result	       += USINT.produce(	data.status )
-            if data.status == 0x00:
-                for typ,fld,dfl in cls.RD_VAR_RPY_FLD:
-                    result     += typ.produce( data.read_var.get( fld, 0 )) # eg. 'read_var.PV'
+            if data.status:
+                result	       += b'\x00'					# Failure; pad
+            else:
+                for typ,fld,dfl in cls.RD_VAR_RPY_FLD:				# Success; reply payload
+                    result     += typ.produce( data.read_var.get( fld, 0 ))	# eg. 'read_var.PV'
+        elif cls.PT_INI_CTX in data and data.setdefault( 'service', cls.RD_VAR_REQ ) == cls.RD_VAR_REQ:
+            result	       += USINT.produce(	data.service )
+            result	       += USINT.produce(	data.init.command )
+            if 'command_data' in data.init and data.init.command_data:
+                result	       += USINT.produce(	len( data.init.command_data ))
+                result	       += typed_data.produce( { 'data': data.init.command_data }, tag_type=USINT.tag_type )
+            else:
+                result	       += USINT.produce(	0 )
+        elif data.service == cls.PT_INI_RPY:
+            result	       += USINT.produce(	data.service )
+            result	       += USINT.produce( 	data.status )		# 32 busy, 33 initiated, 35 device offline
+            result	       += USINT.produce(	data.init.command )
+            result	       += USINT.produce(	data.init.handle )
+            result	       += USINT.produce(	data.init.queue_space )
+        elif cls.PT_QRY_CTX in data and data.setdefault( 'service', cls.PT_QRY_REQ ) == cls.PT_QRY_REQ:
+            result	       += USINT.produce(	data.service )
+            result	       += USINT.produce(	data.query.handle )
+        elif data.service == cls.PT_QRY_RPY:
+            result	       += USINT.produce(	data.service )
+            result	       += USINT.produce(	data.status )		# 0 success, 34 running, 35 dead
+            result	       += USINT.produce(	data.query.command )
+            result	       += USINT.produce(	data.query.reply_status )
+            result	       += USINT.produce(	data.query.fld_dev_status )
+            if 'reply_data' in data.query and data.query.reply_data:
+                result	       += USINT.produce(	len( data.query.reply_data ))
+                result	       += typed_data.produce( { 'data': data.query.reply_data }, tag_type=USINT.tag_type )
+            else:
+                result	       += USINT.produce(	0 )
         else:
             result		= super( HART, cls ).produce( data )
+        log
         return result
 
 
@@ -357,44 +428,108 @@ def __read_var_reply():
     stts[None]		= schk	= octets_noop(	'check',
                                                 terminal=True )
 
-    hsts			= USINT( 'HART_command_status',	context='read_var', extension='.HART_command_status' )
-    hsts[True]		= hfds	= USINT( 'HART_fld_dev_status', context='read_var', extension='.HART_fld_dev_status' )
-    hfds[True]		= heds	= USINT( 'HART_ext_dev_status',	context='read_var', extension='.HART_ext_dev_status' )
-    heds[True]		= hPVd	= REAL( 'PV',			context='read_var', extension='.PV' )
-    hPVd[True]		= hSVd	= REAL( 'SV',			context='read_var', extension='.SV' )
-    hSVd[True]		= hTVd	= REAL( 'TV',			context='read_var', extension='.TV' )
-    hTVd[True]		= hFVd	= REAL( 'FV',			context='read_var', extension='.FV' )
-    hFVd[True]		= hPVu	= USINT( 'PV_units',		context='read_var', extension='.PV_units' )
-    hPVu[True]		= hSVu	= USINT( 'SV_units',		context='read_var', extension='.SV_units' )
-    hSVu[True]		= hTVu	= USINT( 'TV_units',		context='read_var', extension='.TV_units' )
-    hTVu[True]		= hFVu	= USINT( 'FV_units',		context='read_var', extension='.FV_units' )
-    hFVu[True]		= hPVa	= USINT( 'PV_assignment_code',	context='read_var', extension='.PV_assignment_code' )
-    hPVa[True]		= hSVa	= USINT( 'SV_assignment_code',	context='read_var', extension='.SV_assignment_code' )
-    hSVa[True]		= hTVa	= USINT( 'TV_assignment_code',	context='read_var', extension='.TV_assignment_code' )
-    hTVa[True]		= hFVa	= USINT( 'FV_assignment_code',	context='read_var', extension='.FV_assignment_code' )
-    hFVa[True]		= hPVs	= USINT( 'PV_status',		context='read_var', extension='.PV_status' )
-    hPVs[True]		= hSVs	= USINT( 'SV_status',		context='read_var', extension='.SV_status' )
-    hSVs[True]		= hTVs	= USINT( 'TV_status',		context='read_var', extension='.TV_status' )
-    hTVs[True]		= hFVs	= USINT( 'FV_status',		context='read_var', extension='.FV_status' )
-    hFVs[True]			= REAL( 'loop_current',		context='read_var', extension='.loop_current',
+    hsts			= USINT( 'HART_command_status',	context=HART.RD_VAR_CTX, extension='.HART_command_status' )
+    hsts[True]		= hfds	= USINT( 'HART_fld_dev_status', context=HART.RD_VAR_CTX, extension='.HART_fld_dev_status' )
+    hfds[True]		= heds	= USINT( 'HART_ext_dev_status',	context=HART.RD_VAR_CTX, extension='.HART_ext_dev_status' )
+    heds[True]		= hPVd	= REAL( 'PV',			context=HART.RD_VAR_CTX, extension='.PV' )
+    hPVd[True]		= hSVd	= REAL( 'SV',			context=HART.RD_VAR_CTX, extension='.SV' )
+    hSVd[True]		= hTVd	= REAL( 'TV',			context=HART.RD_VAR_CTX, extension='.TV' )
+    hTVd[True]		= hFVd	= REAL( 'FV',			context=HART.RD_VAR_CTX, extension='.FV' )
+    hFVd[True]		= hPVu	= USINT( 'PV_units',		context=HART.RD_VAR_CTX, extension='.PV_units' )
+    hPVu[True]		= hSVu	= USINT( 'SV_units',		context=HART.RD_VAR_CTX, extension='.SV_units' )
+    hSVu[True]		= hTVu	= USINT( 'TV_units',		context=HART.RD_VAR_CTX, extension='.TV_units' )
+    hTVu[True]		= hFVu	= USINT( 'FV_units',		context=HART.RD_VAR_CTX, extension='.FV_units' )
+    hFVu[True]		= hPVa	= USINT( 'PV_assignment_code',	context=HART.RD_VAR_CTX, extension='.PV_assignment_code' )
+    hPVa[True]		= hSVa	= USINT( 'SV_assignment_code',	context=HART.RD_VAR_CTX, extension='.SV_assignment_code' )
+    hSVa[True]		= hTVa	= USINT( 'TV_assignment_code',	context=HART.RD_VAR_CTX, extension='.TV_assignment_code' )
+    hTVa[True]		= hFVa	= USINT( 'FV_assignment_code',	context=HART.RD_VAR_CTX, extension='.FV_assignment_code' )
+    hFVa[True]		= hPVs	= USINT( 'PV_status',		context=HART.RD_VAR_CTX, extension='.PV_status' )
+    hPVs[True]		= hSVs	= USINT( 'SV_status',		context=HART.RD_VAR_CTX, extension='.SV_status' )
+    hSVs[True]		= hTVs	= USINT( 'TV_status',		context=HART.RD_VAR_CTX, extension='.TV_status' )
+    hTVs[True]		= hFVs	= USINT( 'FV_status',		context=HART.RD_VAR_CTX, extension='.FV_status' )
+    hFVs[True]			= REAL( 'loop_current',		context=HART.RD_VAR_CTX, extension='.loop_current',
                                         terminal=True )
 
     # For status 0x00 (Success), Read Dynamic Variable data follows.  If failed, mark as a read_var
-    # request.  Otherwise, continue parsing with HART Command Status
+    # request (and drop pad byte).  Otherwise, continue parsing with HART Command Status
     schk[None]			= automata.decide( 'ok',	state=hsts,
         predicate=lambda path=None, data=None, **kwds: data[path+'.status' if path else 'status'] == 0x00 )
     schk[None]			= move_if(	'mark',		initializer=True,
-		                                                destination='read_var' )
+		                                                destination=HART.RD_VAR_CTX )
+    schk[None]			= octets_drop(	'pad', repeat=1,
+                                                	terminal=True )
     return srvc
 HART.register_service_parser( number=HART.RD_VAR_RPY, name=HART.RD_VAR_NAM + " Reply",
                                short=HART.RD_VAR_CTX, machine=__read_var_reply() )
 
+# Pass-thru Init, Query, Flush.  Incomplete.
+def __init():
+    """See
+    http://literature.rockwellautomation.com/idc/groups/literature/documents/um/1756-um533_-en-p.pdf,
+    page 231 for a list of HART Universal Commands.  For example:
+
+    | Command |                       | Request |      |      | Reply |                  |      | Input | CIP |
+    | No.     | Function              | Byte    | Data | Type |  Byte | Data             | Type | Tag   | MSG |
+    |---------+-----------------------+---------+------+------+-------+------------------+------+-------+-----|
+    | 1       | Read primary variable |         | None |      |     0 | PV units code    |      |       |  x  |
+    |         |                       |         |      |      | 1...4 | Primary Variable |      | x     |  x  |
+
+    Implements the short format (Service Code 0x4E), not the CIP MSG Long Format (Service Code 0x5B, 0x5F).
+    
+    """
+    srvc			= USINT(		  	context='service' )
+    srvc[True]	= hcmd	 	= USINT( 'command',		context=HART.PT_INI_CTX, extension='.command' )
+    hcmd[True]	= hsiz	 	= USINT( 'command_size',	context=HART.PT_INI_CTX, extension='.command_size' )
+    # Should match '.command_size', but not checked
+    hsiz[True]			= typed_data( 			context=HART.PT_INI_CTX, extension='.command_data',
+                                                tag_type=USINT.tag_type,
+                                                terminal=True )
+    hsiz[None]			= octets_noop(	'nodata',
+                                                terminal=True )
+    return srvc
+HART.register_service_parser( number=HART.PT_INI_REQ, name=HART.PT_INI_NAM,
+                               short=HART.PT_INI_CTX, machine=__init() )
+
+def __init_reply():
+    srvc			= USINT(		  	context='service' )
+    srvc[True]	= hsts	 	= USINT( 'status',		context='status' ) # 32 busy, 33 initiated, 35 device offline
+    hsts[True]	= hcmd	 	= USINT( 'command',		context=HART.PT_INI_CTX, extension='.command' )
+    hcmd[True]	= hhdl	 	= USINT( 'handle',		context=HART.PT_INI_CTX, extension='.handle' )
+    hhdl[None]		 	= USINT( 'queue_space',		context=HART.PT_INI_CTX, extension='.queue_space',
+                                         terminal=True )
+    return srvc
+HART.register_service_parser( number=HART.PT_INI_RPY, name=HART.PT_INI_NAM + " Reply",
+                               short=HART.PT_INI_CTX, machine=__init_reply() )
+
+def __query():
+    srvc			= USINT(		  	context='service' )
+    srvc[True]		 	= USINT( 'handle',		context=HART.PT_QRY_CTX, extension='.handle',
+                                         terminal=True )
+    return srvc
+HART.register_service_parser( number=HART.PT_QRY_REQ, name=HART.PT_QRY_NAM,
+                               short=HART.PT_QRY_CTX, machine=__query() )
+
+def __query_reply():
+    srvc			= USINT(		  	context='service' )
+    srvc[True]	= hsts	 	= USINT( 'status',		context='status' )
+    hsts[True]	= hcmd	 	= USINT( 'command',		context=HART.PT_QRY_CTX, extension='.command' )
+    hcmd[True]	= hrpy		= USINT( 'reply_status',	context=HART.PT_QRY_CTX, extension='.reply_status' )
+    hrpy[True]	= hfds		= USINT( 'fld_dev_status',	context=HART.PT_QRY_CTX, extension='.fld_dev_status' )
+    hfds[True]	= hrsz		= USINT( 'reply_size',		context=HART.PT_QRY_CTX, extension='.reply_size' )
+    hrsz[True]			= typed_data( 			context=HART.PT_QRY_CTX, extension='.reply_data',
+                                                tag_type=USINT.tag_type,
+                                                terminal=True )
+    hrsz[None]			= octets_noop(	'nodata',
+                                                terminal=True )
+    return srvc
+HART.register_service_parser( number=HART.PT_QRY_RPY, name=HART.PT_QRY_NAM + " Reply",
+                               short=HART.PT_QRY_CTX, machine=__query_reply() )
 
 # 
 # proxy_hart	-- Example of CIP device proxy: to a C*Logix w/ a HART Interface.
 # 
 #     All client.connectors must use the same (global) CIP device.dialect; it is safest to specify
-# it globally, but we'll ensure it is specified it.
+# it globally, but we'll ensure it is specified here.
 # 
 class proxy_hart( proxy ):
     def __init__( self, *args, **kwds ):
