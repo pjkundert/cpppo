@@ -927,8 +927,9 @@ class Object( object ):
             result	       += b'\x00' # reserved
             result	       += status.produce( 	data )
         elif cls.SV_COD_CTX in data and data.get( 'service' ):
-            # Generic CIP Service Code, with possible data payload supplied.
+            # Generic CIP Service Code + EPATH, with possible data payload supplied.
             result	       += USINT.produce(	data.service )
+            result	       += EPATH.produce(	data.path )
             if 'data' in data.service_code:
                 result	       += typed_data.produce(	data.service_code,
                                                         tag_type=USINT.tag_type )

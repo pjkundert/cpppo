@@ -600,7 +600,7 @@ class client( object ):
         return self.cip_send( cip=cip )
 
     # CIP SendRRData Requests; may be deferred (eg. for Multiple Service Packet)
-    def service_code( self, code, data=None, elements=None, tag_type=None,
+    def service_code( self, code, path, data=None, elements=None, tag_type=None,
                 route_path=None, send_path=None, timeout=None, send=True,
                 sender_context=b'', data_size=None ): # response data_size estimation
         """Generic CIP Service Code, with path to target CIP Object, and supplied data payload (converted
@@ -617,6 +617,7 @@ class client( object ):
 
         """
         req			= cpppo.dotdict()
+        req.path		= { 'segment': [ cpppo.dotdict( d ) for d in parse_path( path ) ]}
         req.service		= code
         if data is None:
             req.service_code	= True		# indicate a payload-free Service Code request

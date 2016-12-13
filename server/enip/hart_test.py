@@ -33,6 +33,8 @@ from cpppo.server.enip import poll, client
 from cpppo.server.enip.get_attribute import proxy
 from cpppo.server.enip.hart import HART, proxy_hart # Class, proxy
 
+log				= logging.getLogger( "HART" )
+
 def start_hart_simulator( *options, **kwds ):
     """Start a simple EtherNet/IP CIP simulator w/ a HART I/O module (execute this file as __main__),
     optionally with Tag=<type>[<size>] (or other) positional arguments appended to the command-line.
@@ -65,23 +67,23 @@ def start_hart_simulator( *options, **kwds ):
         # On Python2, socket will raise IOError/EAGAIN; on Python3 may return None 'til command started.
         try:
             raw			= command.stdout.read()
-            logging.debug( "Socket received: %r", raw)
+            log.debug( "Socket received: %r", raw)
             if raw:
                 data  	       += raw.decode( 'utf-8' )
         except IOError as exc:
-            logging.debug( "Socket blocking...")
+            log.debug( "Socket blocking...")
             assert exc.errno == errno.EAGAIN, "Expected only Non-blocking IOError"
         except Exception as exc:
-            logging.warning("Socket read return Exception: %s", exc)
+            log.warning("Socket read return Exception: %s", exc)
         if not data:
             time.sleep( CMD_LATENCY )
         while data.find( '\n' ) >= 0:
             line,data		= data.split( '\n', 1 )
-            logging.info( "%s", line )
+            log.info( "%s", line )
             m			= re.search( "running on (\([^)]*\))", line )
             if m:
                 address		= ast.literal_eval( m.group(1).strip() )
-                logging.normal( "EtherNet/IP CIP Simulator started after %7.3fs on %s:%d",
+                log.normal( "EtherNet/IP CIP Simulator started after %7.3fs on %s:%d",
                                     timer() - begun, address[0], address[1] )
                 break
     return command,address
@@ -144,9 +146,9 @@ def test_hart_simple( simulated_hart_gateway ):
             failures		= 0
             for idx,dsc,req,rpy,sts,val in hio.pipeline(
                     operations=client.parse_operations( operations ), **hart_kwds ):
-                logging.normal( "Client %s: %s --> %r: %s", hio, dsc, val, enip.enip_format( rpy ))
+                log.normal( "Client %s: %s --> %r: %s", hio, dsc, val, enip.enip_format( rpy ))
                 if not val:
-                    logging.warning( "Client %s harvested %d/%d results; failed request: %s",
+                    log.warning( "Client %s harvested %d/%d results; failed request: %s",
                                      hio, len( results ), len( operations ), rpy )
                     failures   += 1
                 results.append( (dsc,val,rpy) )
@@ -155,7 +157,7 @@ def test_hart_simple( simulated_hart_gateway ):
             assert near( rpylast.read_var.PV, PV )
 
     except Exception as exc:
-        logging.warning( "Test terminated with exception: %s", exc )
+        log.warning( "Test terminated with exception: %s", exc )
         raise
 
 
@@ -194,9 +196,9 @@ def test_hart_pass_thru( simulated_hart_gateway ):
             failures		= 0
             for idx,dsc,req,rpy,sts,val in hio.pipeline(
                     operations=client.parse_operations( operations ), **hart_kwds ):
-                logging.normal( "Client %s: %s --> %r: %s", hio, dsc, val, enip.enip_format( rpy ))
+                log.normal( "Client %s: %s --> %r: %s", hio, dsc, val, enip.enip_format( rpy ))
                 if not val:
-                    logging.warning( "Client %s harvested %d/%d results; failed request: %s",
+                    log.warning( "Client %s harvested %d/%d results; failed request: %s",
                                      hio, len( results ), len( operations ), rpy )
                     failures   += 1
                 results.append( (dsc,val,rpy) )
@@ -205,7 +207,7 @@ def test_hart_pass_thru( simulated_hart_gateway ):
             assert results[1][-1].status in ( 0, 34, 35 )	# 0 success, 34 running, 35 dead
 
     except Exception as exc:
-        logging.warning( "Test terminated with exception: %s", exc )
+        log.warning( "Test terminated with exception: %s", exc )
         raise
 
 
@@ -253,15 +255,15 @@ def test_hart_pass_thru_poll( simulated_hart_gateway ):
     command,address             = simulated_hart_gateway
 
     # For testing, we'll hit a specific device
-    address			= ("100.100.201.10", 44818)
-    address			= ("localhost", 44818)
+    #address			= ("100.100.201.10", 44818)
+    #address			= ("localhost", 44818)
     address			= ("fat2.kundert.ca", 44818)
     route_path			= None
     route_path			= [{'link': 2, 'port': 1}]
     try:
         assert address, "Unable to detect HART EtherNet/IP CIP Gateway IP address"
         hio				= client.connector( host=address[0], port=address[1] )
-
+        '''
         # Just get the primary variable, to see if the HART device is there.
         operations		= [
             {
@@ -269,7 +271,7 @@ def test_hart_pass_thru_poll( simulated_hart_gateway ):
                 "code":		HART.RD_VAR_REQ,
                 "data":		[],			# No payload
                 "data_size":	2+36,			# Known response size: command,status,<payload>
-                "send_path":	'@0x%X/8' % ( HART.class_id ), # Instance 1-8 ==> HART Channel 0-7
+                "path":		'@0x%X/8' % ( HART.class_id ), # Instance 1-8 ==> HART Channel 0-7
                 "route_path":	route_path,
             },
         ]
@@ -277,8 +279,9 @@ def test_hart_pass_thru_poll( simulated_hart_gateway ):
         with hio:
             for idx,dsc,req,rpy,sts,val in hio.pipeline(
                     operations=client.parse_operations( operations ), **hart_kwds ):
-                logging.normal( "Client %s: %s --> %r: %s", hio, dsc, val, enip.enip_format( rpy ))
+                log.normal( "Client %s: %s --> %r: %s", hio, dsc, val, enip.enip_format( rpy ))
 
+        '''
 
         # Try to start the Pass-thru "Read primary variable", and get handle
         operations		= [
@@ -287,22 +290,22 @@ def test_hart_pass_thru_poll( simulated_hart_gateway ):
                 "code":		HART.PT_INI_REQ,
                 "data":		[1, 0],			# HART: Read primary variable
                 "data_size":	2+2,			# Known response size: command,status,<payload>
-                "send_path":	'@0x%X/8' % ( HART.class_id ), # Instance 1-8 ==> HART Channel 0-7
+                "path":		'@0x%X/8' % ( HART.class_id ), # Instance 1-8 ==> HART Channel 0-7
                 "route_path":	route_path,
             },
         ]
 
-        # Look for a reply status of 33 initiated
+        # Look for a reply status of 33 initiated. Actually, it appears that status 0 indicates success.
         handle			= None
         while handle is None:
             time.sleep( .1 )
             with hio:
                 for idx,dsc,req,rpy,sts,val in hio.pipeline(
                         operations=client.parse_operations( operations ), **hart_kwds ):
-                    logging.normal( "Client %s: %s --> %r: %s", hio, dsc, val, enip.enip_format( rpy ))
-                    if rpy.status == 33:
+                    log.normal( "Client %s: %s --> %r: %s", hio, dsc, val, enip.enip_format( rpy ))
+                    if rpy.status == 0: #33:
                         handle	= rpy.init.handle
-        logging.normal( "Read primary variable Handle: %s", handle )
+        log.normal( "Read primary variable Handle: %s", handle )
 
         # Query for success/failure (loop on running)
         operations		= [
@@ -311,7 +314,7 @@ def test_hart_pass_thru_poll( simulated_hart_gateway ):
                 "code":		HART.PT_QRY_REQ,
                 "data":		[ handle ],		# HART: Pass-thru Query handle
                 "data_size":	2+5,			# Known response size: 5 (units + 4-byte real in network order)
-                "send_path":	'@0x%X/8' % ( HART.class_id ), # Instance 1-8 ==> HART Channel 0-7
+                "path":		'@0x%X/8' % ( HART.class_id ), # Instance 1-8 ==> HART Channel 0-7
                 "route_path":	route_path,
             },
         ]
@@ -322,19 +325,140 @@ def test_hart_pass_thru_poll( simulated_hart_gateway ):
             with hio:
                 for idx,dsc,req,rpy,sts,val in hio.pipeline(
                         operations=client.parse_operations( operations ), **hart_kwds ):
-                    logging.normal( "Client %s: %s --> %r: %s", hio, dsc, val, enip.enip_format( rpy ))
+                    log.normal( "Client %s: %s --> %r: %s", hio, dsc, val, enip.enip_format( rpy ))
                     reply	= rpy
-            logging.normal( "Read primary variable Status: %s", reply.status )
+            log.normal( "Read primary variable Status: %s", reply.status )
 
         value			= None
-        if 'query.reply_data.data' in reply and len( reply.query.reply_data.data ) == 5:
+        if 'query.reply_data.data' in reply and len( reply.query.reply_data.data ) >= 4:
             packer		= struct.Struct( enip.REAL_network.struct_format )
-            value,		= packer.unpack_from( buffer=bytearray( reply.query.reply_data.data[1:] ))
-        logging.normal( "Read primary variable Value: %s", value )
+            value,		= packer.unpack_from( buffer=bytearray( reply.query.reply_data.data[-4:] ))
+        log.normal( "Read primary variable Value: %s", value )
             
     except Exception as exc:
-        logging.warning( "Test terminated with exception: %s", exc )
+        log.warning( "Test terminated with exception: %s", exc )
         raise
+
+
+# 0x4B to HART I/O card at 0x35D/8 (HART Channel 7)  Requires a Message Router versed in HART I/O card protocol
+hart_0x4b_request	= bytes(bytearray([
+    0x6f, 0x00, 0x26, 0x00, 0x04, 0x00, 0x31, 0x00, 0x00, 0x00, 0x00, 0x00, 0x6c, 0x74, 0x00, 0x00,  # o.&...1.....lt..
+    0x88, 0xf9, 0x59, 0x07, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x08, 0x00, 0x02, 0x00,  # ..Y.............
+    0x00, 0x00, 0x00, 0x00, 0xb2, 0x00, 0x16, 0x00, 0x52, 0x02, 0x20, 0x06, 0x24, 0x01, 0x05, 0xf7,  # ........R. .$...
+    0x08, 0x00, 0x4b, 0x03, 0x21, 0x00, 0x5d, 0x03, 0x24, 0x08, 0x01, 0x00, 0x01, 0x02,              # ..K.!.].$.....
+]))
+
+CIP_HART_tests			= [
+            ( 
+                # An empty request (usually indicates termination of session)
+                b'', {}
+             ), (
+                hart_0x4b_request,
+                 {
+                     "enip.CIP.send_data.CPF.item[1].unconnected_send.request.service": 75,
+                     "enip.CIP.send_data.CPF.item[1].unconnected_send.request.path.segment[0].class": 861,
+                     "enip.CIP.send_data.CPF.item[1].unconnected_send.request.path.segment[1].instance": 8,
+                     "enip.CIP.send_data.CPF.item[1].unconnected_send.request.path.size": 3,
+                 }
+             ),
+]
+
+
+def test_enip_CIP_HART( repeat=1 ):
+    """HART protocol enip CIP messages
+    """
+    enip.lookup_reset() # Flush out any existing CIP Objects for a fresh start
+    logging.getLogger().setLevel(logging.DETAIL)
+    ENIP			= enip.enip_machine( context='enip' )
+    CIP				= enip.CIP()
+    # We'll use a HART Message Router, to handle its expanded porfolio of commands
+    MR				= HART( instance_id=1 )
+
+    for pkt,tst in client.recycle( CIP_HART_tests, times=repeat ):
+        # Parse just the CIP portion following the EtherNet/IP encapsulation header
+        data			= cpppo.dotdict()
+        source			= cpppo.chainable( pkt )
+        with ENIP as machine:
+            for i,(m,s) in enumerate( machine.run( source=source, data=data )):
+                log.detail( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r",
+                          machine.name_centered(), i, s, source.sent, source.peek(), data )
+        # In a real protocol implementation, an empty header (EOF with no input at all) is
+        # acceptable; it indicates a session closed by the client.
+        if not data:
+            log.normal( "EtherNet/IP Request: Empty (session terminated): %s", enip.enip_format( data ))
+            continue
+
+        if log.getEffectiveLevel() <= logging.NORMAL:
+            log.normal( "EtherNet/IP Request: %s", enip.enip_format( data ))
+            
+        # Parse the encapsulated .input
+        with CIP as machine:
+            for i,(m,s) in enumerate( machine.run( path='enip', source=cpppo.peekable( data.enip.get( 'input', b'' )), data=data )):
+                log.detail( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r",
+                          machine.name_centered(), i, s, source.sent, source.peek(), data )
+
+        if log.getEffectiveLevel() <= logging.NORMAL:
+            log.normal( "EtherNet/IP CIP Request: %s", enip.enip_format( data ))
+
+        # Assume the request in the CIP's CPF items are Logix requests.
+        # Now, parse the encapsulated message(s).  We'll assume it is destined for a Logix Object.
+        if 'enip.CIP.send_data' in data:
+            for item in data.enip.CIP.send_data.CPF.item:
+                if 'unconnected_send.request' in item:
+                    # An Unconnected Send that contained an encapsulated request (ie. not just a Get
+                    # Attribute All)
+                    with MR.parser as machine:
+                        if log.getEffectiveLevel() <= logging.NORMAL:
+                            log.normal( "Parsing %3d bytes using %s.parser, from %s", 
+                                        len( item.unconnected_send.request.input ),
+                                        MR, enip.enip_format( item ))
+                        # Parse the unconnected_send.request.input octets, putting parsed items into the
+                        # same request context
+                        for i,(m,s) in enumerate( machine.run(
+                                source=cpppo.peekable( item.unconnected_send.request.input ),
+                                data=item.unconnected_send.request )):
+                            log.detail( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r",
+                                        machine.name_centered(), i, s, source.sent, source.peek(), data )
+                    # Post-processing of some parsed items is only performed after lock released!
+                    if log.getEffectiveLevel() <= logging.NORMAL:
+                        log.normal( "Parsed  %3d bytes using %s.parser, into %s", 
+                                    len( item.unconnected_send.request.input ),
+                                    MR, enip.enip_format( data ))
+        try:
+            for k,v in tst.items():
+                assert data[k] == v, ( "data[%r] == %r\n"
+                                       "expected:   %r" % ( k, data[k], v ))
+        except:
+            log.warning( "%r not in data, or != %r: %s", k, v, enip.enip_format( data ))
+            raise
+            
+
+        # Ensure that we can get the original EtherNet/IP CIP back
+        for k in list(data.keys()):
+            if k.endswith( 'input' ) and 'sender_context' not in k:
+                log.detail( "del data[%r]", k )
+                del data[k]
+        try:
+            # First reconstruct any SendRRData CPF items, containing encapsulated requests/responses
+            if 'enip.CIP.send_data' in data:
+                cpf		= data.enip.CIP.send_data
+                for item in cpf.CPF.item:
+                    if 'unconnected_send' in item:
+                        item.unconnected_send.request.input	= bytearray( MR.produce( item.unconnected_send.request ))
+                        log.normal("Produce Logix message from: %r", item.unconnected_send.request )
+
+            # Next, reconstruct the CIP Register, ListIdentity, ListServices, or SendRRData.  The CIP.produce must
+            # be provided the EtherNet/IP header, because it contains data (such as .command)
+            # relevant to interpreting the .CIP... contents.
+            data.enip.input		= bytearray( enip.CIP.produce( data.enip ))
+            # And finally the EtherNet/IP encapsulation itself
+            data.input			= bytearray( enip.enip_encode( data.enip ))
+            log.detail( "EtherNet/IP CIP Request produced payload: %r", bytes( data.input ))
+            assert data.input == pkt
+        except:
+            log.warning ( "Invalid packet produced from EtherNet/IP CIP data: %s", enip.enip_format( data ))
+            raise
+
     
 # 
 # python hart_test.py -- A *Logix w/ a 16-channel HART Interface Card

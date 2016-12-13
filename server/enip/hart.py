@@ -371,6 +371,7 @@ class HART( Message_Router ):
         if ( data.get( 'service' ) == cls.RD_VAR_REQ
              or cls.RD_VAR_CTX in data and data.setdefault( 'service', cls.RD_VAR_REQ ) == cls.RD_VAR_REQ ):
             result	       += USINT.produce(	data.service )
+            result	       += EPATH.produce(	data.path )
         elif data.get( 'service' ) == cls.RD_VAR_RPY:
             result	       += USINT.produce(	data.service )
             result	       += USINT.produce(	data.status )
@@ -381,6 +382,7 @@ class HART( Message_Router ):
                     result     += typ.produce( data.read_var.get( fld, 0 ))	# eg. 'read_var.PV'
         elif cls.PT_INI_CTX in data and data.setdefault( 'service', cls.RD_VAR_REQ ) == cls.RD_VAR_REQ:
             result	       += USINT.produce(	data.service )
+            result	       += EPATH.produce(	data.path )
             result	       += USINT.produce(	data.init.command )
             if 'command_data' in data.init and data.init.command_data:
                 result	       += USINT.produce(	len( data.init.command_data ))
@@ -395,6 +397,7 @@ class HART( Message_Router ):
             result	       += USINT.produce(	data.init.queue_space )
         elif cls.PT_QRY_CTX in data and data.setdefault( 'service', cls.PT_QRY_REQ ) == cls.PT_QRY_REQ:
             result	       += USINT.produce(	data.service )
+            result	       += EPATH.produce(	data.path )
             result	       += USINT.produce(	data.query.handle )
         elif data.service == cls.PT_QRY_RPY:
             result	       += USINT.produce(	data.service )
@@ -415,7 +418,8 @@ class HART( Message_Router ):
 
 def __read_var():
     srvc			= USINT(		  	context='service' )
-    srvc[None]		= mark	= octets_noop(			context=HART.RD_VAR_CTX,
+    srvc[True]		= path	= EPATH(			context='path')
+    path[None]		= mark	= octets_noop(			context=HART.RD_VAR_CTX,
                                                 terminal=True )
     mark.initial[None]		= move_if( 	'mark',		initializer=True )
     return srvc
@@ -478,8 +482,9 @@ def __init():
     
     """
     srvc			= USINT(		  	context='service' )
-    srvc[True]	= hcmd	 	= USINT( 'command',		context=HART.PT_INI_CTX, extension='.command' )
-    hcmd[True]	= hsiz	 	= USINT( 'command_size',	context=HART.PT_INI_CTX, extension='.command_size' )
+    srvc[True]		= path	= EPATH(			context='path')
+    path[True]		= hcmd	= USINT( 'command',		context=HART.PT_INI_CTX, extension='.command' )
+    hcmd[True]		= hsiz	= USINT( 'command_size',	context=HART.PT_INI_CTX, extension='.command_size' )
     # Should match '.command_size', but not checked
     hsiz[True]			= typed_data( 			context=HART.PT_INI_CTX, extension='.command_data',
                                                 tag_type=USINT.tag_type,
@@ -492,10 +497,10 @@ HART.register_service_parser( number=HART.PT_INI_REQ, name=HART.PT_INI_NAM,
 
 def __init_reply():
     srvc			= USINT(		  	context='service' )
-    srvc[True]	= hsts	 	= USINT( 'status',		context='status' ) # 32 busy, 33 initiated, 35 device offline
-    hsts[True]	= hcmd	 	= USINT( 'command',		context=HART.PT_INI_CTX, extension='.command' )
-    hcmd[True]	= hhdl	 	= USINT( 'handle',		context=HART.PT_INI_CTX, extension='.handle' )
-    hhdl[None]		 	= USINT( 'queue_space',		context=HART.PT_INI_CTX, extension='.queue_space',
+    srvc[True]		= hsts	= USINT( 'status',		context='status' ) # 32 busy, 33 initiated, 35 device offline
+    hsts[True]		= hcmd	= USINT( 'command',		context=HART.PT_INI_CTX, extension='.command' )
+    hcmd[True]		= hhdl	= USINT( 'handle',		context=HART.PT_INI_CTX, extension='.handle' )
+    hhdl[None]			= USINT( 'queue_space',		context=HART.PT_INI_CTX, extension='.queue_space',
                                          terminal=True )
     return srvc
 HART.register_service_parser( number=HART.PT_INI_RPY, name=HART.PT_INI_NAM + " Reply",
@@ -503,7 +508,8 @@ HART.register_service_parser( number=HART.PT_INI_RPY, name=HART.PT_INI_NAM + " R
 
 def __query():
     srvc			= USINT(		  	context='service' )
-    srvc[True]		 	= USINT( 'handle',		context=HART.PT_QRY_CTX, extension='.handle',
+    srvc[True]		= path	= EPATH(			context='path')
+    path[True]			= USINT( 'handle',		context=HART.PT_QRY_CTX, extension='.handle',
                                          terminal=True )
     return srvc
 HART.register_service_parser( number=HART.PT_QRY_REQ, name=HART.PT_QRY_NAM,
@@ -511,11 +517,11 @@ HART.register_service_parser( number=HART.PT_QRY_REQ, name=HART.PT_QRY_NAM,
 
 def __query_reply():
     srvc			= USINT(		  	context='service' )
-    srvc[True]	= hsts	 	= USINT( 'status',		context='status' )
-    hsts[True]	= hcmd	 	= USINT( 'command',		context=HART.PT_QRY_CTX, extension='.command' )
-    hcmd[True]	= hrpy		= USINT( 'reply_status',	context=HART.PT_QRY_CTX, extension='.reply_status' )
-    hrpy[True]	= hfds		= USINT( 'fld_dev_status',	context=HART.PT_QRY_CTX, extension='.fld_dev_status' )
-    hfds[True]	= hrsz		= USINT( 'reply_size',		context=HART.PT_QRY_CTX, extension='.reply_size' )
+    srvc[True]		= hsts 	= USINT( 'status',		context='status' )
+    hsts[True]		= hcmd 	= USINT( 'command',		context=HART.PT_QRY_CTX, extension='.command' )
+    hcmd[True]		= hrpy	= USINT( 'reply_status',	context=HART.PT_QRY_CTX, extension='.reply_status' )
+    hrpy[True]		= hfds	= USINT( 'fld_dev_status',	context=HART.PT_QRY_CTX, extension='.fld_dev_status' )
+    hfds[True]		= hrsz	= USINT( 'reply_size',		context=HART.PT_QRY_CTX, extension='.reply_size' )
     hrsz[True]			= typed_data( 			context=HART.PT_QRY_CTX, extension='.reply_data',
                                                 tag_type=USINT.tag_type,
                                                 terminal=True )
