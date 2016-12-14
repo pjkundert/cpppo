@@ -115,7 +115,7 @@ hart_kwds			= dict(
 def test_hart_simple( simulated_hart_gateway ):
     # No Multiple Service Packet supported by HART I/O Card simulator
 
-    logging.getLogger().setLevel( logging.INFO )
+    #logging.getLogger().setLevel( logging.INFO )
     command,address             = simulated_hart_gateway
     try:
         assert address, "Unable to detect HART EtherNet/IP CIP Gateway IP address"
@@ -128,7 +128,7 @@ def test_hart_simple( simulated_hart_gateway ):
                 "code":		HART.RD_VAR_REQ,
                 "data":		[],			# No payload
                 "data_size":	2+36,			# Known response size: command,status,<payload>
-                "send_path":	'@0x%X/8' % ( HART.class_id ), # Instance 1-8 ==> HART Channel 0-7
+                "path":		'@0x%X/8' % ( HART.class_id ), # Instance 1-8 ==> HART Channel 0-7
             },
             'HART_7_Data.PV = (REAL)%s' % PV,
             {
@@ -136,7 +136,7 @@ def test_hart_simple( simulated_hart_gateway ):
                 "code":		HART.RD_VAR_REQ,
                 "data":		[],			# No payload
                 "data_size":	2+36,			# Known response size: command,status,<payload>
-                "send_path":	'@0x%X/8' % ( HART.class_id ), # Instance 1-8 ==> HART Channel 0-7
+                "path":		'@0x%X/8' % ( HART.class_id ), # Instance 1-8 ==> HART Channel 0-7
             },
         ]
 
@@ -163,7 +163,7 @@ def test_hart_simple( simulated_hart_gateway ):
 
 def test_hart_pass_thru( simulated_hart_gateway ):
 
-    logging.getLogger().setLevel( logging.INFO )
+    #logging.getLogger().setLevel( logging.INFO )
     command,address             = simulated_hart_gateway
 
     # For testing, we'll hit a specific device
@@ -179,14 +179,14 @@ def test_hart_pass_thru( simulated_hart_gateway ):
                 "code":		HART.PT_INI_REQ,
                 "data":		[1, 0],			# HART: Read primary variable
                 "data_size":	2+2,			# Known response size: command,status,<payload>
-                "send_path":	'@0x%X/8' % ( HART.class_id ), # Instance 1-8 ==> HART Channel 0-7
+                "path":		'@0x%X/8' % ( HART.class_id ), # Instance 1-8 ==> HART Channel 0-7
             },
             {
                 "method":	"service_code",
                 "code":		HART.PT_QRY_REQ,
                 "data":		[99],			# HART: Pass-thru Query handle
                 "data_size":	2+5,			# Known response size: 5 (units + 4-byte real in network order)
-                "send_path":	'@0x%X/8' % ( HART.class_id ), # Instance 1-8 ==> HART Channel 0-7
+                "path":		'@0x%X/8' % ( HART.class_id ), # Instance 1-8 ==> HART Channel 0-7
             },
         ]
 
@@ -209,6 +209,61 @@ def test_hart_pass_thru( simulated_hart_gateway ):
     except Exception as exc:
         log.warning( "Test terminated with exception: %s", exc )
         raise
+
+
+def hart_pass_thru( io, path, hart_data, data_size, route_path=None ):
+    """For eg. hart_data=[1, 0], data_size=4 for HART command 1.  Returns None on failure, or the HART
+    command response data payload.
+
+    """
+    # Try to start the Pass-thru "Read primary variable", and get handle
+    operations		= [
+        {
+            "method":		"service_code",
+            "code":		HART.PT_INI_REQ,
+            "data":		hart_data,
+            "data_size":	2+2,			# Known response size: command,status,<payload>
+            "path":		path,			# Instance 1-8 ==> HART Channel 0-7
+            "route_path":	route_path,
+        },
+    ]
+
+    # Look for a reply status of 33 initiated. Actually, it appears that status 0 indicates success.
+    handle			= None
+    while handle is None:
+        time.sleep( .1 )
+        with io:
+            for idx,dsc,req,rpy,sts,val in io.pipeline(
+                    operations=client.parse_operations( operations ), **hart_kwds ):
+                log.normal( "Client %s: %s --> %r: request: %s\nreply:%s", io, dsc, val,
+                            enip.enip_format( req ), enip.enip_format( rpy ))
+                if rpy.status in (0, 33):		# 32 busy, 33 initiated, 35 device offline
+                    handle	= rpy.init.handle
+    log.normal( "HART Pass-thru command Handle: %s", handle )
+
+    # Query for success/failure (loop on running)
+    operations		= [
+        {
+            "method":		"service_code",
+            "code":		HART.PT_QRY_REQ,
+            "data":		[ handle ],		# HART: Pass-thru Query handle
+            "data_size":	2+data_size,		# Known response size: 5 (units + 4-byte real in network order)
+            "path":		path,			# Instance 1-8 ==> HART Channel 0-7
+            "route_path":	route_path,
+        },
+    ]
+
+    reply			= {}
+    while not reply or reply.status == 34:		# 0 success, 34 running, 35 dead
+        time.sleep( .1 )
+        with io:
+            for idx,dsc,req,rpy,sts,val in io.pipeline(
+                    operations=client.parse_operations( operations ), **hart_kwds ):
+                log.normal( "Client %s: %s --> %r: %s", io, dsc, val, enip.enip_format( rpy ))
+                reply	= rpy
+        log.normal( "HART pass-thru command Status: %s", reply.status )
+
+    return reply.get( 'query.reply_data.data', None )
 
 
 def test_hart_pass_thru_poll( simulated_hart_gateway ):
@@ -251,7 +306,7 @@ def test_hart_pass_thru_poll( simulated_hart_gateway ):
         }
 
     """
-    logging.getLogger().setLevel( logging.DETAIL )
+    logging.getLogger().setLevel( logging.NORMAL )
     command,address             = simulated_hart_gateway
 
     # For testing, we'll hit a specific device
@@ -281,60 +336,31 @@ def test_hart_pass_thru_poll( simulated_hart_gateway ):
                     operations=client.parse_operations( operations ), **hart_kwds ):
                 log.normal( "Client %s: %s --> %r: %s", hio, dsc, val, enip.enip_format( rpy ))
 
+
         '''
+        path			= '@0x%X/1' % ( HART.class_id )
+        data			= hart_pass_thru(
+            hio, path=path, hart_data=[1, 0], route_path=route_path, data_size=4 )
 
-        # Try to start the Pass-thru "Read primary variable", and get handle
-        operations		= [
-            {
-                "method":	"service_code",
-                "code":		HART.PT_INI_REQ,
-                "data":		[1, 0],			# HART: Read primary variable
-                "data_size":	2+2,			# Known response size: command,status,<payload>
-                "path":		'@0x%X/8' % ( HART.class_id ), # Instance 1-8 ==> HART Channel 0-7
-                "route_path":	route_path,
-            },
-        ]
-
-        # Look for a reply status of 33 initiated. Actually, it appears that status 0 indicates success.
-        handle			= None
-        while handle is None:
-            time.sleep( .1 )
-            with hio:
-                for idx,dsc,req,rpy,sts,val in hio.pipeline(
-                        operations=client.parse_operations( operations ), **hart_kwds ):
-                    log.normal( "Client %s: %s --> %r: %s", hio, dsc, val, enip.enip_format( rpy ))
-                    if rpy.status == 0: #33:
-                        handle	= rpy.init.handle
-        log.normal( "Read primary variable Handle: %s", handle )
-
-        # Query for success/failure (loop on running)
-        operations		= [
-            {
-                "method":	"service_code",
-                "code":		HART.PT_QRY_REQ,
-                "data":		[ handle ],		# HART: Pass-thru Query handle
-                "data_size":	2+5,			# Known response size: 5 (units + 4-byte real in network order)
-                "path":		'@0x%X/8' % ( HART.class_id ), # Instance 1-8 ==> HART Channel 0-7
-                "route_path":	route_path,
-            },
-        ]
-
-        reply			= {}
-        while not reply or reply.status == 34:
-            time.sleep( .1 )
-            with hio:
-                for idx,dsc,req,rpy,sts,val in hio.pipeline(
-                        operations=client.parse_operations( operations ), **hart_kwds ):
-                    log.normal( "Client %s: %s --> %r: %s", hio, dsc, val, enip.enip_format( rpy ))
-                    reply	= rpy
-            log.normal( "Read primary variable Status: %s", reply.status )
-
+        # The small response carries the 4-byte value, the long response additionally carries the data type
         value			= None
-        if 'query.reply_data.data' in reply and len( reply.query.reply_data.data ) >= 4:
+        if data and len( data ) >= 4:
             packer		= struct.Struct( enip.REAL_network.struct_format )
-            value,		= packer.unpack_from( buffer=bytearray( reply.query.reply_data.data[-4:] ))
+            value,		= packer.unpack_from( buffer=bytearray( data[-4:] ))
         log.normal( "Read primary variable Value: %s", value )
-            
+        '''
+        # HART Command 3 gets all 4 variables
+        data			= hart_pass_thru(
+            hio, path=path, hart_data=[3, 0], route_path=route_path, data_size=4*4 )
+
+        # The small response carries the 4-byte value, the long response additionally carries the data types
+        value			= None
+        if data and len( data ) == 4*4:
+            packer		= struct.Struct( enip.REAL_network.struct_format )
+            value		= packer.unpack_from( buffer=bytearray( data ))
+        log.normal( "Read all variables Values: %s", value )
+        '''
+        
     except Exception as exc:
         log.warning( "Test terminated with exception: %s", exc )
         raise
@@ -368,7 +394,7 @@ def test_enip_CIP_HART( repeat=1 ):
     """HART protocol enip CIP messages
     """
     enip.lookup_reset() # Flush out any existing CIP Objects for a fresh start
-    logging.getLogger().setLevel(logging.DETAIL)
+    #logging.getLogger().setLevel( logging.DETAIL )
     ENIP			= enip.enip_machine( context='enip' )
     CIP				= enip.CIP()
     # We'll use a HART Message Router, to handle its expanded porfolio of commands
