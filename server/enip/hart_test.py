@@ -19,7 +19,7 @@ if __name__ == "__main__":
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))))
     from cpppo.automata import log_cfg
     logging.basicConfig( **log_cfg )
-    logging.getLogger().setLevel( logging.NORMAL )
+    logging.getLogger().setLevel( logging.DETAIL )
 
 import cpppo
 from cpppo.misc import timer, near
@@ -302,7 +302,7 @@ def test_hart_pass_thru_poll( simulated_hart_gateway ):
         }
 
     """
-    logging.getLogger().setLevel( logging.NORMAL )
+    #logging.getLogger().setLevel( logging.NORMAL )
     command,address             = simulated_hart_gateway
 
     # For testing, we'll hit a specific device
@@ -370,6 +370,17 @@ hart_0x4b_request	= bytes(bytearray([
     0x08, 0x00, 0x4b, 0x03, 0x21, 0x00, 0x5d, 0x03, 0x24, 0x08, 0x01, 0x00, 0x01, 0x02,              # ..K.!.].$.....
 ]))
 
+
+hart_0x4b_reply		= bytes(bytearray([
+                                        0x6f, 0x00,  0x38, 0x00, 0x04, 0x00, 0x31, 0x00, 0x00, 0x00,   # .b...o. 8...1...
+    0x00, 0x00, 0x6c, 0x74, 0x00, 0x00, 0x88, 0xf9,  0x59, 0x07, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,   # ..lt.... Y.......
+    0x00, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00,  0x00, 0x00, 0xb2, 0x00, 0x28, 0x00, 0xcb, 0x00,   # ........ ....(...
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  0x00, 0x00, 0x40, 0xa8, 0xb7, 0x41, 0x29, 0x48,   # ........ ..@..A)H
+    0x9e, 0x43, 0xc2, 0x7b, 0xde, 0x43, 0x51, 0x20,  0x70, 0x3f, 0x02, 0x04, 0x0c, 0x0d, 0xc0, 0xc0,   # .C.{.CQ  p?......
+    0xc0, 0xc0, 0x00, 0x00, 0x80, 0x40,                                                                # .....@
+#                     ^^^^^^^^^^^^^^^^ -- unrecognized  
+]))
+
 CIP_HART_tests			= [
             ( 
                 # An empty request (usually indicates termination of session)
@@ -382,15 +393,63 @@ CIP_HART_tests			= [
                      "enip.CIP.send_data.CPF.item[1].unconnected_send.request.path.segment[1].instance": 8,
                      "enip.CIP.send_data.CPF.item[1].unconnected_send.request.path.size": 3,
                  }
+             ), (
+                hart_0x4b_reply,
+                 {
+                 }
              ),
 ]
+
+def hexdump( src, length=16, sep='.' ):
+    '''
+    @brief Return {src} in hex dump.
+    @param[in] length   {Int} Nb Bytes by row.
+    @param[in] sep      {Char} For the text part, {sep} will be used for non ASCII char.
+    @return 		{Str} The hexdump
+
+    @note Full support for python2 and python3 !
+    '''
+    result = []
+
+    # Python3 support
+    try:
+        xrange(0,1);
+    except NameError:
+        xrange = range;
+
+    for i in xrange(0, len(src), length):
+        subSrc = src[i:i+length];
+        hexa = '';
+        isMiddle = False;
+        for h in xrange(0,len(subSrc)):
+            if h == length/2:
+                hexa += ' ';
+            h = subSrc[h];
+            if not isinstance(h, int):
+                h = ord(h);
+            h = hex(h).replace('0x','');
+            if len(h) == 1:
+                h = '0'+h;
+            hexa += h+' ';
+        hexa = hexa.strip(' ');
+        text = '';
+        for c in subSrc:
+            if not isinstance(c, int):
+                c = ord(c);
+            if 0x20 <= c < 0x7F:
+                text += chr(c);
+            else:
+                text += sep;
+        result.append(('%08X:  %-'+str(length*(2+1)+1)+'s  |%s|') % (i, hexa, text));
+
+    return '\n'.join(result);
 
 
 def test_enip_CIP_HART( repeat=1 ):
     """HART protocol enip CIP messages
     """
     enip.lookup_reset() # Flush out any existing CIP Objects for a fresh start
-    #logging.getLogger().setLevel( logging.DETAIL )
+    logging.getLogger().setLevel( logging.DETAIL )
     ENIP			= enip.enip_machine( context='enip' )
     CIP				= enip.CIP()
     # We'll use a HART Message Router, to handle its expanded porfolio of commands
@@ -422,8 +481,8 @@ def test_enip_CIP_HART( repeat=1 ):
         if log.getEffectiveLevel() <= logging.NORMAL:
             log.normal( "EtherNet/IP CIP Request: %s", enip.enip_format( data ))
 
-        # Assume the request in the CIP's CPF items are Logix requests.
-        # Now, parse the encapsulated message(s).  We'll assume it is destined for a Logix Object.
+        # Assume the request in the CIP's CPF items are HART requests.
+        # Now, parse the encapsulated message(s).  We'll assume it is destined for a HART Object.
         if 'enip.CIP.send_data' in data:
             for item in data.enip.CIP.send_data.CPF.item:
                 if 'unconnected_send.request' in item:
@@ -467,7 +526,7 @@ def test_enip_CIP_HART( repeat=1 ):
                 for item in cpf.CPF.item:
                     if 'unconnected_send' in item:
                         item.unconnected_send.request.input	= bytearray( MR.produce( item.unconnected_send.request ))
-                        log.normal("Produce Logix message from: %r", item.unconnected_send.request )
+                        log.normal("Produce HART message from: %r", item.unconnected_send.request )
 
             # Next, reconstruct the CIP Register, ListIdentity, ListServices, or SendRRData.  The CIP.produce must
             # be provided the EtherNet/IP header, because it contains data (such as .command)
@@ -476,9 +535,9 @@ def test_enip_CIP_HART( repeat=1 ):
             # And finally the EtherNet/IP encapsulation itself
             data.input			= bytearray( enip.enip_encode( data.enip ))
             log.detail( "EtherNet/IP CIP Request produced payload: %r", bytes( data.input ))
-            assert data.input == pkt
+            assert data.input == pkt, "original:\n" + hexdump( pkt ) + "\nproduced:\n" + hexdump( data.input )
         except:
-            log.warning ( "Invalid packet produced from EtherNet/IP CIP data: %s", enip.enip_format( data ))
+            log.warning( "Invalid packet produced from EtherNet/IP CIP data: %s", enip.enip_format( data ))
             raise
 
     
