@@ -43,20 +43,17 @@ enip.hart	-- Implements I/O to HART devices via a C*Logix HART Interface
 
 """
 
-import json
 import logging
 import sys
-import threading
 import traceback
 import random
 
 from ...dotdict import dotdict
 from ... import automata, misc
-from .device import ( Attribute, Object,
-                      Message_Router, Connection_Manager, UCMM, Identity, TCPIP,
-                      resolve_element, resolve_tag, resolve, redirect_tag, lookup )
-from .parser import ( BOOL, UDINT, DINT, UINT, INT, USINT, SINT, REAL, REAL_network, EPATH, typed_data,
-                      move_if, octets_drop, octets_noop, enip_format, status )
+from .device import ( Attribute, Message_Router, Connection_Manager,
+                      resolve_tag, redirect_tag, lookup )
+from .parser import ( USINT, REAL, REAL_network, EPATH, typed_data,
+                      move_if, octets_drop, octets_noop, enip_format )
 from .logix import Logix
 
 log				= logging.getLogger( "enip.hart" )
@@ -183,7 +180,7 @@ class HART( Message_Router ):
         # Unconnected Send (0x52)?  Act as our own Connection Manager.
         if data.get( 'service' ) == Connection_Manager.UC_SND_REQ:
             source		= automata.rememberable( data.request.input )
-            try: 
+            try:
                 with self.parser as machine:
                     for i,(m,s) in enumerate( machine.run( path='request', source=source, data=data )):
                         pass
@@ -203,8 +200,8 @@ class HART( Message_Router ):
                     processed, repr(memory+future), '-' * (len(repr(memory))-1) + '^', pos )
                 log.error( "EtherNet/IP CIP error %s\n", where )
                 raise
-        
-        
+
+
         # See if this request is for us; if not, route to the correct Object, and return its result.
         # If the resolution/lookup fails (eg. bad symbolic Tag); ignore it (return False on error)
         # and continue processing, so we can return a proper .status error code from the actual
@@ -218,7 +215,7 @@ class HART( Message_Router ):
         if log.isEnabledFor( logging.DETAIL ):
             log.detail( "%s Request: %s", self, enip_format( data ))
         # This request is for this Object.
-        
+
         # Pick out our services added at this level.  If not recognized, let superclass try; it'll
         # return an appropriate error code if not recognized.
         if ( data.get( 'service' ) == self.RD_VAR_REQ
@@ -256,8 +253,8 @@ class HART( Message_Router ):
 
         if not hasattr( self, 'hart_command' ):
             self.hart_command	= None		# Any HART Pass-thru command in process: None or (<command>,<command_data)
-        
-        
+
+
         data.service           |= 0x80
         data.status		= 0x08		# Service not supported, if not recognized or fail to access
         try:
@@ -281,7 +278,7 @@ class HART( Message_Router ):
                             attid= int( sorted( obj.attribute, key=misc.natural )[-1] )
                         attid    += 1
                         obj.attribute[str(attid)] \
-                            	= att
+                                = att
                         log.normal( "%-24s Instance %3d, Attribute %3d added: %s (Tag: %s)", obj, insid, attid, att, tag )
                         res	= redirect_tag( tag, { 'class': clsid, 'instance': insid, 'attribute': attid } )
                         assert resolve_tag( tag ) == res, \
@@ -362,7 +359,7 @@ class HART( Message_Router ):
         """Expects to find .service and/or .<logix-command>, and produces the request/reply encoded to
         bytes.  Defaults to produce the request, if no .service specified, and just
         .read/write_tag/frag found.
-         
+
         A .status of 0x06 in the read_tag/frag reply indicates that more data is available; it is
         not a failure.
 
@@ -461,7 +458,7 @@ def __read_var_reply():
     schk[None]			= move_if(	'mark',		initializer=True,
 		                                                destination=HART.RD_VAR_CTX )
     schk[None]			= octets_drop(	'pad', repeat=1,
-                                                	terminal=True )
+                                                       terminal=True )
     return srvc
 HART.register_service_parser( number=HART.RD_VAR_RPY, name=HART.RD_VAR_NAM + " Reply",
                                short=HART.RD_VAR_CTX, machine=__read_var_reply() )

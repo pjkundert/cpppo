@@ -1325,7 +1325,7 @@ class connector( client ):
                         elm		= request.path.segment[-1].element	# array access
                 else:
                     tag		= 'Service Code 0x%02X%s' % (
-                        data.service & 0x7f, ' Reply' if data.service & 0x80 else '' )
+                        request.service & 0x7f, ' Reply' if request.service & 0x80 else '' )
                     elm		= None
 
                 # The response should contain either a status code (possibly with an extended

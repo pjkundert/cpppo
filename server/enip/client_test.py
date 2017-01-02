@@ -122,7 +122,7 @@ def test_client_api_simple():
     server_addr		        = ('localhost', 12398)
     server_kwds			= dotdict({
         'argv': [
-            '-vvv',
+            '-v',
             '--address',	'%s:%d' % server_addr,
             'Int@0x99/1/1=INT[%d]' % ( taglen ),
             'Real@0x99/1/2=REAL[%d]' % ( taglen ),
@@ -159,19 +159,19 @@ def test_client_api_simple():
         with connection:
             # Get Attribute Single's payload is an EPATH
             req			= connection.service_code(
-                code=enip.Object.GA_SNG_REQ,
-                data=list( bytearray(
-                    enip.EPATH.produce( enip.parse_path( '@0x99/1/2' )))))
+                code=enip.Object.GA_SNG_REQ, path='@0x99/1/2' )
+            assert 'service_code' in req and req.service_code is True # no payload
             assert connection.readable( timeout=1.0 ) # receive reply
             rpy			= next( connection )
             assert 'enip.CIP' in rpy and 'send_data.CPF.item[1].unconnected_send.request.get_attribute_single' in rpy.enip.CIP
 
-            # Set Attribute Single's payload is an EPATH + SINT data
+            # Set Attribute Single's payload is an EPATH + USINT data
             req			= connection.service_code(
-                code=enip.Object.SA_SNG_REQ,
+                code=enip.Object.SA_SNG_REQ, path='@0x99/1/2',
                 data=list( bytearray(
-                    enip.EPATH.produce( enip.parse_path( '@0x99/1/2' ))
-                    + enip.typed_data.produce( { 'data': list( map( float, range( taglen ))) }, tag_type=enip.REAL.tag_type ))))
+                    #enip.EPATH.produce( enip.parse_path( '@0x99/1/2' )) +
+                    enip.typed_data.produce( { 'data': list( map( float, range( taglen ))) }, tag_type=enip.REAL.tag_type ))))
+            assert 'service_code' in req and isinstance( req.service_code, dict ) and 'data' in req.service_code
             assert connection.readable( timeout=1.0 ) # receive reply
             rpy			= next( connection )
             assert 'enip.CIP' in rpy and 'send_data.CPF.item[1].unconnected_send.request.set_attribute_single' in rpy.enip.CIP

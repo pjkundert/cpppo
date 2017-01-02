@@ -7,11 +7,9 @@ import errno
 import logging
 import os
 import re
-import socket
 import struct
 import sys
 import time
-import threading
 
 import pytest
 
@@ -24,13 +22,11 @@ if __name__ == "__main__":
     logging.getLogger().setLevel( logging.NORMAL )
 
 import cpppo
-from cpppo.dotdict import dotdict
 from cpppo.misc import timer, near
 from cpppo.modbus_test import nonblocking_command
-from cpppo.server import enip, network
-from cpppo.server.enip import poll, client
+from cpppo.server import enip
+from cpppo.server.enip import client
 
-from cpppo.server.enip.get_attribute import proxy
 from cpppo.server.enip.hart import HART, proxy_hart # Class, proxy
 
 log				= logging.getLogger( "HART" )
@@ -267,7 +263,7 @@ def hart_pass_thru( io, path, hart_data, data_size, route_path=None ):
 
 
 def test_hart_pass_thru_poll( simulated_hart_gateway ):
-    """To test a remote C*Logix w/ a HART card, set up a remote port forward from another host in the
+    r"""To test a remote C*Logix w/ a HART card, set up a remote port forward from another host in the
     same LAN.  Here's a windows example, using putty.  This windows machine (at 100.100.102.1)
     forwards a port 44818 on fat2.kundert.ca, to the PLC at 100.100.102.10:44818:
 
@@ -311,8 +307,8 @@ def test_hart_pass_thru_poll( simulated_hart_gateway ):
 
     # For testing, we'll hit a specific device
     #address			= ("100.100.201.10", 44818)
-    #address			= ("localhost", 44818)
-    address			= ("fat2.kundert.ca", 44818)
+    address			= ("localhost", 44818)
+    #address			= ("fat2.kundert.ca", 44818)
     route_path			= None
     route_path			= [{'link': 2, 'port': 1}]
     try:
