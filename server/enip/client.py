@@ -803,7 +803,7 @@ class client( object ):
 
         sd			= cip.send_data
         sd.interface		= 0
-        sd.timeout		= 0
+        sd.timeout		= 8 # 0 # was 0; unknown functionality...
         sd.CPF			= {}
         sd.CPF.item		= [ cpppo.dotdict(), cpppo.dotdict() ]
         sd.CPF.item[0].type_id	= 0
@@ -820,7 +820,7 @@ class client( object ):
             us.service		= 0x52 # == 82
             us.status		= 0
             us.priority		= 5
-            us.timeout_ticks	= 157
+            us.timeout_ticks	= 247 # 157
             us.path		= { 'segment': [ cpppo.dotdict( s ) for s in parse_path( send_path ) ]}
             if route_path: # May be None/0/False or empty
                 us.route_path	= { 'segment': [ cpppo.dotdict( s ) for s in route_path ]} # must be {link/port}

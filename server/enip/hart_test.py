@@ -19,7 +19,7 @@ if __name__ == "__main__":
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))))
     from cpppo.automata import log_cfg
     logging.basicConfig( **log_cfg )
-    logging.getLogger().setLevel( logging.DETAIL )
+    logging.getLogger().setLevel( logging.NORMAL )
 
 import cpppo
 from cpppo.misc import timer, near
@@ -111,11 +111,15 @@ hart_kwds			= dict(
 def test_hart_simple( simulated_hart_gateway ):
     # No Multiple Service Packet supported by HART I/O Card simulator
 
-    #logging.getLogger().setLevel( logging.INFO )
+    #logging.getLogger().setLevel( logging.DETAIL )
     command,address             = simulated_hart_gateway
+
+    #address			= ("100.100.102.10", 44818)
+    route_path			= None
+    route_path			= [{'link': 2, 'port': 1}]
     try:
         assert address, "Unable to detect HART EtherNet/IP CIP Gateway IP address"
-        hio				= client.connector( host=address[0], port=address[1] )
+        hio			= client.connector( host=address[0], port=address[1] )
         PV			= 1.23
         operations		= [
             'HART_7_Data.PV = (REAL)0', # may fail 'til first HART Read Dynamic Variable is done
@@ -141,7 +145,7 @@ def test_hart_simple( simulated_hart_gateway ):
             results		= []
             failures		= 0
             for idx,dsc,req,rpy,sts,val in hio.pipeline(
-                    operations=client.parse_operations( operations ), **hart_kwds ):
+                    operations=client.parse_operations( operations, route_path=route_path ), **hart_kwds ):
                 log.normal( "Client %s: %s --> %r: %s", hio, dsc, val, enip.enip_format( rpy ))
                 if not val:
                     log.warning( "Client %s harvested %d/%d results; failed request: %s",
@@ -163,8 +167,8 @@ def test_hart_pass_thru( simulated_hart_gateway ):
     command,address             = simulated_hart_gateway
 
     # For testing, we'll hit a specific device
-    address			= ("100.100.201.10", 44818)
-    address			= ("localhost", 44818)
+    #address			= ("100.100.102.10", 44818)
+    #address			= ("localhost", 44818)
     try:
         assert address, "Unable to detect HART EtherNet/IP CIP Gateway IP address"
         hio				= client.connector( host=address[0], port=address[1] )
@@ -302,15 +306,15 @@ def test_hart_pass_thru_poll( simulated_hart_gateway ):
         }
 
     """
-    #logging.getLogger().setLevel( logging.NORMAL )
+    #logging.getLogger().setLevel( logging.DETAIL )
     command,address             = simulated_hart_gateway
 
     # For testing, we'll hit a specific device
-    #address			= ("100.100.201.10", 44818)
-    address			= ("localhost", 44818)
     #address			= ("fat2.kundert.ca", 44818)
+    #address			= ("100.100.102.10", 44818)
+    #address			= ("localhost", 44818)
     route_path			= None
-    route_path			= [{'link': 2, 'port': 1}]
+    #route_path			= [{'link': 2, 'port': 1}]
     try:
         assert address, "Unable to detect HART EtherNet/IP CIP Gateway IP address"
         hio				= client.connector( host=address[0], port=address[1] )
@@ -334,7 +338,7 @@ def test_hart_pass_thru_poll( simulated_hart_gateway ):
 
 
         '''
-        path			= '@0x%X/1' % ( HART.class_id )
+        path			= '@0x%X/8' % ( HART.class_id )
         data			= hart_pass_thru(
             hio, path=path, hart_data=[1, 0], route_path=route_path, data_size=4 )
 
@@ -344,18 +348,18 @@ def test_hart_pass_thru_poll( simulated_hart_gateway ):
             packer		= struct.Struct( enip.REAL_network.struct_format )
             value,		= packer.unpack_from( buffer=bytearray( data[-4:] ))
         log.normal( "Read primary variable Value: %s", value )
-        '''
+
         # HART Command 3 gets all 4 variables
         data			= hart_pass_thru(
             hio, path=path, hart_data=[3, 0], route_path=route_path, data_size=4*4 )
 
-        # The small response carries the 4-byte value, the long response additionally carries the data types
-        value			= None
+        # small response carries PV, SV, TV, FV values, no data types
+        value			= []
         if data and len( data ) == 4*4:
             packer		= struct.Struct( enip.REAL_network.struct_format )
-            value		= packer.unpack_from( buffer=bytearray( data ))
+            for i in range( 0, len( data ), 4 ):
+                value		+= packer.unpack_from( buffer=bytearray( data[i:i+4] ))
         log.normal( "Read all variables Values: %s", value )
-        '''
         
     except Exception as exc:
         log.warning( "Test terminated with exception: %s", exc )
@@ -449,7 +453,7 @@ def test_enip_CIP_HART( repeat=1 ):
     """HART protocol enip CIP messages
     """
     enip.lookup_reset() # Flush out any existing CIP Objects for a fresh start
-    logging.getLogger().setLevel( logging.DETAIL )
+    #logging.getLogger().setLevel( logging.DETAIL )
     ENIP			= enip.enip_machine( context='enip' )
     CIP				= enip.CIP()
     # We'll use a HART Message Router, to handle its expanded porfolio of commands

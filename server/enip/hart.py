@@ -41,6 +41,11 @@ enip.hart	-- Implements I/O to HART devices via a C*Logix HART Interface
 
     A cpppo.server.enip.hart 'hart_io' object is a proxy to a C*Logix HART I/O module.
 
+
+    http://literature.rockwellautomation.com/idc/groups/literature/documents/um/1794-um065_-en-p.pdf
+
+    Additional details about the HART pass-through messages is provided.
+
 """
 
 import logging
@@ -254,6 +259,33 @@ class HART( Message_Router ):
         if not hasattr( self, 'hart_command' ):
             self.hart_command	= None		# Any HART Pass-thru command in process: None or (<command>,<command_data)
 
+        def fldnam_attribute( typ, fldnam, dfl ):
+            insnam		= "HART_{channel}_Data".format( channel=self.instance_id - 1 )
+            tag			= '.'.join( (insnam, fldnam) )
+            res			= resolve_tag( tag )
+            if not res:
+                # Not found; create one.  Use Class ID 0xF35D, same Instance ID as self.
+                # No one else should be creating Instances of this Class ID...
+                clsid		= HART_Data.class_id
+                insid		= self.instance_id
+                obj		= lookup( clsid, insid )
+                if not obj:
+                    obj		= HART_Data( insnam, instance_id=insid )
+                att		= Attribute_print( name=tag, type_cls=typ, default=dfl ) # eg. 'PV', REAL
+                attid		= 0
+                if obj.attribute:
+                    attid	= int( sorted( obj.attribute, key=misc.natural )[-1] )
+                attid          += 1
+                obj.attribute[str(attid)] \
+                                = att
+                log.normal( "%-24s Instance %3d, Attribute %3d added: %s (Tag: %s)", obj, insid, attid, att, tag )
+                res		= redirect_tag( tag, { 'class': clsid, 'instance': insid, 'attribute': attid } )
+                assert resolve_tag( tag ) == res, \
+                    "Failed to create '{tag}' Tag pointing to {res!r}; found: {out!r}".format(
+                        tag=tag, res=res, out=resolve_tag( tag ))
+            # res is a (clsid,insid,attid) of an Attribute containing this fldnam's data.
+            attribute	= lookup( *res )
+            return attribute
 
         data.service           |= 0x80
         data.status		= 0x08		# Service not supported, if not recognized or fail to access
@@ -261,41 +293,23 @@ class HART( Message_Router ):
             if data.service == self.RD_VAR_RPY:
                 data.read_var = dotdict()
                 for typ,fldnam,dfl in self.RD_VAR_RPY_FLD:
-                    insnam	= "HART_{channel}_Data".format( channel=self.instance_id - 1 )
-                    tag		= '.'.join( (insnam, fldnam) )
-                    res		= resolve_tag( tag )
-                    if not res:
-                        # Not found; create one.  Use Class ID 0xF35D, same Instance ID as self.
-                        # No one else should be creating Instances of this Class ID...
-                        clsid	= HART_Data.class_id
-                        insid	= self.instance_id
-                        obj	= lookup( clsid, insid )
-                        if not obj:
-                            obj	= HART_Data( insnam, instance_id=insid )
-                        att	= Attribute_print( name=tag, type_cls=typ, default=dfl ) # eg. 'PV', REAL
-                        attid	= 0
-                        if obj.attribute:
-                            attid= int( sorted( obj.attribute, key=misc.natural )[-1] )
-                        attid    += 1
-                        obj.attribute[str(attid)] \
-                                = att
-                        log.normal( "%-24s Instance %3d, Attribute %3d added: %s (Tag: %s)", obj, insid, attid, att, tag )
-                        res	= redirect_tag( tag, { 'class': clsid, 'instance': insid, 'attribute': attid } )
-                        assert resolve_tag( tag ) == res, \
-                            "Failed to create '{tag}' Tag pointing to {res!r}; found: {out!r}".format(
-                                tag=tag, res=res, out=resolve_tag( tag ))
-                    # res is a (clsid,insid,attid) of an Attribute containing this fldnam's data.
-                    attribute	= lookup( *res )
+                    attribute	= fldnam_attribute( typ, fldnam, dfl )
                     data.read_var[fldnam]= attribute[0]
                     logging.detail( "%s <-- %s == %s", fldnam, attribute, data.read_var[fldnam] )
                 data.status		= 0x00
             elif data.service == self.PT_INI_RPY:
                 # Actually store the command, return a proper handle.  The status is actually a HART
-                # command result code where 33 means initiated.
+                # command result code where 33 means initiated.  Unlike a real HART I/O card, we'll
+                # just discard any previous HART pass-thru command (we don't have a stack).
                 data.init.handle		= 99
                 data.init.queue_space		= 200
-                data.status			= 33 if self.hart_command is None else 32 # 32 busy, 33 initiated, 35 device offline
-                if self.hart_command is None:
+                if self.hart_command:
+                    data.status			= random.choice( (32, 33) ) # 32 busy, 33 initiated, 35 device offline
+                    if data.status == 33:
+                        self.hart_command	= None
+                else:
+                    data.status			= random.choice( (33, 35) )
+                if self.hart_command is None and data.status == 33:
                     self.hart_command		= data.init.command,data.init.get( 'command_data', [] )
                 logging.normal( "%s: HART Pass-thru Init Command %r: %s", self, self.hart_command,
                                 "busy" if data.status == 33
@@ -304,25 +318,47 @@ class HART( Message_Router ):
                 logging.detail( "%s HART Pass-thru Init: %r", self, data )
             elif data.service == self.PT_QRY_RPY:
                 # TODO: just return a single network byte ordered real, for now, as if its a HART
-                # Read Primary Variable request.
+                # Read Primary Variable request.  We're returning the Input Tag version of the
+                # pass-thru command (not the CIP version)
                 data.query.reply_status		= 0
                 data.query.fld_dev_status	= 0
-                data.query.reply_size		= 4
-                # PV units code (unknown?) + 4-byte PV REAL (network order)
-                data.query.reply_data		= [1] + [ b for b in bytearray( REAL_network.produce( 1.234 )) ]
+                data.query.reply_data		= []
+
                 if self.hart_command is not None:
-                    data.status			= random.choice( (0, 34, 35) )
+                    data.status			= random.choice( (0, 34, 34, 34) )
                     data.query.command		= self.hart_command[0] # ignore command_data
                 else:
                     data.status			= 35	# 0 success, 34 running, 35 dead
+                    data.query.command		= 0
+
+                if self.hart_command and self.hart_command[0] == 1 and data.status == 0:
+                    # PV units code (unknown? not in Input Tag type command) + 4-byte PV REAL (network order)
+                    attribute	= fldnam_attribute( REAL, 'PV', 1.234 )
+                    val		= attribute[0]
+                    data.query.reply_data      += [ b for b in bytearray( REAL_network.produce( val )) ]
+                elif self.hart_command and self.hart_command[0] == 2 and data.status == 0:
+                    # current and percent of range.
+                    attribute	= fldnam_attribute( REAL, 'loop_current', random.uniform( 4, 20 ))
+                    cur		= attribute[0]
+                    pct		= 0.0 if cur < 4 else 100.0 if cur > 20 else ( cur - 4 ) / ( 20 - 4 ) * 100
+                    data.query.reply_data      += [ b for b in bytearray( REAL_network.produce( cur )) ]
+                    data.query.reply_data      += [ b for b in bytearray( REAL_network.produce( pct )) ]
+                elif self.hart_command and self.hart_command[0] == 3 and data.status == 0:
+                    insnam	= "HART_{channel}_Data".format( channel=self.instance_id - 1 )
+                    for v in ('PV', 'SV', 'TV', 'FV'):
+                        attribute= fldnam_attribute( REAL, v, random.uniform( 0, 1 ))
+                        val	= attribute[0]
+                        data.query.reply_data  += [ b for b in bytearray( REAL_network.produce( val )) ]
+
+                data.query.reply_size		= len( data.query.reply_data )
                 logging.normal( "%s: HART Pass-thru Query Command %r: %s", self, self.hart_command,
                                 "success" if data.status == 0
                                 else "running" if data.status == 34
                                 else "dead" if data.status == 35
                                 else "unknown: %s" % data.status )
+
                 if data.status in ( 0, 35 ):
                     self.hart_command	= None
-                data.query.command		= 0 if self.hart_command is None else self.hart_command[0]
                 logging.detail( "%s HART Pass-thru Query: %r", self, data )
             else:
                 assert False, "Not Implemented: {data!r}".format( data=data )
@@ -425,14 +461,21 @@ HART.register_service_parser( number=HART.RD_VAR_REQ, name=HART.RD_VAR_NAM,
 
 def __read_var_reply():
     srvc			= USINT( 'service',		context='service' )
-    srvc[None]		= stts	= USINT( 'status',		context='status' ) # single byte status (no ext_status)
-    stts[None]		= schk	= octets_noop(	'check',
+    srvc[True]		= stts	= USINT( 'status',		context='status' ) # single byte status (no ext_status)
+    stts[None]		= schk	= octets_noop(	'check sts',
                                                 terminal=True )
 
     hsts			= USINT( 'HART_command_status',	context=HART.RD_VAR_CTX, extension='.HART_command_status' )
     hsts[True]		= hfds	= USINT( 'HART_fld_dev_status', context=HART.RD_VAR_CTX, extension='.HART_fld_dev_status' )
+    hsts[None]			= octets_noop( 'no HART_fld_dev_status', terminal=True )
+
     hfds[True]		= heds	= USINT( 'HART_ext_dev_status',	context=HART.RD_VAR_CTX, extension='.HART_ext_dev_status' )
+    hfds[None]			= octets_noop( 'no HART_ext_dev_status', terminal=True )
+
+
     heds[True]		= hPVd	= REAL( 'PV',			context=HART.RD_VAR_CTX, extension='.PV' )
+    heds[None]			= octets_noop( 'no PV', terminal=True )
+
     hPVd[True]		= hSVd	= REAL( 'SV',			context=HART.RD_VAR_CTX, extension='.SV' )
     hSVd[True]		= hTVd	= REAL( 'TV',			context=HART.RD_VAR_CTX, extension='.TV' )
     hTVd[True]		= hFVd	= REAL( 'FV',			context=HART.RD_VAR_CTX, extension='.FV' )
@@ -452,13 +495,19 @@ def __read_var_reply():
                                         terminal=True )
 
     # For status 0x00 (Success), Read Dynamic Variable data follows.  If failed, mark as a read_var
-    # request (and drop pad byte).  Otherwise, continue parsing with HART Command Status
+    # request (and drop pad byte).  Otherwise, continue parsing with HART Command Status.
     schk[None]			= automata.decide( 'ok',	state=hsts,
         predicate=lambda path=None, data=None, **kwds: data[path+'.status' if path else 'status'] == 0x00 )
     schk[None]			= move_if(	'mark',		initializer=True,
 		                                                destination=HART.RD_VAR_CTX )
     schk[None]			= octets_drop(	'pad', repeat=1,
                                                        terminal=True )
+    '''
+    # For HART_command_status 0x00 (Success) Read Dynamic Variable follows.
+    hchk[None]			= automata.decide( 'ok',	state=heds,
+        predicate=lambda path=None, data=None, **kwds: data[path+'read_var.HART_command_status' if path else 'read_var.HART_command_status'] == 0x00 )
+    '''
+
     return srvc
 HART.register_service_parser( number=HART.RD_VAR_RPY, name=HART.RD_VAR_NAM + " Reply",
                                short=HART.RD_VAR_CTX, machine=__read_var_reply() )
@@ -474,6 +523,17 @@ def __init():
     |---------+-----------------------+---------+------+------+-------+------------------+------+-------+-----|
     | 1       | Read primary variable |         | None |      |     0 | PV units code    |      |       |  x  |
     |         |                       |         |      |      | 1...4 | Primary Variable |      | x     |  x  |
+    | 2       | Read current and      |         | None |      | 0...3 | Current (mA)     |      | x     |  x  |
+    |         | percent of range      |         |      |      | 4...7 | Primary Variable%|      | x     |  x  |
+    | 3       | Read current and      |         | None |      | 0...3 | Current (mA)     |      |       |  x  |
+    |         | 4 dynamic variables   |         |      |      | 4     | PV units code    |      |       |  x  |
+    |         |                       |         |      |      | 5...8 | Primary Variable |      | x     |  x  |
+    |         |                       |         |      |      | 9     | SV units code    |      |       |  x  |
+    |         |                       |         |      |      |10...13| Second Variable  |      | x     |  x  |
+    |         |                       |         |      |      |14     | TV units code    |      |       |  x  |
+    |         |                       |         |      |      |15...18| Third Variable   |      | x     |  x  |
+    |         |                       |         |      |      |19     | FV units code    |      |       |  x  |
+    |         |                       |         |      |      |20...23| Fourth Variable  |      | x     |  x  |
 
     Implements the short format (Service Code 0x4E), not the CIP MSG Long Format (Service Code 0x5B, 0x5F).
     
