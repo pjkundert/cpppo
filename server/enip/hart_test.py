@@ -22,7 +22,7 @@ if __name__ == "__main__":
     logging.getLogger().setLevel( logging.NORMAL )
 
 import cpppo
-from cpppo.misc import timer, near
+from cpppo.misc import timer, near, hexdump
 from cpppo.modbus_test import nonblocking_command
 from cpppo.server import enip
 from cpppo.server.enip import client
@@ -47,8 +47,7 @@ def start_hart_simulator( *options, **kwds ):
     command                     = nonblocking_command( [
         'python',
         os.path.abspath( __file__ ),
-        '-vvv',
-        '--log', 'hart_test.log',
+        '-v',
     ] + list( options ))
 
     # For python 2/3 compatibility (can't mix positional wildcard, keyword parameters in Python 2)
@@ -87,7 +86,7 @@ def start_hart_simulator( *options, **kwds ):
 
 @pytest.fixture( scope="module" )
 def simulated_hart_gateway():
-    return start_hart_simulator( 'SCADA=INT[100]' )
+    return start_hart_simulator()
 
 
 def test_hart_packet():
@@ -161,14 +160,11 @@ def test_hart_simple( simulated_hart_gateway ):
         raise
 
 
-def test_hart_pass_thru( simulated_hart_gateway ):
-
+def test_hart_pass_thru_simulated( simulated_hart_gateway ):
+    """Simulated HART I/O card; always returns Pass-thru Init handle 99 (won't work on a real device)"""
     #logging.getLogger().setLevel( logging.INFO )
     command,address             = simulated_hart_gateway
 
-    # For testing, we'll hit a specific device
-    #address			= ("100.100.102.10", 44818)
-    #address			= ("localhost", 44818)
     try:
         assert address, "Unable to detect HART EtherNet/IP CIP Gateway IP address"
         hio				= client.connector( host=address[0], port=address[1] )
@@ -214,6 +210,8 @@ def test_hart_pass_thru( simulated_hart_gateway ):
 def hart_pass_thru( io, path, hart_data, data_size, route_path=None ):
     """For eg. hart_data=[1, 0], data_size=4 for HART command 1.  Returns None on failure, or the HART
     command response data payload.
+    
+    Harvests a Pass-thru Init handle, and issues Query on it 'til successs.
 
     """
     # Try to start the Pass-thru "Read primary variable", and get handle
@@ -404,52 +402,8 @@ CIP_HART_tests			= [
              ),
 ]
 
-def hexdump( src, length=16, sep='.' ):
-    '''
-    @brief Return {src} in hex dump.
-    @param[in] length   {Int} Nb Bytes by row.
-    @param[in] sep      {Char} For the text part, {sep} will be used for non ASCII char.
-    @return 		{Str} The hexdump
-
-    @note Full support for python2 and python3 !
-    '''
-    result = []
-
-    # Python3 support
-    try:
-        xrange(0,1);
-    except NameError:
-        xrange = range;
-
-    for i in xrange(0, len(src), length):
-        subSrc = src[i:i+length];
-        hexa = '';
-        isMiddle = False;
-        for h in xrange(0,len(subSrc)):
-            if h == length/2:
-                hexa += ' ';
-            h = subSrc[h];
-            if not isinstance(h, int):
-                h = ord(h);
-            h = hex(h).replace('0x','');
-            if len(h) == 1:
-                h = '0'+h;
-            hexa += h+' ';
-        hexa = hexa.strip(' ');
-        text = '';
-        for c in subSrc:
-            if not isinstance(c, int):
-                c = ord(c);
-            if 0x20 <= c < 0x7F:
-                text += chr(c);
-            else:
-                text += sep;
-        result.append(('%08X:  %-'+str(length*(2+1)+1)+'s  |%s|') % (i, hexa, text));
-
-    return '\n'.join(result);
-
-
-def test_enip_CIP_HART( repeat=1 ):
+@pytest.mark.xfail
+def test_CIP_HART( repeat=1 ):
     """HART protocol enip CIP messages
     """
     enip.lookup_reset() # Flush out any existing CIP Objects for a fresh start

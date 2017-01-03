@@ -92,8 +92,9 @@ class HART_Data( Logix ): # Must understand Read Tag [Fragmented], etc.
 
 class HART( Message_Router ):
 
-    """A HART Interface Object.  Represents a Channel.  Understands Get/Set Attribute ..., and the
-    HART-specific Service Codes:
+    """A HART Interface Object.  Represents a Channel.  Understands Get/Set Attribute ..., the
+    Message_Router Multiple Service Packet (0x0A) and Forward Open (0x54), and the HART-specific
+    Service Codes:
 
     | Class | Service Code | Function                    |
     |-------+--------------+-----------------------------|
@@ -181,31 +182,6 @@ class HART( Message_Router ):
 
     def request( self, data ):
         """Any exception should result in a reply being generated with a non-zero status."""
-
-        # Unconnected Send (0x52)?  Act as our own Connection Manager.
-        if data.get( 'service' ) == Connection_Manager.UC_SND_REQ:
-            source		= automata.rememberable( data.request.input )
-            try:
-                with self.parser as machine:
-                    for i,(m,s) in enumerate( machine.run( path='request', source=source, data=data )):
-                        pass
-                        #log.detail( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %s",
-                        #            machine.name_centered(), i, s, source.sent, source.peek(),
-                        #            repr( data ) if log.getEffectiveLevel() < logging.DETAIL else misc.reprlib.repr( data ))
-        
-                #log.info( "%s Executing: %s", self, enip_format( data.request ))
-                return self.request( data.request )
-            except:
-                # Parsing failure.  We're done.  Suck out some remaining input to give us some context.
-                processed		= source.sent
-                memory			= bytes(bytearray(source.memory))
-                pos			= len( source.memory )
-                future			= bytes(bytearray( b for b in source ))
-                where			= "at %d total bytes:\n%s\n%s (byte %d)" % (
-                    processed, repr(memory+future), '-' * (len(repr(memory))-1) + '^', pos )
-                log.error( "EtherNet/IP CIP error %s\n", where )
-                raise
-
 
         # See if this request is for us; if not, route to the correct Object, and return its result.
         # If the resolution/lookup fails (eg. bad symbolic Tag); ignore it (return False on error)

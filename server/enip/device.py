@@ -1482,6 +1482,11 @@ class Message_Router( Object ):
     MULTIPLE_REQ		= 0x0A
     MULTIPLE_RPY		= MULTIPLE_REQ | 0x80
 
+    FWD_OPEN_NAM		= "Forward Open"
+    FWD_OPEN_CTX		= "forward_open"
+    FWD_OPEN_REQ		= 0x54
+    FWD_OPEN_RPY		= FWD_OPEN_REQ | 0x80
+
     ROUTE_FALSE			= 0	# Return False if invalid route
     ROUTE_RAISE			= 1	# Raise an Exception if invalid route
 
@@ -1529,23 +1534,23 @@ class Message_Router( Object ):
         individual requests in the payload.
 
         """
-        if ( self.MULTIPLE_CTX in data and data.setdefault( 'service', self.MULTIPLE_REQ ) == self.MULTIPLE_REQ ):
+        if self.MULTIPLE_CTX in data and data.setdefault( 'service', self.MULTIPLE_REQ ) == self.MULTIPLE_REQ:
             # Multiple Service Packet Request; '.multiple' required
+            pass
+        elif self.FWD_OPEN_CTX in data and data.setdefault( 'service', self.FWD_OPEN_REQ ) == self.FWD_OPEN_REQ:
+            # Forward Open
             pass
         else:
             # Not recognized; more generic command?
             return super( Message_Router, self ).request( data )
 
-        # It is a Multiple Service Packet request; turn it into a reply.  Any exception processing
-        # one of the sub-requests will fail this request; normally, the sub-request should just
-        # return a non-zero Response Status in its payload...  If we cannot successfully iterate the
-        # request payload, return a generic Service not supported.
+        # It is a Forward Open or Multiple Service Packet request; turn it into a reply.  Any
+        # exception processing one of the sub-requests will fail this request; normally, the
+        # sub-request should just return a non-zero Response Status in its payload...  If we cannot
+        # successfully iterate the request payload, return a generic Service not supported.
         data.service	       |= 0x80
         try:
             data.status		= 0x16			# Object does not exist, if path invalid
-            data.pop( 'status_ext', None )
-            # If no data.path, default to self; If path, None if target is self.  Otherwise, an
-            # invalid path with raise Exception.
             target		= None
             if 'path' in data:
                 target		= self.route( data, fail=self.ROUTE_RAISE )
@@ -1554,17 +1559,30 @@ class Message_Router( Object ):
             if target is None:
                 target		= self
 
-            data.status		= 8			# Service not supported, if anything blows up
-            if log.isEnabledFor( logging.DETAIL ):
-                log.detail( "%s Parsed  on %s: %s", self, target, enip_format( data ))
+            if data.service == self.MULTIPLE_RPY:
+                data.pop( 'status_ext', None )
+                # If no data.path, default to self; If path, None if target is self.  Otherwise, an
+                # invalid path with raise Exception.
 
-            # We have a fully parsed Multiple Service Packet request, including sub-requests
-            # Now, convert each sub-request into a response.
-            for r in data.multiple.request:
+                data.status	= 8			# Service not supported, if anything blows up
                 if log.isEnabledFor( logging.DETAIL ):
-                    log.detail( "%s Process on %s: %s", self, target, enip_format( r ))
-                target.request( r )
-            data.status		= 0x00
+                    log.detail( "%s Parsed  on %s: %s", self, target, enip_format( data ))
+
+                # We have a fully parsed Multiple Service Packet request, including sub-requests
+                # Now, convert each sub-request into a response.
+                for r in data.multiple.request:
+                    if log.isEnabledFor( logging.DETAIL ):
+                        log.detail( "%s Process on %s: %s", self, target, enip_format( r ))
+                    target.request( r )
+                data.status	= 0x00
+
+            elif data.service == self.FWD_OPEN_RPY:
+                # The target object must have a 'forward_open' implementation, and must convert the
+                # supplied 'data' dotdict request into a response; data.service is already Forward Open Reply, and the status
+                # defaults to an error -- we expect it to be converted to a  .  We'll take care of serializing the
+                # Forward Open response.
+                data.status	= 8			# Service not supported, if anything blows up
+                target.forward_open( data )
 
         except Exception as exc:
             # On Exception, if we haven't specified a more detailed error code, return General
@@ -1673,7 +1691,7 @@ class Message_Router( Object ):
         elif data.get( 'service' ) == cls.MULTIPLE_RPY: # If error status, no '.multiple' required
             # Collect up all (already produced) request results stored in each request[...].input
             result	       += USINT.produce(	data.service )
-            result	       += USINT.produce(	0x00 )	# fill
+            result	       += b'\x00' # reserved
             result	       += status.produce(	data )
             if data.status == 0x00:
                 offsets		= []
@@ -1686,6 +1704,59 @@ class Message_Router( Object ):
                 for o in offsets:
                     result     += UINT.produce( 	2 + 2 * len( offsets ) + o )
                 result	       += rpydata
+        elif cls.FWD_OPEN_CTX in data and data.setdefault( 'service', cls.FWD_OPEN_REQ ) == cls.FWD_OPEN_REQ:
+            result	       += USINT.produce( data.service )
+            result	       += EPATH.produce( data.path )
+            fo			= data.forward_open
+            result	       += USINT.produce( fo.priority_time_tick )
+            result	       += USINT.produce( fo.timeout_ticks )
+            result	       += UDINT.produce( fo.O_T_connection_ID )
+            result	       += UDINT.produce( fo.T_O_connection_ID )
+            result	       += UINT.produce( fo.connection_serial )
+            result	       += UINT.produce( fo.O_vendor )
+            result	       += UDINT.produce( fo.O_serial )
+            result	       += USINT.produce( fo.connection_timeout_multiplier )
+            result	       += b'\x00' * 3 # reserved
+            result	       += UDINT.produce( fo.O_T_RPI )
+            result	       += WORD.produce( fo.O_T_NCP )
+            result	       += UDINT.produce( fo.T_O_RPI )
+            result	       += WORD.produce( fo.T_O_NCP )
+            result	       += USINT.produce( fo.transport_class_triggers )
+            result	       += EPATH.produce( fo.connection_path )
+
+        elif data.get( 'service' ) == cls.FWD_OPEN_RPY:
+            result	       += USINT.produce( data.service )
+            result	       += b'\x00' # reserved
+            result	       += status.produce( data )
+            fo			= data.forward_open
+            result	       += UDINT.produce( fo.O_T_connection_ID )
+            result	       += UDINT.produce( fo.T_O_connection_ID )
+            result	       += UINT.produce( fo.connection_serial )
+            result	       += UINT.produce( fo.O_vendor )
+            result	       += UDINT.produce( fo.O_serial )
+            result	       += UDINT.produce( fo.O_T_API )
+            result	       += UDINT.produce( fo.T_O_API )
+
+            # The forward_open.application data in the reply is typed data, by default USINT.  It
+            # must be an even number of bytes, so pad it out if not.
+            app			= fo.setdefault( 'application', dotdict() )
+            if 'data' not in app:
+                app.data	= []
+            if app.data:
+                # Something has been provided
+                if 'type' not in app and 'tag_type' not in app:
+                    app.tag_type= USINT.tag_type
+                app.input	= typed_data.produce( app )
+                if len( app.input ) % 2:
+                    app.input  += b'\x00'
+                app.size	= len( app.input ) // 2 # words
+            else:
+                app.size	= 0
+
+            result	       += USINT.produce( app.size ) # application data size (words)
+            result	       += b'\x00' # pad
+            if app.size:
+                result	       += app.input
         else:
             result		= super( Message_Router, cls ).produce( data )
 
@@ -1867,6 +1938,70 @@ Message_Router.register_service_parser( number=Message_Router.MULTIPLE_RPY, name
                                         short=Message_Router.MULTIPLE_CTX, machine=__multiple_reply() )
 
 
+def __forward_open():
+    """Handle Forward Open request.
+    """
+    srvc			= USINT(	 	context='service' )
+    srvc[True]		= path	= EPATH(		context='path')
+    path[True]		= prio	= USINT(		context='forward_open', extension='.priority_time_tick' )
+    prio[True]		= timo	= USINT(		context='forward_open', extension='.timeout_ticks' )
+    timo[True]		= otid	= UDINT(		context='forward_open', extension='.O_T_connection_ID' )
+    otid[True]		= toid	= UDINT(		context='forward_open', extension='.T_O_connection_ID' )
+    toid[True]		= cser	= UINT(			context='forward_open', extension='.connection_serial' )
+    cser[True]		= ovnd	= UINT(			context='forward_open', extension='.O_vendor' )
+    ovnd[True]		= oser	= UDINT(		context='forward_open', extension='.O_serial' )
+    oser[True]		= tmul	= USINT(		context='forward_open', extension='.connection_timeout_multiplier' )
+    tmul[True]		= rsvd	= octets_drop(		'pad', repeat=3 )
+    rsvd[True]		= otrpi	= UDINT(		context='forward_open', extension='.O_T_RPI' )
+    otrpi[True]		= otncp	= WORD(			context='forward_open', extension='.O_T_NCP' )
+    otncp[True]		= torpi	= UDINT(		context='forward_open', extension='.T_O_RPI' )
+    torpi[True]		= toncp	= WORD(			context='forward_open', extension='.T_O_NCP' )
+    toncp[True]		= tclt	= USINT( 		context='forward_open', extension='.transport_class_triggers' )
+    tclt[True]		= cpth	= EPATH(	 	context='forward_open', extension='.connection_path',
+                                                    terminal=True )
+    return srvc
+
+Message_Router.register_service_parser( number=Message_Router.FWD_OPEN_REQ, name=Message_Router.FWD_OPEN_NAM,
+                                        short=Message_Router.FWD_OPEN_CTX, machine=__forward_open() )
+
+def __forward_open_reply():
+    srvc			= USINT(	context='service' )
+    srvc[True]		= rsvd	= octets_drop(	'reserved',	repeat=1 )
+    rsvd[True]		= stts	= status()
+    stts[True]		= otid	= UDINT(		context='forward_open', extension='.O_T_connection_ID' )
+    otid[True]		= toid	= UDINT(		context='forward_open', extension='.T_O_connection_ID' )
+    toid[True]		= cser	= UINT(			context='forward_open', extension='.connection_serial' )
+    cser[True]		= ovnd	= UINT(			context='forward_open', extension='.O_vendor' )
+    ovnd[True]		= oser	= UDINT(		context='forward_open', extension='.O_serial' )
+    oser[True]		= otapi	= UDINT(		context='forward_open', extension='.O_T_API' )
+    otapi[True]		= toapi	= UDINT(		context='forward_open', extension='.T_O_API' )
+    toapi[True]		= rsiz	= USINT(		context='forward_open', extension='.application_size' )
+    rsiz[True]		= rsvd	= octets_drop(		'pad', repeat=1 )
+
+    # Parse all segments in a sub-dfa limited by the parsed application.size (in words; double) If
+    # the size is zero, we won't be parsing anything; initialize data to [].  Also moves the parsed
+    # .application_size into application.size.  Triggers only if there is data following the pad.
+    def size_data( path=None, data=None, **kwds ):
+        app			= data[path].setdefault( 'application', {} )
+        app.size		= data[path].pop( 'application_size' )
+        octets			= app.size * 2
+        if not octets:
+            app.data		= []
+        return octets
+
+    rsvd[None]			= cpppo.dfa(    'data',		context='forward_open',
+                                                initial=typed_data(
+	 	                                    context='application', tag_type=USINT.tag_type,
+                                                    terminal=True ),
+                                                limit=size_data,
+	                                        terminal=True )
+    return srvc
+
+Message_Router.register_service_parser( number=Message_Router.FWD_OPEN_RPY, name=Message_Router.FWD_OPEN_NAM + " Reply",
+                                        short=Message_Router.FWD_OPEN_CTX, machine=__forward_open_reply() )
+
+
+
 class Connection_Manager( Object ):
     """The Connection Manager (Class 0x06, Instance 1) Handles Unconnected Send (0x82) requests, such as:
 
@@ -1893,13 +2028,36 @@ class Connection_Manager( Object ):
     We assume that the Message Router will convert the .request to a Response and fill it its .input
     with the encoded response.
 
+    It also handles process of Forward Open requests.
+
     """
     class_id			= 0x06
 
-    UC_SND_REQ			= 0x52 		# Unconnected Send
-    FW_OPN_REQ			= 0x54		# Forward Open (unimplemented)
-    FW_CLS_REQ			= 0x4E		# Forward Close (unimplemented)
+    def forward_open( self, data ):
+        """Pretty much only the Connection Manager knows how to handle a Forward Open.  It'll come back to
+        us, for typical Forward Open requests with a path @0x02/1.  The Message_Router will
+        typically process the request, locate the Connection_Manager by its address, and dispatch
+        the forward_open request.
 
+        Dispatch a parsed Forward Open request, converting the 'data' dotdict contents to an
+        appropriate response.  Particularly, ensure that data.status reflects the CIP error status
+        of the request.
+
+        This base class implementation does nothing but report success (returning the appropriate
+        bits of the request, and pick a random T->O Connection ID.
+
+        """
+        fo			= data.forward_open
+        fo.T_O_connection_ID	= random.randint( 0, 2**32-1 )
+        fo.O_T_API		= fo.O_T_RPI
+        fo.T_O_API		= fo.T_O_RPI
+        data.status		= 0
+        if log.isEnabledFor( logging.DETAIL ):
+            log.detail( "%s Forward Open: %s", self, enip_format( data ))
+
+    def forward_close( self, data ):
+        data.status		= 0
+    
     def request( self, data ):
         """
         Handles an unparsed request.input, parses it and processes the request with the Message Router.

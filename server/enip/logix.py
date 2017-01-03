@@ -427,18 +427,18 @@ class Logix( Message_Router ):
         elif ( data.get( 'service' ) == cls.WR_TAG_RPY
                or data.get( 'service' ) == cls.WR_FRG_RPY ):
             result	       += USINT.produce(	data.service )
-            result	       += USINT.produce(	0x00 )
+            result	       += b'\x00' # reserved
             result	       += status.produce(	data )
         elif data.get( 'service' ) == cls.RD_TAG_RPY:
             result	       += USINT.produce(	data.service )
-            result	       += USINT.produce(	0x00 )	# fill
+            result	       += b'\x00' # reserved
             result	       += status.produce(	data )
             if data.status in (0x00, 0x06):
                 result	       += UINT.produce(		data.read_tag.type )
                 result	       += typed_data.produce(	data.read_tag )
         elif data.get( 'service' ) == cls.RD_FRG_RPY:
             result	       += USINT.produce(	data.service )
-            result	       += USINT.produce(	0x00 )
+            result	       += b'\x00' # reserved
             result	       += status.produce(	data )
             if data.status in (0x00, 0x06):
                 result	       += UINT.produce(		data.read_frag.type )

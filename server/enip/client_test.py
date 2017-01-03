@@ -199,7 +199,7 @@ def test_client_api():
     We'll point the Tags to CIP Class 0x99, Instance 1, starting at Attribute 1.
 
     """
-    #logging.getLogger().setLevel( logging.NORMAL )
+    #logging.getLogger().setLevel( logging.DETAIL )
 
     taglen			= 100 # able to fit request for Attribute into 1 packet
 
@@ -270,6 +270,7 @@ def test_client_api():
         results			= []
         failures		= 0
         with connection:
+            begins		= misc.timer()
             multiple		= random.randint( 0, 4 ) * climultiple // 4 	# eg. 0, 125, 250, 375, 500
             depth		= random.randint( 0, clidepth )			# eg. 0 .. 5
             for idx,dsc,req,rpy,sts,val in connection.pipeline(
@@ -281,9 +282,12 @@ def test_client_api():
                                  n, len( results ), len( tags ), rpy )
                     failures       += 1
                 results.append( (dsc,val) )
+        duration		= misc.timer() - begins
         if len( results ) != len( tags ):
             log.warning( "Client %d harvested %d/%d results", n, len( results ), len( tags ))
             failures	       += 1
+        log.normal( "Client (Tags)    %3d: %s TPS", n, duration/times )
+
         # Now, ensure that any results that reported values reported the correct values -- each
         # value equals its own index or 0.
         for i,(elm,cnt),tag,(dsc,val) in zip( range( times ), regs, tags, results ):
@@ -317,14 +321,16 @@ def test_client_api():
         # Issue a sequence of simple CIP Service Code operations.
         operations = times * [{
             "method":	"service_code",
+            "path":	'@0x99/1/2',
             "code":	enip.Object.GA_SNG_REQ,
-            "data":	list( bytearray( enip.EPATH.produce( enip.parse_path( '@0x99/1/2' )))),
+            "data":	[],
         }]
 
         results			= []
         failures		= 0
         try:
             with connection:
+                begins		= misc.timer()
                 multiple	= random.randint( 0, 4 ) * climultiple // 4 	# eg. 0, 125, 250, 375, 500
                 depth		= random.randint( 0, clidepth )			# eg. 0 .. 5
                 for idx,dsc,req,rpy,sts,val in connection.pipeline(
@@ -336,6 +342,7 @@ def test_client_api():
                                      n, len( results ), len( operations ), rpy )
                         failures += 1
                     results.append( (dsc,val) )
+            duration		= misc.timer() - begins
         except Exception as exc:
             logging.warning( "%s: %s", exc, ''.join( traceback.format_exception( *sys.exc_info() )))
             failures	       += 1
@@ -343,7 +350,7 @@ def test_client_api():
         if len( results ) != len( operations ):
             log.warning( "Client %d harvested %d/%d results", n, len( results ), len( operations ))
             failures	       += 1
-            
+        log.normal( "Client (service) %3d: %s TPS", n, duration/times )
         return 1 if failures else 0
 
     # Use a random one of the available testing functions

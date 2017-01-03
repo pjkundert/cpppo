@@ -570,6 +570,20 @@ class client( object ):
         return len( r ) > 0
 
     # Basic CIP Requests; sent immediately
+    '''
+    def forward_open( self, timeout=None, sender_context=b'', **kwds ):
+        cip			= cpppo.dotdict()
+        fo = cip.forward_open	= {}
+                      priority_time_ticks=None, timeout_ticks=None,
+            O_T_network_ID=None, T_O_network_ID=None, connection_serial=None,
+            O_vendor_id=None, O_serial_number=None, connection_timeout_multiplier=None,
+                      O_T_RPI=None,
+
+        fo.priority_time_ticks	= kwds.get( 'priority_time_ticks', 
+        
+        return self.cip_send( cip=cip, sender_context=sender_context, timeout=timeout )
+    '''
+        
     def register( self, timeout=None, sender_context=b'' ):
         cip			= cpppo.dotdict()
         cip.register		= {}

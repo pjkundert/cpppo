@@ -28,6 +28,7 @@ if __name__ == "__main__":
     #logging.getLogger().setLevel( logging.INFO )
 
 import cpppo
+from   cpppo.misc import hexdump
 from   cpppo.server import network, enip
 from   cpppo.server.enip import parser, logix, client
 
@@ -217,7 +218,7 @@ def test_enip_TYPES_SSTRING():
         for i,(m,s) in enumerate( machine.run( source=source, data=data )):
             log.info( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r", m.name_centered(),
                       i, s, source.sent, source.peek(), data )
-        assert i == 31
+        assert i == 33
     assert len( data.typed_data.data ) == 4
     assert data.typed_data.data == ['','','','a']
 
@@ -241,7 +242,7 @@ def test_enip_TYPES_numeric():
         for i,(m,s) in enumerate( machine.run( source=source, data=data )):
             log.info( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r", m.name_centered(),
                       i, s, source.sent, source.peek(), data )
-        assert i == 30
+        assert i == 32
     assert len( data.typed_data.data ) == 4
     assert data.typed_data.data == [0.0]*4
 
@@ -1007,7 +1008,7 @@ listifaces_1_rpy		= escaped_chunks_to_bytes(
 )
 
 def test_enip_listinterfaces():
-    # logging.getLogger().setLevel( logging.DETAIL )
+    #logging.getLogger().setLevel( logging.DETAIL )
     # Minimal ListInterfaces request is empty
     data			= cpppo.dotdict()
     source			= cpppo.chainable( listifaces_1_req )
@@ -1457,7 +1458,24 @@ leg_0x1_reply		= bytes(bytearray([
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x31, 0x39, 0x32, 0x2e, 0x31, 0x36, 0x38, 0x2e,  # ........192.168.
     0x35, 0x2e, 0x32, 0x35, 0x33, 0x00, 0x00, 0x00,                                                  # 5.253...]
 ]))
- 
+
+fwd_o01_request		= bytes(bytearray([
+                                        0x6f, 0x00, 0x40, 0x00, 0x05, 0x00, 0x0d, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0xd0, 0x92, 0x00, 0x00, 0x50, 0x80, 0xff, 0x07, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x20, 0x00, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0xb2, 0x00, 0x30, 0x00, 0x54, 0x02,
+    0x20, 0x06, 0x24, 0x01, 0x07, 0xf9, 0x11, 0x00, 0x00, 0x80, 0x10, 0x00, 0xfe, 0x80, 0x11, 0x00,
+    0x4d, 0x00, 0x0f, 0x7f, 0x3d, 0x1e, 0x00, 0x00, 0x00, 0x00, 0x00, 0x12, 0x7a, 0x00, 0xf4, 0x43,
+    0x00, 0x12, 0x7a, 0x00, 0xf4, 0x43, 0xa3, 0x03, 0x01, 0x00, 0x20, 0x02, 0x24, 0x01,
+]))
+
+fwd_o01_reply		= bytes(bytearray([
+                                        0x6f, 0x00, 0x2e, 0x00, 0x05, 0x00, 0x0d, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0xd0, 0x92, 0x00, 0x00, 0x50, 0x80, 0xff, 0x07, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0xb2, 0x00, 0x1e, 0x00, 0xd4, 0x00,
+    0x00, 0x00, 0x26, 0x40, 0xa3, 0xff, 0x10, 0x00, 0xfe, 0x80, 0x11, 0x00, 0x4d, 0x00, 0x0f, 0x7f,
+    0x3d, 0x1e, 0x00, 0x12, 0x7a, 0x00, 0x00, 0x12, 0x7a, 0x00, 0x00, 0x00,
+]))
+
 CIP_tests			= [
             ( 
                 # An empty request (usually indicates termination of session)
@@ -2039,6 +2057,69 @@ CIP_tests			= [
                 "enip.CIP.send_data.interface": 0,
                 "enip.CIP.send_data.timeout": 0,
             }
+          ), (
+              fwd_o01_request,
+              {
+                  "enip.CIP.send_data.CPF.count": 2,
+                  "enip.CIP.send_data.CPF.item[0].length": 0,
+                  "enip.CIP.send_data.CPF.item[0].type_id": 0,
+                  "enip.CIP.send_data.CPF.item[1].length": 48,
+                  "enip.CIP.send_data.CPF.item[1].type_id": 178,
+                  "enip.CIP.send_data.CPF.item[1].unconnected_send.request.forward_open.O_T_NCP": 17396,
+                  "enip.CIP.send_data.CPF.item[1].unconnected_send.request.forward_open.O_T_RPI": 8000000,
+                  "enip.CIP.send_data.CPF.item[1].unconnected_send.request.forward_open.O_T_connection_ID": 2147483665,
+                  "enip.CIP.send_data.CPF.item[1].unconnected_send.request.forward_open.O_serial": 507346703,
+                  "enip.CIP.send_data.CPF.item[1].unconnected_send.request.forward_open.O_vendor": 77,
+                  "enip.CIP.send_data.CPF.item[1].unconnected_send.request.forward_open.T_O_NCP": 17396,
+                  "enip.CIP.send_data.CPF.item[1].unconnected_send.request.forward_open.T_O_RPI": 8000000,
+                  "enip.CIP.send_data.CPF.item[1].unconnected_send.request.forward_open.T_O_connection_ID": 2164129808,
+                  "enip.CIP.send_data.CPF.item[1].unconnected_send.request.forward_open.connection_path.segment[0].link": 0,
+                  "enip.CIP.send_data.CPF.item[1].unconnected_send.request.forward_open.connection_path.segment[0].port": 1,
+                  "enip.CIP.send_data.CPF.item[1].unconnected_send.request.forward_open.connection_path.segment[1].class": 2,
+                  "enip.CIP.send_data.CPF.item[1].unconnected_send.request.forward_open.connection_path.segment[2].instance": 1,
+                  "enip.CIP.send_data.CPF.item[1].unconnected_send.request.forward_open.connection_serial": 17,
+                  "enip.CIP.send_data.CPF.item[1].unconnected_send.request.forward_open.connection_timeout_multiplier": 0,
+                  "enip.CIP.send_data.CPF.item[1].unconnected_send.request.forward_open.priority_time_tick": 7,
+                  "enip.CIP.send_data.CPF.item[1].unconnected_send.request.forward_open.timeout_ticks": 249,
+                  "enip.CIP.send_data.CPF.item[1].unconnected_send.request.forward_open.transport_class_triggers": 163,
+                  "enip.CIP.send_data.CPF.item[1].unconnected_send.request.path.segment[0].class": 6,
+                  "enip.CIP.send_data.CPF.item[1].unconnected_send.request.path.segment[1].instance": 1,
+                  "enip.CIP.send_data.CPF.item[1].unconnected_send.request.path.size": 2,
+                  "enip.CIP.send_data.CPF.item[1].unconnected_send.request.service": 84,
+                  "enip.CIP.send_data.interface": 0,
+                  "enip.CIP.send_data.timeout": 32,
+                  "enip.command": 111,
+                  "enip.length": 64,
+                  "enip.session_handle": 851973,
+              }
+          ), (
+              fwd_o01_reply,
+              {
+                  "enip.CIP.send_data.CPF.count": 2,
+                  "enip.CIP.send_data.CPF.item[0].length": 0,
+                  "enip.CIP.send_data.CPF.item[0].type_id": 0,
+                  "enip.CIP.send_data.CPF.item[1].length": 30,
+                  "enip.CIP.send_data.CPF.item[1].type_id": 178,
+                  "enip.CIP.send_data.CPF.item[1].unconnected_send.request.forward_open.O_T_API": 8000000,
+                  "enip.CIP.send_data.CPF.item[1].unconnected_send.request.forward_open.O_T_connection_ID": 4288888870,
+                  "enip.CIP.send_data.CPF.item[1].unconnected_send.request.forward_open.O_serial": 507346703,
+                  "enip.CIP.send_data.CPF.item[1].unconnected_send.request.forward_open.O_vendor": 77,
+                  "enip.CIP.send_data.CPF.item[1].unconnected_send.request.forward_open.T_O_API": 8000000,
+                  "enip.CIP.send_data.CPF.item[1].unconnected_send.request.forward_open.T_O_connection_ID": 2164129808,
+                  "enip.CIP.send_data.CPF.item[1].unconnected_send.request.forward_open.application.size": 0,
+                  "enip.CIP.send_data.CPF.item[1].unconnected_send.request.forward_open.connection_serial": 17,
+                  "enip.CIP.send_data.CPF.item[1].unconnected_send.request.service": 212,
+                  "enip.CIP.send_data.CPF.item[1].unconnected_send.request.status": 0,
+                  "enip.CIP.send_data.CPF.item[1].unconnected_send.request.status_ext.size": 0,
+                  "enip.CIP.send_data.interface": 0,
+                  "enip.CIP.send_data.timeout": 0,
+                  "enip.command": 111,
+                  "enip.length": 46,
+                  "enip.options": 0,
+                  "enip.session_handle": 851973,
+                  "enip.session_handle": 851973,
+                  "enip.status": 0,
+              }
           ),
 ]
   
@@ -2133,7 +2214,7 @@ def test_enip_CIP( repeat=1 ):
             # And finally the EtherNet/IP encapsulation itself
             data.input			= bytearray( enip.enip_encode( data.enip ))
             log.detail( "EtherNet/IP CIP Request produced payload: %r", bytes( data.input ))
-            assert data.input == pkt
+            assert data.input == pkt, "original:\n" + hexdump( pkt ) + "\nproduced:\n" + hexdump( data.input )
         except:
             log.warning ( "Invalid packet produced from EtherNet/IP CIP data: %r", data )
             raise

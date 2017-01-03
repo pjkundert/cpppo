@@ -1332,7 +1332,6 @@ class CPF( cpppo.dfa ):
         0x00b1:		Connected Transport packet (eg. used within CIP command SendUnitData)
         0x0100:		ListServices response
         0x000C:		ListIdentity response
-
     
     Presently we only handle NULL Address and Unconnected Messages, and ListServices
     (communications_service), and ListIdentity (identity_object).
@@ -1621,6 +1620,9 @@ class typed_data( cpppo.dfa ):
     only complete data items must be parsed, so this must be exact, and match the specified data
     type.
 
+    If no data is provided (or due to a limit=0), no data will be parsed, nor will .data be
+    initialized to [].
+
     The known data types are:
 
     data type	supported	type value	  size
@@ -1735,34 +1737,34 @@ class typed_data( cpppo.dfa ):
                                            destination='.data',	initializer=lambda **kwds: [],
                                                 state=sttd )
 
-        slct[None]		= cpppo.decide(	'BOOL',	state=u_1p,
+        slct[None]		= cpppo.decide(	'BOOL',	state=u_1d,
             predicate=lambda path=None, data=None, **kwds: \
                 BOOL.tag_type == ( data[path+tag_type] if isinstance( tag_type, cpppo.type_str_base ) else tag_type ))
-        slct[None]		= cpppo.decide(	'SINT',	state=i_8p,
+        slct[None]		= cpppo.decide(	'SINT',	state=i_8d,
             predicate=lambda path=None, data=None, **kwds: \
                 SINT.tag_type == ( data[path+tag_type] if isinstance( tag_type, cpppo.type_str_base ) else tag_type ))
-        slct[None]		= cpppo.decide(	'USINT',state=u_8p,
+        slct[None]		= cpppo.decide(	'USINT',state=u_8d,
             predicate=lambda path=None, data=None, **kwds: \
                 USINT.tag_type == ( data[path+tag_type] if isinstance( tag_type, cpppo.type_str_base ) else tag_type ))
-        slct[None]		= cpppo.decide(	'INT',	state=i16p,
+        slct[None]		= cpppo.decide(	'INT',	state=i16d,
             predicate=lambda path=None, data=None, **kwds: \
                 INT.tag_type == ( data[path+tag_type] if isinstance( tag_type, cpppo.type_str_base ) else tag_type ))
-        slct[None]		= cpppo.decide(	'UINT',	state=u16p,
+        slct[None]		= cpppo.decide(	'UINT',	state=u16d,
             predicate=lambda path=None, data=None, **kwds: \
                 UINT.tag_type == ( data[path+tag_type] if isinstance( tag_type, cpppo.type_str_base ) else tag_type ))
-        slct[None]		= cpppo.decide(	'DINT',	state=i32p,
+        slct[None]		= cpppo.decide(	'DINT',	state=i32d,
             predicate=lambda path=None, data=None, **kwds: \
                 DINT.tag_type == ( data[path+tag_type] if isinstance( tag_type, cpppo.type_str_base ) else tag_type ))
-        slct[None]		= cpppo.decide(	'UDINT',state=u32p,
+        slct[None]		= cpppo.decide(	'UDINT',state=u32d,
             predicate=lambda path=None, data=None, **kwds: \
                 UDINT.tag_type == ( data[path+tag_type] if isinstance( tag_type, cpppo.type_str_base ) else tag_type ))
-        slct[None]		= cpppo.decide(	'REAL',	state=fltp,
+        slct[None]		= cpppo.decide(	'REAL',	state=fltd,
             predicate=lambda path=None, data=None, **kwds: \
                 REAL.tag_type == ( data[path+tag_type] if isinstance( tag_type, cpppo.type_str_base ) else tag_type ))
-        slct[None]		= cpppo.decide(	'SSTRING', state=sstp,
+        slct[None]		= cpppo.decide(	'SSTRING', state=sstd,
             predicate=lambda path=None, data=None, **kwds: \
                 SSTRING.tag_type == ( data[path+tag_type] if isinstance( tag_type, cpppo.type_str_base ) else tag_type ))
-        slct[None]		= cpppo.decide(	'STRING', state=sttp,
+        slct[None]		= cpppo.decide(	'STRING', state=sttd,
             predicate=lambda path=None, data=None, **kwds: \
                 STRING.tag_type == ( data[path+tag_type] if isinstance( tag_type, cpppo.type_str_base ) else tag_type ))
         
@@ -1776,8 +1778,8 @@ class typed_data( cpppo.dfa ):
             tag_type		= data.get( 'type' ) or data.get( 'tag_type' )
         assert 'data' in data and hasattr( data.get( 'data' ), '__iter__' ) and tag_type in cls.TYPES_SUPPORTED, \
             "Unknown (or no) typed data found for tag_type %r: %r" % ( tag_type, data )
-        produce			= cls.TYPES_SUPPORTED[tag_type].produce
-        return b''.join( produce( v ) for v in data.get( 'data' ))
+        producer		= cls.TYPES_SUPPORTED[tag_type].produce
+        return b''.join( producer( v ) for v in data.get( 'data' ))
 
     @classmethod
     def datasize( cls, tag_type, size=1 ):
