@@ -349,7 +349,7 @@ def test_hart_pass_thru_poll( simulated_hart_gateway ):
             units		= data[0] if len( data ) > 4 else None
             packer		= struct.Struct( enip.REAL_network.struct_format )
             value,		= packer.unpack_from( buffer=bytearray( data[-4:] ))
-        log.normal( "Read primary variable Value: %s (units: %s), from: %s", value, units, enip.enip_format( data ))
+        log.normal( "Read primary variable Value: %s (units: %s), from: %r", value, units, data )
 
         # HART Command 3 gets all 4 variables
         data			= hart_pass_thru(
@@ -375,8 +375,35 @@ def test_hart_pass_thru_poll( simulated_hart_gateway ):
             value.TV,		= packer.unpack_from( buffer=bytearray( data[15:] ))
             value.FV_units	= data[19]
             value.FV,		= packer.unpack_from( buffer=bytearray( data[20:] ))
-        log.normal( "Read all variables Values: %s, from: %s", enip.enip_format( value ), enip.enip_format( data ))
+        log.normal( "Read all variables Values: %s, from: %r", enip.enip_format( value ), data )
         
+        # HART Command 12 gets the 24-character Message
+        data			= hart_pass_thru(
+            hio, path=path, hart_data=[12], route_path=route_path, data_size=4*4 ) # with no size
+        value			= None
+        if data and len( data ):
+            try:
+                value		= bytes( data ).decode('ascii')
+            except:
+                value		= hexdump( data )
+            log.normal( "Read Message: \n%s\nfrom: %r", value, data )
+
+        # HART Command 0 gets the identity
+        data			= hart_pass_thru(
+            hio, path=path, hart_data=[0], route_path=route_path, data_size=4*4 ) # with no size
+        value			= None
+        if data and len( data ):
+            value		= hexdump( data )
+            log.normal( "Read Identity: \n%s\nfrom: %r", value, data )
+            
+        # HART Command 13 gets the Tag
+        data			= hart_pass_thru(
+            hio, path=path, hart_data=[13], route_path=route_path, data_size=4*4 ) # with no size
+        value			= None
+        if data and len( data ):
+            value		= hexdump( data )
+            log.normal( "Read Tag: \n%s\nfrom: %r", value, data )
+            
     except Exception as exc:
         log.warning( "Test terminated with exception: %s", exc )
         raise
