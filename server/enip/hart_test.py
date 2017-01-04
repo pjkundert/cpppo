@@ -216,7 +216,7 @@ def hart_pass_thru( io, path, hart_data, data_size, route_path=None ):
     Harvests a Pass-thru Init handle, and issues Query on it 'til successs.
 
     """
-    # Try to start the Pass-thru "Read primary variable", and get handle
+    # Try to start the Pass-thru command, with the Pass-thru Init, and get handle
     operations		= [
         {
             "method":		"service_code",
@@ -228,16 +228,16 @@ def hart_pass_thru( io, path, hart_data, data_size, route_path=None ):
         },
     ]
 
-    # Look for a reply status of 33 initiated. Actually, it appears that status 0 indicates success.
+    # Look for a reply init.command_status of 33 initiated. Actually, it appears that status 0 indicates success.
     handle			= None
     while handle is None:
         time.sleep( .1 )
         with io:
             for idx,dsc,req,rpy,sts,val in io.pipeline(
                     operations=client.parse_operations( operations ), **hart_kwds ):
-                log.normal( "Client %s: %s --> %r: request: %s\nreply:%s", io, dsc, val,
+                log.detail( "Client %s: %s --> %r: request: %s\nreply:%s", io, dsc, val,
                             enip.enip_format( req ), enip.enip_format( rpy ))
-                if rpy.status in (0, 33):		# 32 busy, 33 initiated, 35 device offline
+                if rpy.status == 0 and rpy.init.command_status in (33,):	# 32 busy, 33 initiated, 35 device offline
                     handle	= rpy.init.handle
     log.normal( "HART Pass-thru command Handle: %s", handle )
 
@@ -254,14 +254,14 @@ def hart_pass_thru( io, path, hart_data, data_size, route_path=None ):
     ]
 
     reply			= {}
-    while not reply or reply.status == 34:		# 0 success, 34 running, 35 dead
+    while not reply or ( reply.status == 0 and reply.query.command_status == 34 ): # 0 success, 34 running, 35 dead
         time.sleep( .1 )
         with io:
             for idx,dsc,req,rpy,sts,val in io.pipeline(
                     operations=client.parse_operations( operations ), **hart_kwds ):
-                log.normal( "Client %s: %s --> %r: %s", io, dsc, val, enip.enip_format( rpy ))
+                log.detail( "Client %s: %s --> %r: %s", io, dsc, val, enip.enip_format( rpy ))
                 reply	= rpy
-        log.normal( "HART pass-thru command Status: %s", reply.status )
+        log.normal( "HART pass-thru command Status: %s", reply.get( 'query.command_status' ))
 
     return reply.get( 'query.reply_data.data', None )
 
@@ -306,7 +306,7 @@ def test_hart_pass_thru_poll( simulated_hart_gateway ):
         }
 
     """
-    logging.getLogger().setLevel( logging.DETAIL )
+    logging.getLogger().setLevel( logging.NORMAL )
     command,address             = simulated_hart_gateway
 
     # For testing, we'll hit a specific device
@@ -340,26 +340,42 @@ def test_hart_pass_thru_poll( simulated_hart_gateway ):
 
         path			= '@0x%X/8' % ( HART.class_id )
         data			= hart_pass_thru(
-            hio, path=path, hart_data=[1, 0], route_path=route_path, data_size=4 )
+            hio, path=path, hart_data=[1], route_path=route_path, data_size=4 ) # with no size
 
-        # The small response carries the 4-byte value, the long response additionally carries the data type
+        # The small response carries the 4-byte value, the long CIP MSG response additionally
+        # carries the data type We receive the long response.
         value			= None
         if data and len( data ) >= 4:
+            units		= data[0] if len( data ) > 4 else None
             packer		= struct.Struct( enip.REAL_network.struct_format )
             value,		= packer.unpack_from( buffer=bytearray( data[-4:] ))
-        log.normal( "Read primary variable Value: %s", value )
+        log.normal( "Read primary variable Value: %s (units: %s), from: %s", value, units, enip.enip_format( data ))
 
         # HART Command 3 gets all 4 variables
         data			= hart_pass_thru(
-            hio, path=path, hart_data=[3, 0], route_path=route_path, data_size=4*4 )
+            hio, path=path, hart_data=[3], route_path=route_path, data_size=4*4 ) # with no size
 
         # small response carries PV, SV, TV, FV values, no data types
         value			= []
         if data and len( data ) == 4*4:
+            # Short
             packer		= struct.Struct( enip.REAL_network.struct_format )
             for i in range( 0, len( data ), 4 ):
                 value		+= packer.unpack_from( buffer=bytearray( data[i:i+4] ))
-        log.normal( "Read all variables Values: %s", value )
+        elif data and len( data ) >= 24:
+            # Long
+            packer		= struct.Struct( enip.REAL_network.struct_format )
+            value		= cpppo.dotdict()
+            value.current,	= packer.unpack_from( buffer=bytearray( data[0:] ))
+            value.PV_units	= data[4]
+            value.PV,		= packer.unpack_from( buffer=bytearray( data[5:] ))
+            value.SV_units	= data[10]
+            value.SV,		= packer.unpack_from( buffer=bytearray( data[11:] ))
+            value.TV_units	= data[14]
+            value.TV,		= packer.unpack_from( buffer=bytearray( data[15:] ))
+            value.FV_units	= data[19]
+            value.FV,		= packer.unpack_from( buffer=bytearray( data[20:] ))
+        log.normal( "Read all variables Values: %s, from: %s", enip.enip_format( value ), enip.enip_format( data ))
         
     except Exception as exc:
         log.warning( "Test terminated with exception: %s", exc )

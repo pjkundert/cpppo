@@ -58,7 +58,7 @@ from ... import automata, misc
 from .device import ( Attribute, Message_Router, Connection_Manager,
                       resolve_tag, redirect_tag, lookup )
 from .parser import ( USINT, REAL, REAL_network, EPATH, typed_data,
-                      move_if, octets_drop, octets_noop, enip_format )
+                      move_if, octets_drop, octets_noop, enip_format, status )
 from .logix import Logix
 
 log				= logging.getLogger( "enip.hart" )
@@ -530,7 +530,11 @@ HART.register_service_parser( number=HART.PT_INI_REQ, name=HART.PT_INI_NAM,
 
 def __init_reply():
     srvc			= USINT(		  	context='service' )
-    srvc[True]		= hsts	= USINT( 'status',		context='status' ) # 32 busy, 33 initiated, 35 device offline
+    srvc[True]	 	= rsvd	= octets_drop(	'reserved',	repeat=1 )
+    rsvd[True]		= stts	= status()
+    stts[None]			= octets_noop(	'nodata',
+                                                terminal=True )
+    stts[True]		= hsts	= USINT( 'command_status',	context=HART.PT_INI_CTX, extension='.command_status' ) # 32 busy, 33 initiated, 35 device offline
     hsts[True]		= hcmd	= USINT( 'command',		context=HART.PT_INI_CTX, extension='.command' )
     hcmd[True]		= hhdl	= USINT( 'handle',		context=HART.PT_INI_CTX, extension='.handle' )
     hhdl[None]			= USINT( 'queue_space',		context=HART.PT_INI_CTX, extension='.queue_space',
@@ -550,7 +554,11 @@ HART.register_service_parser( number=HART.PT_QRY_REQ, name=HART.PT_QRY_NAM,
 
 def __query_reply():
     srvc			= USINT(		  	context='service' )
-    srvc[True]		= hsts 	= USINT( 'status',		context='status' )
+    srvc[True]	 	= rsvd	= octets_drop(	'reserved',	repeat=1 )
+    rsvd[True]		= stts	= status()
+    stts[None]			= octets_noop(	'nodata',
+                                                terminal=True )
+    stts[True]		= hsts 	= USINT( 'command_status',	context=HART.PT_QRY_CTX, extension='.command_status' )
     hsts[True]		= hcmd 	= USINT( 'command',		context=HART.PT_QRY_CTX, extension='.command' )
     hcmd[True]		= hrpy	= USINT( 'reply_status',	context=HART.PT_QRY_CTX, extension='.reply_status' )
     hrpy[True]		= hfds	= USINT( 'fld_dev_status',	context=HART.PT_QRY_CTX, extension='.fld_dev_status' )
