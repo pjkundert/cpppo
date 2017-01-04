@@ -1537,9 +1537,11 @@ class Message_Router( Object ):
         if self.MULTIPLE_CTX in data and data.setdefault( 'service', self.MULTIPLE_REQ ) == self.MULTIPLE_REQ:
             # Multiple Service Packet Request; '.multiple' required
             pass
+            '''
         elif self.FWD_OPEN_CTX in data and data.setdefault( 'service', self.FWD_OPEN_REQ ) == self.FWD_OPEN_REQ:
             # Forward Open
             pass
+            '''
         else:
             # Not recognized; more generic command?
             return super( Message_Router, self ).request( data )
@@ -1575,7 +1577,7 @@ class Message_Router( Object ):
                         log.detail( "%s Process on %s: %s", self, target, enip_format( r ))
                     target.request( r )
                 data.status	= 0x00
-
+            '''
             elif data.service == self.FWD_OPEN_RPY:
                 # The target object must have a 'forward_open' implementation, and must convert the
                 # supplied 'data' dotdict request into a response; data.service is already Forward Open Reply, and the status
@@ -1583,6 +1585,7 @@ class Message_Router( Object ):
                 # Forward Open response.
                 data.status	= 8			# Service not supported, if anything blows up
                 target.forward_open( data )
+            '''
 
         except Exception as exc:
             # On Exception, if we haven't specified a more detailed error code, return General
@@ -1705,6 +1708,7 @@ class Message_Router( Object ):
                     result     += UINT.produce( 	2 + 2 * len( offsets ) + o )
                 result	       += rpydata
         elif cls.FWD_OPEN_CTX in data and data.setdefault( 'service', cls.FWD_OPEN_REQ ) == cls.FWD_OPEN_REQ:
+            log.detail( "%s producing Forward Open Request: %s", cls.__name__, enip_format( data ))
             result	       += USINT.produce( data.service )
             result	       += EPATH.produce( data.path )
             fo			= data.forward_open
@@ -1725,6 +1729,7 @@ class Message_Router( Object ):
             result	       += EPATH.produce( fo.connection_path )
 
         elif data.get( 'service' ) == cls.FWD_OPEN_RPY:
+            log.detail( "%s producing Forward Open Reply: %s", cls.__name__, enip_format( data ))
             result	       += USINT.produce( data.service )
             result	       += b'\x00' # reserved
             result	       += status.produce( data )
@@ -2052,8 +2057,8 @@ class Connection_Manager( Object ):
         fo.O_T_API		= fo.O_T_RPI
         fo.T_O_API		= fo.T_O_RPI
         data.status		= 0
-        if log.isEnabledFor( logging.DETAIL ):
-            log.detail( "%s Forward Open: %s", self, enip_format( data ))
+        if log.isEnabledFor( logging.NORMAL ):
+            log.normal( "%s Forward Open: %s", self, enip_format( data ))
 
     def forward_close( self, data ):
         data.status		= 0
@@ -2061,9 +2066,47 @@ class Connection_Manager( Object ):
     def request( self, data ):
         """
         Handles an unparsed request.input, parses it and processes the request with the Message Router.
-        
 
         """
+        MR			= lookup( class_id=Message_Router.class_id, instance_id=1 )
+ 
+        if MR.FWD_OPEN_CTX in data and data.setdefault( 'service', MR.FWD_OPEN_REQ ) == MR.FWD_OPEN_REQ:
+            # The only request a Connection Manager handles directly is the Forward Open.
+            try:
+                # Forward Open.  Parsed in Message Router (until we get proper "split" parsing for CIP
+                # requests, where service and EPATH is parsed centrally, then remainder of parsering is
+                # dispatched to the correct target Object.)  The Message Router will normally forward it
+                # here to the Connection Manager (where it was addressed) to be handled.
+                data.service   |= 0x80
+                data.status	= 8			# Service not supported, if anything blows up
+                self.forward_open( data )
+            except Exception as exc:
+                # On Exception, if we haven't specified a more detailed error code, return General
+                # Error.  Remember: 0x06 (Insufficent Packet Space) is a NORMAL response to a successful
+                # Read Tag Fragmented that returns a subset of the requested data.
+                log.normal( "%r Service 0x%02x %s failed with Exception: %s\nRequest: %s\n%s", self,
+                             data.service if 'service' in data else 0,
+                             ( self.service[data.service]
+                               if 'service' in data and data.service in self.service
+                               else "(Unknown)"), exc, enip_format( data ),
+                             ( '' if log.getEffectiveLevel() >= logging.NORMAL
+                               else ''.join( traceback.format_exception( *sys.exc_info() ))))
+                assert data.status, \
+                  "Implementation error: must specify non-zero .status before raising Exception!"
+
+            # Always produce a response payload; if a failure occurred, will contain an error status
+            # Uses the Message Router, which knows about parsing the Forward Open, but not executing it.
+            if log.isEnabledFor( logging.DETAIL ):
+                log.detail( "%s Response: Service 0x%02x %s %s", self,
+                            data.service if 'service' in data else 0,
+                            ( self.service[data.service]
+                              if 'service' in data and data.service in self.service
+                              else "(Unknown)"), enip_format( data ))
+            data.input		= bytearray( MR.produce( data ))
+            return True
+
+        # Must be an Unconnected Send (Send RR Data, 0x52) or a Connected Send (Send Unit Data).
+
         # We don't check for Unconnected Send 0x52, because replies (and some requests) don't
         # include the full wrapper, just the raw command.  This is quite confusing; especially since
         # some of the commands have the same code (eg. Read Tag Fragmented, 0x52).  Of course, their
@@ -2071,14 +2114,16 @@ class Connection_Manager( Object ):
         # .command, and simply copies the encapsulated request.input as the response payload.  We
         # don't encode the response here; it is done by the UCMM.
         assert 'request' in data and 'input' in data.request, \
-            "Unconnected Send message with absent or empty request"
+            "Unconnected Send message with absent or empty request: %s\nvia: %s" % (
+                enip_format( data ), ''.join( traceback.format_stack() ))
+
         if log.isEnabledFor( logging.INFO ):
             log.info( "%s Request: %s", self, enip_format( data ))
 
         #log.info( "%s Parsing: %s", self, enip_format( data.request ))
         # Get the Message Router to parse and process the request into a response, producing a
         # data.request.input encoded response, which we will pass back as our own encoded response.
-        MR			= lookup( class_id=0x02, instance_id=1 )
+        MR			= lookup( class_id=Message_Router.class_id, instance_id=1 )
         source			= automata.rememberable( data.request.input )
         try: 
             with MR.parser as machine:

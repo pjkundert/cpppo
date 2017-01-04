@@ -118,7 +118,9 @@ def test_hart_simple( simulated_hart_gateway ):
     route_path			= [{'link': 2, 'port': 1}]
     try:
         assert address, "Unable to detect HART EtherNet/IP CIP Gateway IP address"
-        hio			= client.connector( host=address[0], port=address[1] )
+        #hio			= client.connector( host=address[0], port=address[1] )
+        # Establish an Implicit EtherNet/IP CIP connection using Forward Open
+        hio			= client.implicit( host=address[0], port=address[1], connection_path=None )
         PV			= 1.23
         operations		= [
             'HART_7_Data.PV = (REAL)0', # may fail 'til first HART Read Dynamic Variable is done
@@ -304,19 +306,20 @@ def test_hart_pass_thru_poll( simulated_hart_gateway ):
         }
 
     """
-    #logging.getLogger().setLevel( logging.DETAIL )
+    logging.getLogger().setLevel( logging.DETAIL )
     command,address             = simulated_hart_gateway
 
     # For testing, we'll hit a specific device
-    #address			= ("fat2.kundert.ca", 44818)
+    address			= ("fat2.kundert.ca", 44818)
     #address			= ("100.100.102.10", 44818)
     #address			= ("localhost", 44818)
     route_path			= None
-    #route_path			= [{'link': 2, 'port': 1}]
+    route_path			= [{'link': 2, 'port': 1}]
     try:
         assert address, "Unable to detect HART EtherNet/IP CIP Gateway IP address"
+        #hio				= client.implicit( host=address[0], port=address[1] )
         hio				= client.connector( host=address[0], port=address[1] )
-        '''
+
         # Just get the primary variable, to see if the HART device is there.
         operations		= [
             {
@@ -335,7 +338,6 @@ def test_hart_pass_thru_poll( simulated_hart_gateway ):
                 log.normal( "Client %s: %s --> %r: %s", hio, dsc, val, enip.enip_format( rpy ))
 
 
-        '''
         path			= '@0x%X/8' % ( HART.class_id )
         data			= hart_pass_thru(
             hio, path=path, hart_data=[1, 0], route_path=route_path, data_size=4 )

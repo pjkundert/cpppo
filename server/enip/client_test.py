@@ -113,9 +113,9 @@ def test_client_timeout():
     finally:
         conn.terminate()
 
-def test_client_api_simple():
 
-    #logging.getLogger().setLevel( logging.DETAIL )
+def test_client_api_simple():
+    logging.getLogger().setLevel( logging.DETAIL )
 
     taglen			= 100 # able to fit request for Attribute into 1 packet
 
@@ -146,7 +146,7 @@ def test_client_api_simple():
         connection		= None
         while not connection:
             try:
-                connection	= enip.client.connector( *server_addr, timeout=client_timeout )
+                connection	= enip.client.implicit( *server_addr, timeout=client_timeout, connection_path=None )
             except socket.error as exc:
                 logging.warning( "enip.client.connector socket.error: %r", exc )
                 if exc.errno != errno.ECONNREFUSED:
@@ -175,6 +175,8 @@ def test_client_api_simple():
             assert connection.readable( timeout=1.0 ) # receive reply
             rpy			= next( connection )
             assert 'enip.CIP' in rpy and 'send_data.CPF.item[1].unconnected_send.request.set_attribute_single' in rpy.enip.CIP
+
+
 
         connection.shutdown()
         assert connection.readable( timeout=1.0 ) # receive EOF

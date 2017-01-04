@@ -570,20 +570,6 @@ class client( object ):
         return len( r ) > 0
 
     # Basic CIP Requests; sent immediately
-    '''
-    def forward_open( self, timeout=None, sender_context=b'', **kwds ):
-        cip			= cpppo.dotdict()
-        fo = cip.forward_open	= {}
-                      priority_time_ticks=None, timeout_ticks=None,
-            O_T_network_ID=None, T_O_network_ID=None, connection_serial=None,
-            O_vendor_id=None, O_serial_number=None, connection_timeout_multiplier=None,
-                      O_T_RPI=None,
-
-        fo.priority_time_ticks	= kwds.get( 'priority_time_ticks', 
-        
-        return self.cip_send( cip=cip, sender_context=sender_context, timeout=timeout )
-    '''
-        
     def register( self, timeout=None, sender_context=b'' ):
         cip			= cpppo.dotdict()
         cip.register		= {}
@@ -614,6 +600,41 @@ class client( object ):
         return self.cip_send( cip=cip )
 
     # CIP SendRRData Requests; may be deferred (eg. for Multiple Service Packet)
+    def forward_open( self, path, connection_path,
+                      priority_time_tick, timeout_ticks,
+                      O_serial, O_vendor,
+                      O_T_RPI, O_T_NCP, O_T_connection_ID,
+                      T_O_RPI, T_O_NCP, T_O_connection_ID, connection_serial,
+                      transport_class_triggers, connection_timeout_multiplier,                      
+                      timeout=None, send=True,
+                      route_path=False, send_path='', sender_context=b'',                      
+                      **kwds ):
+        """Forward Open uses a CPF encapsulation, but with no route_path or send_path"""
+        req			= cpppo.dotdict()
+        req.path		= { 'segment': [ cpppo.dotdict( d ) for d in parse_path( path ) ]}
+        req.forward_open 	= {}
+        fo			= req.forward_open
+        fo.priority_time_tick	= priority_time_tick
+        fo.timeout_ticks	= timeout_ticks
+        fo.O_T_RPI		= O_T_RPI
+        fo.O_T_NCP		= O_T_NCP
+        fo.O_T_connection_ID	= O_T_connection_ID
+        fo.T_O_RPI		= T_O_RPI
+        fo.T_O_NCP		= T_O_NCP
+        fo.T_O_connection_ID	= T_O_connection_ID
+        fo.connection_serial	= connection_serial
+        fo.O_vendor		= O_vendor
+        fo.O_serial		= O_serial
+        fo.transport_class_triggers = transport_class_triggers
+        fo.connection_timeout_multiplier = connection_timeout_multiplier
+        fo.connection_path	= { 'segment': [ cpppo.dotdict( d ) for d in parse_path( connection_path ) ]}
+
+        if send:
+            self.unconnected_send(
+                request=req, route_path=route_path, send_path=send_path, timeout=timeout,
+                sender_context=sender_context )
+        return req
+
     def service_code( self, code, path, data=None, elements=None, tag_type=None,
                 route_path=None, send_path=None, timeout=None, send=True,
                 sender_context=b'', data_size=None ): # response data_size estimation
@@ -1453,6 +1474,105 @@ class connector( client ):
         transactions		= list( self.results( operations=operations, **kwds ))
         failures		= sum( 1 if t is None else 0 for t in transactions )
         return failures,transactions
+
+
+class implicit( connector ):
+    """Establishes an Implicit (Connected) EtherNet/IP CIP connection, by issuing a Forward Open after
+    the EtherNet/IP CIP Register succeeds.
+
+    Obtains defaults for any Forward Open parameters not specified, using the Object.config_loader,
+    specialized for the given 'configuration' name (defaults to "Originator", if None, falling back
+    to "DEFAULT" if not found).
+
+    After successful establishment, the 'implicit' instance's 'established' attribute will contain the 
+    successful Forward Open response.
+    """
+    connection_serial		= 0
+    def __init__( self, host, port=None, timeout=None, connection_path=None, path=None, 
+                  configuration=None, priority_time_tick=None, timeout_ticks=None,
+                  O_T_connection_ID=None, T_O_connection_ID=None, connection_serial=None,
+                  O_vendor=None, O_serial=None, O_T_RPI=None, T_O_RPI=None, O_T_NCP=None, T_O_NCP=None,
+                  transport_class_triggers=None, connection_timeout_multiplier=None,
+                  route_path=False, send_path='', # typically no 0x52 encapsulation w/ routing for fwd open
+                  **kwds ):
+        begun			= cpppo.timer()
+        try:
+            super( implicit, self ).__init__( host=host, port=port, timeout=timeout, **kwds )
+            assert not self.udp, "Cannot establish Implicit UDP EtherNet/IP CIP connections"
+            self.__class__.connection_serial += 1
+
+            # TODO: Get these all from config file
+            if path is None:
+                path		= [{'class': 6},{'instance':1}]
+            if connection_path is None:
+                connection_path	= [{'link': 0, 'port': 1}, {'class': 2}, {'instance': 1}]
+            if priority_time_tick is None:
+                priority_time_tick= 7
+            if timeout_ticks is None:
+                timeout_ticks	= 249
+            if O_serial is None:
+                O_serial	= 507346703
+            if O_vendor is None:
+                O_vendor	= 77
+            if T_O_RPI is None:
+                T_O_RPI		= 8000000
+            if T_O_NCP is None:
+                T_O_NCP		= 0x43F4
+            if O_T_RPI is None:
+                O_T_RPI		= 8000000
+            if O_T_NCP is None:
+                O_T_NCP		= 0x43F4
+            # Default the connection ID and serial to the same incrementing number
+            if connection_serial is None:
+                connection_serial = self.connection_serial
+            if O_T_connection_ID is None:
+                O_T_connection_ID = self.connection_serial
+            if T_O_connection_ID is None:
+                T_O_connection_ID = 2**32-1 # set by Target; doesn't matter
+            if transport_class_triggers is None:
+                transport_class_triggers = 163
+            if connection_timeout_multiplier is None:
+                connection_timeout_multiplier = 0
+            with self:
+                # The forward_open( timeout=... ) applies to the socket send only
+                elapsed_req	= cpppo.timer() - begun
+                self.forward_open(
+                    path		= path,
+                    connection_path	= connection_path,
+                    priority_time_tick	= priority_time_tick,
+                    timeout_ticks	= timeout_ticks,
+                    O_serial		= O_serial,
+                    O_vendor		= O_vendor,
+                    O_T_RPI		= O_T_RPI,
+                    O_T_NCP		= O_T_NCP,
+                    O_T_connection_ID	= O_T_connection_ID,
+                    T_O_RPI		= T_O_RPI,
+                    T_O_NCP		= T_O_NCP,
+                    T_O_connection_ID	= T_O_connection_ID,
+                    connection_serial	= connection_serial,
+                    transport_class_triggers = transport_class_triggers,
+                    connection_timeout_multiplier = connection_timeout_multiplier,
+                    timeout=None if timeout is None else max( 0, timeout - elapsed_req ),
+                    route_path		= route_path,
+                    send_path		= send_path )
+                # Await the CIP response for remainder of timeout
+                elapsed_req	= cpppo.timer() - begun
+                data,elapsed_rpy= await( self, timeout=None if timeout is None else max( 0, timeout - elapsed_req ))
+
+            assert data is not None, "Failed to receive any response"
+            assert 'enip.status' in data, "Failed to receive EtherNet/IP response"
+            assert data.enip.status == 0, "EtherNet/IP response indicates failure: %s" % data.enip.status
+            self.established	= data.get( 'enip.CIP.send_data.CPF.item[1].unconnected_send.request' )
+            assert self.established and 'forward_open' in self.established and self.established.status == 0, \
+                "Failed to receive successful Forward Open response: %s" % ( enip_format( self.established ))
+        except Exception as exc:
+            log.normal( "FwdOpen:  Failure in %7.3fs/%7.3fs: %s", cpppo.timer() - begun,
+                        cpppo.inf if timeout is None else timeout, exc )
+            raise
+        else:
+            log.normal( "FwdOpen:  Success in %7.3fs/%7.3fs", cpppo.timer() - begun,
+                        cpppo.inf if timeout is None else timeout )
+
 
 
 def recycle( iterable, times=None ):
