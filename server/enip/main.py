@@ -1131,7 +1131,7 @@ def main( argv=None, attribute_class=device.Attribute, idle_service=None, identi
             "SSTRING":	( parser.SSTRING, '' ),
             "STRING":	( parser.STRING, '' ),
         }
-        assert tag_type in typenames, "Invalid tag type; must be one of %r" % list( typenames )
+        assert tag_type in typenames, "Invalid tag type %r; must be one of %r" % ( tag_type, list( typenames ))
         tag_class,tag_default	= typenames[tag_type]
         try:
             tag_size		= int( tag_size )
