@@ -23,6 +23,9 @@ from cpppo.server import enip
 from cpppo.server.enip import client
 from cpppo.server.enip.get_attribute import proxy # Devices w/ a backplane route_path
 
+if sys.version_info[0] >= 3:
+    def unicode( s ):
+        return str( s )
 
 def main( argv=None, address=None ):
     ap				= argparse.ArgumentParser(
