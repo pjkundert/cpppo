@@ -1710,7 +1710,7 @@ which is required to carry this Send/Route Path data. """ )
     logging.basicConfig( **cpppo.log_cfg )
 
     addr			= args.address.split(':')
-    assert 1 <= len( addr ) <= 2, "Invalid --address [<interface>]:[<port>}: %s" % args.address
+    assert 1 <= len( addr ) <= 2, "Invalid --address [<interface>][:<port>]: %s" % args.address
     addr			= ( str( addr[0] ) if addr[0] else enip.address[0],
                                     int( addr[1] ) if len( addr ) > 1 and addr[1] else enip.address[1] )
     timeout			= float( args.timeout )
