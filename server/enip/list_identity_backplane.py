@@ -21,7 +21,7 @@ import sys
 import cpppo
 from cpppo.server import enip
 from cpppo.server.enip import client
-from cpppo.server.enip.get_attribute import proxy # Devices w/ a backplane route_path
+from cpppo.server.enip.get_attribute import proxy, proxy_simple # Devices w/ a backplane route_path
 
 if sys.version_info[0] >= 3:
     def unicode( s ):
@@ -108,14 +108,21 @@ def search_lan( address, broadcast=True, timeout=1.0 ):
     for target in list_identity( address=address, broadcast=broadcast, timeout=timeout ):
         identity_object		= target.enip.CIP.list_identity.CPF.item[0].identity_object
         chassis		       += 1
-        #print( enip.enip_format( identity_object ))
+        print( enip.enip_format( identity_object ))
         print()
         print( "%-32s @ %s:%s" % ( identity_object.product_name,
                                    identity_object.sin_addr, identity_object.sin_port ))
         for route_path,module in scan_backplane(
                 address=(identity_object.sin_addr,identity_object.sin_port)):
-            print( "  Slot %3s: %-32s (Ser. #%s)" % (
-                route_path[0]['link'], str( module[6] ), module[5] ))
+            print( "  %24s: %s" % ( route_path, module ))
+            if route_path:
+                print( "  Slot %3s: %-32s (Ser. #%s)" % (
+                        route_path[0]['link'], str( module[6] ), module[5] ))
+            else:
+                # No route_path; Must be a simple non-routing device (eg. MicroLogix)
+                print( "          : %-32s (Ser. #%s)" % (
+                        str( module[6] ), module[5] ))
+
             devices	       += 1
     return chassis,devices
 
@@ -136,18 +143,25 @@ def list_identity( address=('255.255.255.255',enip.address[1]), broadcast=True, 
             yield response
 
 
-def scan_backplane( address, slots=8 ):
+def scan_backplane( address, slots=16 ):
     """Establishes an EtherNet/IP CIP connection and scans the device backplane, yielding any
     (<route_path>,<identity>) data found.
 
     """
-    for link in range( slots ):
-        route_path		= [{'link':link,'port':1}]
-        with proxy( host=address[0], port=address[1], route_path=route_path ) as via:
+    # Try a routing request; if that fails, it may be a "simple" device (eg. like MicroLogix)
+    try:
+        for link in range( slots ):
+            route_path		= [{'link':link,'port':1}]
+            with proxy( host=address[0], port=address[1], route_path=route_path ) as via:
+                identity,	= via.read( via.parameter_substitution( "Identity" ))
+            if identity:
+                yield route_path,identity
+    except Exception as exc:
+        # No joy.  A simple non-routing device?
+        with proxy_simple( host=address[0], port=address[1] ) as via:
             identity,		= via.read( via.parameter_substitution( "Identity" ))
-        if identity:
-            yield route_path,identity
-
-
+            if identity:
+                yield None,identity
+            
 if __name__ == "__main__":
     sys.exit( main( ))
