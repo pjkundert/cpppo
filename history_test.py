@@ -482,7 +482,8 @@ def test_history_sequential():
                 fz	 = f + '.%s' % random.choice( ('gz', 'bz2', 'xz') )
                 files.append( fz )
                 with opener( fz, mode='wb' ) as fd:
-                    fd.write( open( f, 'rb' ).read() )
+                    with open( f, 'rb' ) as rd:
+                        fd.write( rd.read() )
                 if random.choice( (True, False, False) ):
                     continue # Don't remove some of the uncompressed files
                 os.unlink( f )
@@ -742,7 +743,8 @@ def test_history_performance():
                 fz	 = f + '.%s' % random.choice( ('gz', 'bz2', 'xz') )
                 files.append( fz )
                 with opener( fz, mode='wb' ) as fd:
-                    fd.write( open( f, 'rb' ).read() )
+                    with open( f, 'rb' ) as rd:
+                        fd.write( rd.read() )
                 if random.choice( (True, False, False) ):
                     continue # Don't remove some of the uncompressed files
                 os.unlink( f )

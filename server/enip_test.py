@@ -2315,13 +2315,15 @@ draindelay			= 10.  		# long in case server very slow (eg. logging), but immedia
 def enip_cli( number, tests=None ):
     """Sends a series of test messages, testing response for expected results."""
     #logging.getLogger().setLevel(logging.NORMAL)
-    log.info( "EtherNet/IP Client %3d connecting... PID [%5d]", number, os.getpid() )
-    conn			= socket.socket( socket.AF_INET, socket.SOCK_STREAM )
-    conn.connect( enip.address )
-    log.normal( "EtherNet/IP Client %3d connected to server at %s", number, enip.address )
 
+    conn			= None
     successes			= 0
     try:
+        log.info( "EtherNet/IP Client %3d connecting... PID [%5d]", number, os.getpid() )
+        conn			= socket.socket( socket.AF_INET, socket.SOCK_STREAM )
+        conn.connect( enip.address )
+        log.normal( "EtherNet/IP Client %3d connected to server at %s", number, enip.address )
+
         eof			= False
         source			= cpppo.chainable()
         for req,tst in tests:
@@ -2398,7 +2400,7 @@ def enip_cli( number, tests=None ):
     except Exception as exc:
         log.warning( "EtherNet/IP Client %3d client failed: %r\n%s", number, exc, traceback.format_exc() )
     finally:
-        pass
+        conn.close()
 
     failed			= successes != len( tests )
     if failed:
