@@ -9,17 +9,18 @@
 
    Cpppo depends on several Python packages:
 
-   | Package      | For?       | Description                                              |
-   |--------------+------------+----------------------------------------------------------|
-   | greenery     | all        | Regular Expression parsing and state machinery library   |
-   | ipaddress    | all        | IP address manipulation                                  |
-   | argparse     | all (<2.7) | Command-line argument parsing                            |
-   | configparser | all (<3.0) | Parsing for CIP Object configuration files               |
-   | pytz         | history    | The Python time-zone library                             |
-   | tzlocal      | history    | Access to system's local timezone (on Mac, Windows)      |
-   | pymodbus     | remote     | Modbus/TCP support for polling Schneider compatible PLCs |
-   | pytest       | unit test  | A Python unit-test framework                             |
-   | web          | web API    | The web.py HTTP web application framework (optional)     |
+   | Package            | For?           | Description                                              |
+   |--------------------+----------------+----------------------------------------------------------|
+   | greenery>=2.0,<3.0 | all            | Regular Expression parsing and state machinery library   |
+   | ipaddress          | all            | IP address manipulation                                  |
+   | argparse           | all (<2.7)     | Command-line argument parsing                            |
+   | configparser       | all (<3.0)     | Parsing for CIP Object configuration files               |
+   | pytz>2014.7        | history        | The Python time-zone library                             |
+   | tzlocal>=1.1.1     | history        | Access to system's local timezone (on Mac, Windows)      |
+   | pymodbus>=1.2.0    | remote         | Modbus/TCP support for polling Schneider compatible PLCs |
+   | pytest             | all tests      | A Python unit-test framework                             |
+   | web.py>=0.37       | web API (<3.0) | The web.py HTTP web application framework (optional)     |
+   | minimalmodbus      | serial tests   | A Modbus implementation, used for testing Modbus serial  |
    
    To install 'cpppo' and its required dependencies using pip (recommended):
    : $ pip install cpppo
@@ -767,7 +768,44 @@
      to only broadcast on a certain interface (eg. on the "Plant" LAN interface,
      not the "Business" WAN interface).  Use =source_address= to specify a local
      interface's IP address to bind to, before connecting or sending requests.
-     Accepts IP addresses and optionally a port number in "1.2.3.4:5" form.
+     Accepts IP addresses and optionally a port number in "1.2.3.4:12345" form.
+
+     Remember that UDP/IP packets sent using broadcast addresses will not be received by a server
+     bound to a specific local interface address.  Therefore, if you wish to find all EtherNet/IP
+     CIP servers in your LAN including the simulated ones running on your host, you may wish to
+     start a simulated server on a local interface, eg. 192.168.0.52:
+     : $ python -m cpppo.server.enip -vv --address 192.168.1.5 SCADA=INT[100]
+     
+     Then, you might issue a broadcast from this (or another) host on the network, expecting a
+     response from your simulator, but not receiving one:
+     : $ python -m cpppo.server.enip.list_services -vv --udp --broadcast \\
+     :     --source 192.168.1.5 --address 192.168.1.255
+     : 05-25 15:51:02.044 MainThread enip.cli DETAIL   __init__   Connect:  UPD/IP to ('192.168.1.255', 44818) via ('192.168.1.7', 0) broadcast
+     : 05-25 15:51:02.072 MainThread enip.cli DETAIL   cip_send   Client CIP Send: {
+     :     "enip.status": 0,
+     :     "enip.sender_context.input": "bytearray(b'\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00')",
+     :     "enip.session_handle": 0,
+     :     "enip.CIP.list_services": {},
+     :     "enip.options": 0
+     : }
+     : 05-25 15:51:02.073 MainThread enip.cli DETAIL   cip_send   Client CIP Send: {
+     :     "enip.status": 0,
+     :     "enip.sender_context.input": "bytearray(b'\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00')",
+     :     "enip.session_handle": 0,
+     :     "enip.CIP.list_identity": {},
+     :     "enip.options": 0
+     : }
+     : $
+
+     Why?  Because you have bound the server to specific IP address, 192.168.1.5.  If you instead
+     bind it to "all" interfaces (thus, at no specific IP address) using any of the following
+     incantations:
+     : $ python -m cpppo.server.enip -vv   SCADA=INT[100]
+     : $ python -m cpppo.server.enip -vv --address ''  SCADA=INT[100]
+     : $ python -m cpppo.server.enip -vv --address 0.0.0.0  SCADA=INT[100]
+     or if you bind it to the "broadcast" address of the specific interface you wish to use:
+     : $ python -m cpppo.server.enip -vv --address 192.168.1.255  SCADA=INT[100]
+     then it *will* receive the broadcast packets, and respond appropriately.
 
 **** =cpppo.server.enip= =client.connector= class
 
