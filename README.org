@@ -9,17 +9,18 @@
 
    Cpppo depends on several Python packages:
 
-   | Package      | For?       | Description                                              |
-   |--------------+------------+----------------------------------------------------------|
-   | greenery     | all        | Regular Expression parsing and state machinery library   |
-   | ipaddress    | all        | IP address manipulation                                  |
-   | argparse     | all (<2.7) | Command-line argument parsing                            |
-   | configparser | all (<3.0) | Parsing for CIP Object configuration files               |
-   | pytz         | history    | The Python time-zone library                             |
-   | tzlocal      | history    | Access to system's local timezone (on Mac, Windows)      |
-   | pymodbus     | remote     | Modbus/TCP support for polling Schneider compatible PLCs |
-   | pytest       | unit test  | A Python unit-test framework                             |
-   | web          | web API    | The web.py HTTP web application framework (optional)     |
+   | Package            | For?           | Description                                              |
+   |--------------------+----------------+----------------------------------------------------------|
+   | greenery>=2.0,<3.0 | all            | Regular Expression parsing and state machinery library   |
+   | ipaddress          | all            | IP address manipulation                                  |
+   | argparse           | all (<2.7)     | Command-line argument parsing                            |
+   | configparser       | all (<3.0)     | Parsing for CIP Object configuration files               |
+   | pytz>2014.7        | history        | The Python time-zone library                             |
+   | tzlocal>=1.1.1     | history        | Access to system's local timezone (on Mac, Windows)      |
+   | pymodbus>=1.2.0    | remote         | Modbus/TCP support for polling Schneider compatible PLCs |
+   | pytest             | all tests      | A Python unit-test framework                             |
+   | web.py>=0.37       | web API (<3.0) | The web.py HTTP web application framework (optional)     |
+   | minimalmodbus      | serial tests   | A Modbus implementation, used for testing Modbus serial  |
    
    To install 'cpppo' and its required dependencies using pip (recommended):
    : $ pip install cpppo
@@ -335,8 +336,8 @@
     requests that pass over the initially created and CIP Registered session are
     implemented.
 
-    The =python -m cpppo.server.enip.client= module entry-point or API and the
-    =enip_client= command can Register and issue a stream of "Unconnected"
+    The =python -m cpppo.server.enip.client= module entry-point or API (or the
+    =enip_client= command ) can Register and issue a stream of "Unconnected"
     requests to the Controller, such as Get/Set Attribute or (by default) *Logix
     Read/Write Tag (optionally Fragmented) requests.  The
     =cpppo.server.enip.get_attribute= module entry-point or API and the
@@ -378,6 +379,8 @@
     $ python -m cpppo.server.enip.client --print Motor_Velocity
       Motor_Velocity              == [1.0]: 'OK'
     #+END_EXAMPLE
+    To access Get Attribute data with CIP type conversion, use
+    =cpppo.server.enip.get_attribute='s =proxy= classes, instead.
 
     Specify a different local interface and/or port to connect to (default is :44818):
     : -a|--address [<interface>][:<port>]
@@ -655,9 +658,9 @@
     : $ python -m cpppo.server.enip.io
 
     The API is able to "pipeline" requests -- issue multiple requests on the
-    wire, while simultaneously harvesting prior requests.  This is absolutely
-    necessary in order to obtain reasonable I/O performance over high-latency
-    links (eg. via Satellite).
+    wire, while simultaneously harvesting the results of prior requests.  This
+    is absolutely necessary in order to obtain reasonable I/O performance over
+    high-latency links (eg. via Satellite).
 
     To use pipelining, create a =client.connector= which establishes and
     registers a CIP connection to a Controller.  Then, produce a sequence of
@@ -731,6 +734,17 @@
      The base class =client.client= implements  all the basic I/O capabilities
      for pipeline-capable TCP/IP and UDP/IP I/O with EtherNet/IP CIP devices.
 
+     | Keyword           | Description                                                        |
+     |-------------------+--------------------------------------------------------------------|
+     | host              | A cpppo.server.enip.get\_attribute proxy derived class             |
+     | port              | Target port (if not 44818)                                         |
+     | timeout           | Optional timeout on socket.create_connection                       |
+     | dialect           | An EtherNet/IP CIP dialect, if not logix.Logix                     |
+     | udp (False)       | Establishes a UDP/IP socket to use for request (eg. List Identity) |
+     | broadcast (False) | Avoids connecting UDP/IP sockets; may receive many replies         |
+     | source_address    | Bind to a specific local interface (Default: 0.0.0.0:0)            |
+     | profiler          | If using a Python profiler, provide it to disable around I/O code  |
+
      Once connectivity is established, a sequence of CIP requests can be issued
      using the the methods =.read=, =.write=, =.list_identity=, etc.
 
@@ -742,6 +756,56 @@
 
      These facilities are used extensively in the =client.connector= derived
      class to implementing request pipelining.
+
+     Note that not all requests can be issued over UDP/IP channels; consult the
+     EtherNet/IP CIP literature to discover which may be used.  The List
+     Services/Identity/Interfaces requests are known to work, and are useful for
+     discovering what EtherNet/IP CIP devices are available in a LAN using
+     UDP/IP broadcast addresses; setting both the =udp= and =broadcast=
+     parameters to =True=.
+
+     If multiple local interfaces are provided, it is possible that you may with
+     to only broadcast on a certain interface (eg. on the "Plant" LAN interface,
+     not the "Business" WAN interface).  Use =source_address= to specify a local
+     interface's IP address to bind to, before connecting or sending requests.
+     Accepts IP addresses and optionally a port number in "1.2.3.4:12345" form.
+
+     Remember that UDP/IP packets sent using broadcast addresses will not be received by a server
+     bound to a specific local interface address.  Therefore, if you wish to find all EtherNet/IP
+     CIP servers in your LAN including the simulated ones running on your host, you may wish to
+     start a simulated server on a local interface, eg. 192.168.0.52:
+     : $ python -m cpppo.server.enip -vv --address 192.168.1.5 SCADA=INT[100]
+     
+     Then, you might issue a broadcast from this (or another) host on the network, expecting a
+     response from your simulator, but not receiving one:
+     : $ python -m cpppo.server.enip.list_services -vv --udp --broadcast \\
+     :     --source 192.168.1.5 --address 192.168.1.255
+     : 05-25 15:51:02.044 MainThread enip.cli DETAIL   __init__   Connect:  UPD/IP to ('192.168.1.255', 44818) via ('192.168.1.7', 0) broadcast
+     : 05-25 15:51:02.072 MainThread enip.cli DETAIL   cip_send   Client CIP Send: {
+     :     "enip.status": 0,
+     :     "enip.sender_context.input": "bytearray(b'\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00')",
+     :     "enip.session_handle": 0,
+     :     "enip.CIP.list_services": {},
+     :     "enip.options": 0
+     : }
+     : 05-25 15:51:02.073 MainThread enip.cli DETAIL   cip_send   Client CIP Send: {
+     :     "enip.status": 0,
+     :     "enip.sender_context.input": "bytearray(b'\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00')",
+     :     "enip.session_handle": 0,
+     :     "enip.CIP.list_identity": {},
+     :     "enip.options": 0
+     : }
+     : $
+
+     Why?  Because you have bound the server to specific IP address, 192.168.1.5.  If you instead
+     bind it to "all" interfaces (thus, at no specific IP address) using any of the following
+     incantations:
+     : $ python -m cpppo.server.enip -vv   SCADA=INT[100]
+     : $ python -m cpppo.server.enip -vv --address ''  SCADA=INT[100]
+     : $ python -m cpppo.server.enip -vv --address 0.0.0.0  SCADA=INT[100]
+     or if you bind it to the "broadcast" address of the specific interface you wish to use:
+     : $ python -m cpppo.server.enip -vv --address 192.168.1.255  SCADA=INT[100]
+     then it *will* receive the broadcast packets, and respond appropriately.
 
 **** =cpppo.server.enip= =client.connector= class
 
@@ -1089,8 +1153,8 @@
        -h, --help            show this help message and exit
        -v, --verbose         Display logging information.
        -a ADDRESS, --address ADDRESS
-                             EtherNet/IP interface[:port] to bind to (default:
-                             :44818)
+                             EtherNet/IP interface[:port] to connect to (default:
+                             ':44818')
        -u, --udp             Use UDP/IP queries (default: False)
        -b, --broadcast       Allow multiple peers, and use of broadcast address
                              (default: False)

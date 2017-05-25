@@ -53,44 +53,61 @@ def test_history_timestamp_abbreviations():
     ts				= timestamp( "2014-04-24 08:00:00 MDT" )
     assert near( ts.value, 1398348000.0 )
 
+    # Try to add all of the Americas to the CA abbreviations already supported; can't be done (too
+    # many inconsistencies)
     try:
         abbrev			= timestamp.support_abbreviations( 'America' )
         assert False, "Many zones should have been ambiguously abbreviated"
     except AmbiguousTimeZoneError as exc:
         assert "America/Mazatlan" in str( exc )
-    abbrev			= timestamp.support_abbreviations( 'America', 
-        exclude=['America/Mazatlan', 'America/Merida', 'America/Mexico_City', 'America/Monterrey',
-                 'America/Bahia_Banderas', 'America/Cancun', 'America/Chihuahua', 'America/Havana',
-                 'America/Santa_Isabel', 'America/Grand_Turk', 'America/Cayman', 'America/Port-au-Prince'] )
+
+    exclude			= [
+        'America/Mazatlan', 'America/Merida', 'America/Mexico_City', 'America/Monterrey',
+        'America/Bahia_Banderas', 'America/Cancun', 'America/Chihuahua', 'America/Havana',
+        'America/Santa_Isabel', 'America/Grand_Turk', 'America/Cayman', 'America/Port-au-Prince',
+    ]
+    #print()
+    #print( "America, w/o %r" % ( exclude ))
+    abbrev			= timestamp.support_abbreviations( 'America', exclude=exclude )
     #print( sorted( abbrev ))
     #print( reprlib.repr( timestamp._tzabbrev ))
-    if tuple( map( int, pytz.__version__.split( '.' ))) < (2015,4):
+    pytz_version		= tuple( map( int, pytz.__version__.split( '.' )))
+    if pytz_version < (2015,4):
         logging.warning( "pytz < 2015.4; HADT/HAST vs. HDT/HST" )
         assert sorted( abbrev ) == ['ACT', 'AKDT', 'AKST', 'AMST', 'AMT', 'ART', 'BOT', 'BRST', 'BRT', 'CLST', 'CLT',
                                     'COT', 'ECT', 'EGST', 'EGT', 'FNT', 'GFT', 'GMT', 'GYT', 'HADT', 'HAST',
                                     'PET', 'PMDT', 'PMST', 'PYST', 'PYT', 'SRT', 'UYST', 'UYT', 'VET', 'WGST', 'WGT']
-    elif tuple( map( int, pytz.__version__.split( '.' ))) < (2015,7):
+    elif pytz_version < (2015,7):
         logging.warning( "pytz < 2015.7; had UYST" )
         assert sorted( abbrev ) == ['ACT', 'AKDT', 'AKST', 'AMST', 'AMT', 'ART', 'BOT', 'BRST', 'BRT', 'CLST', 'CLT',
                                     'COT', 'ECT', 'EGST', 'EGT', 'FNT', 'GFT', 'GMT', 'GYT', 'HDT', 'HST',
                                     'PET', 'PMDT', 'PMST', 'PYST', 'PYT', 'SRT', 'UYST', 'UYT', 'VET', 'WGST', 'WGT']
-    else:
+    elif pytz_version < (2017,2):
         assert sorted( abbrev ) == ['ACT', 'AKDT', 'AKST', 'AMST', 'AMT', 'ART', 'BOT', 'BRST', 'BRT', 'CLST', 'CLT',
                                     'COT', 'ECT', 'EGST', 'EGT', 'FNT', 'GFT', 'GMT', 'GYT', 'HDT', 'HST',
                                     'PET', 'PMDT', 'PMST', 'PYST', 'PYT', 'SRT', 'UYT', 'VET', 'WGST', 'WGT']
+    else:
+        # As of pytz 2017.2, alot of these zones are now using time zones consistent with CA; only a few added.
+        assert sorted( abbrev ) == ['AKDT', 'AKST', 'GMT', 'HDT', 'HST']
+
+    # We *can* add Europe/Berlin
     abbrev			= timestamp.support_abbreviations( 'Europe/Berlin' )
     assert sorted( abbrev ) == ['CEST', 'CET']
     assert 'CEST' in timestamp._tzabbrev
     assert 'EEST' not in timestamp._tzabbrev
-    abbrev			= timestamp.support_abbreviations( 'Europe',
-        exclude=[ 'Europe/Simferopol', 'Europe/Istanbul', 'Europe/Minsk', 'Europe/Chisinau' ] )
+
+    # And all of Europe, w/o some troublesome time zones
+    exclude			= [ 'Europe/Simferopol', 'Europe/Istanbul', 'Europe/Minsk', 'Europe/Chisinau' ]
+    #print()
+    #print( "Europe, w/o %r" % ( exclude ))
+    abbrev			= timestamp.support_abbreviations( 'Europe', exclude=exclude )
     #print( sorted( abbrev ))
-    if tuple( map( int, pytz.__version__.split( '.' ))) < (2016,3):
+    if pytz_version < (2016,3):
         assert sorted( abbrev ) == ['BST', 'EEST', 'EET', 'IST', 'MSK', 'SAMT', 'WEST', 'WET']
-    elif tuple( map( int, pytz.__version__.split( '.' ))) < (2016,7):
-        assert sorted( abbrev ) == ['+03', '+04', 'BST', 'EEST', 'EET', 'IST', 'MSK', 'SAMT', 'WEST', 'WET']
+    elif pytz_version < (2016,7):
+        assert sorted( abbrev ) == ['BST', 'EEST', 'EET', 'IST', 'MSK', 'SAMT', 'WEST', 'WET']
     else:
-        assert sorted( abbrev ) == ['+03', '+04', 'BST', 'EEST', 'EET', 'IST', 'MSK', 'WEST', 'WET']
+        assert sorted( abbrev ) == ['BST', 'EEST', 'EET', 'IST', 'MSK', 'WEST', 'WET']
         
     assert 'EEST' in timestamp._tzabbrev
     try:
@@ -125,15 +142,19 @@ def test_history_timestamp_abbreviations():
     abbrev			= timestamp.support_abbreviations( 'Australia', reset=True )
     #print( sorted( abbrev ))
     #print( repr( timestamp._tzabbrev ))
-    assert sorted( abbrev ) == ['ACDT', 'ACST', 'ACWST', 'AEDT', 'AEST', 'AWST', 'LHDT', 'LHST']
-    z,dst,off			= timestamp._tzabbrev['LHST']
-    assert str(z) == 'Australia/Lord_Howe'	and dst == False and format_offset( timedelta_total_seconds( off ), ms=None ) == ">10:30:00"
+    if pytz_version < (2017,2):
+        assert sorted( abbrev ) == ['ACDT', 'ACST', 'ACWST', 'AEDT', 'AEST', 'AWST', 'LHDT', 'LHST']
+        z,dst,off		= timestamp._tzabbrev['LHST']
+        assert str(z) == 'Australia/Lord_Howe'	and dst == False and format_offset( timedelta_total_seconds( off ), ms=None ) == ">10:30:00"
+    else:
+        assert sorted( abbrev ) ==  ['ACDT', 'ACST', 'AEDT', 'AEST', 'AWST']
+
 
     # Ensure that non-ambiguous (DST-specific) zone abbreviations override ambiguous (no longer
     # relevant, as pytz >= 2014.7 no longer contains dst == None for some of the Australian zones
     # without DST)
     abbrev			= timestamp.support_abbreviations( [ 'Australia/Adelaide' ], reset=True )
-    #print( sorted( abbrev )) # ['ACDT', 'ACST']
+    assert sorted( abbrev ) == [ 'ACDT', 'ACST' ]
     z,dst,off			= timestamp._tzabbrev['ACST']
     assert str(z) == 'Australia/Adelaide'	and dst == False and format_offset( timedelta_total_seconds( off ), ms=None ) == "> 9:30:00"
     abbrev			= timestamp.support_abbreviations( [ 'Australia/Adelaide', 'Australia/Darwin' ], reset=True )
@@ -144,14 +165,16 @@ def test_history_timestamp_abbreviations():
                        'Australia/Adelaide' ) and dst == False and format_offset( timedelta_total_seconds( off ), ms=None ) == "> 9:30:00"
 
     # Check that zones with complete, permanent offset changes (not just DST) are handled.  We know
-    # that within a year of 2014-04-28, the America/Eirunepe (west Amazonas) zone had such a change.
-    abbrev			= timestamp.support_abbreviations( [ 'America/Eirunepe' ], at=datetime.datetime( 2014, 4, 28 ))
-    #print( sorted( abbrev ))
-    assert sorted( abbrev ) == [ 'ACT', 'AMT' ]
-    z,dst,off			= timestamp._tzabbrev['ACT']
-    assert str(z) == 'America/Eirunepe'		and dst == False and format_offset( timedelta_total_seconds( off ), ms=None ) == "< 5:00:00"
-    z,dst,off			= timestamp._tzabbrev['AMT']
-    assert str(z) == 'America/Eirunepe'		and dst == False and format_offset( timedelta_total_seconds( off ), ms=None ) == "< 4:00:00"
+    # that within a year of 2014-04-28, the America/Eirunepe (west Amazonas) zone had such a change
+    # (pre pytz 2017.2, anyway...)
+    if pytz_version < (2017,2):
+        abbrev			= timestamp.support_abbreviations( [ 'America/Eirunepe' ], at=datetime.datetime( 2014, 4, 28 ), reset=True)
+        #print( sorted( abbrev ))
+        assert sorted( abbrev ) == [ 'ACT', 'AMT' ]
+        z,dst,off			= timestamp._tzabbrev['ACT']
+        assert str(z) == 'America/Eirunepe'		and dst == False and format_offset( timedelta_total_seconds( off ), ms=None ) == "< 5:00:00"
+        z,dst,off			= timestamp._tzabbrev['AMT']
+        assert str(z) == 'America/Eirunepe'		and dst == False and format_offset( timedelta_total_seconds( off ), ms=None ) == "< 4:00:00"
 
 
 @pytest.mark.skipif( not has_pytz or not got_localzone, reason="Needs pytz and localzone" )
@@ -459,7 +482,8 @@ def test_history_sequential():
                 fz	 = f + '.%s' % random.choice( ('gz', 'bz2', 'xz') )
                 files.append( fz )
                 with opener( fz, mode='wb' ) as fd:
-                    fd.write( open( f, 'rb' ).read() )
+                    with open( f, 'rb' ) as rd:
+                        fd.write( rd.read() )
                 if random.choice( (True, False, False) ):
                     continue # Don't remove some of the uncompressed files
                 os.unlink( f )
@@ -719,7 +743,8 @@ def test_history_performance():
                 fz	 = f + '.%s' % random.choice( ('gz', 'bz2', 'xz') )
                 files.append( fz )
                 with opener( fz, mode='wb' ) as fd:
-                    fd.write( open( f, 'rb' ).read() )
+                    with open( f, 'rb' ) as rd:
+                        fd.write( rd.read() )
                 if random.choice( (True, False, False) ):
                     continue # Don't remove some of the uncompressed files
                 os.unlink( f )

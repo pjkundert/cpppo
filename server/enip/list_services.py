@@ -31,8 +31,11 @@ if __name__ == "__main__":
                      help="Display logging information." )
     ap.add_argument( '-a', '--address',
                      default=( "%s:%d" % enip.address ),
-                     help="EtherNet/IP interface[:port] to bind to (default: %s:%d)" % (
+                     help="EtherNet/IP interface[:port] to connect to (default: '%s:%d')" % (
                          enip.address[0], enip.address[1] ))
+    ap.add_argument( '-S', '--source-address',
+                     default=None,
+                     help="Local network interface IP address to bind to (default: None)" )
     ap.add_argument( '-u', '--udp', action='store_true',
                      default=False, 
                      help="Use UDP/IP queries (default: False)" )
@@ -74,7 +77,8 @@ if __name__ == "__main__":
     failures			= 0
     try:
         with client.connector( host=addr[0], port=addr[1], timeout=timeout,
-                               udp=args.udp, broadcast=args.broadcast ) as connection:
+                               udp=args.udp, broadcast=args.broadcast,
+                               source_address=args.source_address ) as connection:
             connection.list_services()
             if args.list_identity:
                 connection.list_identity()

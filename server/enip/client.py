@@ -162,10 +162,9 @@ CIP_TYPES			= {
 }
 
 def parse_operations( tags, fragment=False, int_type=None, **kwds ):
-    """
-
-    Given a sequence of tags, deduce the set of I/O desired operations, yielding each one.  Any
-    additional keyword parameters are added to each operation (eg. route_path=[{'link':0,'port':0}])
+    """Given a sequence of (string) tags, deduce the set of I/O desired operations, yielding each one.
+    If a dict is seen, it is passed through.  Any additional keyword parameters are added to each
+    operation (eg. route_path = [{'link':0,'port':0}])
 
     Parse each EtherNet/IP Tag Read or Write; only write operations will have 'data'; default
     'method' is considered 'read':
@@ -181,23 +180,29 @@ def parse_operations( tags, fragment=False, int_type=None, **kwds ):
     supply an element index of 0; default is no element in path, and a data value count of 1.  If a
     byte offset is specified, the request is forced to use Read/Write Tag Fragmented.
 
-    Default CIP int_type for int data (data with no '.' in it, by default) is CIP 'INT'.  
+    Default CIP int_type for int data (data with no '.' in it, by default) is CIP 'INT'.
 
     """
     if int_type is None:
         int_type		= 'INT'
     for tag in tags:
-        # Compute tag (stripping val and off)
+        # Pass-thru (already parsed) operation?
+        if isinstance( tag, dict ):
+            tag.update( kwds )
+            yield tag
+            continue
+
+        # Compute tag (stripping val and off), discarding whitespace around tag and val/off.
         val			= ''
         opr			= {}
         if '=' in tag:
             # A write; strip off the values into 'val'
-            tag,val		= tag.split( '=', 1 )
+            tag,val		= [s.strip() for s in tag.split( '=', 1 )]
             opr['method']	= 'write'
 
         if '+' in tag:
             # A byte offset (valid for Fragmented)
-            tag,off		= tag.split( '+', 1 )
+            tag,off		= [s.strip() for s in tag.split( '+', 1 )]
             if off:
                 opr['offset']	= int( off )
 
@@ -280,12 +285,16 @@ class client( object ):
     Provide an alternative enip.device.Message_Router Object class instead of the (default) Logix,
     to parse alternative sub-dialects of EtherNet/IP.
 
+
+    The first client created also sets the global "device.dialect"; all connections must use the
+    same dialect.  The default is Logix.
+
     """
     route_path_default		= enip.route_path_default
     send_path_default		= enip.send_path_default
 
-    def __init__( self, host, port=None, timeout=None, dialect=logix.Logix, profiler=None,
-                  udp=False, broadcast=False ):
+    def __init__( self, host, port=None, timeout=None, dialect=None, profiler=None,
+                  udp=False, broadcast=False, source_address=None ):
         """Connect to the EtherNet/IP client, waiting up to 'timeout' for a connection.  Avoid using
         the host OS platform default if 'host' is empty; this will be different on Mac OS-X, Linux,
         Windows, ...  So, for an empty host, we'll default to 'localhost'; this should be IPv4/IPv6
@@ -301,22 +310,40 @@ class client( object ):
         Services/Identity/Interfaces" request, and then manually collect the peer replies and
         addresses using recvfrom.  Then, issue individual requests to each identified peer.
 
+        If source_address "<address>[:<port>]" is specified, we'll attempt to bind to that
+        interface, and send using the specified source address (and optionally port number).
+
         """
+        # Bind to nothing by default (use default i'face as source address).  Otherwise, use the
+        # specified interface (or the system default, specified by ''), and the specified port (or
+        # an ephemeral port, specified by 0).
+        self.ifce		= None
+        if source_address:
+            ifce		= source_address.split( ':', 1 )
+            self.ifce		= ( str( ifce[0] ), int( ifce[1] if len( ifce ) > 1 else 0 ))
+
         addr			= ( host if host is not None else enip.address[0],
                                     port if port is not None else enip.address[1] )
-        self.addr		= ( addr[0] or 'localhost', addr[1] or 44818 )
+        self.addr		= ( str( addr[0] or 'localhost' ), int( addr[1] or 44818 ))
         self.addr_connected	= not ( udp and broadcast )
         self.conn		= None
         self.udp		= udp
-        log.detail( "Connect:  %s/IP to %r", "UPD" if udp else "TCP", self.addr )
+        log.detail( "Connect:  %s/IP to %r%s%s", "UPD" if udp else "TCP", self.addr,
+                    " via %r" % ( self.ifce, ) if self.ifce else "",
+                    " broadcast" if not self.addr_connected else "" )
         if self.udp:
             try:
                 self.conn		= socket.socket( socket.AF_INET, socket.SOCK_DGRAM )
+                if self.ifce:
+                    self.conn.bind( self.ifce )
                 if not broadcast:
                     self.conn.connect( self.addr )
             except Exception as exc:
-                log.normal( "Couldn't %s to EtherNet/IP UDP server at %s:%s: %s",
-                            "broadcast" if broadcast else "connect", self.addr[0], self.addr[1], exc )
+                log.normal( "Couldn't %s to EtherNet/IP UDP server at %s:%s%s: %s",
+                            "broadcast" if broadcast else "connect",
+                            self.addr[0], self.addr[1],
+                            ( " via interface %s:%d" % ( self.ifce[0], self.ifce[1] )) if self.ifce else "",
+                            exc )
                 raise
             if broadcast:
                 try:
@@ -326,10 +353,18 @@ class client( object ):
                                  self.addr[0], self.addr[1], exc )
         else:
             try:
-                self.conn		= socket.create_connection( self.addr, timeout=timeout )
+                # If interface specified, use it.  Maintain pre-2.7 socket.create_connection
+                # compatibility by avoiding the argument unless specified...
+                if self.ifce:
+                    self.conn		= socket.create_connection( self.addr, timeout=timeout,
+                                                                    source_address=self.ifce )
+                else:
+                    self.conn		= socket.create_connection( self.addr, timeout=timeout )
             except Exception as exc:
-                log.normal( "Couldn't connect to EtherNet/IP TCP server at %s:%s: %s",
-                            self.addr[0], self.addr[1], exc )
+                log.normal( "Couldn't connect to EtherNet/IP TCP server at %s:%s%s: %s",
+                            self.addr[0], self.addr[1],
+                            ( " via interface %s:%d" % ( self.ifce[0], self.ifce[1] )) if self.ifce else "",
+                            exc )
                 raise
             try:
                 self.conn.setsockopt( socket.IPPROTO_TCP, socket.TCP_NODELAY, 1 )
@@ -350,10 +385,11 @@ class client( object ):
         self.frame		= enip.enip_machine( terminal=True )
         self.cip		= enip.CIP( terminal=True )	# Parses a CIP   request in an EtherNet/IP frame
 
-        # Ensure the requested dialect matches the globally selected dialect
+        # Ensure the requested dialect matches the globally selected dialect; Default to Logix
         if device.dialect is None:
-            device.dialect	= dialect
-        assert device.dialect is dialect, \
+            device.dialect	= logix.Logix if dialect is None else dialect
+        if dialect is not None:
+            assert device.dialect is dialect, \
                 "Inconsistent EtherNet/IP dialect requested: %r (vs. default: %r)" % ( dialect, device.dialect )
         # If provided, we'll disable/enable a profiler around the I/O code, to avoid corrupting the
         # profile data with arbitrary I/O related delays
@@ -587,7 +623,7 @@ class client( object ):
         If CIP is None, then no CIP payload will be generated.
 
         """
-        return self.cip_send( cip=cip)
+        return self.cip_send( cip=cip )
 
     # CIP SendRRData Requests; may be deferred (eg. for Multiple Service Packet)
     def get_attributes_all( self, path,
@@ -1506,8 +1542,8 @@ which is required to carry this Send/Route Path data. """ )
 
     logging.basicConfig( **cpppo.log_cfg )
 
-    addr			= args.address.split(':')
-    assert 1 <= len( addr ) <= 2, "Invalid --address [<interface>]:[<port>}: %s" % args.address
+    addr			= args.address.split( ':', 1 )
+    assert 1 <= len( addr ) <= 2, "Invalid --address [<interface>][:<port>]: %s" % args.address
     addr			= ( str( addr[0] ) if addr[0] else enip.address[0],
                                     int( addr[1] ) if len( addr ) > 1 and addr[1] else enip.address[1] )
     timeout			= float( args.timeout )
