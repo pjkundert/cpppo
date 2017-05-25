@@ -24,7 +24,7 @@ __copyright__                   = "Copyright (c) 2013 Hard Consulting Corporatio
 __license__                     = "Dual License: GPLv3 (or later) and Commercial (see LICENSE)"
 
 __all__				= ["timestamp", "get_localzone", "zone_names", "timedelta_total_seconds",
-                                   "parse_offset", "format_offset", "AmbiguousTimeZoneError"]
+                                   "parse_offset", "format_offset", "AmbiguousTimeZoneError", "TZ_wrapper"]
 
 import bisect
 import calendar
@@ -47,37 +47,52 @@ from ..automata		import type_str_base
 
 log				= logging.getLogger( __package__ )
 
-# Installed packages (eg. pip/setup.py install)
+# Installed packages (eg. pip/setup.py install pytz tzlocal)
 import pytz
 try:
     from tzlocal import get_localzone
 except ImportError:
     def get_localzone( _root='/' ):
         """No tzlocal; support basic Linux systems with a TZ variable or an /etc/timezone file"""
-
-        # TZ environment variable?  Either a tzinfo file or a timezone name
-        tzenv			= os.environ.get( 'TZ' )
-        if tzenv:
-            if os.path.exists( tzenv ):
-                with open( tzenv, 'rb' ) as tzfile:
-                    return pytz.tzfile.build_tzinfo( 'local', tzfile )
-            return pytz.timezone( tzenv )
-
-        # /etc/timezone file?
-        tzpath			= os.path.join( _root, 'etc/timezone' )
-        if os.path.exists( tzpath ):
-            with open( tzpath, 'rb' ) as tzfile:
-                tzname		= tzfile.read().decode().strip()
-            if '#' in tzname:
-                # eg. 'Somewhere/Special # The Special Zone'
-                tzname	= tzname.split( '#', 1 )[0].strip()
-            if ' ' in tzname:
-                # eg. 'America/Dawson Creek'.  Not really correct, but we'll handle it
-                tzname	= tzname.replace( ' ', '_' )
-            return pytz.timezone( tzname )
+        # /etc/timezone, ... file?
+        for tzbase in ( 'etc/timezone',			# Debian, Ubuntu, ...
+                        'etc/sysconfig/clock' ):	# RedHat, ...
+            tzpath		= os.path.join( _root, tzbase )
+            if os.path.exists( tzpath ):
+                with open( tzpath, 'rb' ) as tzfile:
+                    tzname	= tzfile.read().decode().strip()
+                if '#' in tzname:
+                    # eg. 'Somewhere/Special # The Special Zone'
+                    tzname	= tzname.split( '#', 1 )[0].strip()
+                if ' ' in tzname:
+                    # eg. 'America/Dawson Creek'.  Not really correct, but we'll handle it
+                    tzname	= tzname.replace( ' ', '_' )
+                return pytz.timezone( tzname )
 
         raise pytz.UnknownTimeZoneError( 'Can not find any timezone configuration' )
 
+def TZ_wrapper():
+    """Wrap get_localzone in a handler that respects a TZ variable before attempting other host-specific
+    local timezone detection.
+
+    """
+    def decorate( func ):
+        def call( *args, **kwds ):
+            # TZ environment variable?  Either a tzinfo file or a timezone name.  Make this 
+            tzenv		= os.environ.get( 'TZ' )
+            if tzenv:
+                if os.path.exists( tzenv ):
+                    with open( tzenv, 'rb' ) as tzfile:
+                        return pytz.tzfile.build_tzinfo( 'local', tzfile )
+                return pytz.timezone( tzenv )
+            return func( *args, **kwds )
+        return call
+    return decorate
+
+# Manually apply the TZ_wrapper decorator to an existing get_localzone function
+get_localzone = TZ_wrapper()( get_localzone )
+
+    
 def zone_names( region ):
     """Yields all zone names matching region, which may be a single identifier string or iterable.  If
     unrecognized, the supplied region is yielded unmodified.  The pytz {country,common}_timezones
@@ -93,7 +108,7 @@ def zone_names( region ):
         zones		= pytz.country_timezones.get( r )	# eg 'CA'
         if zones is None:
             zones	= [ z for z in pytz.common_timezones	# eg. 'Canada/Mountain' or 'Europe'
-                            if r == z or r == z.split( '/' )[0] ]
+                            if z.startswith( r ) ]		# 'Canada/Mountain' or 'Europe' or 'America/Argentina/'...
         if zones:
             for z in zones:
                 yield z		# Matches {country,common}_timesones name(s)
@@ -286,8 +301,15 @@ class timestamp( object ):
             # transition times are not as important -- all non-DST times are unambiguous, so long as
             # the overall UTC offset is the same.  The 'dt' here is always a naive UTC datetime.
             for dt,abb,dst,off in tzdetails:
+                # We can only handle timezone abbreviations in a certain format: "XYZ"; not "-03"
+                # and the like.  Ignore any that don't match the pattern.
+                if not all( l.isalpha() for l in abb ):
+                    log.detail( "%-30s: Ignoring %s; invalid abbreviation pattern", tzinfo, abb )
+                    continue
+                # Also allow exclusion of timezone abbreviations (in addition to timezone names, above)
                 if abb in exclusions:
                     log.detail( "%-30s: Ignoring %s; excluded", tzinfo, abb )
+                    continue
                 msg		= "%-5s %s %s" % (
                     abb, format_offset( timedelta_total_seconds( off ), ms=False ), format_dst( dst ))
                 dup		= abb in abbrev

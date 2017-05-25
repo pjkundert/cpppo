@@ -1256,8 +1256,8 @@ def main( argv=None, attribute_class=device.Attribute, idle_service=None, identi
     # Default to the same interface as we're bound to, port 80.  We'll only start if non-empty --web
     # was provided, though (even if it's just ':', to get all defaults).  Usually you'll want to
     # specify at least --web :[<port>].
-    http			= args.web.split(':')
-    assert 1 <= len( http ) <= 2, "Invalid --web [<interface>]:[<port>}: %s" % args.web
+    http			= args.web.split( ':', 1 )
+    assert 1 <= len( http ) <= 2, "Invalid --web [<interface>][:<port>]: %s" % args.web
     http			= ( str( http[0] ) if http[0] else bind[0],
                                     int( http[1] ) if len( http ) > 1 and http[1] else 80 )
 
