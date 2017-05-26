@@ -260,7 +260,7 @@ class proxy( object ):
     
     def __init__( self, host, port=44818, timeout=None, depth=None, multiple=None,
                   gateway_class=client.connector, route_path=None, send_path=None,
-                  identity_default=None ):
+                  identity_default=None, **gateway_kwds ):
         """Capture the desired I/O parameters for the target CIP Device.
 
         By default, the CIP Device will be identified using a List Identity request each time a CIP
@@ -276,6 +276,7 @@ class proxy( object ):
         self.multiple		= 0 if multiple is None else multiple
         self.route_path		= route_path
         self.send_path		= send_path
+        self.gateway_kwds	= gateway_kwds	# Any additional args to gateway
         self.gateway_class	= gateway_class
         self.gateway		= None
         self.gateway_lock	= threading.Lock()
@@ -317,7 +318,8 @@ class proxy( object ):
         device -- all under the protection of the gateway_lock Mutex."""
         with self.gateway_lock:
             if self.gateway is None:
-                self.gateway = self.gateway_class( host=self.host, port=self.port, timeout=self.timeout )
+                self.gateway = self.gateway_class(
+                    host=self.host, port=self.port, timeout=self.timeout, **self.gateway_kwds )
                 if not self.identity:
                     try:
                         rsp,ela = self.list_identity_details()
