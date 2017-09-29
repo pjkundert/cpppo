@@ -15,9 +15,11 @@
 # A PARTICULAR PURPOSE.  See the GNU General Public License for more details.
 # 
 
-from __future__ import absolute_import
-from __future__ import print_function
-from __future__ import division
+from __future__ import absolute_import, print_function, division
+try:
+    from future_builtins import zip, map # Use Python 3 "lazy" zip, map
+except ImportError:
+    pass
 
 __author__                      = "Perry Kundert"
 __email__                       = "perry@hardconsulting.com"
@@ -772,8 +774,8 @@ class EPATH( cpppo.dfa ):
         # 
 
         def port_fix( path=None, data=None, **kwds ):
-            """Discard port values about 0x0F; return True (transition) if remaining port value is 0x0F
-            (Optional Extended port)"""
+            """Discard port values above 0x0F; return True (transition) if remaining port value is 0x0F
+            (Optional Extended port number > 0x0E)"""
             data[path].port    &= 0x0F
             if data[path].port == 0x0F:
                 # Port is extended; discard and prepare to collect new port number

@@ -5,10 +5,12 @@
 # unicode_literals, we cannot have any literals at all with unicode characters under 2.x, while
 # maintaining 3.2 compatibilty.  This is unfortunate.
 
-from __future__ import absolute_import
-from __future__ import print_function
-from __future__ import unicode_literals
-from __future__ import division
+from __future__ import absolute_import, print_function, division, unicode_literals
+try:
+    from future_builtins import zip, map # Use Python 3 "lazy" zip, map
+except ImportError:
+    pass
+
 
 import binascii
 import logging

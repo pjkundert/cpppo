@@ -1,3 +1,8 @@
+from __future__ import absolute_import, print_function, division
+try:
+    from future_builtins import zip, map # Use Python 3 "lazy" zip, map
+except ImportError:
+    pass
 
 import errno
 import logging
@@ -16,7 +21,7 @@ except Exception:
     logging.warning( "Failed to import fcntl; skipping simulated Modbus/TCP PLC tests" )
 
 from . import misc
-from .tools.await import waitfor
+from .tools.waits import waitfor
 
 RTU_WAIT			= 2.0  # How long to wait for the simulator
 RTU_LATENCY			= 0.05 # poll for command-line I/O response 

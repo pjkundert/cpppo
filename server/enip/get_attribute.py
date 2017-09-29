@@ -15,9 +15,11 @@
 # A PARTICULAR PURPOSE.  See the GNU General Public License for more details.
 # 
 
-from __future__ import absolute_import
-from __future__ import print_function
-from __future__ import division
+from __future__ import absolute_import, print_function, division
+try:
+    from future_builtins import zip, map # Use Python 3 "lazy" zip, map
+except ImportError:
+    pass
 
 try:
     from future_builtins import map
@@ -82,8 +84,8 @@ import time
 import traceback
 
 import cpppo
-from .. import enip
-from . import client
+
+from . import defaults, parser, device, client
 
 log				= logging.getLogger( "enip.get" )
 
@@ -174,24 +176,24 @@ class proxy( object ):
     call, is because the underlying EtherNet/IP CIP protocol is capable of both pipe-lining (having
     multiple requests in-flight before receiving earlier responses), *and* can package multiple
     requests into a single Multiple Service Packet request.  In order to do that, the underlying
-    cpppo.server.enip.client APIs require an iterable sequence of operations to perform.
+    cpppo.server.parser.client APIs require an iterable sequence of operations to perform.
 
     """
     CIP_TYPES			= {
-        "real":		( enip.REAL,	"REAL" ),		# <name>: (<class>, <data-path> )
-        "sint":		( enip.SINT,	"SINT" ),
-        "usint":	( enip.USINT,	"USINT" ),
-        "int":		( enip.INT,	"INT" ),
-        "uint":		( enip.UINT,	"UINT" ),
-        "dint":		( enip.DINT,	"DINT" ),
-        "udint":	( enip.UDINT,	"UDINT" ),
-        "bool":		( enip.BOOL,	"BOOL" ),
-        "word":		( enip.WORD,	"WORD" ),
-        "dword":	( enip.DWORD,	"DWORD" ),
-        "ipaddr":	( enip.IPADDR,	"IPADDR" ),		# a network-order UDINT as a dotted-quad
-        "string":	( enip.STRING,	"STRING.string" ),
-        "sstring":	( enip.SSTRING,	"SSTRING.string" ),
-        "epath":	( enip.EPATH_padded, "EPATH_padded.segment" ), # Supports padded EPATH: <words> 0x00 <EPATH> [<pad>]
+        "real":		( parser.REAL,	"REAL" ),		# <name>: (<class>, <data-path> )
+        "sint":		( parser.SINT,	"SINT" ),
+        "usint":	( parser.USINT,	"USINT" ),
+        "int":		( parser.INT,	"INT" ),
+        "uint":		( parser.UINT,	"UINT" ),
+        "dint":		( parser.DINT,	"DINT" ),
+        "udint":	( parser.UDINT,	"UDINT" ),
+        "bool":		( parser.BOOL,	"BOOL" ),
+        "word":		( parser.WORD,	"WORD" ),
+        "dword":	( parser.DWORD,	"DWORD" ),
+        "ipaddr":	( parser.IPADDR,	"IPADDR" ),		# a network-order UDINT as a dotted-quad
+        "string":	( parser.STRING,	"STRING.string" ),
+        "sstring":	( parser.SSTRING,	"SSTRING.string" ),
+        "epath":	( parser.EPATH_padded, "EPATH_padded.segment" ), # Supports padded EPATH: <words> 0x00 <EPATH> [<pad>]
     }
 
     # 
@@ -373,7 +375,7 @@ class proxy( object ):
         """
         with self.gateway as connection: # waits 'til any Thread's txn. completes
             connection.list_identity( timeout=self.timeout )
-            rsp,ela		= client.await( connection, timeout=self.timeout )
+            rsp,ela		= client.await_response( connection, timeout=self.timeout )
             assert rsp, \
                 "No response to List Identity within timeout: %r" % ( self.timeout )
             return rsp,ela
@@ -485,18 +487,18 @@ class proxy( object ):
         of values, or None if the request failed:
 
             (
-                ([0],(0, ("Tag", enip.INT, None))),
-                ([1.23],(0, "Tag", enip.REAL, "kWh"))),
-                ([1], (0, ("@1/1/1", enip.INT, None))),
-                ([1], (0, ("@1/1/1", enip.INT, "Hz"))),
+                ([0],(0, ("Tag", parser.INT, None))),
+                ([1.23],(0, "Tag", parser.REAL, "kWh"))),
+                ([1], (0, ("@1/1/1", parser.INT, None))),
+                ([1], (0, ("@1/1/1", parser.INT, "Hz"))),
                 ([1, 2, 3, 4, 5 6, "Something", 255],
                     (0, ("@1/1", [
-                        enip.INT, enip.INT, enip.INT,  enip.INT,
-                        enip.INT, enip.DINT, enip.STRING, enip.USINT ], None ))),
+                        parser.INT, parser.INT, parser.INT,  parser.INT,
+                        parser.INT, parser.DINT, parser.STRING, parser.USINT ], None ))),
                 ([1, 2, 3, 4, 5 6, "Something", 255],
                     (0, ("@1/1", [
-                        enip.INT, enip.INT, enip.INT,  enip.INT,
-                        enip.INT, enip.DINT, enip.STRING, enip.USINT ], "Identity" ))),
+                        parser.INT, parser.INT, parser.INT,  parser.INT,
+                        parser.INT, parser.DINT, parser.STRING, parser.USINT ], "Identity" ))),
             )
 
         The read_details API raises exception on failure to parse request, or result data type
@@ -570,7 +572,7 @@ class proxy( object ):
                 yield opp,(att,typ,uni)
 
         def types_decode( types ):
-            """Produce a sequence of type class,data-path, eg. (enip.REAL,"SSTRING.string").  If a
+            """Produce a sequence of type class,data-path, eg. (parser.REAL,"SSTRING.string").  If a
             user-supplied type (or None) is provided, data-path is None, and the type is passed.
 
             """
@@ -694,9 +696,9 @@ to eliminate the *Logix-style Unconnected Send (service 0x52) encapsulation
 which is required to carry this Send/Route Path data. """ )
 
     ap.add_argument( '-a', '--address',
-                     default=( "%s:%d" % enip.address ),
+                     default=( "%s:%d" % defaults.address ),
                      help="EtherNet/IP interface[:port] to connect to (default: %s:%d)" % (
-                         enip.address[0], enip.address[1] ))
+                         defaults.address[0], defaults.address[1] ))
     ap.add_argument( '--no-print', action='store_false', dest='print',
                      help="Disable printing of summary of operations to stdout" )
     ap.add_argument( '--print', action='store_true',
@@ -750,12 +752,12 @@ which is required to carry this Send/Route Path data. """ )
 
     addr			= args.address.split(':')
     assert 1 <= len( addr ) <= 2, "Invalid --address [<interface>]:[<port>}: %s" % args.address
-    addr			= ( str( addr[0] ) if addr[0] else enip.address[0],
-                                    int( addr[1] ) if len( addr ) > 1 and addr[1] else enip.address[1] )
+    addr			= ( str( addr[0] ) if addr[0] else defaults.address[0],
+                                    int( addr[1] ) if len( addr ) > 1 and addr[1] else defaults.address[1] )
     timeout			= float( args.timeout )
     depth			= int( args.depth )
     multiple			= 500 if args.multiple else 0
-    route_path			= json.loads( args.route_path ) if args.route_path \
+    route_path			= device.parse_route_path( args.route_path ) if args.route_path \
                                   else [] if args.simple else None # may be None/0/False/[]
     send_path			= args.send_path                if args.send_path \
                                   else '' if args.simple else None # uses '@2/1/1' by default

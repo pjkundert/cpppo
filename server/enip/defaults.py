@@ -1,4 +1,3 @@
-
 # 
 # Cpppo -- Communication Protocol Python Parser and Originator
 # 
@@ -21,4 +20,28 @@ __email__                       = "perry@hardconsulting.com"
 __copyright__                   = "Copyright (c) 2013 Hard Consulting Corporation"
 __license__                     = "Dual License: GPLv3 (or later) and Commercial (see LICENSE)"
 
-__all__				= ['plc', 'io']
+
+"""
+enip.defaults -- System-wide default (global) values
+
+"""
+__all__				= [ 'latency', 'timeout', 'address',
+                                    'route_path_default', 'send_path_default',
+                                    'config_name', 'config_files' ]
+
+import os
+
+import cpppo
+
+latency				=  0.1 	# network I/O polling (should allow several round-trips)
+timeout				= 20.0	# Await completion of all I/O, thread activity (on many threads)
+address				= ('', 44818)	# The default cpppo.enip.address
+route_path_default		= [{'link': 0, 'port': 1}]
+send_path_default		= [{'class': 6}, {'instance': 1}]
+config_name			= 'cpppo.cfg'
+config_files			= [
+    os.path.join( os.path.dirname( cpppo.__file__ ), config_name ),	# cpppo install dir
+    os.path.join( os.getenv( 'APPDATA', os.sep + 'etc' ), config_name ),# global app data
+    os.path.join( os.path.expanduser( '~' ), '.' + config_name ),	# user home dir
+    config_name,							# current dir
+]

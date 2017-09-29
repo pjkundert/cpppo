@@ -24,7 +24,7 @@ import cpppo
 logging.basicConfig( **cpppo.log_cfg )
 
 from cpppo.history import timestamp # requires 'pip install pytz'
-from cpppo.server.enip import poll, client, enip_format
+from cpppo.server.enip import poll
 from cpppo.server.enip.ab import powerflex_750_series
 
 address				= (sys.argv[1] if len( sys.argv ) > 1 else 'localhost', 44818)

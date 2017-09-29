@@ -1,9 +1,6 @@
-from __future__ import absolute_import
-from __future__ import print_function
-from __future__ import division
-
+from __future__ import absolute_import, print_function, division
 try:
-    from future_builtins import map, zip
+    from future_builtins import zip, map # Use Python 3 "lazy" zip, map
 except ImportError:
     pass
 
@@ -107,7 +104,7 @@ def test_client_timeout():
     # Await the termination of the Process, which should happen just after .5s.
     beg				= misc.timer()
     try:
-        assert all( tools.await.existence( terms=[ lambda: not conn.is_alive() ], timeout=1.0 )), \
+        assert all( tools.waits.existence( terms=[ lambda: not conn.is_alive() ], timeout=1.0 )), \
             "enip.client.connector to non-existent host didn't time out; took: %.3fs" % ( misc.timer() - beg )
     finally:
         conn.terminate()

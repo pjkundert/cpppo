@@ -14,10 +14,11 @@
 # A PARTICULAR PURPOSE.  See the GNU General Public License for more details.
 # 
 
-
-from __future__ import absolute_import
-from __future__ import print_function
-from __future__ import division
+from __future__ import absolute_import, print_function, division
+try:
+    from future_builtins import zip, map # Use Python 3 "lazy" zip, map
+except ImportError:
+    pass
 
 __author__                      = "Perry Kundert"
 __email__                       = "perry@hardconsulting.com"
@@ -90,7 +91,7 @@ try:
 except ImportError:
     logging.warning( "Failed to import pymodbus module; skipping Modbus/TCP related tests; run 'pip install pymodbus'" )
 
-from .tools.await import waitfor
+from .tools.waits import waitfor
 from .modbus_test import start_modbus_simulator, has_o_nonblock, run_plc_modbus_polls
 if has_pymodbus and has_pyserial:
     from .remote.pymodbus_fixes import modbus_client_rtu, modbus_rtu_framer_collecting

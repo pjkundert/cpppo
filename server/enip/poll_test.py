@@ -1,6 +1,8 @@
-from __future__ import absolute_import
-from __future__ import print_function
-from __future__ import division
+from __future__ import absolute_import, print_function, division, unicode_literals
+try:
+    from future_builtins import zip, map # Use Python 3 "lazy" zip, map
+except ImportError:
+    pass
 
 import ast
 import errno
@@ -275,7 +277,7 @@ def test_powerflex_poll_failure():
         backoff_multiplier	= 2.0 # --> backoff == .5, 1.0, 2.0, 4.0
         poller			= threading.Thread(
             target=poll.poll, kwargs={ 
-                'gateway_class':powerflex_750_series, # deprecated; use proxy_class instead
+                'proxy_class':	powerflex_750_series,
                 'address': 	('localhost',44819),
                 'cycle':	1.0,
                 'timeout':	0.5,

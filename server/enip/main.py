@@ -15,9 +15,11 @@
 # A PARTICULAR PURPOSE.  See the GNU General Public License for more details.
 # 
 
-from __future__ import absolute_import
-from __future__ import print_function
-from __future__ import division
+from __future__ import absolute_import, print_function, division
+try:
+    from future_builtins import zip, map # Use Python 3 "lazy" zip, map
+except ImportError:
+    pass
 
 __author__                      = "Perry Kundert"
 __email__                       = "perry@hardconsulting.com"
@@ -34,16 +36,13 @@ USAGE
 
 """
 
-__all__				= ['main', 'address', 'timeout', 'latency',
-                                   'route_path_default', 'send_path_default',
-                                   'config_files']
+__all__				= ['main']
 
 import argparse
 import contextlib
 import fnmatch
 import json
 import logging
-import os
 import random
 import signal
 import socket
@@ -54,21 +53,7 @@ import traceback
 
 import cpppo
 from .. import network
-from . import logix, device, parser
-
-# Globals
-latency				=  0.1 	# network I/O polling (should allow several round-trips)
-timeout				= 20.0	# Await completion of all I/O, thread activity (on many threads)
-address				= ('', 44818)	# The default cpppo.enip.address
-route_path_default		= [{'link': 0, 'port': 1}]
-send_path_default		= [{'class': 6}, {'instance': 1}]
-config_name			= 'cpppo.cfg'
-config_files			= [
-    os.path.join( os.path.dirname( cpppo.__file__ ), config_name ),	# cpppo install dir
-    os.path.join( os.getenv( 'APPDATA', os.sep + 'etc' ), config_name ),# global app data
-    os.path.join( os.path.expanduser( '~' ), '.' + config_name ),	# user home dir
-    config_name,							# current dir
-]
+from . import defaults, parser, device, ucmm, logix
 
 log				= logging.getLogger( "enip.srv" )
 
@@ -558,7 +543,7 @@ def stats_for( peer ):
     stats			= connections.get( connkey )
     if stats is not None:
         return stats,connkey
-    stats			= cpppo.apidict( timeout=timeout )
+    stats			= cpppo.apidict( timeout=defaults.timeout )
     connections[connkey]	= stats
     stats['requests']		= 0
     stats['received']		= 0
@@ -955,9 +940,9 @@ def main( argv=None, attribute_class=device.Attribute, idle_service=None, identi
                      default=False, 
                      help="Disable loading of config files (default: False)" )
     ap.add_argument( '-a', '--address',
-                     default=( "%s:%d" % address ),
+                     default=( "%s:%d" % defaults.address ),
                      help="EtherNet/IP interface[:port] to bind to (default: %s:%d)" % (
-                         address[0], address[1] ))
+                         defaults.address[0], defaults.address[1] ))
     ap.add_argument( '-u', '--udp', action='store_true',
                      default=True, 
                      help="Enable UDP/IP server (default: True)" )
@@ -978,7 +963,7 @@ def main( argv=None, attribute_class=device.Attribute, idle_service=None, identi
     ap.add_argument( '-w', '--web',
                      default="",
                      help="Web API [interface]:[port] to bind to (default: %s, port 80)" % (
-                         address[0] ))
+                         defaults.address[0] ))
     ap.add_argument( '-d', '--delay',
                      default="0.0" ,
                      help="Delay response to each request by a certain number of seconds (default: 0.0)")
@@ -988,7 +973,7 @@ def main( argv=None, attribute_class=device.Attribute, idle_service=None, identi
     ap.add_argument( '--route-path',
                      default=None,
                      help="Route Path, in JSON, eg. %r (default: None); 0/false to accept only empty route_path" % (
-                         str( json.dumps( route_path_default ))))
+                         str( json.dumps( defaults.route_path_default ))))
     ap.add_argument( '-S', '--simple', action='store_true',
                      default=False,
                      help="Simulate a simple (non-routing) EtherNet/IP CIP device (eg. MicroLogix)")
@@ -1003,8 +988,8 @@ def main( argv=None, attribute_class=device.Attribute, idle_service=None, identi
     # Deduce interface:port address to bind, and correct types (default is address, above)
     bind			= args.address.split(':')
     assert 1 <= len( bind ) <= 2, "Invalid --address [<interface>]:[<port>}: %s" % args.address
-    bind			= ( str( bind[0] ) if bind[0] else address[0],
-                                    int( bind[1] ) if len( bind ) > 1 and bind[1] else address[1] )
+    bind			= ( str( bind[0] ) if bind[0] else defaults.address[0],
+                                    int( bind[1] ) if len( bind ) > 1 and bind[1] else defaults.address[1] )
 
     # Set up logging level (-v...) and --log <file>
     levelmap 			= {
@@ -1032,7 +1017,7 @@ def main( argv=None, attribute_class=device.Attribute, idle_service=None, identi
 
     # Load config file(s), if not disabled, into the device.Object class-level 'config_loader'.
     if not args.no_config:
-        loaded			= device.Object.config_loader.read( config_files )
+        loaded			= device.Object.config_loader.read( defaults.config_files + ( args.config or [] ) )
         logging.normal( "Loaded config files: %r", loaded )
 
     # Pull out a 'server.control...' supplied in the keywords, and make certain it's a
@@ -1044,12 +1029,12 @@ def main( argv=None, attribute_class=device.Attribute, idle_service=None, identi
         assert isinstance( srv_ctl['control'], cpppo.apidict ), "The server.control... must be a cpppo.apidict"
         log.detail( "External server.control in object %s", id( srv_ctl['control'] ))
     else:
-        srv_ctl.control		= cpppo.apidict( timeout=timeout )
+        srv_ctl.control		= cpppo.apidict( timeout=defaults.timeout )
         log.detail( "Internal server.control in object %s", id( srv_ctl['control'] ))
 
     srv_ctl.control['done']	= False
     srv_ctl.control['disable']	= False
-    srv_ctl.control.setdefault( 'latency', latency )
+    srv_ctl.control.setdefault( 'latency', defaults.latency )
 
     # Global options data.  Copy any remaining keyword args supplied to main().  This could
     # include an alternative enip_process, for example, instead of defaulting to logix.process.
@@ -1163,7 +1148,7 @@ def main( argv=None, attribute_class=device.Attribute, idle_service=None, identi
             path		= {'segment': segments}
             cls,ins,att		= device.resolve( path, attribute=True )
             assert ins > 0, "Cannot specify the Class' instance for a tag's address"
-            elm			= device.resolve_element( path ) # TODO: support element-level tags
+            #elm		= device.resolve_element( path ) # TODO: support element-level tags
             # Look thru defined tags for one assigned to same cls/ins/att (maybe different elm);
             # must be same type/size.
             for tn,te in dict.items( tags ):
@@ -1236,13 +1221,18 @@ def main( argv=None, attribute_class=device.Attribute, idle_service=None, identi
     assert not UCMM_class or not ( args.route_path or args.simple ), \
         "Specify either -S/--simple/--route-path, or a custom UCMM_class; not both"
     if args.route_path is not None or args.simple:
-        # Must be JSON, eg. '[{"link":<link>,"port":<port>}]', or '0'/'false' to explicitly specify
-        # no route_path accepted (must be empty in request).  Can only get in here with a
-        # --route-path=0/false/[], or -S|--simple, which implies a --route-path=false (no routing
-        # Unconnected Send accepted).
-        class UCMM_class_with_route( device.UCMM ):
-            route_path		= json.loads( args.route_path ) if args.route_path else False
-        UCMM_class		= UCMM_class_with_route
+        # Must be JSON, eg. '[{,"port":<int>,"link":<int>/"<ip>"}]', or 'null'/'0'/'false' to
+        # explicitly specify no route_path accepted (must be empty in request).  Can only get in
+        # here with a --route-path=0/false/[], or -S|--simple, which implies a --route-path=false
+        # (no routing Unconnected Send accepted, eg. as for a non-routing CIP device such as
+        # MicroLogix, AB PowerFlex AC drive controller, ...).
+        class UCMM( ucmm.UCMM ): # class name defines config section: [UCMM]
+            route_path		= device.parse_route_path( args.route_path ) if args.route_path else False
+        if UCMM.route_path:
+            assert len( UCMM.route_path ) == 1, \
+                "route_path: must be JSON null/0/false, or a single [port/link], not: %r" % (
+                    UCMM.route_path )
+        UCMM_class		= UCMM
     if UCMM_class:
         options.setdefault( 'UCMM_class', UCMM_class )
     if message_router_class:
@@ -1276,7 +1266,7 @@ def main( argv=None, attribute_class=device.Attribute, idle_service=None, identi
     # timeout; this will block the web API for several seconds to allow all threads to respond to
     # the signals delivered via the web API.
     logging.normal( "EtherNet/IP Simulator: %r" % ( bind, ))
-    kwargs			= dict( options, latency=latency, size=args.size, tags=tags, server=srv_ctl )
+    kwargs			= dict( options, latency=defaults.latency, size=args.size, tags=tags, server=srv_ctl )
 
     tf				= network.server_thread
     tf_kwds			= dict()
@@ -1297,6 +1287,6 @@ def main( argv=None, attribute_class=device.Attribute, idle_service=None, identi
             if not disabled:
                 logging.detail( "EtherNet/IP Server disabled" )
                 disabled= True
-            time.sleep( latency )            # Still disabled; wait a bit
+            time.sleep( defaults.latency )            # Still disabled; wait a bit
 
     return 0
