@@ -284,16 +284,25 @@ class UCMM( device.Object ):
                         with self.route_conn[target] as conn:
                             # Trim route_path; if empty, send with no route_path (Simple; no routing
                             # encapsulation).  Otherwise, send with remaining route_path.
-                            sub_rp	= route_path[1:] or None
-                            sub_sp	= unc_send.send_path if sub_rp else None
+                            sub_rp	= route_path[1:] or []
+                            sub_sp	= unc_send.send_path if sub_rp else ''
+                            if log.isEnabledFor( logging.DETAIL ):
+                                log.detail( "%r Route %s --> %s Request (RP: %s, SP: %s): %s", self, portlink,
+                                            self.route_conn[target], sub_rp, sub_sp, parser.enip_format( unc_send.request ))
                             conn.unconnected_send( request=unc_send.request,
                                 route_path=sub_rp, send_path=sub_sp, timeout=timeout,
                                 sender_context=data.enip.sender_context.input )
-                            rsp,ela	= client.await( conn, timeout=timeout )
+                            rsp,ela	= client.await_response( conn, timeout=timeout )
                             assert rsp, \
                                 "No response from %s --> %s:%s within %sms timeout" % (
                                     portlink, target[0], target[1], timeoutms )
+                            assert rsp.enip.status == 0, \
+                                "Error status %s in EtherNet/IP Response from Route %s --> %s" % (
+                                    rsp.enip.status, portlink, self.route_conn[target] )
                             # Return the unconnected_send response from the client, as our own.
+                            if log.isEnabledFor( logging.DETAIL ):
+                                log.detail( "%r Route %s --> %s Response: %s", self, portlink,
+                                            self.route_conn[target], parser.enip_format( rsp ))
                             unc_send	= rsp.enip.CIP.send_data.CPF.item[1].unconnected_send
                     except Exception as exc:
                         # Failure

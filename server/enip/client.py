@@ -114,8 +114,8 @@ def format_path( segments, count=None ):
 
 def format_context( sender_context ):
     """Produce a sender_context bytearray of exactly length 8, NUL-padding on the right."""
-    assert isinstance( sender_context, (bytes,bytearray) ), \
-        "Expected sender_context of bytes/bytearray, not %r" % sender_context
+    assert isinstance( sender_context, (bytes,bytearray,array.array) ), \
+        "Expected sender_context of bytes/bytearray/array, not %r" % sender_context
     return bytearray( sender_context[:8] ).ljust( 8, b'\0' )
 
 
@@ -812,7 +812,17 @@ class client( object ):
                 us.route_path	= { 'segment': [ cpppo.dotdict( s ) for s in route_path ]} # must be {link/port}
         us.request		= request
 
-        us.request.input	= bytearray( device.dialect.produce( us.request )) # eg. logix.Logix
+        # Normally, the request will be a dotdict containing the broken-out details of a CIP request
+        # (eg. something containing a CIP '.service' number or request details like
+        # '.get_attribute_single', '.read_tag', etc.).  However, there are times when we might just
+        # be transporting or forwarding an opaque (unparsed) request destined for some other object.
+        # If a device.RequestUnrecognized exception occurs, then check if there's already a
+        # request.input; if so, use it.
+        try:
+            us.request.input	= bytearray( device.dialect.produce( us.request )) # eg. logix.Logix
+        except device.RequestUnrecognized as exc:
+            if 'input' not in us.request:
+                raise # No request, and no already-produced serialization
 
         return self.cip_send( cip=cip, sender_context=sender_context, timeout=timeout )
 

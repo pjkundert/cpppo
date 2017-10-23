@@ -34,7 +34,7 @@ __all__				= ['dialect', 'lookup_reset', 'lookup', 'resolve', 'resolve_element',
                                    'redirect_tag', 'resolve_tag', 
                                    'parse_int', 'parse_path', 'parse_path_elements', 'parse_path_component',
                                    'port_link', 'parse_route_path', 
-                                   'Object', 'Attribute',
+                                   'RequestUnrecognized', 'Object', 'Attribute',
                                    'Connection_Manager', 'Message_Router', 'Identity', 'TCPIP']
 
 import json
@@ -605,6 +605,9 @@ class NumInstances( MaxInstance ):
 #                                                                                      
 #                                                                                      
 #                                                                                      
+class RequestUnrecognized( AssertionError ):
+    """If a Request/Reply cannot be parsed"""
+
 class Object( object ):
     """An EtherNet/IP device.Object is capable of parsing and processing a number of requests.  It has
     a class_id and an instance_id; an instance_id of 0 indicates the "class" instance of the
@@ -851,7 +854,7 @@ class Object( object ):
                  or self.SA_SNG_CTX in data and data.setdefault( 'service', self.SA_SNG_REQ ) == self.SA_SNG_REQ ):
                 pass
             else:
-                raise AssertionError( "Unrecognized Service Request" )
+                raise RequestUnrecognized( "Unrecognized Service Request" )
 
             # A recognized Set/Get Attribute[s] {Single/All} request; process the request data
             # artifact, converting it into a reply.  All of these requests produce/consume a
@@ -901,7 +904,7 @@ class Object( object ):
                                     for i in range( 0, len(buf), siz ) ]
                     att[:]	= val
             else:
-                raise AssertionError( "Unrecognized Service Reply" )
+                raise RequestUnrecognized( "Unrecognized Service Reply" )
             data.status		= 0x00
             data.pop( 'status_ext', None )
         except Exception as exc:
@@ -965,7 +968,7 @@ class Object( object ):
             result	       += b'\x00' # reserved
             result	       += status.produce( 	data )
         else:
-            assert False, "%s doesn't recognize request/reply format: %r" % ( cls.__name__, data )
+            raise RequestUnrecognized( "%s doesn't recognize request/reply format: %r" % ( cls.__name__, data ))
         return result
 
 # Register the standard Object parsers
