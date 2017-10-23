@@ -38,7 +38,6 @@ import logging
 import sys
 import time
 import traceback
-import warnings
 
 from ...automata import log_cfg
 from ...misc import timer

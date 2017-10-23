@@ -52,6 +52,7 @@ import select
 import socket
 import sys
 import traceback
+import warnings
 
 import cpppo
 from .. import network
@@ -858,6 +859,11 @@ class client( object ):
         return data
 
 
+def await( cli, timeout=None ):
+    warnings.warn( "Use client.await_response instead", DeprecationWarning )
+    return await_response( cli, timeout=timeout )
+
+
 def await_response( cli, timeout=None ):
     """Await a response on an iterable client() instance (for timeout seconds, or forever if None).
     Returns (response,elapsed).  A 'timeout' may be supplied, of:
@@ -1120,7 +1126,7 @@ class connector( client ):
             if self.profiler:
                 self.profiler.disable()
             try:
-                response,elapsed	= await_response( self, timeout=timeout )
+                response,elapsed= await_response( self, timeout=timeout )
             finally:
                 if self.profiler:
                     self.profiler.enable()
