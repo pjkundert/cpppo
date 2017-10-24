@@ -1,3 +1,5 @@
+#+OPTIONS: ^:nil # Disable sub/superscripting with bare _; _{...} still works
+
 * Comm. Protocol Python Parser and Originator
   
   Cpppo (pronounced 'c'+3*'p'+'o' in Python) is used to implement binary
@@ -754,7 +756,7 @@
      | dialect                        | An EtherNet/IP CIP dialect, if not logix.Logix                     |
      | udp (False)                    | Establishes a UDP/IP socket to use for request (eg. List Identity) |
      | broadcast (False)              | Avoids connecting UDP/IP sockets; may receive many replies         |
-     | source\textunderscore{}address | Bind to a specific local interface (Default: 0.0.0.0:0)            |
+     | source_address | Bind to a specific local interface (Default: 0.0.0.0:0)            |
      | profiler                       | If using a Python profiler, provide it to disable around I/O code  |
 
      Once connectivity is established, a sequence of CIP requests can be issued
@@ -917,12 +919,12 @@
 
      | Key                      | Description                                                           |
      |--------------------------+-----------------------------------------------------------------------|
-     | method                   | 'read', 'write', 'set/get\_attribute\_single', 'get\_attributes\_all' |
+     | method                   | 'read', 'write', 'set/get_attribute_single', 'get_attributes_all'     |
      | path                     | The operation's path, eg [{"class": 2},{"instance": 1},...]           |
      | offset                   | A byte offset, for Fragmented read/write                              |
      | elements                 | The number of elements to read/write                                  |
-     | tag\textunderscore{}type | The EtherNet/IP type, eg. 0x00ca for "REAL"                           |
-     | data                     | For 'write', 'set\_attribute...'; the sequence of data to write       |
+     | tag_type | The EtherNet/IP type, eg. 0x00ca for "REAL"                           |
+     | data                     | For 'write', 'set_attribute...'; the sequence of data to write        |
 
      Use =client.parse_operations= to convert a sequence of simple Tag assignments
      to a sequence suitable for 'operations':
@@ -933,7 +935,7 @@
      | Keyword    | Description                                                   |
      |------------+---------------------------------------------------------------|
      | operations | A sequence of operations                                      |
-     | index      | The starting index used for "sender\_context"                 |
+     | index      | The starting index used for "sender_context"                  |
      | fragment   | If True, forces use of Fragmented read/write                  |
      | multiple   | If >0, uses Multiple Service Packets of up to this many bytes |
      | timeout    | A timeout, in seconds.                                        |
@@ -961,7 +963,7 @@
 
      | Item    | Description                                                 |
      |---------+-------------------------------------------------------------|
-     | 0 - idx | The index of the operation, sent as the "sender\_context"   |
+     | 0 - idx | The index of the operation, sent as the "sender_context"    |
      | 1 - dsc | A description of the operation                              |
      | 2 - req | The request                                                 |
      | 3 - rpy | The reply                                                   |
@@ -1280,7 +1282,7 @@
 
      In your Python code, to access the parameter "A Sensor Parameter" from the
      remote A-B PowerFlex device (the supplied name is transformed to
-     =a_sensor_parameter= by lowering case and transforming ' ' to '\_', to check
+     =a_sensor_parameter= by lowering case and transforming ' ' to '_', to check
      for matching any =proxy.PARAMETER= entry):
      #+BEGIN_EXAMPLE python
      via                = some_sensor( host="10.0.1.2" )
@@ -1614,23 +1616,23 @@
 
      The full set of keywords to =.poll= are:
 
-     | Keyword                       | Description                                                       |
-     |-------------------------------+-------------------------------------------------------------------|
-     | proxy\textunderscore{}class   | A =cpppo.server.enip.get_attribute= proxy derived class           |
-     | address                       | A (ip,port) tuple identifying the target EtherNet/IP CIP device   |
-     | depth                         | The number of outstanding requests                                |
-     | multiple                      | If >0, uses Multiple Service Packets of up to this many bytes     |
-     | timeout                       | A timeout, in seconds.                                            |
-     | route\textunderscore{}path    | A list of {"link":...,"port":...} of the request target (or None) |
-     | send\textunderscore{}path     | The CIP address of the Message Router (eg. "@6/1"), or ""         |
-     | via                           | A proxy class instance, if desired (no =proxy_class= created)     |
-     | params                        | A list of Tag names or proxy parameter shortcut names             |
-     | pass\textunderscore{}thru     | If False, fails poll if any params bare name isn't recognized     |
-     | cycle                         | Target poll cycle time                                            |
-     | process                       | A callable invoked for each parameter,value tuple polled          |
-     | failure                       | A callable invoked for each poll failure                          |
-     | backoff\textunderscore{}...   | Controls the exponential polling back-off on failure              |
-     | latency                       | Maximum poll loop check time (ie. responsiveness to done signal)  |
+     | Keyword     | Description                                                       |
+     |-------------+-------------------------------------------------------------------|
+     | proxy_class | A =cpppo.server.enip.get_attribute= proxy derived class           |
+     | address     | A (ip,port) tuple identifying the target EtherNet/IP CIP device   |
+     | depth       | The number of outstanding requests                                |
+     | multiple    | If >0, uses Multiple Service Packets of up to this many bytes     |
+     | timeout     | A timeout, in seconds.                                            |
+     | route_path  | A list of {"link":...,"port":...} of the request target (or None) |
+     | send_path   | The CIP address of the Message Router (eg. "@6/1"), or ""         |
+     | via         | A proxy class instance, if desired (no =proxy_class= created)     |
+     | params      | A list of Tag names or proxy parameter shortcut names             |
+     | pass_thru   | If False, fails poll if any params bare name isn't recognized     |
+     | cycle       | Target poll cycle time                                            |
+     | process     | A callable invoked for each parameter,value tuple polled          |
+     | failure     | A callable invoked for each poll failure                          |
+     | backoff_... | Controls the exponential polling back-off on failure              |
+     | latency     | Maximum poll loop check time (ie. responsiveness to done signal)  |
 
 **** =poll.run=
 
@@ -1646,7 +1648,7 @@
      | via          | A proxy class instance                                           |
      | process      | A callable invoked for each parameter,value tuple polled         |
      | failure      | A callable invoked for each poll failure                         |
-     | backoff...   | Controls the exponential polling back-off on failure             |
+     | backoff_...  | Controls the exponential polling back-off on failure             |
      | latency      | Maximum poll loop check time (ie. responsiveness to done signal) |
      
      Any further keywords are passed unchanged to =poll.loop=
@@ -1657,11 +1659,11 @@
 
      The full set of keywords to =.loop= are:
 
-     | Keyword                   | Description                                       |
-     |---------------------------+---------------------------------------------------|
-     | via                       | A proxy class instance                            |
-     | cycle                     | Target poll cycle time                            |
-     | last\textunderscore{}poll | The timestamp of the start of the last poll cycle |
+     | Keyword   | Description                                       |
+     |-----------+---------------------------------------------------|
+     | via       | A proxy class instance                            |
+     | cycle     | Target poll cycle time                            |
+     | last_poll | The timestamp of the start of the last poll cycle |
 
      Any further keywords are passed unchanged to =poll.execute=
 
@@ -1671,11 +1673,11 @@
 
      The full set of keywords to =.execute= are:
 
-     | Keyword                   | Description                                                   |
-     |---------------------------+---------------------------------------------------------------|
-     | via                       | A proxy class instance                                        |
-     | params                    | A list of Tag names or proxy parameter shortcut names         |
-     | pass\textunderscore{}thru | If False, fails poll if any params bare name isn't recognized |
+     | Keyword   | Description                                                   |
+     |-----------+---------------------------------------------------------------|
+     | via       | A proxy class instance                                        |
+     | params    | A list of Tag names or proxy parameter shortcut names         |
+     | pass_thru | If False, fails poll if any params bare name isn't recognized |
 
 *** Web Interface
 
@@ -2215,8 +2217,8 @@
 * Running State Machines
 
   State machines define the grammar for a language which can be run against a
-  sentence of input.  All these machines ultimately use state\_input instances
-  to store their data; the path used is the cpppo.dfa's <context> + '\_input':
+  sentence of input.  All these machines ultimately use state_input instances
+  to store their data; the path used is the cpppo.dfa's <context> + '_input':
 
   #+BEGIN_SRC python
   data                  = cpppo.dotdict()
@@ -2317,7 +2319,7 @@
     configurations.
 
     Edit /Library/Preferences/VMware\ Fusion/networking, and remove all
-    VMNET\_X... lines, EXCEPT VMNET\_1... and VMNET\_8... (these are the lines
+    VMNET_X... lines, EXCEPT VMNET_1... and VMNET_8... (these are the lines
     that are configured with stock VMware Fusion).  It should end up looking
     something like:
     : VERSION=1,0
