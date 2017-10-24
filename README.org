@@ -209,6 +209,39 @@
     Identity: [1, 15, 54, 2836, 12640, 7079450, '1756-L61/C LOGIX5561', 255]
     #+END_EXAMPLE
 
+*** Routing via =route_path= to other CIP Devices
+
+    A very basic facility for routing incoming CIP requests with complex =route_path= values is
+    available in the Cpppo EtherNet/IP CIP Communications Simulator.  By default, the Simulator
+    responds to incoming requests with *any* route_path (basically, it ignores the value).
+
+    If you specify =--route-path=1/0= on the command-line, it will only respond to requests with
+    exactly the =route_path= equal to '{"port": 1, "link": 0}' (backplane, slot 0).  Every other
+    CIP reqeuest with some other =route_path= value will be responded to with an error status.
+
+    If you wish to configure the allowable =route_path= in the =cpppo.cfg= file, use "Route Path =
+    ...".  Furthermore, if you want to route any other valid CIP request by the first element in
+    its =route_path=, specify a JSON mapping in the configuration file's "Route = { ...",
+    specifying each =route_path= by <port>/<link> (link ranges are handled), and the <IP>:<port> it
+    should be routed to:
+    #+BEGIN_EXAMPLE
+    [UCMM]
+    Route Path                 = 1/0
+    Route                      = {
+            "1/1-15":  "localhost:44819"
+        }
+    #+END_EXAMPLE
+    This example (see =cpppo/cpppo-router.cfg= and =cpppo/cpppo.cfg= for more details) accepts and
+    handles CIP requests to =route_path= port 1, link 0 (backplane slot 0), and routes requests to
+    all other backplane slots to the EtherNet/IP CIP simulator on localhost port 44819.  Any valid
+    =route_path= is allowed; for example, "2/1.2.3.4" would route requests with a =route_path=
+    segment specifying port 2, link "1.2.3.4".
+
+    When the request is forwarded, the first =route_path= segment is removed, and the remaining
+    segments (if any) are forwarded.  If no more =route_path= segments are left, then the request
+    is forwarded as a "Simple" CIP request (with no =route_path= or =send_path= configured, as for
+    a simple non-routing CIP device such as a MicroLogix or A-B Powerflex, etc.)
+
 *** EtherNet/IP Controller I/O Customization
 
     If you require access to the read and write I/O events streaming from
@@ -245,7 +278,7 @@
      $ python -m cpppo.server.enip.client Tag_Name[0-3]=[0,1,2,3]
      #+END_EXAMPLE
    
-     You can examine the code in cpppo/server/enip/historize.py to see how to
+     You can examine the code in =cpppo/server/enip/historize.py= to see how to
      easily implement your own customization of the EtherNet/IP CIP Controller
      simulator.
    
@@ -582,7 +615,7 @@
     usually used in combination with =--route-path=false=.  This can be used to
     prevent the issuance of Unconnected Send Service encapsulation, which "Only
     originating devices and devices that route between links need to implement"
-    (see: The CIP Networks Library, Vol 1, Table 3-5.8).  Also avoid use of
+    (see The CIP Networks Library, Vol 1, Table 3-5.8).  Also avoid use of
     =--multiple=, as these devices do not generally accept Multiple Service
     Packet requests, either.
 
@@ -2276,7 +2309,7 @@
 
    If you are not running on a host capable of directly hosting Docker images,
    one can be provided for you.  Install Vagrant (http://vagrantup.com) on your
-   system, and then use the cpppo/GNUmakefile target to bring up a  VirtualBox
+   system, and then use the =cpppo/GNUmakefile= target to bring up a  VirtualBox
    or VMWare Fusion (license required: http://www.vagrantup.com/vmware):
    : $ make vmware-debian-up # or virtualbox-ubuntu-up
 
@@ -2370,7 +2403,7 @@
 
     The Debian Jessie + Docker VirtuaBox and VMware images used by the
     Vagrantfiles are hosted at http://box.hardconsulting.com.  When you use the
-    cpppo/GNUmakefile targets to bring up a Vagrant box (eg. 'make
+    =cpppo/GNUmakefile= targets to bring up a Vagrant box (eg. 'make
     virtualbox-debian-up'), the appropriate box is downloaded using 'vagrant box
     add ...'.  If you don't trust these boxes (the safest position), you can
     rebuild them yourself, using [[https://packer.io/downloads.html][packer.io]].
@@ -2395,7 +2428,7 @@
     : $ make add-vmware-jessie64 # or add-virtualbox-jessie64
 
     Now, you can fire up the new VirtualBox image using Vagrant, and the targets
-    provided in the cpppo/GNUmakefile:
+    provided in the =cpppo/GNUmakefile=:
     : $ cd src/cpppo
     : $ make vmware-debian-up
 
