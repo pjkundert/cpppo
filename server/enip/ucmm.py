@@ -45,9 +45,9 @@ def port_link_expand( items ):
     """Handle any "1/1-15": ap style port/link specifications, yielding "1/1":ap, "1/2":ap, ..."""
     for pl,ap in items:
         try:
-            port,lkrng		= map( str.strip, pl.split( '/', 1 ))	# 1/1-15
-            lklo,lkhi		= map( int,    lkrng.split( '-', 1 ))	#   1-15
-            for link in range( lklo, lkhi + 1 ):			# range( 1, 16 )
+            port,lkrng		= map( str.strip, str( pl ).split( '/', 1 ))	# 1/1-15
+            lklo,lkhi		= map( int,    lkrng.split( '-', 1 ))		#   1-15
+            for link in range( lklo, lkhi + 1 ):				# range( 1, 16 )
                 plsub		= "%s/%s" % ( port, link )
                 yield plsub,ap
         except:
@@ -58,7 +58,7 @@ def addr_port( ip, port=44818 ):
     """Split ip into ("<ip>",<port>), defaulting port to 44818, and return as tuple."""
     try:
         if ':' in ip:
-            ip,port		= map( str.strip, ip.split( ':', 1 ))
+            ip,port		= map( str.strip, str( ip ).split( ':', 1 ))
             port		= int( port )
     except:
         raise AssertionError( "addr[:port]: port must be :<int>" )
@@ -285,7 +285,7 @@ class UCMM( device.Object ):
                             # Trim route_path; if empty, send with no route_path (Simple; no routing
                             # encapsulation).  Otherwise, send with remaining route_path.
                             sub_rp	= route_path[1:] or []
-                            sub_sp	= unc_send.send_path if sub_rp else ''
+                            sub_sp	= unc_send.path.segment if sub_rp else ''
                             if log.isEnabledFor( logging.DETAIL ):
                                 log.detail( "%r Route %s --> %s Request (RP: %s, SP: %s): %s", self, portlink,
                                             self.route_conn[target], sub_rp, sub_sp, parser.enip_format( unc_send.request ))

@@ -36,7 +36,7 @@ import cpppo
 latency				=  0.1 	# network I/O polling (should allow several round-trips)
 timeout				= 20.0	# Await completion of all I/O, thread activity (on many threads)
 address				= ('', 44818)	# The default cpppo.enip.address
-route_path_default		= [{'link': 0, 'port': 1}]
+route_path_default		= [{'port': 1, 'link': 0}] # default controller address: backplane, slot 0 
 send_path_default		= [{'class': 6}, {'instance': 1}]
 config_name			= 'cpppo.cfg'
 config_files			= [

@@ -130,15 +130,18 @@
     : -p|--print
     : --no-print (the default)
 
-    To specify and check for a specific route_path in incoming Unconnected Send
-    requests, provide one in JSON format; the default is to ignore the specified
-    route_path.  It must be a list containing one dict, usually specifying a
-    =link= and =port= value.  The =link= is typically in the range 0-15, and the
-    =port= is either an 8- or 16-bit number, or an IP address.  To specify that no
-    route_path is accepted (ie. only an empty route_path is allowed), use 0 or false:
-    : --route-path '[{"link": 0, "port": 1}]'
-    : --route-path '[{"link": 0, "port": "192.168.1.2"}]'
-    : --route-path false
+    To specify and check for a specific =route_path= in incoming Unconnected Send requests, provide
+    one in "<port>/<link>" or JSON format; the default is to ignore the specified =route_path=
+    (accepting any =route_path=).  If specified, it must be a list containing one dict, specifying a
+    =port= and =link= value.  The =port= is either an 8- or 16-bit number (eg. port 1 typically
+    indicates the local backplane).  The =link= is typically in the range 0-15 (eg. a "slot"
+    number), or is an IP address (eg. "1.2.3.4"). To specify that no =route_path= is accepted
+    (ie. only an empty =route_path= is allowed), use 0 or false:
+    : --route-path '[{"port": 1, "link": 0]'              # backplane, slot 0
+    : --route-path 1/0                                    #   ''
+    : --route-path '[{"port": 2, "link": "192.168.1.2"}]' # port 2, link 192.168.1.2
+    : --route-path 2/192.168.1.2                          #   ''
+    : --route-path false                                  # No route_path accepted
     
     Alternatively, to easily specify acceptance of no routing Unconnected Send
     encapsulation (eg. to simulate simple non-routing CIP devices such as
@@ -169,18 +172,18 @@
     #+BEGIN_EXAMPLE
     [Identity]
     # Generally, strings are not quoted
-    Product Name		= 1756-L61/B LOGIX5561
+    Product Name                = 1756-L61/B LOGIX5561
 
     [TCPIP]
     # However, some complex structures require JSON configuration:
-    Interface Configuration	= {
+    Interface Configuration     = {
         "ip_address":             "192.168.0.201",
         "network_mask":           "255.255.255.0",
         "dns_primary":            "8.8.8.8",
         "dns_secondary":          "8.8.4.4",
         "domain_name":            "example.com"
         }
-    Host Name			= controller
+    Host Name                   = controller
     #+END_EXAMPLE
 
     See [[https://github.com/pjkundert/cpppo/blob/master/cpppo.cfg]] for details on
@@ -552,14 +555,23 @@
     Specify a number of times to repeat the specified operations:
     : -r|--repeat #
 
-    To specify an Unconnected Send route_path (other than the default '[{"link":
-    0, "port": 1}]', which is a guess at the location of a *Logix controller in
-    a typical backplane), provide one in JSON format.  It must be a list
-    containing one dict, usually specifying a =link= and =port= value.  The
-    =link= is typically in the range 0-15, and the =port= is either an 8- or
-    16-bit number, or an IP address.  To specify no route_path, use 0 or false:
-    : --route-path '[{"link": 0, "port": 1}]'
-    : --route-path '[{"link": 0, "port": "192.168.1.2"}]'
+    To specify an Unconnected Send =route_path= (other than the default backplane port 0, '1/0' or
+    '[{"port": 1, "link": 0}]', which is a guess at the location of a *Logix controller in a typical
+    backplane), provide one in short <port>/<link> or JSON format.  It must be a list containing one
+    dict specifying a =port= and =link= value.  The =port= is either an 8- or 16-bit number, and
+    =link= is typically in the range 0-15 (a backplane slot) or an IP address.  A string with a '/'
+    in it is parsed as <port>/<link>.  If a only single =route_path= element is intended, the JSON
+    array notation is optional:
+    : --route-path '[{"port": 1, "link": 0}]'             # backplane, slot 0
+    : --route-path '{"port": 1, "link": 0}'               #  ''
+    : --route-path '1/0'                                  #  ''
+    Complex multi-segment route-paths must be specified in a JSON list.  For example, to route via
+    an EtherNet/IP module in backplane slot 3, and then out its second Ethernet port to address
+    1.2.3.4:
+    : --route-path '["1/3", {"port":2,"link":"1.2.3.4"}]'# backplane slot 3,
+    : --route-path '["1/3", "2/1.2.3.4"]'                #   then second port and IP 1.2.3.4
+    To specify no =route_path=, use 0 or false (usually only in concert with --send-path='', or just
+    use -S):
     : --route-path false
 
     If a simple EtherNet/IP CIP device doesn't support routing of message to
@@ -734,16 +746,16 @@
      The base class =client.client= implements  all the basic I/O capabilities
      for pipeline-capable TCP/IP and UDP/IP I/O with EtherNet/IP CIP devices.
 
-     | Keyword           | Description                                                        |
-     |-------------------+--------------------------------------------------------------------|
-     | host              | A cpppo.server.enip.get\_attribute proxy derived class             |
-     | port              | Target port (if not 44818)                                         |
-     | timeout           | Optional timeout on socket.create_connection                       |
-     | dialect           | An EtherNet/IP CIP dialect, if not logix.Logix                     |
-     | udp (False)       | Establishes a UDP/IP socket to use for request (eg. List Identity) |
-     | broadcast (False) | Avoids connecting UDP/IP sockets; may receive many replies         |
-     | source_address    | Bind to a specific local interface (Default: 0.0.0.0:0)            |
-     | profiler          | If using a Python profiler, provide it to disable around I/O code  |
+     | Keyword                        | Description                                                        |
+     |--------------------------------+--------------------------------------------------------------------|
+     | host                           | A =cpppo.server.enip.get_attribute= proxy derived class            |
+     | port                           | Target port (if not 44818)                                         |
+     | timeout                        | Optional timeout on =socket.create_connection=
+     | dialect                        | An EtherNet/IP CIP dialect, if not logix.Logix                     |
+     | udp (False)                    | Establishes a UDP/IP socket to use for request (eg. List Identity) |
+     | broadcast (False)              | Avoids connecting UDP/IP sockets; may receive many replies         |
+     | source\textunderscore{}address | Bind to a specific local interface (Default: 0.0.0.0:0)            |
+     | profiler                       | If using a Python profiler, provide it to disable around I/O code  |
 
      Once connectivity is established, a sequence of CIP requests can be issued
      using the the methods =.read=, =.write=, =.list_identity=, etc.
@@ -841,11 +853,11 @@
      >>> from cpppo.server.enip include client
      >>> list( client.parse_operations( [ "A_Tag[1-2]=(REAL)111,222" ] ))
      [{
-         'data':	[111.0, 222.0],
-         'elements':	2,
-         'method':	'write',
-         'path':	[{'symbolic': 'A_Tag'},{'element': 1}],
-         'tag_type': 202
+         'data':        [111.0, 222.0],
+         'elements':    2,
+         'method':      'write',
+         'path':        [{'symbolic': 'A_Tag'},{'element': 1}],
+         'tag_type':    202
      }]
      #+END_EXAMPLE
 
@@ -874,9 +886,7 @@
      | connection | 8/16-bit Connection number             |
      | symbolic   | ISO-8859-1 Symbolic Tag name           |
      | port,link  | Port number, Link number or IP address |
-
-     So, you can specify something as complex as as route_path like:
-     : @{"port":123,"link":"130.151.137.105"},{"port":1,"link":2}
+     |            | (typically valid only in =route_path=) | 
 
      The number of elements in a request is normally deduced from an index
      range; for example, to specify 10 elements:
@@ -905,14 +915,14 @@
      Must be provided a sequence of 'operations' to perform, each as a dict
      containing:
 
-     | Key       | Description                                                           |
-     |-----------+-----------------------------------------------------------------------|
-     | method    | 'read', 'write', 'set/get\_attribute\_single', 'get\_attributes\_all' |
-     | path      | The operation's path, eg [{"class": 2},{"instance": 1},...]           |
-     | offset    | A byte offset, for Fragmented read/write                              |
-     | elements  | The number of elements to read/write                                  |
-     | tag\_type | The EtherNet/IP type, eg. 0x00ca for "REAL"                           |
-     | data      | For write, set\_attribute\_single; the sequence of data to write      |
+     | Key                      | Description                                                           |
+     |--------------------------+-----------------------------------------------------------------------|
+     | method                   | 'read', 'write', 'set/get\_attribute\_single', 'get\_attributes\_all' |
+     | path                     | The operation's path, eg [{"class": 2},{"instance": 1},...]           |
+     | offset                   | A byte offset, for Fragmented read/write                              |
+     | elements                 | The number of elements to read/write                                  |
+     | tag\textunderscore{}type | The EtherNet/IP type, eg. 0x00ca for "REAL"                           |
+     | data                     | For 'write', 'set\_attribute...'; the sequence of data to write       |
 
      Use =client.parse_operations= to convert a sequence of simple Tag assignments
      to a sequence suitable for 'operations':
@@ -1604,24 +1614,23 @@
 
      The full set of keywords to =.poll= are:
 
-     | Keyword        | Description                                                       |
-     |----------------+-------------------------------------------------------------------|
-     | proxy\_class   | A cpppo.server.enip.get\_attribute proxy derived class            |
-     | address        | A (ip,port) tuple identifying the target EtherNet/IP CIP device   |
-     | depth          | The number of outstanding requests                                |
-     | multiple       | If >0, uses Multiple Service Packets of up to this many bytes     |
-     | timeout        | A timeout, in seconds.                                            |
-     | route\_path    | A list of {"link":...,"port":...} of the request target (or None) |
-     | send\_path     | The CIP address of the Message Router (eg. "@6/1"), or ""         |
-     | gateway\_class | The deprecated keyword identifying the proxy\_class               |
-     | via            | A proxy class instance, if desired (no proxy\_class created)      |
-     | params         | A list of Tag names or proxy parameter shortcut names             |
-     | pass\_thru     | If False, fails poll if any params bare name isn't recognized     |
-     | cycle          | Target poll cycle time                                            |
-     | process        | A callable invoked for each parameter,value tuple polled          |
-     | failure        | A callable invoked for each poll failure                          |
-     | backoff\_...   | Controls the exponential polling back-off on failure              |
-     | latency        | Maximum poll loop check time (ie. responsiveness to done signal)  |
+     | Keyword                       | Description                                                       |
+     |-------------------------------+-------------------------------------------------------------------|
+     | proxy\textunderscore{}class   | A =cpppo.server.enip.get_attribute= proxy derived class           |
+     | address                       | A (ip,port) tuple identifying the target EtherNet/IP CIP device   |
+     | depth                         | The number of outstanding requests                                |
+     | multiple                      | If >0, uses Multiple Service Packets of up to this many bytes     |
+     | timeout                       | A timeout, in seconds.                                            |
+     | route\textunderscore{}path    | A list of {"link":...,"port":...} of the request target (or None) |
+     | send\textunderscore{}path     | The CIP address of the Message Router (eg. "@6/1"), or ""         |
+     | via                           | A proxy class instance, if desired (no =proxy_class= created)     |
+     | params                        | A list of Tag names or proxy parameter shortcut names             |
+     | pass\textunderscore{}thru     | If False, fails poll if any params bare name isn't recognized     |
+     | cycle                         | Target poll cycle time                                            |
+     | process                       | A callable invoked for each parameter,value tuple polled          |
+     | failure                       | A callable invoked for each poll failure                          |
+     | backoff\textunderscore{}...   | Controls the exponential polling back-off on failure              |
+     | latency                       | Maximum poll loop check time (ie. responsiveness to done signal)  |
 
 **** =poll.run=
 
@@ -1637,7 +1646,7 @@
      | via          | A proxy class instance                                           |
      | process      | A callable invoked for each parameter,value tuple polled         |
      | failure      | A callable invoked for each poll failure                         |
-     | backoff\_... | Controls the exponential polling back-off on failure             |
+     | backoff...   | Controls the exponential polling back-off on failure             |
      | latency      | Maximum poll loop check time (ie. responsiveness to done signal) |
      
      Any further keywords are passed unchanged to =poll.loop=
@@ -1648,12 +1657,11 @@
 
      The full set of keywords to =.loop= are:
 
-     | Keyword    | Description                                                  |
-     |------------+--------------------------------------------------------------|
-     | via        | A proxy class instance                                       |
-     | cycle      | Target poll cycle time                                       |
-     | last\_poll | The timestamp of the start of the last poll cycle            |
-     |            |                                                              |
+     | Keyword                   | Description                                       |
+     |---------------------------+---------------------------------------------------|
+     | via                       | A proxy class instance                            |
+     | cycle                     | Target poll cycle time                            |
+     | last\textunderscore{}poll | The timestamp of the start of the last poll cycle |
 
      Any further keywords are passed unchanged to =poll.execute=
 
@@ -1663,11 +1671,11 @@
 
      The full set of keywords to =.execute= are:
 
-     | Keyword    | Description                                                   |
-     |------------+---------------------------------------------------------------|
-     | via        | A proxy class instance                                        |
-     | params     | A list of Tag names or proxy parameter shortcut names         |
-     | pass\_thru | If False, fails poll if any params bare name isn't recognized |
+     | Keyword                   | Description                                                   |
+     |---------------------------+---------------------------------------------------------------|
+     | via                       | A proxy class instance                                        |
+     | params                    | A list of Tag names or proxy parameter shortcut names         |
+     | pass\textunderscore{}thru | If False, fails poll if any params bare name isn't recognized |
 
 *** Web Interface
 
@@ -2183,7 +2191,7 @@
     The default behaviour is to recognize the maximal regular expression; to
     continue running 'til input symbols are exhausted, or the first symbol is
     encountered that *cannot* form part of an acceptable sentence in the regular
-    expression's grammar.  Specify =greedy\=False= to force the dfa to only
+    expression's grammar.  Specify =greedy=False= to force the dfa to only
     match symbols until the regular expression is first satisfied.
 
 *** Detect if regular expression satisfied: =terminal=

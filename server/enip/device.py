@@ -369,8 +369,8 @@ def port_link( pl ):
 
     """
     if isinstance( pl, cpppo.type_str_base ):
-        try: port,link	= map( str.strip, pl.split( '/', 1 ))
-        except: raise AssertionError( "port/link: must have exactly 2 components" )
+        try: port,link	= map( str.strip, str( pl ).split( '/', 1 ))
+        except: raise AssertionError( "port/link: must have exactly 2 components, not: %r" % ( pl ))
         pl			= { "port": port, "link": link }
     assert isinstance( pl, dict ) and 'port' in pl and 'link' in pl, \
         """port/link: must be dict containing { "port": <int>, "link": <int>/"<ip>" }"""
@@ -389,7 +389,7 @@ def port_link( pl ):
 
 def parse_route_path( route_path ):
     """A route path is None/0/False, or list of port/link segments.  Allows a single port/link
-    element to be specified bare, and will en-list it, eg: --route_path=1/2."""
+    element to be specified bare, and will en-list it, eg: "--route_path=1/2"."""
     if isinstance( route_path, cpppo.type_str_base ):
         try:
             route_path		= json.loads( route_path )

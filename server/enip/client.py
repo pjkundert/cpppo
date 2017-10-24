@@ -1514,7 +1514,7 @@ which is required to carry this Send/Route Path data. """ )
                      help="Repeat EtherNet/IP request (default: 1)" )
     ap.add_argument( '--route-path',
                      default=None,
-                     help="Route Path, in JSON (default: %r); 0/false to specify no/empty route_path" % (
+                     help="Route Path, as <port>/<link> or JSON (default: %r); 0/false to specify no/empty route_path" % (
                          str( json.dumps( connector.route_path_default ))))
     ap.add_argument( '--send-path',
                      default=None,
