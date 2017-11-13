@@ -551,7 +551,8 @@ class proxy( object ):
                     # for [S]STRING/SINT/INT/DINT/REAL/BOOL.  Otherwise, conversion of data type
                     # desired; get raw data using Get Attribute Single.
                     parser	= client.parse_operations if typ is None else attribute_operations
-                    opp,	= parser( ( att, ), route_path=self.route_path, send_path=self.send_path )
+                    opp,	= parser( ( att, ), route_path=device.parse_route_path( self.route_path ),
+                                          send_path=self.send_path )
                 except Exception as exc:
                     log.warning( "Failed to parse attribute %r; %s", att, exc )
                     raise
