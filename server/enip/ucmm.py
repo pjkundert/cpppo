@@ -268,7 +268,6 @@ class UCMM( device.Object ):
                         return pl,self.route.get( pl ) # "1/2",None or "1/2",("hostname",44818)
                     return None,None
                 portlink,target	= find_route()
-                log.detail( "UCMM: port/link %s --> %r", portlink, target )
                 if portlink and target:
                     # port/link --> target found: Remote request.  Get the request timeout from the
                     # unconnected_send.priority/timeout_ticks.  As per Vol 1.3-4.4.1.4, the top 4
@@ -279,6 +278,7 @@ class UCMM( device.Object ):
                     data.enip.status = 0x65
                     try:
                         if target not in self.route_conn:
+                            log.normal( "UCMM: port/link %s --> %r; creating route", portlink, target )
                             self.route_conn[target] \
                                	= client.connector( host=target[0], port=target[1], timeout=timeout )
                         with self.route_conn[target] as conn:
@@ -287,8 +287,9 @@ class UCMM( device.Object ):
                             sub_rp	= route_path[1:] or []
                             sub_sp	= unc_send.path.segment if sub_rp else ''
                             if log.isEnabledFor( logging.DETAIL ):
-                                log.detail( "%r Route %s --> %s Request (RP: %s, SP: %s): %s", self, portlink,
-                                            self.route_conn[target], sub_rp, sub_sp, parser.enip_format( unc_send.request ))
+                                log.detail( "%r Route %s --> %s Request (RP: %s, SP: %s) %s", self, portlink,
+                                            self.route_conn[target], sub_rp, sub_sp,
+                                            parser.enip_format( unc_send.request ) if log.isEnabledFor( logging.INFO ) else "" )
                             conn.unconnected_send( request=unc_send.request,
                                 route_path=sub_rp, send_path=sub_sp, timeout=timeout,
                                 sender_context=data.enip.sender_context.input )
@@ -301,11 +302,13 @@ class UCMM( device.Object ):
                                     rsp.enip.status, portlink, self.route_conn[target] )
                             # Return the unconnected_send response from the client, as our own.
                             if log.isEnabledFor( logging.DETAIL ):
-                                log.detail( "%r Route %s --> %s Response: %s", self, portlink,
-                                            self.route_conn[target], parser.enip_format( rsp ))
+                                log.detail( "%r Route %s --> %s Response %s", self, portlink,
+                                            self.route_conn[target],
+                                            parser.enip_format( rsp ) if log.isEnabledFor( logging.INFO ) else "" )
                             unc_send	= rsp.enip.CIP.send_data.CPF.item[1].unconnected_send
                     except Exception as exc:
                         # Failure
+                        log.normal( "UCMM: port/link %s --> %r; closing route due to: %s", portlink, target, exc )
                         del self.route_conn[target] # will close()
                         raise
                     else:
