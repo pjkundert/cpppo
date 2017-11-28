@@ -212,7 +212,20 @@ def poll( proxy_class=None, address=None, depth=None, multiple=None, timeout=Non
 def main( argv=None ):
     ap				= argparse.ArgumentParser(
         description = "Poll Parameters from CIP Device via proxy gateway (AB PowerFlex 750, by default)",
-        epilog = "" )
+        formatter_class = argparse.RawDescriptionHelpFormatter,
+        epilog = """\
+
+    Poll one or more EtherNet/IP CIP Tags or pre-defined named PARAMETER CIP Object/Instance
+Attributes.  See cpppo.server.enip.ab.py for an example of how to define names and CIP data types
+for CIP Object/Instance/Attributes.
+
+    To allow accessing to arbitrary C*Logix Tags, specify the --pass-thru option; to poll values
+from a C*Logix Controller, run something like:
+
+        python -m cpppo.server.enip.poll -v --pass-thru 'This.SCADA[0-9]' 'That.Something'
+
+This polls the target Tags at the default cycle of 1 second.  The -v option also causes logging
+of missed polls.""" )
 
     ap.add_argument( '-v', '--verbose', default=0, action="count",
                      help="Display logging information." )
@@ -246,7 +259,6 @@ def main( argv=None ):
 
     args			= ap.parse_args()
 
-    # Set up logging level (-v...) and --log <file>
     # Set up logging level (-v...) and --log <file>
     levelmap 			= {
         0: logging.WARNING,
