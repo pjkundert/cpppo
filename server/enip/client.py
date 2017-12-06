@@ -605,9 +605,9 @@ class client( object ):
                       O_serial, O_vendor,
                       O_T_RPI, O_T_NCP, O_T_connection_ID,
                       T_O_RPI, T_O_NCP, T_O_connection_ID, connection_serial,
-                      transport_class_triggers, connection_timeout_multiplier,                      
+                      transport_class_triggers, connection_timeout_multiplier,
                       timeout=None, send=True,
-                      route_path=False, send_path='', sender_context=b'',                      
+                      route_path=False, send_path='', sender_context=b'',
                       **kwds ):
         """Forward Open uses a CPF encapsulation, but with no route_path or send_path"""
         req			= cpppo.dotdict()

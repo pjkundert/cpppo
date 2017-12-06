@@ -1996,10 +1996,10 @@ def __forward_open_reply():
 
     rsvd[None]			= cpppo.dfa(    'data',		context='forward_open',
                                                 initial=typed_data(
-	 	                                    context='application', tag_type=USINT.tag_type,
+                                                    context='application', tag_type=USINT.tag_type,
                                                     terminal=True ),
                                                 limit=size_data,
-	                                        terminal=True )
+                                                terminal=True )
     return srvc
 
 Message_Router.register_service_parser( number=Message_Router.FWD_OPEN_RPY, name=Message_Router.FWD_OPEN_NAM + " Reply",
