@@ -176,6 +176,14 @@ def test_client_api_simple():
             rpy			= next( connection )
             assert 'enip.CIP' in rpy and 'send_data.CPF.item[1].unconnected_send.request.set_attribute_single' in rpy.enip.CIP
 
+            # Try to send some PCCC I/O
+            req		= connection.connected_send( b'\x00\x00\x01\x00\x00\x00\x00\x00\x06\x00\x4a\x0a\x03',
+                                                     connection=0x8dee0016, sequence=1 )
+            logging.normal("PCCC Request: %s", enip.enip_format( req ))
+            #assert 'service_code' in req and req.service_code is True # no payload
+            assert connection.readable( timeout=1.0 ) # receive reply
+            rpy			= next( connection )
+            logging.normal("PCCC Response: %s", enip.enip_format( rpy )) # will be EtherNet/IP status 8; nothing implemented
 
 
         connection.shutdown()

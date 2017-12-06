@@ -841,8 +841,8 @@ class client( object ):
         sd.timeout		= 8 # 0 # was 0; unknown functionality...
         sd.CPF			= {}
         sd.CPF.item		= [ cpppo.dotdict(), cpppo.dotdict() ]
-        sd.CPF.item[0].type_id	= 0
-        sd.CPF.item[1].type_id	= 178
+        sd.CPF.item[0].type_id	= 0x00 # 0
+        sd.CPF.item[1].type_id	= 0xb2 # 178
         sd.CPF.item[1].unconnected_send = {}
 
         # If a non-empty send_path or route_path is desired, we'll need to use a Logix-style service
@@ -864,6 +864,44 @@ class client( object ):
         us.request.input	= bytearray( device.dialect.produce( us.request )) # eg. logix.Logix
 
         return self.cip_send( cip=cip, sender_context=sender_context, timeout=timeout )
+
+
+    def connected_send( self, request, timeout=None,
+                        connection=None, sequence=None, payload=None,
+                        sender_context=b'' ):
+        """A connected send is much like an unconnected_send, except its CPF contains a 0x00a1 connection
+        ID, and a 0x00b1 data sequence number and payload.  Defaults to 0 connection ID, 0 sequence
+        number, empty payload; the caller should increment sequence between calls.
+
+        If payload is a dict, we'll try to produce it; otherwise, assumes request is an opaque byte
+        string.
+
+        """
+        # The payload is an opaque byte string; we probably don't know how to en/decode it.
+        # However, if dict is provided, we'll try.
+        if isinstance( request, dict ):
+            payload		= bytearray( device.dialect.produce( request ))
+        else:
+            payload		= bytearray( request or b'' )
+
+        cip			= cpppo.dotdict()
+        cip.send_data		= {}
+
+        sd			= cip.send_data
+        sd.interface		= 0
+        sd.timeout		= 8 # 0 # was 0; unknown functionality...
+        sd.CPF			= {}
+        sd.CPF.item		= [ cpppo.dotdict(), cpppo.dotdict() ]
+        sd.CPF.item[0].type_id	= 0xa1 # 161
+        sd.CPF.item[0].connection_ID = {}
+        sd.CPF.item[0].connection_ID.connection = connection or 0
+        sd.CPF.item[1].type_id	= 0xb1 # 177
+        sd.CPF.item[1].connection_data = {}
+        sd.CPF.item[1].connection_data.sequence	= sequence or 0
+        sd.CPF.item[1].connection_data.payload	= payload
+
+        return self.cip_send( cip=cip, sender_context=sender_context, timeout=timeout )
+
 
     def cip_send( self, cip, command=None, timeout=None, sender_context=b'' ):
         """Encapsulates the CIP request and transmits it, returning the full encapsulation structure
