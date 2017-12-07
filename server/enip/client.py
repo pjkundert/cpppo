@@ -900,7 +900,8 @@ class client( object ):
         sd.CPF.item[1].connection_data.sequence	= sequence or 0
         sd.CPF.item[1].connection_data.payload	= payload
 
-        return self.cip_send( cip=cip, sender_context=sender_context, timeout=timeout )
+        # Use EtherNet/IP command 0x0070 SendUnitData, instead of (default) 0x006f SendRRData
+        return self.cip_send( cip=cip, command=0x0070, sender_context=sender_context, timeout=timeout )
 
 
     def cip_send( self, cip, command=None, timeout=None, sender_context=b'' ):
