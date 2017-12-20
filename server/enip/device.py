@@ -641,7 +641,7 @@ class Object( object ):
     transit			= {} # Symbol to transition to service parser on
 
     # The parser doesn't add a layer of context; run it with a path= keyword to add a layer
-    parser			= automata.dfa_post( service, initial=automata.state( 'select' ),
+    parser			= automata.dfa_post( service, initial=automata.state( 'sel svc' ),
                                                   terminal=True )
     # No config, by default (use default values).  Allows ${<section>:<key>} interpolation, and
     # comments anywhere via the # symbol (this implies no # allowed in any value, due to the lack of
@@ -658,17 +658,24 @@ class Object( object ):
 
     @classmethod
     def register_service_parser( cls, number, name, short, machine ):
-        """Registers a parser with the Object.  May be invoked during import; no logging."""
+        """Registers a parser with the Object.  May be invoked during import; no logging.  Allows a single
+        "default" parser w/ number == True to be defined.
 
-        assert number not in cls.service and name not in cls.service, \
-            "Duplicate service #%d: %r registered for Object %s" % ( number, name, cls.__name__ )
+        """
+        assert number not in cls.service, \
+            "Duplicate service #%s: %r number registered for Object %s" % ( number, name, cls.__name__ )
+        assert name not in cls.service, \
+            "Duplicate service #%s: %r name   registered for Object %s" % ( number, name, cls.__name__ )
 
         cls.service[number]	= name
         cls.service[name]	= number
-        cls.transit[number]	= chr( number ) if sys.version_info[0] < 3 else number
+        cls.transit[number]	= ( chr( number )
+                                    if sys.version_info[0] < 3 and number is not None
+                                    else number )
         cls.parser.initial[cls.transit[number]] \
 				= automata.dfa( name=short, initial=machine, terminal=True )
-
+        
+        print( "%s.parser.initial[%s] == %s" % ( cls, cls.transit[number], cls.parser.initial[cls.transit[number]] ))
     
     GA_ALL_NAM			= "Get Attributes All"
     GA_ALL_CTX			= "get_attributes_all"
@@ -884,7 +891,10 @@ class Object( object ):
 
         # Always produce a response payload; if a failure occurred, will contain an error status.
         # If this fails, we'll raise an exception for higher level encapsulation to handle.
-        log.detail( "%s Response: %s: %s", self, self.service[data.service], enip_format( data ))
+        log.detail( "%s Response: %s: %s", self,
+                    ( self.service[data.service]
+                      if 'service' in data and data.service in self.service
+                      else "(Unknonw)" ), enip_format( data ))
         data.input		= bytearray( self.produce( data ))
         return True # We shouldn't be able to terminate a connection at this level
 
@@ -933,11 +943,39 @@ class Object( object ):
             if isinstance( data.service_code, dict ) and 'data' in data.service_code:
                 result	       += typed_data.produce(	data.service_code,
                                                         tag_type=USINT.tag_type )
+        elif data.get( 'service' ) & 0x80:
+            # Generic CIP Service Code Reply.  May or may not carry a data payload.
+            result	       += USINT.produce(	data.service )
+            result	       += b'\x00' # reserved
+            result	       += status.produce( 	data )
+            if data.status == 0x00 and 'service_code' in data \
+               and isinstance( data.service_code, dict ) and 'data' in data.service_code:
+                result	       += typed_data.produce(	data.service_code,
+                                                        tag_type=USINT.tag_type )
         else:
             assert False, "%s doesn't recognize request/reply format: %r" % ( cls.__name__, data )
         return result
 
 # Register the standard Object parsers
+def __service_code_reply():
+    """Because True/1 hash to the same dict entry, we can't allow a wildcard transition in a state w/ a
+    0x01 transition... So, we'll support being invoked from the None (no input default) transition."""
+    srvc			= USINT(		 	context='service' )
+    srvc[True]	 	= rsvd	= octets_drop(	'reserved',	repeat=1 )
+    srvc[None]			= octets_noop(	'nodata',
+                                                terminal=True )
+    rsvd[True]		= stts	= status()
+    # If any remaining payload, parse it into data.service_code.data as USINTs
+    stts[True]			= typed_data( 			context=Object.SV_COD_CTX,
+                                                tag_type=USINT.tag_type,
+                                                terminal=True )
+    stts[None]			= octets_noop(	'nodata',
+                                                terminal=True )
+    return srvc
+    
+Object.register_service_parser( number=None, name=Object.SV_COD_NAM, 
+                                short=Object.SV_COD_CTX, machine=__service_code_reply() )
+
 def __get_attributes_all():
     srvc			= USINT(		 	context='service' )
     srvc[True]		= path	= EPATH(			context='path')

@@ -1003,7 +1003,7 @@ class unconnected_send( cpppo.dfa ):
     def __init__( self, name=None, **kwds ):
         name 			= name or kwds.setdefault( 'context', self.__class__.__name__ )
 
-        slct			= octets_noop(	'select' )
+        slct			= octets_noop(	'sel_unc' )
 
         usnd			= USINT(	context='service' )
         usnd[True]	= path	= EPATH(	context='path' )
@@ -1626,7 +1626,7 @@ class CIP( cpppo.dfa ):
     def __init__( self, name=None, **kwds ):
         name 			= name or kwds.setdefault( 'context', self.__class__.__name__ )
 
-        slct			= octets_noop(	'select' )
+        slct			= octets_noop(	'sel_CIP' )
         for cmd,cls in self.COMMAND_PARSERS.items():
             slct[None]		= cpppo.decide( cls.__name__,
                     state=cls( limit='...length', terminal=True ),
@@ -1700,7 +1700,7 @@ class typed_data( cpppo.dfa ):
         name 			= name or kwds.setdefault( 'context', self.__class__.__name__ )
         assert tag_type, "Must specify a numeric (or relative path to) the CIP data type; found: %r" % tag_type
 
-        slct			= octets_noop(	'select' )
+        slct			= octets_noop(	'sel_type' )
         
         i_8d			= octets_noop(	'end_8bit',
                                                 terminal=True )

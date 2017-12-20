@@ -822,7 +822,6 @@ class client( object ):
         the client class or instance.
 
         """
-        assert isinstance( request, dict )
         # Default route_path to the CPU in chassis (link 0), port 1.  If provided route_path is
         # 0/False, then disable (no route_path provided to Unconnected Send)
         if route_path is None:
@@ -859,9 +858,15 @@ class client( object ):
             us.path		= { 'segment': [ cpppo.dotdict( s ) for s in parse_path( send_path ) ]}
             if route_path: # May be None/0/False or empty
                 us.route_path	= { 'segment': [ cpppo.dotdict( s ) for s in route_path ]} # must be {link/port}
-        us.request		= request
 
-        us.request.input	= bytearray( device.dialect.produce( us.request )) # eg. logix.Logix
+        # If the paylaod is an opaque byte string, just pass it thru (we probably don't know how to
+        # en/decode it, eg. raw PCCC requests, etc.).  However, if dict is provided, we'll try (the usual case).
+        if isinstance( request, dict ):
+            us.request		= request
+            us.request.input	= bytearray( device.dialect.produce( us.request )) # eg. logix.Logix
+        else:
+            us.request		= {}
+            us.request.input	= bytearray( request or b'' )
 
         return self.cip_send( cip=cip, sender_context=sender_context, timeout=timeout )
 
@@ -1599,6 +1604,8 @@ class implicit( connector ):
                 data,elapsed_rpy= await( self, timeout=None if timeout is None else max( 0, timeout - elapsed_req ))
 
             assert data is not None, "Failed to receive any response"
+            if log.isEnabledFor( logging.DETAIL ):
+                log.detail( "Forward Open Reply: %s", enip.enip_format( data ))
             assert 'enip.status' in data, "Failed to receive EtherNet/IP response"
             assert data.enip.status == 0, "EtherNet/IP response indicates failure: %s" % data.enip.status
             self.established	= data.get( 'enip.CIP.send_data.CPF.item[1].unconnected_send.request' )
