@@ -57,7 +57,7 @@ from ...dotdict import dotdict
 from ... import automata, misc
 from .device import ( Attribute, Message_Router, Connection_Manager,
                       resolve_tag, redirect_tag, lookup )
-from .parser import ( USINT, REAL, REAL_network, EPATH, typed_data,
+from .parser import ( USINT, UDINT, REAL, REAL_network, EPATH, typed_data,
                       move_if, octets_drop, octets_noop, enip_format, status )
 from .logix import Logix
 
@@ -135,7 +135,7 @@ class HART( Message_Router ):
         # Type Class	Tag			Default
         ( USINT,	'HART_command_status',	0 ),
         ( USINT,	'HART_fld_dev_status',	0 ),
-        ( USINT,	'HART_ext_dev_status',	0 ),
+        ( USINT,	'HART_ext_dev_status',	0 ), # Should this (or something else) be a UDINT?
         ( REAL,		'PV',			0.0 ),
         ( REAL,		'SV',			0.0 ),
         ( REAL,		'TV',			0.0 ),
@@ -383,12 +383,15 @@ class HART( Message_Router ):
             result	       += EPATH.produce(	data.path )
         elif data.get( 'service' ) == cls.RD_VAR_RPY:
             result	       += USINT.produce(	data.service )
-            result	       += USINT.produce(	data.status )
-            if data.status:
-                result	       += b'\x00'					# Failure; pad
-            else:
-                for typ,fld,dfl in cls.RD_VAR_RPY_FLD:				# Success; reply payload
-                    result     += typ.produce( data.read_var.get( fld, 0 ))	# eg. 'read_var.PV'
+            result	       += b'\x00' # reserved
+            result	       += status.produce( data )
+            if data.status == 0:
+                result	       += USINT.produce(	data.read_var.status if 'status' in data.read_var else 0 )
+                if data.read_var.get( 'status' ):
+                    result     += b'\x00'					# Failure; pad
+                else:
+                    for typ,fld,dfl in cls.RD_VAR_RPY_FLD:			# Success; reply payload
+                        result += typ.produce( data.read_var.get( fld, 0 ))	# eg. 'read_var.PV'
         elif cls.PT_INI_CTX in data and data.setdefault( 'service', cls.RD_VAR_REQ ) == cls.RD_VAR_REQ:
             result	       += USINT.produce(	data.service )
             result	       += EPATH.produce(	data.path )
@@ -400,20 +403,26 @@ class HART( Message_Router ):
                 result	       += USINT.produce(	0 )
         elif data.service == cls.PT_INI_RPY:
             result	       += USINT.produce(	data.service )
-            result	       += USINT.produce( 	data.status )		# 32 busy, 33 initiated, 35 device offline
-            result	       += USINT.produce(	data.init.command )
-            result	       += USINT.produce(	data.init.handle )
-            result	       += USINT.produce(	data.init.queue_space )
+            result	       += b'\x00' # reserved
+            result	       += status.produce( data )
+            if data.status == 0:
+                result	       += USINT.produce( 	data.init.status )	# 32 busy, 33 initiated, 35 device offline
+                result	       += USINT.produce(	data.init.command )
+                result	       += USINT.produce(	data.init.handle )
+                result	       += USINT.produce(	data.init.queue_space )
         elif cls.PT_QRY_CTX in data and data.setdefault( 'service', cls.PT_QRY_REQ ) == cls.PT_QRY_REQ:
             result	       += USINT.produce(	data.service )
             result	       += EPATH.produce(	data.path )
             result	       += USINT.produce(	data.query.handle )
         elif data.service == cls.PT_QRY_RPY:
             result	       += USINT.produce(	data.service )
-            result	       += USINT.produce(	data.status )		# 0 success, 34 running, 35 dead
-            result	       += USINT.produce(	data.query.command )
-            result	       += USINT.produce(	data.query.reply_status )
-            result	       += USINT.produce(	data.query.fld_dev_status )
+            result	       += b'\x00' # reserved
+            result	       += status.produce( data )
+            if data.status == 0:
+                result	       += USINT.produce(	data.query.status )	# 0 success, 34 running, 35 dead
+                result	       += USINT.produce(	data.query.command )
+                result	       += USINT.produce(	data.query.reply_status )
+                result	       += USINT.produce(	data.query.fld_dev_status )
             if 'reply_data' in data.query and data.query.reply_data:
                 result	       += USINT.produce(	len( data.query.reply_data ))
                 result	       += typed_data.produce( { 'data': data.query.reply_data }, tag_type=USINT.tag_type )
@@ -436,22 +445,27 @@ HART.register_service_parser( number=HART.RD_VAR_REQ, name=HART.RD_VAR_NAM,
                                short=HART.RD_VAR_CTX, machine=__read_var() )
 
 def __read_var_reply():
+    # Reply begins with CIP service and status/ext_status
     srvc			= USINT( 'service',		context='service' )
-    srvc[True]		= stts	= USINT( 'status',		context='status' ) # single byte status (no ext_status)
-    stts[None]		= schk	= octets_noop(	'check sts',
-                                                terminal=True )
+    srvc[True]		= rsvd	= octets_drop(	'reserved',	repeat=1 )
+    rsvd[True]		= stts	= status()
 
+    # If the CIP request is successful, the HART command status code is next; it is either
+    # successful (0), or a 1-byte error code w/ a pad byte.  If successful, it should be followed by
+    # 3 other HART status bytes, for a total of 4 status bytes, then the rest of the data, totalling 36
+    # bytes following the CIP status. Previously, we were incorrectly parsing this (assuming that
+    # read_var.status was the CIP status.), and so we were sometimes getting only a few bytes... This was
+    # probably because we missed correctly parsing a non-zero read_var.status.
+    stts[True]		= schk	= USINT( 'read_var.status',	context=HART.RD_VAR_CTX, extension='.status' )
+
+    # Remainder of Read Dynamic Variables response (if HART_channel_status OK)
     hsts			= USINT( 'HART_command_status',	context=HART.RD_VAR_CTX, extension='.HART_command_status' )
     hsts[True]		= hfds	= USINT( 'HART_fld_dev_status', context=HART.RD_VAR_CTX, extension='.HART_fld_dev_status' )
-    hsts[None]			= octets_noop( 'no HART_fld_dev_status', terminal=True )
-
+    #hsts[None]			= octets_noop( 'no HART_fld_dev_status', terminal=True )
     hfds[True]		= heds	= USINT( 'HART_ext_dev_status',	context=HART.RD_VAR_CTX, extension='.HART_ext_dev_status' )
-    hfds[None]			= octets_noop( 'no HART_ext_dev_status', terminal=True )
-
-
+    #hfds[None]			= octets_noop( 'no HART_ext_dev_status', terminal=True )
     heds[True]		= hPVd	= REAL( 'PV',			context=HART.RD_VAR_CTX, extension='.PV' )
-    heds[None]			= octets_noop( 'no PV', terminal=True )
-
+    #heds[None]			= octets_noop( 'no PV', terminal=True )
     hPVd[True]		= hSVd	= REAL( 'SV',			context=HART.RD_VAR_CTX, extension='.SV' )
     hSVd[True]		= hTVd	= REAL( 'TV',			context=HART.RD_VAR_CTX, extension='.TV' )
     hTVd[True]		= hFVd	= REAL( 'FV',			context=HART.RD_VAR_CTX, extension='.FV' )
@@ -470,20 +484,12 @@ def __read_var_reply():
     hFVs[True]			= REAL( 'loop_current',		context=HART.RD_VAR_CTX, extension='.loop_current',
                                         terminal=True )
 
-    # For status 0x00 (Success), Read Dynamic Variable data follows.  If failed, mark as a read_var
-    # request (and drop pad byte).  Otherwise, continue parsing with HART Command Status.
+    # For read_var.status 0x00 (Success), Read Dynamic Variable data follows.  If failed, drop pad
+    # byte.  Otherwise, continue parsing with HART Command Status.
     schk[None]			= automata.decide( 'ok',	state=hsts,
-        predicate=lambda path=None, data=None, **kwds: data[path+'.status' if path else 'status'] == 0x00 )
-    schk[None]			= move_if(	'mark',		initializer=True,
-		                                                destination=HART.RD_VAR_CTX )
+        predicate=lambda path=None, data=None, **kwds: data['.'.join( ( [path] if path else [] ) + [HART.RD_VAR_CTX] + ['status'] )] == 0x00 )
     schk[None]			= octets_drop(	'pad', repeat=1,
                                                        terminal=True )
-    '''
-    # For HART_command_status 0x00 (Success) Read Dynamic Variable follows.
-    hchk[None]			= automata.decide( 'ok',	state=heds,
-        predicate=lambda path=None, data=None, **kwds: data[path+'read_var.HART_command_status' if path else 'read_var.HART_command_status'] == 0x00 )
-    '''
-
     return srvc
 HART.register_service_parser( number=HART.RD_VAR_RPY, name=HART.RD_VAR_NAM + " Reply",
                                short=HART.RD_VAR_CTX, machine=__read_var_reply() )

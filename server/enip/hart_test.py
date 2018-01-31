@@ -75,7 +75,7 @@ def start_hart_simulator( *options, **kwds ):
         while data.find( '\n' ) >= 0:
             line,data		= data.split( '\n', 1 )
             log.info( "%s", line )
-            m			= re.search( "running on (\([^)]*\))", line )
+            m			= re.search( r"running on (\([^)]*\))", line )
             if m:
                 address		= ast.literal_eval( m.group(1).strip() )
                 log.normal( "EtherNet/IP CIP Simulator started after %7.3fs on %s:%d",
@@ -169,7 +169,7 @@ def test_hart_pass_thru_simulated( simulated_hart_gateway ):
 
     try:
         assert address, "Unable to detect HART EtherNet/IP CIP Gateway IP address"
-        hio				= client.connector( host=address[0], port=address[1] )
+        hio				= client.connector( host=address[0], port=address[1], dialect=HART )
 
         operations		= [
             {
@@ -201,8 +201,8 @@ def test_hart_pass_thru_simulated( simulated_hart_gateway ):
                     failures   += 1
                 results.append( (dsc,val,rpy) )
             # assert failures == 0 # statuses represent HART I/O status, not CIP response status
-            assert results[0][-1].status in ( 32, 33, 35 )	# 32 busy, 33 initiated, 35 device offline
-            assert results[1][-1].status in ( 0, 34, 35 )	# 0 success, 34 running, 35 dead
+            assert results[0][-1].init.status in ( 32, 33, 35 )	# 32 busy, 33 initiated, 35 device offline
+            assert results[1][-1].query.status in ( 0, 34, 35 )	# 0 success, 34 running, 35 dead
 
     except Exception as exc:
         log.warning( "Test terminated with exception: %s", exc )
@@ -310,7 +310,7 @@ def test_hart_pass_thru_poll( simulated_hart_gateway ):
     command,address             = simulated_hart_gateway
 
     # For testing, we'll hit a specific device
-    address			= ("fat2.kundert.ca", 44818)
+    #address			= ("fat2.kundert.ca", 44818)
     #address			= ("100.100.102.10", 44818)
     #address			= ("localhost", 44818)
     route_path			= None
@@ -318,7 +318,7 @@ def test_hart_pass_thru_poll( simulated_hart_gateway ):
     try:
         assert address, "Unable to detect HART EtherNet/IP CIP Gateway IP address"
         #hio				= client.implicit( host=address[0], port=address[1] )
-        hio				= client.connector( host=address[0], port=address[1] )
+        hio				= client.connector( host=address[0], port=address[1], dialect=HART )
 
         # Just get the primary variable, to see if the HART device is there.
         operations		= [
@@ -417,7 +417,7 @@ hart_0x4b_request	= bytes(bytearray([
     0x08, 0x00, 0x4b, 0x03, 0x21, 0x00, 0x5d, 0x03, 0x24, 0x08, 0x01, 0x00, 0x01, 0x02,              # ..K.!.].$.....
 ]))
 
-
+# Read Variables reply should contain 36 bytes of data including status; instead, it returns 40
 hart_0x4b_reply		= bytes(bytearray([
                                         0x6f, 0x00,  0x38, 0x00, 0x04, 0x00, 0x31, 0x00, 0x00, 0x00,   # .b...o. 8...1...
     0x00, 0x00, 0x6c, 0x74, 0x00, 0x00, 0x88, 0xf9,  0x59, 0x07, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,   # ..lt.... Y.......
@@ -433,21 +433,79 @@ CIP_HART_tests			= [
                 # An empty request (usually indicates termination of session)
                 b'', {}
              ), (
-                hart_0x4b_request,
+                 hart_0x4b_request,
                  {
+                     "enip.command": 111,
+                     "enip.length": 38,
+                     "enip.session_handle": 3211268,
+                     "enip.status": 0,
+                     "enip.options": 0,
+                     "enip.CIP.send_data.interface": 0,
+                     "enip.CIP.send_data.timeout": 8,
+                     "enip.CIP.send_data.CPF.count": 2,
+                     "enip.CIP.send_data.CPF.item[0].type_id": 0,
+                     "enip.CIP.send_data.CPF.item[0].length": 0,
+                     "enip.CIP.send_data.CPF.item[1].type_id": 178,
+                     "enip.CIP.send_data.CPF.item[1].length": 22,
+                     "enip.CIP.send_data.CPF.item[1].unconnected_send.service": 82,
+                     "enip.CIP.send_data.CPF.item[1].unconnected_send.path.size": 2,
+                     "enip.CIP.send_data.CPF.item[1].unconnected_send.path.segment[0].class": 6,
+                     "enip.CIP.send_data.CPF.item[1].unconnected_send.path.segment[1].instance": 1,
+                     "enip.CIP.send_data.CPF.item[1].unconnected_send.priority": 5,
+                     "enip.CIP.send_data.CPF.item[1].unconnected_send.timeout_ticks": 247,
+                     "enip.CIP.send_data.CPF.item[1].unconnected_send.length": 8,
                      "enip.CIP.send_data.CPF.item[1].unconnected_send.request.service": 75,
+                     "enip.CIP.send_data.CPF.item[1].unconnected_send.request.path.size": 3,
                      "enip.CIP.send_data.CPF.item[1].unconnected_send.request.path.segment[0].class": 861,
                      "enip.CIP.send_data.CPF.item[1].unconnected_send.request.path.segment[1].instance": 8,
-                     "enip.CIP.send_data.CPF.item[1].unconnected_send.request.path.size": 3,
+                     "enip.CIP.send_data.CPF.item[1].unconnected_send.request.read_var": True,
+                     "enip.CIP.send_data.CPF.item[1].unconnected_send.route_path.size": 1,
+                     "enip.CIP.send_data.CPF.item[1].unconnected_send.route_path.segment[0].port": 1,
+                     "enip.CIP.send_data.CPF.item[1].unconnected_send.route_path.segment[0].link": 2
                  }
              ), (
-                hart_0x4b_reply,
+                 hart_0x4b_reply,
                  {
+                     "enip.command": 111,
+                     "enip.length": 56,
+                     "enip.status": 0,
+                     "enip.options": 0,
+                     "enip.CIP.send_data.interface": 0,
+                     "enip.CIP.send_data.timeout": 0,
+                     "enip.CIP.send_data.CPF.count": 2,
+                     "enip.CIP.send_data.CPF.item[0].type_id": 0,
+                     "enip.CIP.send_data.CPF.item[0].length": 0,
+                     "enip.CIP.send_data.CPF.item[1].type_id": 178,
+                     "enip.CIP.send_data.CPF.item[1].length": 40,
+                     "enip.CIP.send_data.CPF.item[1].unconnected_send.request.service": 203,
+                     "enip.CIP.send_data.CPF.item[1].unconnected_send.request.status": 0,
+                     "enip.CIP.send_data.CPF.item[1].unconnected_send.request.status_ext.size": 0,
+                     "enip.CIP.send_data.CPF.item[1].unconnected_send.request.read_var.status": 0,
+                     "enip.CIP.send_data.CPF.item[1].unconnected_send.request.read_var.HART_command_status": 0,
+                     "enip.CIP.send_data.CPF.item[1].unconnected_send.request.read_var.HART_fld_dev_status": 0,
+                     "enip.CIP.send_data.CPF.item[1].unconnected_send.request.read_var.HART_ext_dev_status": 0,
+                     "enip.CIP.send_data.CPF.item[1].unconnected_send.request.read_var.PV": 0.0,
+                     "enip.CIP.send_data.CPF.item[1].unconnected_send.request.read_var.SV": 22.9571533203125,
+                     "enip.CIP.send_data.CPF.item[1].unconnected_send.request.read_var.TV": 316.5637512207031,
+                     "enip.CIP.send_data.CPF.item[1].unconnected_send.request.read_var.FV": 444.96685791015625,
+                     "enip.CIP.send_data.CPF.item[1].unconnected_send.request.read_var.PV_units": 81,
+                     "enip.CIP.send_data.CPF.item[1].unconnected_send.request.read_var.SV_units": 32,
+                     "enip.CIP.send_data.CPF.item[1].unconnected_send.request.read_var.TV_units": 112,
+                     "enip.CIP.send_data.CPF.item[1].unconnected_send.request.read_var.FV_units": 63,
+                     "enip.CIP.send_data.CPF.item[1].unconnected_send.request.read_var.PV_assignment_code": 2,
+                     "enip.CIP.send_data.CPF.item[1].unconnected_send.request.read_var.SV_assignment_code": 4,
+                     "enip.CIP.send_data.CPF.item[1].unconnected_send.request.read_var.TV_assignment_code": 12,
+                     "enip.CIP.send_data.CPF.item[1].unconnected_send.request.read_var.FV_assignment_code": 13,
+                     "enip.CIP.send_data.CPF.item[1].unconnected_send.request.read_var.PV_status": 192,
+                     "enip.CIP.send_data.CPF.item[1].unconnected_send.request.read_var.SV_status": 192,
+                     "enip.CIP.send_data.CPF.item[1].unconnected_send.request.read_var.TV_status": 192,
+                     "enip.CIP.send_data.CPF.item[1].unconnected_send.request.read_var.FV_status": 192,
+                     "enip.CIP.send_data.CPF.item[1].unconnected_send.request.read_var.loop_current": 4.0
                  }
              ),
 ]
 
-@pytest.mark.xfail
+#@pytest.mark.xfail
 def test_CIP_HART( repeat=1 ):
     """HART protocol enip CIP messages
     """
@@ -539,8 +597,8 @@ def test_CIP_HART( repeat=1 ):
             data.input			= bytearray( enip.enip_encode( data.enip ))
             log.detail( "EtherNet/IP CIP Request produced payload: %r", bytes( data.input ))
             assert data.input == pkt, "original:\n" + hexdump( pkt ) + "\nproduced:\n" + hexdump( data.input )
-        except:
-            log.warning( "Invalid packet produced from EtherNet/IP CIP data: %s", enip.enip_format( data ))
+        except Exception as exc:
+            log.warning( "Exception %s; Invalid packet produced from EtherNet/IP CIP data: %s", exc, enip.enip_format( data ))
             raise
 
     
