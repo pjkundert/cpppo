@@ -18,8 +18,9 @@ if __name__ == "__main__":
         __package__	= "cpppo.server.enip"
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))))
     from cpppo.automata import log_cfg
+    log_cfg['level']	= logging.DEBUG
     logging.basicConfig( **log_cfg )
-    logging.getLogger().setLevel( logging.NORMAL )
+
 
 import cpppo
 from cpppo.misc import timer, near, hexdump
@@ -62,14 +63,15 @@ def start_hart_simulator( *options, **kwds ):
         # On Python2, socket will raise IOError/EAGAIN; on Python3 may return None 'til command started.
         try:
             raw			= command.stdout.read()
-            log.debug( "Socket received: %r", raw)
+            #log.debug( "Socket received: %r", raw)
             if raw:
-                data  	       += raw.decode( 'utf-8' )
+                data  	       += raw.decode( 'utf-8', 'backslashreplace' )
         except IOError as exc:
             log.debug( "Socket blocking...")
             assert exc.errno == errno.EAGAIN, "Expected only Non-blocking IOError"
         except Exception as exc:
             log.warning("Socket read return Exception: %s", exc)
+            raise
         if not data:
             time.sleep( CMD_LATENCY )
         while data.find( '\n' ) >= 0:
@@ -82,6 +84,17 @@ def start_hart_simulator( *options, **kwds ):
                                     timer() - begun, address[0], address[1] )
                 break
     return command,address
+
+
+def command_logging( command, buf='' ):
+    """Log any further output from underlying simulator.  Takes (and returns) the developing buf of output (logging full lines)"""
+    raw				= command.stdout.read()
+    if raw:
+        buf                    += raw.decode( 'utf-8', 'backslashreplace' )
+    while buf.find( '\n' ) >= 0:
+        line,buf                = buf.split( '\n', 1 )
+        logging.info( "%s", line )
+    return buf
 
 
 @pytest.fixture( scope="module" )
@@ -109,10 +122,8 @@ hart_kwds			= dict(
 
 def test_hart_simple( simulated_hart_gateway ):
     # No Multiple Service Packet supported by HART I/O Card simulator
-
-    #logging.getLogger().setLevel( logging.DETAIL )
     command,address             = simulated_hart_gateway
-
+    #address			= ("127.0.0.1", 44818)
     #address			= ("100.100.102.10", 44818)
     route_path			= None
     route_path			= [{'link': 2, 'port': 1}]
@@ -123,12 +134,19 @@ def test_hart_simple( simulated_hart_gateway ):
         hio			= client.implicit( host=address[0], port=address[1], connection_path=None )
         PV			= 1.23
         operations		= [
-            'HART_7_Data.PV = (REAL)0', # may fail 'til first HART Read Dynamic Variable is done
             {
                 "method":	"service_code",
                 "code":		HART.RD_VAR_REQ,
                 "data":		[],			# No payload
-                "data_size":	2+36,			# Known response size: command,status,<payload>
+                "data_size":	4+36,			# Known response size: command,status,<payload>
+                "path":		'@0x%X/8' % ( HART.class_id ), # Instance 1-8 ==> HART Channel 0-7
+            },
+            'HART_7_Data.PV = (REAL)0', # would fail 'til first HART Read Dynamic Variable is done
+            {
+                "method":	"service_code",
+                "code":		HART.RD_VAR_REQ,
+                "data":		[],			# No payload
+                "data_size":	4+36,			# Known response size: command,status,<payload>
                 "path":		'@0x%X/8' % ( HART.class_id ), # Instance 1-8 ==> HART Channel 0-7
             },
             'HART_7_Data.PV = (REAL)%s' % PV,
@@ -136,12 +154,13 @@ def test_hart_simple( simulated_hart_gateway ):
                 "method":	"service_code",
                 "code":		HART.RD_VAR_REQ,
                 "data":		[],			# No payload
-                "data_size":	2+36,			# Known response size: command,status,<payload>
+                "data_size":	4+36,			# Known response size: command,status,<payload>
                 "path":		'@0x%X/8' % ( HART.class_id ), # Instance 1-8 ==> HART Channel 0-7
             },
         ]
 
         # Now, use the underlying client.connector to issue a HART "Read Dynamic Variable" Service Code
+        simout			= ''
         with hio:
             results		= []
             failures		= 0
@@ -153,6 +172,7 @@ def test_hart_simple( simulated_hart_gateway ):
                                      hio, len( results ), len( operations ), rpy )
                     failures   += 1
                 results.append( (dsc,val,rpy) )
+
             rpylast	       	= results[-1][-1]
             assert failures in (0,1)
             assert near( rpylast.read_var.PV, PV )
@@ -164,8 +184,8 @@ def test_hart_simple( simulated_hart_gateway ):
 
 def test_hart_pass_thru_simulated( simulated_hart_gateway ):
     """Simulated HART I/O card; always returns Pass-thru Init handle 99 (won't work on a real device)"""
-    #logging.getLogger().setLevel( logging.INFO )
     command,address             = simulated_hart_gateway
+    #address			= ('127.0.0.1',44818) # If you run: python3 ./hart_test.py
 
     try:
         assert address, "Unable to detect HART EtherNet/IP CIP Gateway IP address"
@@ -176,19 +196,20 @@ def test_hart_pass_thru_simulated( simulated_hart_gateway ):
                 "method":	"service_code",
                 "code":		HART.PT_INI_REQ,
                 "data":		[1, 0],			# HART: Read primary variable
-                "data_size":	2+2,			# Known response size: command,status,<payload>
+                "data_size":	4+2,			# Known response size: command,status,<payload>
                 "path":		'@0x%X/8' % ( HART.class_id ), # Instance 1-8 ==> HART Channel 0-7
             },
             {
                 "method":	"service_code",
                 "code":		HART.PT_QRY_REQ,
                 "data":		[99],			# HART: Pass-thru Query handle
-                "data_size":	2+5,			# Known response size: 5 (units + 4-byte real in network order)
+                "data_size":	4+5,			# Known response size: 5 (units + 4-byte real in network order)
                 "path":		'@0x%X/8' % ( HART.class_id ), # Instance 1-8 ==> HART Channel 0-7
             },
         ]
 
         # Now, use the underlying client.connector to issue a HART "Read Dynamic Variable" Service Code
+        cmdbuf			= ''
         with hio:
             results		= []
             failures		= 0
@@ -200,6 +221,8 @@ def test_hart_pass_thru_simulated( simulated_hart_gateway ):
                                      hio, len( results ), len( operations ), rpy )
                     failures   += 1
                 results.append( (dsc,val,rpy) )
+                #cmdbuf		= command_logging( command, cmdbuf )
+
             # assert failures == 0 # statuses represent HART I/O status, not CIP response status
             assert results[0][-1].init.status in ( 32, 33, 35 )	# 32 busy, 33 initiated, 35 device offline
             assert results[1][-1].query.status in ( 0, 34, 35 )	# 0 success, 34 running, 35 dead
@@ -207,6 +230,8 @@ def test_hart_pass_thru_simulated( simulated_hart_gateway ):
     except Exception as exc:
         log.warning( "Test terminated with exception: %s", exc )
         raise
+    #finally:
+    #    cmdbuf			= command_logging( command, cmdbuf )
 
 
 def hart_pass_thru( io, path, hart_data, data_size, route_path=None ):
@@ -222,7 +247,7 @@ def hart_pass_thru( io, path, hart_data, data_size, route_path=None ):
             "method":		"service_code",
             "code":		HART.PT_INI_REQ,
             "data":		hart_data,
-            "data_size":	2+2,			# Known response size: command,status,<payload>
+            "data_size":	4+2,			# Known response size: command,status,<payload>
             "path":		path,			# Instance 1-8 ==> HART Channel 0-7
             "route_path":	route_path,
         },
@@ -247,7 +272,7 @@ def hart_pass_thru( io, path, hart_data, data_size, route_path=None ):
             "method":		"service_code",
             "code":		HART.PT_QRY_REQ,
             "data":		[ handle ],		# HART: Pass-thru Query handle
-            "data_size":	2+data_size,		# Known response size: 5 (units + 4-byte real in network order)
+            "data_size":	4+data_size,		# Known response size: 5 (units + 4-byte real in network order)
             "path":		path,			# Instance 1-8 ==> HART Channel 0-7
             "route_path":	route_path,
         },
@@ -306,7 +331,6 @@ def test_hart_pass_thru_poll( simulated_hart_gateway ):
         }
 
     """
-    logging.getLogger().setLevel( logging.NORMAL )
     command,address             = simulated_hart_gateway
 
     # For testing, we'll hit a specific device
@@ -326,7 +350,7 @@ def test_hart_pass_thru_poll( simulated_hart_gateway ):
                 "method":	"service_code",
                 "code":		HART.RD_VAR_REQ,
                 "data":		[],			# No payload
-                "data_size":	2+36,			# Known response size: command,status,<payload>
+                "data_size":	4+36,			# Known response size: command,status,<payload>
                 "path":		'@0x%X/8' % ( HART.class_id ), # Instance 1-8 ==> HART Channel 0-7
                 "route_path":	route_path,
             },
@@ -428,16 +452,71 @@ hart_0x4b_reply		= bytes(bytearray([
 #                     ^^^^^^^^^^^^^^^^ -- unrecognized  
 ]))
 
+hart_query_request	= b'o\x00(\x00\xb9\xfeX\xb9\x00\x00\x00\x001\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x08\x00\x02\x00\x00\x00\x00\x00\xb2\x00\x18\x00R\x02 \x06$\x01\x05\xf7\t\x00O\x03!\x00]\x03$\x08c\x00\x01\x00\x01\x00'
+hart_query_response	= b'o\x00\x19\x00\xce\x0b\xcf\x82\x00\x00\x00\x001\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x08\x00\x02\x00\x00\x00\x00\x00\xb2\x00\t\x00\xcf\x00\x00\x00#\x00\x00\x00\x00'
+
 CIP_HART_tests			= [
             ( 
                 # An empty request (usually indicates termination of session)
                 b'', {}
              ), (
+                 hart_query_request,
+                 {
+                     "enip.command": 111,
+                     "enip.length": 40,
+                     "enip.status": 0,
+                     "enip.options": 0,
+                     "enip.CIP.send_data.interface": 0,
+                     "enip.CIP.send_data.timeout": 8,
+                     "enip.CIP.send_data.CPF.count": 2,
+                     "enip.CIP.send_data.CPF.item[0].type_id": 0,
+                     "enip.CIP.send_data.CPF.item[0].length": 0,
+                     "enip.CIP.send_data.CPF.item[1].type_id": 178,
+                     "enip.CIP.send_data.CPF.item[1].length": 24,
+                     "enip.CIP.send_data.CPF.item[1].unconnected_send.service": 82,
+                     "enip.CIP.send_data.CPF.item[1].unconnected_send.path.size": 2,
+                     "enip.CIP.send_data.CPF.item[1].unconnected_send.path.segment[0].class": 6,
+                     "enip.CIP.send_data.CPF.item[1].unconnected_send.path.segment[1].instance": 1,
+                     "enip.CIP.send_data.CPF.item[1].unconnected_send.priority": 5,
+                     "enip.CIP.send_data.CPF.item[1].unconnected_send.timeout_ticks": 247,
+                     "enip.CIP.send_data.CPF.item[1].unconnected_send.length": 9,
+                     "enip.CIP.send_data.CPF.item[1].unconnected_send.request.service": 79,
+                     "enip.CIP.send_data.CPF.item[1].unconnected_send.request.path.size": 3,
+                     "enip.CIP.send_data.CPF.item[1].unconnected_send.request.path.segment[0].class": 861,
+                     "enip.CIP.send_data.CPF.item[1].unconnected_send.request.path.segment[1].instance": 8,
+                     "enip.CIP.send_data.CPF.item[1].unconnected_send.request.query.handle": 99,
+                     "enip.CIP.send_data.CPF.item[1].unconnected_send.route_path.size": 1,
+                     "enip.CIP.send_data.CPF.item[1].unconnected_send.route_path.segment[0].port": 1,
+                     "enip.CIP.send_data.CPF.item[1].unconnected_send.route_path.segment[0].link": 0
+                 }
+             ), (
+                 hart_query_response,
+                 {
+                     "enip.command": 111,
+                     "enip.length": 25,
+                     "enip.status": 0,
+                     "enip.options": 0,
+                     "enip.CIP.send_data.interface": 0,
+                     "enip.CIP.send_data.timeout": 8,
+                     "enip.CIP.send_data.CPF.count": 2,
+                     "enip.CIP.send_data.CPF.item[0].type_id": 0,
+                     "enip.CIP.send_data.CPF.item[0].length": 0,
+                     "enip.CIP.send_data.CPF.item[1].type_id": 178,
+                     "enip.CIP.send_data.CPF.item[1].length": 9,
+                     "enip.CIP.send_data.CPF.item[1].unconnected_send.request.service": 207,
+                     "enip.CIP.send_data.CPF.item[1].unconnected_send.request.status": 0,
+                     "enip.CIP.send_data.CPF.item[1].unconnected_send.request.status_ext.size": 0,
+                     "enip.CIP.send_data.CPF.item[1].unconnected_send.request.query.status": 35,
+                     "enip.CIP.send_data.CPF.item[1].unconnected_send.request.query.command": 0,
+                     "enip.CIP.send_data.CPF.item[1].unconnected_send.request.query.reply_status": 0,
+                     "enip.CIP.send_data.CPF.item[1].unconnected_send.request.query.fld_dev_status": 0,
+                     "enip.CIP.send_data.CPF.item[1].unconnected_send.request.query.reply_size": 0
+                 }
+             ), (
                  hart_0x4b_request,
                  {
                      "enip.command": 111,
                      "enip.length": 38,
-                     "enip.session_handle": 3211268,
                      "enip.status": 0,
                      "enip.options": 0,
                      "enip.CIP.send_data.interface": 0,
@@ -510,7 +589,7 @@ def test_CIP_HART( repeat=1 ):
     """HART protocol enip CIP messages
     """
     enip.lookup_reset() # Flush out any existing CIP Objects for a fresh start
-    #logging.getLogger().setLevel( logging.DETAIL )
+
     ENIP			= enip.enip_machine( context='enip' )
     CIP				= enip.CIP()
     # We'll use a HART Message Router, to handle its expanded porfolio of commands

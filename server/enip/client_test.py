@@ -115,9 +115,6 @@ def test_client_timeout():
 
 
 def test_client_api_simple():
-    logging.getLogger().setLevel( logging.DETAIL )
-    #logging.getLogger().setLevel( logging.DEBUG )
-
     taglen			= 100 # able to fit request for Attribute into 1 packet
 
     server_addr		        = ('localhost', 12398)
@@ -222,8 +219,6 @@ def test_client_api():
     We'll point the Tags to CIP Class 0x99, Instance 1, starting at Attribute 1.
 
     """
-    #logging.getLogger().setLevel( logging.DETAIL )
-
     taglen			= 100 # able to fit request for Attribute into 1 packet
 
     svraddr		        = ('localhost', 12399)

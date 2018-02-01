@@ -272,7 +272,8 @@ class HART( Message_Router ):
                     attribute	= fldnam_attribute( typ, fldnam, dfl )
                     data.read_var[fldnam]= attribute[0]
                     logging.detail( "%s <-- %s == %s", fldnam, attribute, data.read_var[fldnam] )
-                data.status		= 0x00
+                data.read_var.status		= 0x00
+                data.status			= 0
             elif data.service == self.PT_INI_RPY:
                 # Actually store the command, return a proper handle.  The status is actually a HART
                 # command result code where 33 means initiated.  Unlike a real HART I/O card, we'll
@@ -280,18 +281,19 @@ class HART( Message_Router ):
                 data.init.handle		= 99
                 data.init.queue_space		= 200
                 if self.hart_command:
-                    data.status			= random.choice( (32, 33) ) # 32 busy, 33 initiated, 35 device offline
-                    if data.status == 33:
+                    data.init.status		= random.choice( (32, 33) ) # 32 busy, 33 initiated, 35 device offline
+                    if data.init.status == 33:
                         self.hart_command	= None
                 else:
-                    data.status			= random.choice( (33, 35) )
-                if self.hart_command is None and data.status == 33:
+                    data.init.status		= random.choice( (33, 35) )
+                if self.hart_command is None and data.init.status == 33:
                     self.hart_command		= data.init.command,data.init.get( 'command_data', [] )
                 logging.normal( "%s: HART Pass-thru Init Command %r: %s", self, self.hart_command,
-                                "busy" if data.status == 33
-                                else "initiated" if data.status == 32
-                                else "unknown: %s" % data.status )
+                                "busy" if data.init.status == 33
+                                else "initiated" if data.init.status == 32
+                                else "unknown: %s" % data.init.status )
                 logging.detail( "%s HART Pass-thru Init: %r", self, data )
+                data.status			= 0
             elif data.service == self.PT_QRY_RPY:
                 # TODO: just return a single network byte ordered real, for now, as if its a HART
                 # Read Primary Variable request.  We're returning the Input Tag version of the
@@ -301,41 +303,41 @@ class HART( Message_Router ):
                 data.query.reply_data		= []
 
                 if self.hart_command is not None:
-                    data.status			= random.choice( (0, 34, 34, 34) )
+                    data.query.status		= random.choice( (0, 34, 34, 34) )
                     data.query.command		= self.hart_command[0] # ignore command_data
                 else:
-                    data.status			= 35	# 0 success, 34 running, 35 dead
+                    data.query.status		= 35	# 0 success, 34 running, 35 dead
                     data.query.command		= 0
 
-                if self.hart_command and self.hart_command[0] == 1 and data.status == 0:
+                if self.hart_command and self.hart_command[0] == 1 and data.query.status == 0:
                     # PV units code (unknown? not in Input Tag type command) + 4-byte PV REAL (network order)
                     attribute	= fldnam_attribute( REAL, 'PV', 1.234 )
                     val		= attribute[0]
                     data.query.reply_data      += [ b for b in bytearray( REAL_network.produce( val )) ]
-                elif self.hart_command and self.hart_command[0] == 2 and data.status == 0:
+                elif self.hart_command and self.hart_command[0] == 2 and data.query.status == 0:
                     # current and percent of range.
                     attribute	= fldnam_attribute( REAL, 'loop_current', random.uniform( 4, 20 ))
                     cur		= attribute[0]
                     pct		= 0.0 if cur < 4 else 100.0 if cur > 20 else ( cur - 4 ) / ( 20 - 4 ) * 100
                     data.query.reply_data      += [ b for b in bytearray( REAL_network.produce( cur )) ]
                     data.query.reply_data      += [ b for b in bytearray( REAL_network.produce( pct )) ]
-                elif self.hart_command and self.hart_command[0] == 3 and data.status == 0:
+                elif self.hart_command and self.hart_command[0] == 3 and data.query.status == 0:
                     insnam	= "HART_{channel}_Data".format( channel=self.instance_id - 1 )
                     for v in ('PV', 'SV', 'TV', 'FV'):
                         attribute= fldnam_attribute( REAL, v, random.uniform( 0, 1 ))
                         val	= attribute[0]
                         data.query.reply_data  += [ b for b in bytearray( REAL_network.produce( val )) ]
-
                 data.query.reply_size		= len( data.query.reply_data )
                 logging.normal( "%s: HART Pass-thru Query Command %r: %s", self, self.hart_command,
-                                "success" if data.status == 0
-                                else "running" if data.status == 34
-                                else "dead" if data.status == 35
-                                else "unknown: %s" % data.status )
+                                "success" if data.query.status == 0
+                                else "running" if data.query.status == 34
+                                else "dead" if data.query.status == 35
+                                else "unknown: %s" % data.query.status )
 
-                if data.status in ( 0, 35 ):
+                if data.query.status in ( 0, 35 ):
                     self.hart_command	= None
                 logging.detail( "%s HART Pass-thru Query: %r", self, data )
+                data.status			= 0
             else:
                 assert False, "Not Implemented: {data!r}".format( data=data )
 
@@ -385,8 +387,8 @@ class HART( Message_Router ):
             result	       += USINT.produce(	data.service )
             result	       += b'\x00' # reserved
             result	       += status.produce( data )
-            if data.status == 0:
-                result	       += USINT.produce(	data.read_var.status if 'status' in data.read_var else 0 )
+            if not data.get( 'status' ):
+                result	       += USINT.produce(	data.read_var.get( 'status', 0 ))
                 if data.read_var.get( 'status' ):
                     result     += b'\x00'					# Failure; pad
                 else:
@@ -396,16 +398,16 @@ class HART( Message_Router ):
             result	       += USINT.produce(	data.service )
             result	       += EPATH.produce(	data.path )
             result	       += USINT.produce(	data.init.command )
-            if 'command_data' in data.init and data.init.command_data:
+            if data.init.get( 'command_data' ):
                 result	       += USINT.produce(	len( data.init.command_data ))
                 result	       += typed_data.produce( { 'data': data.init.command_data }, tag_type=USINT.tag_type )
             else:
                 result	       += USINT.produce(	0 )
-        elif data.service == cls.PT_INI_RPY:
+        elif data.get( 'service' ) == cls.PT_INI_RPY:
             result	       += USINT.produce(	data.service )
             result	       += b'\x00' # reserved
             result	       += status.produce( data )
-            if data.status == 0:
+            if not data.get( 'status' ):
                 result	       += USINT.produce( 	data.init.status )	# 32 busy, 33 initiated, 35 device offline
                 result	       += USINT.produce(	data.init.command )
                 result	       += USINT.produce(	data.init.handle )
@@ -414,23 +416,23 @@ class HART( Message_Router ):
             result	       += USINT.produce(	data.service )
             result	       += EPATH.produce(	data.path )
             result	       += USINT.produce(	data.query.handle )
-        elif data.service == cls.PT_QRY_RPY:
+        elif data.get( 'service' ) == cls.PT_QRY_RPY:
             result	       += USINT.produce(	data.service )
             result	       += b'\x00' # reserved
             result	       += status.produce( data )
-            if data.status == 0:
-                result	       += USINT.produce(	data.query.status )	# 0 success, 34 running, 35 dead
+            if not data.get( 'status' ):
+                result	       += USINT.produce(	data.query.status ) # 0 success, 34 running, 35 dead
                 result	       += USINT.produce(	data.query.command )
                 result	       += USINT.produce(	data.query.reply_status )
                 result	       += USINT.produce(	data.query.fld_dev_status )
-            if 'reply_data' in data.query and data.query.reply_data:
-                result	       += USINT.produce(	len( data.query.reply_data ))
-                result	       += typed_data.produce( { 'data': data.query.reply_data }, tag_type=USINT.tag_type )
-            else:
-                result	       += USINT.produce(	0 )
+                if data.query.get( 'reply_data' ):
+                    result	       += USINT.produce(	len( data.query.reply_data ))
+                    result	       += typed_data.produce( { 'data': data.query.reply_data }, tag_type=USINT.tag_type )
+                else:
+                    result	       += USINT.produce(	0 )
         else:
             result		= super( HART, cls ).produce( data )
-        log
+
         return result
 
 
@@ -538,12 +540,12 @@ def __init_reply():
     srvc			= USINT(		  	context='service' )
     srvc[True]	 	= rsvd	= octets_drop(	'reserved',	repeat=1 )
     rsvd[True]		= stts	= status()
-    stts[None]			= octets_noop(	'nodata',
-                                                terminal=True )
-    stts[True]		= hsts	= USINT( 'command_status',	context=HART.PT_INI_CTX, extension='.command_status' ) # 32 busy, 33 initiated, 35 device offline
+    #stts[None]			= octets_noop(	'nodata',
+    #                                            terminal=True )
+    stts[True]		= hsts	= USINT( 'status',		context=HART.PT_INI_CTX, extension='.status' ) # 32 busy, 33 initiated, 35 device offline
     hsts[True]		= hcmd	= USINT( 'command',		context=HART.PT_INI_CTX, extension='.command' )
     hcmd[True]		= hhdl	= USINT( 'handle',		context=HART.PT_INI_CTX, extension='.handle' )
-    hhdl[None]			= USINT( 'queue_space',		context=HART.PT_INI_CTX, extension='.queue_space',
+    hhdl[True]			= USINT( 'queue_space',		context=HART.PT_INI_CTX, extension='.queue_space',
                                          terminal=True )
     return srvc
 HART.register_service_parser( number=HART.PT_INI_RPY, name=HART.PT_INI_NAM + " Reply",
@@ -562,9 +564,9 @@ def __query_reply():
     srvc			= USINT(		  	context='service' )
     srvc[True]	 	= rsvd	= octets_drop(	'reserved',	repeat=1 )
     rsvd[True]		= stts	= status()
-    stts[None]			= octets_noop(	'nodata',
-                                                terminal=True )
-    stts[True]		= hsts 	= USINT( 'command_status',	context=HART.PT_QRY_CTX, extension='.command_status' )
+    #stts[None]			= octets_noop(	'nodata',
+    #                                            terminal=True )
+    stts[True]		= hsts 	= USINT( 'status',		context=HART.PT_QRY_CTX, extension='.status' )
     hsts[True]		= hcmd 	= USINT( 'command',		context=HART.PT_QRY_CTX, extension='.command' )
     hcmd[True]		= hrpy	= USINT( 'reply_status',	context=HART.PT_QRY_CTX, extension='.reply_status' )
     hrpy[True]		= hfds	= USINT( 'fld_dev_status',	context=HART.PT_QRY_CTX, extension='.fld_dev_status' )

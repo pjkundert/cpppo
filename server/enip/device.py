@@ -679,8 +679,6 @@ class Object( object ):
                                     else enc )
         cls.parser.initial[cls.transit[enc]] \
 				= automata.dfa( name=short, initial=machine, terminal=True )
-        
-        print( "%s.parser.initial[%s] == %s" % ( cls, cls.transit[enc], cls.parser.initial[cls.transit[enc]] ))
     
     GA_ALL_NAM			= "Get Attributes All"
     GA_ALL_CTX			= "get_attributes_all"
