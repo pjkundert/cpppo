@@ -946,7 +946,7 @@ class Object( object ):
             if isinstance( data.service_code, dict ) and 'data' in data.service_code:
                 result	       += typed_data.produce(	data.service_code,
                                                         tag_type=USINT.tag_type )
-        elif data.get( 'service' ) & 0x80:
+        elif data.get( 'service', 0 ) & 0x80: # Could be absent
             # Generic CIP Service Code Reply.  May or may not carry a data payload.
             result	       += USINT.produce(	data.service )
             result	       += b'\x00' # reserved
@@ -956,7 +956,8 @@ class Object( object ):
                 result	       += typed_data.produce(	data.service_code,
                                                         tag_type=USINT.tag_type )
         else:
-            raise AssertionError( "%s doesn't recognize request/reply format: %r" % ( cls.__name__, data ))
+            raise AssertionError( "%s doesn't recognize request/reply format: %s" % (
+                cls.__name__, enip_format( data )))
         return result
 
 # Register the standard Object parsers
@@ -2027,7 +2028,7 @@ class Connection_Manager( Object ):
                 # forward it here to the Connection Manager (where it was addressed) to be handled.
                 data.service   |= 0x80
                 data.status	= 8			# Service not supported, if anything blows up
-	        if data.service == self.FWD_OPEN_RPY:
+                if data.service == self.FWD_OPEN_RPY:
                     self.forward_open( data )
                 else:
                     self.forward_close( data )

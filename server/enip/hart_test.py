@@ -18,9 +18,8 @@ if __name__ == "__main__":
         __package__	= "cpppo.server.enip"
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))))
     from cpppo.automata import log_cfg
-    log_cfg['level']	= logging.DEBUG
+    log_cfg['level']	= logging.NORMAL
     logging.basicConfig( **log_cfg )
-
 
 import cpppo
 from cpppo.misc import timer, near, hexdump
@@ -71,7 +70,7 @@ def start_hart_simulator( *options, **kwds ):
             assert exc.errno == errno.EAGAIN, "Expected only Non-blocking IOError"
         except Exception as exc:
             log.warning("Socket read return Exception: %s", exc)
-            raise
+
         if not data:
             time.sleep( CMD_LATENCY )
         while data.find( '\n' ) >= 0:
@@ -83,6 +82,7 @@ def start_hart_simulator( *options, **kwds ):
                 log.normal( "EtherNet/IP CIP Simulator started after %7.3fs on %s:%d",
                                     timer() - begun, address[0], address[1] )
                 break
+    log.normal( "Started %s on: %s", command, address )
     return command,address
 
 
@@ -101,19 +101,6 @@ def command_logging( command, buf='' ):
 def simulated_hart_gateway():
     return start_hart_simulator()
 
-
-def test_hart_packet():
-    """
-    0000   00 1d 9c c9 3e 2a b0 5a da b4 f9 1f 08 00 45 00
-    0010   00 66 30 3f 40 00 80 06 00 00 64 64 66 01 64 64
-    0020   66 0a c4 50 af 12 f7 0d 5f c5 44 a0 85 e2 50 18
-    0030   00 fb 95 2c 00 00 6f 00 26 00 04 00 31 00 00 00
-    0040   00 00 6c 74 00 00 88 f9 59 07 00 00 00 00 00 00
-    0050   00 00 08 00 02 00 00 00 00 00 b2 00 16 00 52 02
-    0060   20 06 24 01 05 f7 08 00 4b 03 21 00 5d 03 24 08
-    0070   01 00 01 02
-    """
-
 hart_kwds			= dict(
     timeout		= 15.0,
     depth		= 5,		# max. requests in-flight
@@ -129,9 +116,9 @@ def test_hart_simple( simulated_hart_gateway ):
     route_path			= [{'link': 2, 'port': 1}]
     try:
         assert address, "Unable to detect HART EtherNet/IP CIP Gateway IP address"
-        #hio			= client.connector( host=address[0], port=address[1] )
+        hio			= client.connector( host=address[0], port=address[1] )
         # Establish an Implicit EtherNet/IP CIP connection using Forward Open
-        hio			= client.implicit( host=address[0], port=address[1], connection_path=None )
+        #hio			= client.implicit( host=address[0], port=address[1], connection_path=None )
         PV			= 1.23
         operations		= [
             {
@@ -189,7 +176,7 @@ def test_hart_pass_thru_simulated( simulated_hart_gateway ):
 
     try:
         assert address, "Unable to detect HART EtherNet/IP CIP Gateway IP address"
-        hio				= client.connector( host=address[0], port=address[1], dialect=HART )
+        hio				= client.connector( host=address[0], port=address[1] )
 
         operations		= [
             {
@@ -253,7 +240,7 @@ def hart_pass_thru( io, path, hart_data, data_size, route_path=None ):
         },
     ]
 
-    # Look for a reply init.command_status of 33 initiated. Actually, it appears that status 0 indicates success.
+    # Look for a reply init.status of 33 initiated. Actually, it appears that status 0 indicates success.
     handle			= None
     while handle is None:
         time.sleep( .1 )
@@ -262,7 +249,7 @@ def hart_pass_thru( io, path, hart_data, data_size, route_path=None ):
                     operations=client.parse_operations( operations ), **hart_kwds ):
                 log.detail( "Client %s: %s --> %r: request: %s\nreply:%s", io, dsc, val,
                             enip.enip_format( req ), enip.enip_format( rpy ))
-                if rpy.status == 0 and rpy.init.command_status in (33,):	# 32 busy, 33 initiated, 35 device offline
+                if rpy.status == 0 and rpy.init.status in (33,):	# 32 busy, 33 initiated, 35 device offline
                     handle	= rpy.init.handle
     log.normal( "HART Pass-thru command Handle: %s", handle )
 
@@ -279,14 +266,14 @@ def hart_pass_thru( io, path, hart_data, data_size, route_path=None ):
     ]
 
     reply			= {}
-    while not reply or ( reply.status == 0 and reply.query.command_status == 34 ): # 0 success, 34 running, 35 dead
+    while not reply or ( reply.status == 0 and reply.query.status == 34 ): # 0 success, 34 running, 35 dead
         time.sleep( .1 )
         with io:
             for idx,dsc,req,rpy,sts,val in io.pipeline(
                     operations=client.parse_operations( operations ), **hart_kwds ):
                 log.detail( "Client %s: %s --> %r: %s", io, dsc, val, enip.enip_format( rpy ))
                 reply	= rpy
-        log.normal( "HART pass-thru command Status: %s", reply.get( 'query.command_status' ))
+        log.normal( "HART pass-thru command Status: %s", reply.get( 'query.status' ))
 
     return reply.get( 'query.reply_data.data', None )
 
@@ -342,7 +329,7 @@ def test_hart_pass_thru_poll( simulated_hart_gateway ):
     try:
         assert address, "Unable to detect HART EtherNet/IP CIP Gateway IP address"
         #hio				= client.implicit( host=address[0], port=address[1] )
-        hio				= client.connector( host=address[0], port=address[1], dialect=HART )
+        hio				= client.connector( host=address[0], port=address[1] )
 
         # Just get the primary variable, to see if the HART device is there.
         operations		= [
@@ -364,7 +351,7 @@ def test_hart_pass_thru_poll( simulated_hart_gateway ):
 
         path			= '@0x%X/8' % ( HART.class_id )
         data			= hart_pass_thru(
-            hio, path=path, hart_data=[1], route_path=route_path, data_size=4 ) # with no size
+            hio, path=path, hart_data=[1, 0], route_path=route_path, data_size=4 ) # with no size
 
         # The small response carries the 4-byte value, the long CIP MSG response additionally
         # carries the data type We receive the long response.
@@ -377,7 +364,7 @@ def test_hart_pass_thru_poll( simulated_hart_gateway ):
 
         # HART Command 3 gets all 4 variables
         data			= hart_pass_thru(
-            hio, path=path, hart_data=[3], route_path=route_path, data_size=4*4 ) # with no size
+            hio, path=path, hart_data=[3, 0], route_path=route_path, data_size=4*4 ) # with no size
 
         # small response carries PV, SV, TV, FV values, no data types
         value			= []
@@ -403,7 +390,7 @@ def test_hart_pass_thru_poll( simulated_hart_gateway ):
         
         # HART Command 12 gets the 24-character Message
         data			= hart_pass_thru(
-            hio, path=path, hart_data=[12], route_path=route_path, data_size=4*4 ) # with no size
+            hio, path=path, hart_data=[12, 0], route_path=route_path, data_size=4*4 ) # with no size
         value			= None
         if data and len( data ):
             try:
@@ -414,7 +401,7 @@ def test_hart_pass_thru_poll( simulated_hart_gateway ):
 
         # HART Command 0 gets the identity
         data			= hart_pass_thru(
-            hio, path=path, hart_data=[0], route_path=route_path, data_size=4*4 ) # with no size
+            hio, path=path, hart_data=[0, 0], route_path=route_path, data_size=4*4 ) # with no size
         value			= None
         if data and len( data ):
             value		= hexdump( data )
@@ -422,7 +409,7 @@ def test_hart_pass_thru_poll( simulated_hart_gateway ):
             
         # HART Command 13 gets the Tag
         data			= hart_pass_thru(
-            hio, path=path, hart_data=[13], route_path=route_path, data_size=4*4 ) # with no size
+            hio, path=path, hart_data=[13, 0], route_path=route_path, data_size=4*4 ) # with no size
         value			= None
         if data and len( data ):
             value		= hexdump( data )
