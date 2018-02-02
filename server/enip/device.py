@@ -1968,6 +1968,9 @@ class Connection_Manager( Object ):
     FWD_CLOS_REQ		= 0x4E
     FWD_CLOS_RPY		= FWD_CLOS_REQ | 0x80
 
+    # Keep track of each remote peer, and its defined Forward Open connection_path
+    forwards			= {}	# addr --> connection_path
+
     def forward_open( self, data ):
         """Pretty much only the Connection Manager knows how to handle a Forward Open.  It'll come back to
         us, for typical Forward Open requests with a path @0x02/1.  The Message_Router will
@@ -1981,17 +1984,30 @@ class Connection_Manager( Object ):
         This base class implementation does nothing but report success (returning the appropriate
         bits of the request, and pick a random T->O Connection ID.
 
+        Subsequent requests coming in on this connection need to be routed to this connection_path.
+
+        TODO: The UCMM or the Connection_Manager needs to handle the establishment of connections to
+        the targets of a route_path (for Unconnected requests) and/or a connection_path (for
+        Connected requests).
+
         """
         fo			= data.forward_open
         fo.T_O_connection_ID	= random.randint( 0, 2**32-1 )
         fo.O_T_API		= fo.O_T_RPI
         fo.T_O_API		= fo.T_O_RPI
-        data.status		= 0
-        if log.isEnabledFor( logging.NORMAL ):
-            log.normal( "%s Forward Open: %s", self, enip_format( data ))
+        if log.isEnabledFor( logging.DETAIL ):
+            log.detail( "%s Forward Open: %s", self,
+                        enip_format( data ) if log.isEnabledFor( logging.INFO )
+                        else ", ".join( " ".join( "%s: %r" % ( k, v ) for k,v in s.items() )
+                                        for s in data.forward_open.connection_path.segment ))
 
     def forward_close( self, data ):
-        data.status		= 0
+        """Convert the data into a forward_close response; nothing to do."""
+        if log.isEnabledFor( logging.DETAIL ):
+            log.detail( "%s Forward Close: %s", self,
+                        enip_format( data ) if log.isEnabledFor( logging.INFO )
+                        else ", ".join( " ".join( "%s: %r" % ( k, v ) for k,v in s.items() )
+                                        for s in data.forward_close.connection_path.segment ))
     
     def request( self, data ):
         """Handles an unparsed request.input, parses it and processes the request with the Message
@@ -2001,8 +2017,9 @@ class Connection_Manager( Object ):
         followed by an EPATH.
 
         """
-        if self.FWD_OPEN_CTX in data and data.setdefault( 'service', self.FWD_OPEN_REQ ) == self.FWD_OPEN_REQ:
-            # The only request a Connection Manager handles directly is the Forward Open.
+        if (   self.FWD_OPEN_CTX in data and data.setdefault( 'service', self.FWD_OPEN_REQ ) == self.FWD_OPEN_REQ
+            or self.FWD_CLOS_CTX in data and data.setdefault( 'service', self.FWD_CLOS_REQ ) == self.FWD_CLOS_REQ ):
+            # The only request a Connection Manager handles directly is the Forward Open/Close.
             try:
                 # Forward Open.  Parsed here (until we get proper "split" parsing for CIP requests,
                 # where service and EPATH is parsed centrally, then remainder of parsering is
@@ -2010,7 +2027,11 @@ class Connection_Manager( Object ):
                 # forward it here to the Connection Manager (where it was addressed) to be handled.
                 data.service   |= 0x80
                 data.status	= 8			# Service not supported, if anything blows up
-                self.forward_open( data )
+	        if data.service == self.FWD_OPEN_RPY:
+                    self.forward_open( data )
+                else:
+                    self.forward_close( data )
+                data.status	= 0
             except Exception as exc:
                 # On Exception, if we haven't specified a more detailed error code, return General
                 # Error.  Remember: 0x06 (Insufficent Packet Space) is a NORMAL response to a successful
@@ -2034,6 +2055,7 @@ class Connection_Manager( Object ):
                               else "(Unknown)"), enip_format( data ))
             data.input		= bytearray( self.produce( data ))
             return True
+
 
         # Must be an Unconnected Send (Send RR Data, 0x52) or a Connected Send (Send Unit Data).
 
@@ -2069,7 +2091,7 @@ class Connection_Manager( Object ):
             assert target, "Unknown CIP Object in request: %s" % ( enip_format( targetdata ))
             source		= automata.rememberable( data.request.input )
             with target.parser as machine:
-                with contextlib.closing(  machine.run( path='request', source=source, data=data )) as engine:
+                with contextlib.closing( machine.run( path='request', source=source, data=data )) as engine:
                     for i,(m,s) in enumerate( engine ):
                         pass
                         #log.detail( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %s",

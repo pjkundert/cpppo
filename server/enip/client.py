@@ -1694,19 +1694,19 @@ class implicit( connector ):
                 data,elapsed_rpy= await( self, timeout=None if timeout is None else max( 0, timeout - elapsed_req ))
 
             assert data is not None, "Failed to receive any response"
-            if log.isEnabledFor( logging.DETAIL ):
-                log.detail( "Forward Open Reply: %s", enip.enip_format( data ))
+            if log.isEnabledFor( logging.INFO ):
+                log.info( "Forward Open Reply: %s", enip.enip_format( data ))
             assert 'enip.status' in data, "Failed to receive EtherNet/IP response"
             assert data.enip.status == 0, "EtherNet/IP response indicates failure: %s" % data.enip.status
             self.established		= data.get( 'enip.CIP.send_data.CPF.item[1].unconnected_send.request' )
             assert self.established and 'forward_open' in self.established and self.established.status == 0, \
                 "Failed to receive successful Forward Open response: %s" % ( enip.enip_format( self.established ))
         except Exception as exc:
-            log.normal( "FwdOpen:  Failure in %7.3fs/%7.3fs: %s", cpppo.timer() - begun,
+            log.defailt( "FwdOpen:  Failure in %7.3fs/%7.3fs: %s", cpppo.timer() - begun,
                         cpppo.inf if timeout is None else timeout, exc )
             raise
         else:
-            log.normal( "FwdOpen:  Success in %7.3fs/%7.3fs", cpppo.timer() - begun,
+            log.detail( "FwdOpen:  Success in %7.3fs/%7.3fs", cpppo.timer() - begun,
                         cpppo.inf if timeout is None else timeout )
         finally:
             self.dialect	= dialect_bak # Restore original self.dialect
@@ -1753,19 +1753,19 @@ class implicit( connector ):
                 elapsed_req	= cpppo.timer() - begun
                 data,elapsed_rpy= await( self, timeout=None if self.timeout is None else max( 0, self.timeout - elapsed_req ))
             assert data is not None, "Failed to receive any response"
-            if log.isEnabledFor( logging.DETAIL ):
-                log.detail( "Forward Close Reply: %s", enip.enip_format( data ))
+            if log.isEnabledFor( logging.INFO ):
+                log.info( "Forward Close Reply: %s", enip.enip.enip_format( data ))
             assert 'enip.status' in data, "Failed to receive EtherNet/IP response"
             assert data.enip.status == 0, "EtherNet/IP response indicates failure: %s" % data.enip.status
             response			= data.get( 'enip.CIP.send_data.CPF.item[1].unconnected_send.request' )
-            assert 'forward_close' in self.established and self.established.status == 0, \
-                "Failed to receive successful Forward Open response: %s" % ( enip_format( self.established ))
+            assert response and 'forward_close' in response and response.status == 0, \
+                "Failed to receive successful Forward Close response: %s" % ( enip.enip_format( response ))
         except Exception as exc:
-            log.normal( "FwdClose: Failure in %7.3fs/%7.3fs: %s", cpppo.timer() - begun,
+            log.detail( "FwdClose: Failure in %7.3fs/%7.3fs: %s", cpppo.timer() - begun,
                         cpppo.inf if self.timeout is None else self.timeout, exc )
             raise
         else:
-            log.normal( "FwdClose: Success in %7.3fs/%7.3fs", cpppo.timer() - begun,
+            log.detail( "FwdClose: Success in %7.3fs/%7.3fs", cpppo.timer() - begun,
                         cpppo.inf if self.timeout is None else self.timeout )
         finally:
             self.dialect	= dialect_bak # Restore original self.dialect

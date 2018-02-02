@@ -116,7 +116,7 @@ def test_client_timeout():
 
 def test_client_api_simple():
     taglen			= 100 # able to fit request for Attribute into 1 packet
-
+    logging.getLogger().setLevel( logging.NORMAL )
     server_addr		        = ('localhost', 12398)
     server_kwds			= dotdict({
         'argv': [
@@ -143,13 +143,13 @@ def test_client_api_simple():
     try:
         connection		= None
         while not connection:
+            time.sleep( .1 )
             try:
                 connection	= enip.client.implicit( *server_addr, timeout=client_timeout, connection_path=None )
             except socket.error as exc:
                 logging.warning( "enip.client.connector socket.error: %r", exc )
                 if exc.errno != errno.ECONNREFUSED:
                     raise
-                time.sleep( .1 )
             except Exception as exc:
                 logging.warning( "enip.client.connector Exception: %r", exc )
                 raise
@@ -185,7 +185,7 @@ def test_client_api_simple():
             logging.normal("PCCC Response: %s", enip.enip_format( rpy )) # will be EtherNet/IP status 8; nothing implemented
             '''
 
-        if random.randint( 0, 1 ):
+        if not random.randint( 0, 9 ): # 10% of the time...
             # Try a clean shutdown, closing the outgoing half of the socket, leading to an EOF on
             # the server.  This will cause the subsequent Forward Close to fail w/ an EPIPE
             logging.normal( "Skip Forward Close; send EOF" )
