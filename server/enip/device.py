@@ -30,7 +30,7 @@ enip.device	-- support for implementing an EtherNet/IP device Objects and Attrib
 
 """
 __all__				= ['dialect', 'lookup_reset', 'lookup', 'resolve', 'resolve_element',
-                                   'redirect_tag', 'resolve_tag', 
+                                   'redirect_tag', 'resolve_tag',
                                    'parse_int', 'parse_path', 'parse_path_elements', 'parse_path_component',
                                    'Object', 'Attribute',
                                    'UCMM', 'Connection_Manager', 'Message_Router', 'Identity', 'TCPIP']
@@ -242,7 +242,7 @@ def resolve_element( path ):
         if 'element' in term:
             element.append( term['element'] )
             break
-    return tuple( element ) if element else (0, ) 
+    return tuple( element ) if element else (0, )
 
 def parse_int( x, base=10 ):
     """Try parsing in the target base, but then also try deducing the base (eg. if we are provided with
@@ -371,7 +371,7 @@ class Attribute( object ):
     """A simple Attribute just has a default scalar value of 0.  We'll instantiate an instance of the
     supplied enip.TYPE/STRUCT class as the Attribute's .parser property.  This can be used to parse
     incoming data, and produce the current value in bytes form.
-    
+
     The value defaults to a scalar 0, but may be configured as an array by setting default to a list
     of values of the desired array size.
 
@@ -379,7 +379,7 @@ class Attribute( object ):
 
     To interface to other types of data (eg. remote data), supply as 'default' an object that
     supplies the following interface:
-    
+
         o.__len__()			-- DOESN'T EXIST if scalar; returns number of elements if vector (a str is considered scalar)
         o.__repr__()			-- Some representation of the object; a few of its elements, an address
         o.__getitem__(b[:e[:s]])	-- Raise TypeError if scalar; return an item/slice if a vector
@@ -387,7 +387,7 @@ class Attribute( object ):
         o.__int__(), __float__()	-- Scalars should directly implement conversion methods; vectors should return
             				   objects (on [int]) or iterables of objects (on [slice]) convertible to
     					   int/float.  These will be accessed by functions such as struct.pack()
-    
+
     Note that it is impossible to capture assignment to a scalar value; all remote data must be
     vectors, even if they only have a single element.  However, for Attributes whose underlying
     'default' value is a simple scalar type, we'll support simple value assignment (it will replace
@@ -679,7 +679,7 @@ class Object( object ):
                                     else enc )
         cls.parser.initial[cls.transit[enc]] \
 				= automata.dfa( name=short, initial=machine, terminal=True )
-    
+
     GA_ALL_NAM			= "Get Attributes All"
     GA_ALL_CTX			= "get_attributes_all"
     GA_ALL_REQ			= 0x01
@@ -697,7 +697,7 @@ class Object( object ):
 
     SV_COD_NAM			= "Service Code"
     SV_COD_CTX			= "service_code"
-    
+
     @property
     def config( self ):
         if self._config is None:
@@ -726,7 +726,7 @@ class Object( object ):
     @misc.logresult( log=log, log_level=logging.DETAIL )
     def config_json( self, *args, **kwds ):
         return json.loads( self.config_str( *args, **kwds ))
-        
+
     def __init__( self, name=None, instance_id=None ):
         """Create the instance (default to the next available instance_id).  An instance_id of 0 holds the
         "class" attributes/commands.  Any configured values for the Object are available in
@@ -782,11 +782,11 @@ class Object( object ):
 
     def __str__( self ):
         return self.name
-    
+
     def __repr__( self ):
         return "(0x%02x,%3d) %s" % ( self.class_id, self.instance_id, self )
 
-    def request( self, data ):
+    def request( self, data, addr=None ):
         """Handle a request, converting it into a response.  Must be a dotdict data artifact such as is
         produced by the Object's parser.  For example, a request data containing either of the
         following:
@@ -976,8 +976,8 @@ def __service_code_reply():
     stts[None]			= octets_noop(	'nodata',
                                                 terminal=True )
     return srvc
-    
-Object.register_service_parser( number=True, name=Object.SV_COD_NAM, 
+
+Object.register_service_parser( number=True, name=Object.SV_COD_NAM,
                                 short=Object.SV_COD_CTX, machine=__service_code_reply() )
 
 def __get_attributes_all():
@@ -988,7 +988,7 @@ def __get_attributes_all():
     mark.initial[None]		= move_if( 	'mark',		initializer=True )
     return srvc
 
-Object.register_service_parser( number=Object.GA_ALL_REQ, name=Object.GA_ALL_NAM, 
+Object.register_service_parser( number=Object.GA_ALL_REQ, name=Object.GA_ALL_NAM,
                                 short=Object.GA_ALL_CTX, machine=__get_attributes_all() )
 
 def __get_attributes_all_reply():
@@ -1002,7 +1002,7 @@ def __get_attributes_all_reply():
                                                 terminal=True )
     return srvc
 
-Object.register_service_parser( number=Object.GA_ALL_RPY, name=Object.GA_ALL_NAM + " Reply", 
+Object.register_service_parser( number=Object.GA_ALL_RPY, name=Object.GA_ALL_NAM + " Reply",
                                 short=Object.GA_ALL_CTX, machine=__get_attributes_all_reply() )
 
 def __get_attribute_single():
@@ -1013,7 +1013,7 @@ def __get_attribute_single():
     mark.initial[None]		= move_if( 	'mark',		initializer=True )
     return srvc
 
-Object.register_service_parser( number=Object.GA_SNG_REQ, name=Object.GA_SNG_NAM, 
+Object.register_service_parser( number=Object.GA_SNG_REQ, name=Object.GA_SNG_NAM,
                                 short=Object.GA_SNG_CTX, machine=__get_attribute_single() )
 def __get_attribute_single_reply():
     srvc			= USINT(		 	context='service' )
@@ -1026,7 +1026,7 @@ def __get_attribute_single_reply():
                                                 terminal=True )
     return srvc
 
-Object.register_service_parser( number=Object.GA_SNG_RPY, name=Object.GA_SNG_NAM + " Reply", 
+Object.register_service_parser( number=Object.GA_SNG_RPY, name=Object.GA_SNG_NAM + " Reply",
                                 short=Object.GA_SNG_CTX, machine=__get_attribute_single_reply() )
 
 def __set_attribute_single():
@@ -1037,7 +1037,7 @@ def __set_attribute_single():
                                                 terminal=True )
     return srvc
 
-Object.register_service_parser( number=Object.SA_SNG_REQ, name=Object.SA_SNG_NAM, 
+Object.register_service_parser( number=Object.SA_SNG_REQ, name=Object.SA_SNG_NAM,
                                 short=Object.SA_SNG_CTX, machine=__set_attribute_single() )
 
 def __set_attribute_single_reply():
@@ -1049,7 +1049,7 @@ def __set_attribute_single_reply():
     mark.initial[None]		= move_if( 	'mark',		initializer=True )
     return srvc
 
-Object.register_service_parser( number=Object.SA_SNG_RPY, name=Object.SA_SNG_NAM + " Reply", 
+Object.register_service_parser( number=Object.SA_SNG_RPY, name=Object.SA_SNG_NAM + " Reply",
                                 short=Object.SA_SNG_CTX, machine=__set_attribute_single_reply() )
 
 
@@ -1200,7 +1200,7 @@ class UCMM( Object ):
     lock			= threading.Lock()
     sessions			= {}		# All known session handles, by addr
 
-    def request( self, data ):
+    def request( self, data, addr=None ):
         """Handles a parsed enip.* request, and converts it into an appropriate response.  For
         connection related requests (Register, Unregister), handle locally.  Return True iff request
         processed and connection should proceed to process further messages.
@@ -1211,23 +1211,29 @@ class UCMM( Object ):
 
         proceed			= True
 
-        assert 'addr' in data, "Connection Manager requires client address"
+        assert 'addr' is not None, "Connection Manager requires client address"
+        if not data:
+            # Termination signal. Give the Connection_Manager an opportunity to clean up,
+            # eg. close all Forward Open data associated with the TCP/IP session.
+            CM			= lookup( class_id=0x06, instance_id=1 ) # Connection Manager default address
+            CM.request( data, addr=addr ) # just the 2-segment addr, not including any T_O_connection_ID
+            return
 
-        # Each EtherNet/IP enip.command expects an appropriate encapsulated response
+        # A non-empty request. Each EtherNet/IP enip.command expects an appropriate encapsulated response
         if 'enip' in data:
             data.enip.pop( 'input', None )
         try:
             if 'enip.CIP.register' in data:
                 # Allocates a new session_handle, and returns the register.protocol_version and
                 # .options_flags unchanged (if supported)
-        
+
                 with self.lock:
-                    session	= random.randint( 0, 2**32 )
+                    session	= random.randint( 0, 2**32-1 )
                     while not session or session in self.__class__.sessions:
-                        session	= random.randint( 0, 2**32 )
-                    self.__class__.sessions[data.addr] = session
+                        session	= random.randint( 0, 2**32-1 )
+                    self.__class__.sessions[addr] = session
                 data.enip.session_handle = session
-                log.detail( "EtherNet/IP (Client %r) Session Established: %r", data.addr, session )
+                log.detail( "EtherNet/IP (Client %r) Session Established: %r", addr, session )
                 data.enip.input	= bytearray( self.parser.produce( data.enip ))
                 data.enip.status= 0x00
 
@@ -1235,11 +1241,11 @@ class UCMM( Object ):
                 # Session being closed.  There is no response for this command; return False
                 # inhibits any EtherNet/IP response from being generated, and closes connection.
                 with self.lock:
-                    session	= self.__class__.sessions.pop( data.addr, None )
-                log.detail( "EtherNet/IP (Client %r) Session Terminated: %r", data.addr, 
+                    session	= self.__class__.sessions.pop( addr, None )
+                log.detail( "EtherNet/IP (Client %r) Session Terminated: %r", addr,
                             session or "(Unknown)" )
                 proceed		= False
-            
+
             elif 'enip.CIP.send_data' in data:
                 # An Unconnected Send (SendRRData) message may be to a local object, eg:
                 # 
@@ -1254,7 +1260,7 @@ class UCMM( Object ):
                 #     "enip.CIP.send_data.CPF.item[1].unconnected_send.service": 1, 
                 #     "enip.CIP.send_data.interface": 0, 
                 #     "enip.CIP.send_data.timeout": 5, 
-                
+
                 # via the Message Router (note the lack of ...unconnected_send.route_path), or
                 # potentially to a remote object, via the backplane or a network link route path:
 
@@ -1311,50 +1317,62 @@ class UCMM( Object ):
                 # or backplane hops.
 
                 # All Unconnected Requests have a NULL Address in CPF item 0.
+                # TODO: Connected (Implicit) sessions have a Forward Open connection_ID in CPF.item[0]
                 assert 'enip.CIP.send_data.CPF' in data \
-                    and data.enip.CIP.send_data.CPF.count == 2 \
-                    and data.enip.CIP.send_data.CPF.item[0].length == 0, \
-                    "EtherNet/IP UCMM remote routed requests unimplemented"
-                unc_send	= data.enip.CIP.send_data.CPF.item[1].unconnected_send
+                    and data.enip.CIP.send_data.CPF.count == 2, \
+                    "EtherNet/IP CIP CPF encapsulation required"
+                if data.enip.CIP.send_data.CPF.item[0].length == 0:
+                    # Unconnected session
+                    unc_send	= data.enip.CIP.send_data.CPF.item[1].unconnected_send
 
-                # Make sure the route_path matches what we've been configured w/; the supplied
-                # route_path.segment list must match the configured self.route_path, eg: {'link': 0,
-                # 'port': 1}.  Thus, if an empty route_path supplied in Unconnected Send request, it
-                # will not match any configured route_path.  Also, if we've specified a Falsey
-                # (eg. 0, False) UCMM object .route_path, we'll only accept requests with an empty
-                # route_path.
-                if self.route_path is not None: # may be [{"port"}...]}, or 0/False
-                    route_path	= unc_send.get( 'route_path.segment' )
-                    assert ( not self.route_path and not route_path # both Falsey, or match
-                             or route_path == self.route_path ), \
-                        "Unconnected Send route path %r differs from configured: %r" % (
-                            route_path, self.route_path )
+                    # Make sure the route_path matches what we've been configured w/; the supplied
+                    # route_path.segment list must match the configured self.route_path, eg: {'link': 0,
+                    # 'port': 1}.  Thus, if an empty route_path supplied in Unconnected Send request, it
+                    # will not match any configured route_path.  Also, if we've specified a Falsey
+                    # (eg. 0, False) UCMM object .route_path, we'll only accept requests with an empty
+                    # route_path.
+                    if self.route_path is not None: # may be [{"port"}...]}, or 0/False
+                        route_path = unc_send.get( 'route_path.segment' )
+                        assert ( not self.route_path and not route_path # both Falsey, or match
+                                 or route_path == self.route_path ), \
+                            "Unconnected Send route path %r differs from configured: %r" % (
+                                route_path, self.route_path )
 
-                # If the standard Connection Manager isn't addressed, that's strange but, OK...
-                ids		= (0x06, 1) # Connection Manager default address
-                if 'path' in unc_send:
-                    ids		= resolve( unc_send.path )
-                    if ( ids[0] != 0x06 or ids[1] != 1 ):
-                        log.warning( "Unconnected Send targeted Object other than Connection Manager: 0x%04x/%d", ids[0], ids[1] )
-                CM		= lookup( class_id=ids[0], instance_id=ids[1] )
-                CM.request( unc_send )
-                
-                # After successful processing of the Unconnected Send on the target node, we
-                # eliminate the Unconnected Send wrapper (the unconnected_send.service = 0x52,
-                # route_path, etc), and replace it with a simple encapsulated raw request.input.  We
-                # do that by emptying out the unconnected_send, except for the bare request.
-                # Basically, all the Unconnected Send encapsulation and routing is used to deliver
-                # the request to the target Object, and then is discarded and the EtherNet/IP
-                # envelope is simply returned directly to the originator carrying the response
-                # payload.
-                if log.isEnabledFor( logging.DEBUG ):
-                    log.debug( "%s Repackaged: %s", self, enip_format( data ))
-                
-                data.enip.CIP.send_data.CPF.item[1].unconnected_send  = dotdict()
-                data.enip.CIP.send_data.CPF.item[1].unconnected_send.request = unc_send.request
+                    # If the standard Connection Manager isn't addressed, that's strange but, OK...
+                    ids		= (0x06, 1) # Connection Manager default address
+                    if 'path' in unc_send:
+                        ids		= resolve( unc_send.path )
+                        if ( ids[0] != 0x06 or ids[1] != 1 ):
+                            log.warning( "Unconnected Send targeted Object other than Connection Manager: 0x%04x/%d", ids[0], ids[1] )
+                    CM		= lookup( class_id=ids[0], instance_id=ids[1] )
+                    CM.request( unc_send, addr=addr )
 
-                # And finally, re-encapsulate the CIP SendRRData, with its (now unwrapped)
-                # Unconnected Send request response payload.
+                    # After successful processing of the Unconnected Send on the target node, we
+                    # eliminate the Unconnected Send wrapper (the unconnected_send.service = 0x52,
+                    # route_path, etc), and replace it with a simple encapsulated raw request.input.  We
+                    # do that by emptying out the unconnected_send, except for the bare request.
+                    # Basically, all the Unconnected Send encapsulation and routing is used to deliver
+                    # the request to the target Object, and then is discarded and the EtherNet/IP
+                    # envelope is simply returned directly to the originator carrying the response
+                    # payload.
+                    if log.isEnabledFor( logging.DEBUG ):
+                        log.debug( "%s Repackaged: %s", self, enip_format( data ))
+
+                    data.enip.CIP.send_data.CPF.item[1].unconnected_send  = dotdict()
+                    data.enip.CIP.send_data.CPF.item[1].unconnected_send.request = unc_send.request
+                else:
+                    # Connected session; extract connection_data.payload
+                    con_id	= data.enip.CIP.send_data.CPF.item[0].connection_ID.connection
+                    con_data	= data.enip.CIP.send_data.CPF.item[1].connection_data
+                    con_send	= dotdict()
+                    con_send.request= dotdict()
+                    con_send.request.input = con_data.payload
+                    CM		= lookup( class_id=0x06, instance_id=1 ) # Connection Manager default address
+                    CM.request( con_send, addr=(addr[0],addr[1],con_id) )
+                    con_data.payload = con_send.request.input
+
+                # And finally, re-encapsulate the CIP SendRRData/SendUnitData, with its (now
+                # unwrapped) Unconnected Send / Connection Data request response payload.
                 if log.isEnabledFor( logging.DEBUG ):
                     log.debug( "%s Regenerating: %s", self, enip_format( data ))
                 data.enip.input	= bytearray( self.parser.produce( data.enip ))
@@ -1554,7 +1572,7 @@ class Message_Router( Object ):
             raise
         return target
 
-    def request( self, data ):
+    def request( self, data, addr=None ):
         """Any exception should result in a reply being generated with a non-zero status.  Fails with
         Exception on invalid route.
 
@@ -1576,7 +1594,7 @@ class Message_Router( Object ):
             pass
         else:
             # Not recognized; more generic command?
-            return super( Message_Router, self ).request( data )
+            return super( Message_Router, self ).request( data, addr=addr )
 
         # It is a Multiple Service Packet request; turn it into a reply.  Any exception processing
         # one of the sub-requests will fail this request; normally, the sub-request should just
@@ -1607,7 +1625,7 @@ class Message_Router( Object ):
                 for r in data.multiple.request:
                     if log.isEnabledFor( logging.DETAIL ):
                         log.detail( "%s Process on %s: %s", self, target, enip_format( r ))
-                    target.request( r )
+                    target.request( r, addr=addr )
                 data.status	= 0x00
             else:
                 raise AssertionError( "Unknown service code %s" % data.service )
@@ -1833,7 +1851,7 @@ class state_multiple_service( automata.state ):
             closure()
         if log.isEnabledFor( logging.DETAIL ):
             log.detail( "%s Parsed: %s", target, enip_format( data ))
-                   
+
 def __multiple():
     """Multiple Service Packet request.  Parses only the header and .number, .offsets[...]; the
     remainder of the payload is the encapsulated requests, each of which must be parsed by the
@@ -1874,7 +1892,7 @@ def __multiple_reply():
     """Multiple Service Packet reply.  We could make use of Message_Router.parser to decode the payload
     contents.  This is, strictly speaking, not correct -- if the original target path specifies
     an object that understands different Services (very likely), our parser may not have the
-    capability to decode. 
+    capability to decode.
 
     Therefore, we look for an indication of that target object to be provided in data.target.  If
     provided, we will use it to decode the payload requests.
@@ -1889,7 +1907,7 @@ def __multiple_reply():
     numr			= UINT(		'number',	context='multiple', extension='.number' )
     schk[None]			= automata.decide( 'ok',	state=numr,
         predicate=lambda path=None, data=None, **kwds: data[path+'.status' if path else 'status'] == 0x00 )
-    
+
     # Prepare a state-machine to parse each UINT into .UINT, and move it onto the .offsets list
     off_			= UINT(		'offset',	context='multiple', extension='.UINT' )
     off_[None]			= move_if( 	'offset',	source='.multiple.UINT',
@@ -1908,7 +1926,7 @@ def __multiple_reply():
     # If target Object can be found, decode the request payload
     reqd[None]			= state_multiple_service( 'requests',
                                              terminal=True )
-   
+
     return srvc
 Message_Router.register_service_parser( number=Message_Router.MULTIPLE_RPY, name=Message_Router.MULTIPLE_NAM + " Reply",
                                         short=Message_Router.MULTIPLE_CTX, machine=__multiple_reply() )
@@ -1969,10 +1987,12 @@ class Connection_Manager( Object ):
     FWD_CLOS_REQ		= 0x4E
     FWD_CLOS_RPY		= FWD_CLOS_REQ | 0x80
 
-    # Keep track of each remote peer, and its defined Forward Open connection_path
-    forwards			= {}	# addr --> connection_path
+    # Keep track of each Originating peer by a unique triplet, to its defined Forward Open data, and
+    # the resultant implicit connection to its ultimate Target (or None, if this is the Target --
+    # there is only 1 more address left in the connection_path)
+    forwards			= {}	# vendor,serial,connection_serial --> <forward_open request>,<implicit connection>|None
 
-    def forward_open( self, data ):
+    def forward_open( self, data, addr ):
         """Pretty much only the Connection Manager knows how to handle a Forward Open.  It'll come back to
         us, for typical Forward Open requests with a path @0x02/1.  The Message_Router will
         typically process the request, locate the Connection_Manager by its address, and dispatch
@@ -1992,32 +2012,103 @@ class Connection_Manager( Object ):
         Connected requests).
 
         """
+        def connection_type( NCP ):
+            return ', '.join( (('%d-Byte' % ( NCP & 0x01FF )),
+                               ('Fixed','Variable')[NCP >> 8 & 0b1],
+                               ('Low Prio.','High Prio.','Scheduled','Urgent' )[NCP >> 10 & 0b11],
+                               ('Null','Multicast','Point-to-Point','Reserved')[NCP >> 13 & 0b11],
+                               ('Exclusive','Redundant')[NCP >> 55 & 0b1]) )
+
         fo			= data.forward_open
-        fo.T_O_connection_ID	= random.randint( 0, 2**32-1 )
         fo.O_T_API		= fo.O_T_RPI
         fo.T_O_API		= fo.T_O_RPI
+
+        # TODO: Only if we're the Target (final hop)! Otherwise, pass thru via implicit connection's Forward Open request/reply.
+        if fo.O_T_NCP >> 13 & 0b11 == 0b10: # Originator -> Target is Point-to-Point: Target picks connection ID
+            fo.O_T_connection_ID=  random.randint( 0, 2**32-1 )
+        if fo.T_O_NCP >> 13 & 0b11 == 0b01: # Target -> Originator is Multicast: Target picks connection ID
+            fo.T_O_connection_ID=  random.randint( 0, 2**32-1 )
         if log.isEnabledFor( logging.DETAIL ):
-            log.detail( "%s Forward Open: %s", self,
+            log.detail( "%s Forward Open from %s:%s O->T: %s, T->O: %s: %s", self, addr[0], addr[1],
+                        connection_type( fo.O_T_NCP ), connection_type( fo.T_O_NCP ),
                         enip_format( data ) if log.isEnabledFor( logging.INFO )
                         else ", ".join( " ".join( "%s: %r" % ( k, v ) for k,v in s.items() )
                                         for s in data.forward_open.connection_path.segment ))
+        # Every Forward Open must present a unique vendor/serial/connection_serial.  If its already
+        # set up, and the exact same Forward Open connection parameters were used (same connection
+        # being re-opened), signal success. However: each Connected session request only comes with
+        # a copy of the O_T_connection_ID, which is *not* generated by the Target! Thus, no
+        # information present in each request is sufficient to uniquely identify the carry-on
+        # connection to use.  The peer (addr,O_T_connection_ID) is sufficiently unique: each
+        # incoming TCP/IP session can carry one or more Forward Open request(s), each of which must
+        # have a unique O_T_connection_ID.  Later, each CIP request must carry a CPF.item[0]
+        # containing the O_T_connection_ID.
 
-    def forward_close( self, data ):
-        """Convert the data into a forward_close response; nothing to do."""
+        triplet			= fo.O_vendor,fo.O_serial,fo.connection_serial
+        unique			= addr[0],addr[1],fo.O_T_connection_ID # eg ("1.2.3.4",12345,234567)
+        if unique in self.forwards:
+            ufo,uci		= self.forwards[unique]
+            assert all( ufo.getattr( a ) == fo.getattr( a )
+                        for a in ( 'O_T_NCP', 'O_T_RPI', 'T_O_NCP', 'T_O_RPI', 'transport_class_triggers', 'connection_path' )), \
+                "Already have an incompatible Forward Open from device Vendor: %s, Serial: %s, Connection Serial: %s" % triplet
+        else:
+            # TODO: Create an implicit connection w/ remainder of connection_path
+            if fo.connection_path.segment and hasattr( fo.connection_path.segment[0], 'port' ):
+                via,to		= fo.connection_path.segment[0],fo.connection_path.segment[1:]
+                log.detail( "Establishing an implicit connection for %s:%s (O->T ID: %s) via: %r to: %r",
+                            unique[0], unique[1], unique[2], via, to )
+            self.forwards[unique] = fo,None # <forward_open>,<connection>
+
+    def forward_close( self, data, addr ):
+        """Convert the data into a forward_close response; nothing to do. Remove any matching self..forwards
+        entry.  We do not have an O_T_connection_ID, just a connection_serial. Since we store the
+        forwards addr[0],addr[1],O_T_connection_ID to speed lookups while processing Connected
+        requests, we need to iterate all self.forwards 'til we find the one with matching key
+        addr[0],addr[1],* having a matching connection_serial.
+
+        Furthermore, when a connection closes, we want to purge all self.forwards established via
+        that connection. If an empty/None data is provided, purge them all.
+
+        """
         if log.isEnabledFor( logging.DETAIL ):
             log.detail( "%s Forward Close: %s", self,
-                        enip_format( data ) if log.isEnabledFor( logging.INFO )
-                        else ", ".join( " ".join( "%s: %r" % ( k, v ) for k,v in s.items() )
+                        "<all>" if not data
+                        else enip_format( data ) if log.isEnabledFor( logging.INFO )
+                        else", ".join( " ".join( "%s: %r" % ( k, v ) for k,v in s.items() )
                                         for s in data.forward_close.connection_path.segment ))
-    
-    def request( self, data ):
+        for k in list( self.forwards.keys() ): # we'll be mutating the dict...
+            if (addr[0],addr[1]) != k[:2]:
+                continue
+            ufo,uci		= self.forwards[k]
+            if not data or data.forward_close.connection_serial == ufo.connection_serial:
+                logging.detail( "Closing Connected Session %s w/ connection_serial == %s", k, ufo.connection_serial )
+                del self.forwards[k]
+
+    def request( self, data, addr=None ):
         """Handles an unparsed request.input, parses it and processes the request with the Message
         Router @6/1 (probably). Must parse the .service code and .path to know for certain what the
         target is. Some encapsulated service requests (eg. Forward Open) actually target the
         Connection_Manager @2/1.  Each CIP request should always start with the SINT Service Code
         followed by an EPATH.
 
+        For Connected sessions (w/ an O_T_connection_ID in CFP.items[0]), we don't need to parse an
+        EPATH from the incoming request -- it will have been provided by the Forward Open and
+        available in the self.forwards. This is necessary, for when the target Object doesn't
+        actually parse CIP requests (ie. ones with a service number and EPATH at the start, but some
+        other command format, such as PCCC/DF1).  These kind of Objects can only be accessed by
+        Connected (Forward Open) sessions, which have established the final destination Object.
+
+        Thus, this request method for Connection Manager objects accept an additional, optional 3rd
+        element in the 'addr' keyword parameter: <host>,<port>,<T_O_connection_ID>.  If supplied,
+        then we'll either route the request via the matching "implicit" connection, or get the
+        target local Object's ID from the self.forwards dict.
+
         """
+        if not data:
+            # Empty requests, indicates the termination of a session. Clean up all matching self.forward
+            self.forward_close( data, addr=addr )
+            return
+
         if (   self.FWD_OPEN_CTX in data and data.setdefault( 'service', self.FWD_OPEN_REQ ) == self.FWD_OPEN_REQ
             or self.FWD_CLOS_CTX in data and data.setdefault( 'service', self.FWD_CLOS_REQ ) == self.FWD_CLOS_REQ ):
             # The only request a Connection Manager handles directly is the Forward Open/Close.
@@ -2029,9 +2120,9 @@ class Connection_Manager( Object ):
                 data.service   |= 0x80
                 data.status	= 8			# Service not supported, if anything blows up
                 if data.service == self.FWD_OPEN_RPY:
-                    self.forward_open( data )
+                    self.forward_open( data, addr=addr )
                 else:
-                    self.forward_close( data )
+                    self.forward_close( data, addr=addr )
                 data.status	= 0
             except Exception as exc:
                 # On Exception, if we haven't specified a more detailed error code, return General
@@ -2057,8 +2148,24 @@ class Connection_Manager( Object ):
             data.input		= bytearray( self.produce( data ))
             return True
 
+        # See if it's a "Connected" request to a remote Target via self.forwards.  If remote, send
+        # the request. If local, get the targetpath from self.forwards.
+        targetpath		= cpppo.dotdict()
+        if addr in self.forwards:
+            ufo,uci		= self.forwards[addr]
+            if uci:
+                # TODO: use connected_send to transmit request, get reply, using T_O_connection_ID in addr[2].
+                assert False, "Remote Connected requests not yet handled"
+                return True
+            # A Connected request to a local Object.
+            targetpath.path	= ufo.connection_path
+            # TODO: No need to discard leading port/link segments, once we're handling remote
+            # Connected requests; only a single CIP Object address will remain.
+            while targetpath.path and hasattr( targetpath.path.segment[0], 'port' ):
+                targetpath.path.segment.pop( 0 )
 
-        # Must be an Unconnected Send (Send RR Data, 0x52) or a Connected Send (Send Unit Data).
+        # Must be an Unconnected Send (Send RR Data, 0x52) or a Connected Send (Send Unit Data) to a
+        # local Object (now in targetpath.path).
 
         # We don't check for Unconnected Send 0x52, because replies (and some requests) don't
         # include the full wrapper, just the raw command.  This is quite confusing; especially since
@@ -2067,29 +2174,27 @@ class Connection_Manager( Object ):
         # .command, and simply copies the encapsulated request.input as the response payload.  We
         # don't encode the response here; it is done by the UCMM.
         assert 'request' in data and 'input' in data.request, \
-            "Unconnected Send message with absent or empty request: %s\nvia: %s" % (
+            "%s message with absent or empty request: %s\nvia: %s" % (
+                "Connected Send" if targetpath  else "Unconnected Send",
                 enip_format( data ), ''.join( traceback.format_stack() ))
-
-        if log.isEnabledFor( logging.INFO ):
-            log.info( "%s Request: %s", self, enip_format( data ))
 
         # Get the target object (usually a Message Router) to parse and process the request into a
         # response, producing a data.request.input encoded response, which we will pass back as our
         # own encoded response. Note that we assume, here, that we are dealing with CIP Requests
         # (ie. a .service code without bit 0x80 set), thus always followed by an EPATH.
         try:
-            source		= automata.rememberable( data.request.input )
-            targetdata		= cpppo.dotdict()
-            with self.parser_service_path as machine:
-                with contextlib.closing( machine.run( source=source, data=targetdata )) as engine:
-                    for i,(m,s) in enumerate( engine ):
-                        pass
+            if not targetpath: # Not required for "Connected" requests; otherwise, parse request EPATH
+                source		= automata.rememberable( data.request.input )
+                with self.parser_service_path as machine:
+                    with contextlib.closing( machine.run( source=source, data=targetpath )) as engine:
+                        for i,(m,s) in enumerate( engine ):
+                            pass
             if log.isEnabledFor( logging.DETAIL ):
-                log.detail( "%s Routing request to target Object at address %s", self, enip_format( targetdata ))
+                log.detail( "%s Routing request to target Object at address %s", self, enip_format( targetpath ))
             # We have the service and path. Find the target Object (see state_multiple_service.closure)
-            ids			= resolve( targetdata.path )
+            ids			= resolve( targetpath.path )
             target		= lookup( *ids )
-            assert target, "Unknown CIP Object in request: %s" % ( enip_format( targetdata ))
+            assert target, "Unknown CIP Object in request: %s" % ( enip_format( targetpath ))
             source		= automata.rememberable( data.request.input )
             with target.parser as machine:
                 with contextlib.closing( machine.run( path='request', source=source, data=data )) as engine:
@@ -2099,7 +2204,7 @@ class Connection_Manager( Object ):
                         #            machine.name_centered(), i, s, source.sent, source.peek(),
                         #            repr( data ) if log.getEffectiveLevel() < logging.DETAIL else misc.reprlib.repr( data ))
 
-            target.request( data.request )
+            target.request( data.request, addr=addr )
         except:
             # Parsing failure.  We're done.  Suck out some remaining input to give us some context.
             processed		= source.sent
@@ -2291,7 +2396,7 @@ Connection_Manager.register_service_parser( number=Connection_Manager.FWD_OPEN_R
 
 
 def __forward_close():
-    """Handle Forward Close request.  Note that the Connection Path Size / Connection Path has a pad byte (vs. 
+    """Handle Forward Close request.  Note that the Connection Path Size / Connection Path has a pad byte (vs.
     Forward Open, which does not).
     """
     srvc			= USINT(	 	context='service' )

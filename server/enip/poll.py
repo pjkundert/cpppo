@@ -265,7 +265,6 @@ def main( argv=None ):
     args			= ap.parse_args()
 
     # Set up logging level (-v...) and --log <file>
-    # Set up logging level (-v...) and --log <file>
     levelmap 			= {
         0: logging.WARNING,
         1: logging.NORMAL,

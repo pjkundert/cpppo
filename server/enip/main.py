@@ -847,7 +847,7 @@ def enip_srv_tcp( conn, addr, name, enip_process, delay=None, **kwds ):
                                         data.response.enip.status, data.response.enip.status )
                             stats['eof'] = True
                     else:
-                        # Session terminated.  No response, just drop connection.
+                        # Session terminated cleanly.  No response, just drop connection.
                         if log.isEnabledFor( logging.DETAIL ):
                             log.detail( "Session ended (client initiated): %s",
                                         parser.enip_format( data ))
@@ -855,8 +855,9 @@ def enip_srv_tcp( conn, addr, name, enip_process, delay=None, **kwds ):
                     log.detail( "Transaction complete after %7.3fs (w/ %7.3fs delay)",
                         cpppo.timer() - begun, delayseconds )
                 except:
+                    # Session terminated spontaneously; empty data
                     log.error( "Failed request: %s", parser.enip_format( data ))
-                    enip_process( addr, data=cpppo.dotdict() ) # Terminate.
+                    enip_process( addr, data=cpppo.dotdict() )
                     raise
 
             stats['processed']	= source.sent

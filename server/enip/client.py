@@ -1702,8 +1702,8 @@ class implicit( connector ):
             assert self.established and 'forward_open' in self.established and self.established.status == 0, \
                 "Failed to receive successful Forward Open response: %s" % ( enip.enip_format( self.established ))
         except Exception as exc:
-            log.defailt( "FwdOpen:  Failure in %7.3fs/%7.3fs: %s", cpppo.timer() - begun,
-                        cpppo.inf if timeout is None else timeout, exc )
+            log.info( "FwdOpen:  Failure in %7.3fs/%7.3fs: %s", cpppo.timer() - begun,
+                      cpppo.inf if timeout is None else timeout, exc )
             raise
         else:
             log.detail( "FwdOpen:  Success in %7.3fs/%7.3fs", cpppo.timer() - begun,
