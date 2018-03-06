@@ -35,6 +35,7 @@ __all__				= ['PCCC']
 
 import sys
 import logging
+import array
 
 import cpppo
 from .. import enip
@@ -144,7 +145,7 @@ class ANC_120e_DF1( cpppo.dfa ):
         # ... 7-17: .read...: Protected Typed Logical Read w/ 3 Address Fields has (sub-)element w/ 1 or 2-byte values
         tlr3		= tlr3b	= USINT(			context='read', extension='.bytes' )
         tlr3b[True]	= tlr3fn= USINT(			context='read', extension='.file' ) # 0-254
-        tr3fn16			= UINT(				context='read', extension='.file' )
+        tlr3fn16		= UINT(				context='read', extension='.file' )
         tlr3fn[None]		= cpppo.decide(	'FLN 16?',	state=tlr3fn16,
                                                 predicate=lambda path=None, data=None, **kwds: \
                                                     data[path].read.file == 0xFF )
@@ -188,8 +189,57 @@ class ANC_120e_DF1( cpppo.dfa ):
 
     @classmethod
     def produce( cls, data ):
-        result			= b''
-        df1			= data.get( 'DF1' )
+        result			= b'\x00\x00'
+        result		       += USINT.produce( data.DF1.dst )	# DST
+        result		       += b'\x00'
+        result		       += b'\x00\x00'
+        result		       += USINT.produce( data.DF1.src )	# SRC
+        result		       += b'\x00'
+        if data.DF1.setdefault( 'sts', 0 ) != 0 and data.DF1.get( 'cmd', 0) & 0x40:
+            # A reply containing a non-zero STS, and possibly an EXTSTS
+            result	       += USINT.produce( data.DF1.sts )		# STS != 0
+            result	       += UINT.produce( data.DF1.tns )		# TNS
+            if data.DF1.sts & 0xF0 == 0xF0:
+                assert 'extsts' in data.DF1 and data.DF1.extsts != 0, \
+                    "A non-zero .extsts is required, if the upper 4 bits of .sts are set"
+                result	       += UINT.produce( data.DF1.extsts )	# EXTSTS
+        elif 'read' in data.DF1 or data.DF1.get( 'cmd' ) in (0x0F, 0x4F) and data.DF1.get( 'fnc' ) == 0xA2:
+            result	       += USINT.produce( data.DF1.get( 'cmd', 0x0F )) # CMD
+            result	       += USINT.produce( data.DF1.sts )		# STS
+            result	       += UINT.produce( data.DF1.tns )		# TNS
+            if data.DF1.get( 'cmd', 0x0F ) & 0x40:
+                # Reply. We assume that the raw binary response data is already marshalled into a
+                # .data array of 8-bit unsigned integers.
+                result	       += typed_data.produce( data.DF1, tag_type=USINT.tag_type )
+            else:
+                # Request
+                result	       += USINT.produce( data.DF1.get( 'fnc', 0xA2 )) # FNC
+                result	       += USINT.produce( data.DF1.read.bytes )	# BYTES
+                result	       += USINT.produce( min( data.DF1.read.file, 0xFF ))
+                if data.DF1.read.file >= 255:
+                    result       += UINT.produce( data.DF1.read.file )	# FILE (8 or 16 bits)
+                result	       += USINT.produce( data.DF1.read.type )	# TYPE
+                result	       += USINT.produce( min( data.DF1.read.element, 0xFF ))
+                if data.DF1.read.element >= 255:
+                    result     += UINT.produce( data.DF1.read.element )	# ELEMENT
+                result	       += USINT.produce( min( data.DF1.read.subelement, 0xFF ))
+                if data.DF1.read.subelement >= 255:
+                    result     += UINT.produce( data.DF1.read.subelement ) # SUBELEMENT
+        elif 'status' in data.DF1 or data.DF1.get( 'cmd' ) in (0x06, 0x46) and data.DF1.get( 'fnc' ) == 0x03:
+            result	       += USINT.produce( data.DF1.get( 'cmd', 0x06 ))# CMD
+            result	       += USINT.produce( data.DF1.sts )		# STS
+            result	       += UINT.produce( data.DF1.tns )		# TNS
+            if data.DF1.get( 'cmd', 0x0F ) & 0x40:
+                # Reply. We assume that the raw binary response data is already marshalled into a
+                # .data array of 8-bit unsigned integers.
+                result	       += typed_data.produce( data.DF1, tag_type=USINT.tag_type )
+            else:
+                # Request
+                result	       += USINT.produce( data.DF1.get( 'fnc', 0x03 )) # FNC
+        else:
+            # PCCC ANC-120e only recognizes its own services (not the generic CIP Object's)
+            raise AssertionError( "%s doesn't recognize request/reply format: %r" % ( cls.__name__, data ))
+
         return result
 
         
@@ -203,6 +253,31 @@ class PCCC_ANC_120e( enip.Object ):
 
     The ANC-120e DH+ "host" is identifed as ID 0, and each DH+ host on the network is enumerated 1,
     2, ...
+
+    Raises an Exception (terminating the EtherNet/IP CIP encapsulation) if any request is not
+    parsed. Otherwise, returns (at least) a DF1 STS/EXTSTS (iff STS & 0xF0 == 0xF0) code for
+    unrecognized CMD/FNC codes.  Top 4 bits of STS contain remote errors (ie. generated here, in the
+    DF1 target). The low 4 bits are reserved for local link-layer errors (that occur when the
+    original message is transmitted).
+
+    Remote STS Error Codes (pg. 8-2):
+      Code Explanation
+	00 Success -- no error
+	10 Illegal command or format
+	20 Host has a problem and will not communicate
+	30 Remote node host is missing, disconnected, or shut down
+	40 Host could not complete function due to hardware fault
+	50 Addressing problem or memory protect rungs
+	60 Function not allowed due to command protection selection
+	70 Processor is in Program mode
+	80 Compatibility mode file missing or communication zone problem
+	90 Remote node cannot buffer command
+	A0 Wait ACK (1775KA buffer full)
+	B0 Remote node problem due to download
+	C0 Wait ACK (1775KA buffer full)
+	D0 Not used
+	E0 Not used
+	F0 Error code in the EXT STS byte
 
     """
     class_id			= 0xA6
@@ -220,16 +295,40 @@ class PCCC_ANC_120e( enip.Object ):
         if log.isEnabledFor( logging.DETAIL ):
             log.detail( "%s Request: %s", self, enip.enip_format( data ))
         
-        # Pick out our services added at this level.  If not recognized, let superclass try; it'll
-        # return an appropriate error code if not recognized.
-        df1			= data.get( 'DF1' )
-        if   df1 and df1.get( 'cmd' ) == 0x06 and df1.get( 'fnc' ) == 0x03:
+        # Pick out our services added at this level.  We only accept ANC-120e DF1.
+        # If unrecognized, return a non-zero STS.
+        data.DF1.sts		= 0x10 # Illegal command or format
+        if   data.DF1.get( 'cmd' ) == 0x06 and data.DF1.get( 'fnc' ) == 0x03:
             log.warning( "DF1: Diagnostic Status: %s", enip.enip_format( data ))
-        elif df1 and df1.get( 'cmd' ) == 0x0f and df1.get( 'fnc' ) == 0xA2:
+            # eg. Status Request/Reply:
+            # b'\x00\x00\x01\x00\x00\x00\x00\x00\x06\x00J\n\x03'
+            # b'\x00\x00\x00\x00\x00\x00\x01\x00\x46\x00J\n\x00\xee1[#5/04       V\x00\x9e$\x05D \xfc'
+            data.DF1.sts	= 0
+            data.DF1.data	= array.array(
+                cpppo.type_bytes_array_symbol,
+                b'\xee1[#5/04       V\x00\x9e$\x05D \xfc' )
+        elif data.DF1.get( 'cmd' ) == 0x0f and data.DF1.get( 'fnc' ) == 0xA2:
             log.warning( "DF1: Protected typed Logical Read w/ 3 Address Fields: %s", enip.enip_format( data ))
+            # eg. Read Request/Reply:
+            # b'\x00\x00\x01\x00\x00\x00\x00\x00\x0f\x00K\n\xa2D\x00\x01\x00\x00'
+            # b'\x00\x00\x00\x00\x00\x00\x01\x00\x4f\x00K\nFX PLC P\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00!\x00\x000\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x05D\x01\x00#\x00\x04\x00\x02\x00e\x00\x03\x00\xa2\x00\xa7\x00V\x01j\x01t\x01m\x03'
+            data.DF1.sts	= 0
+            data.DF1.data	= array.array(
+                cpppo.type_bytes_array_symbol,
+                b'FX PLC P\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00!\x00\x000\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x05D\x01\x00#\x00\x04\x00\x02\x00e\x00\x03\x00\xa2\x00\xa7\x00V\x01j\x01t\x01m\x03' )
         else:
-            log.warning( "DF1: Unrecognized: %s", enip.enip_format( data ))
+            logging.normal( "DF1: Unrecognized: %s", enip.enip_format( data ))
 
+        # Convert DF1 request into a response.  Assume DF1.sts is 0 (for success), !0 for failure,
+        # and DF1.data contains the response payload.  Swap src/dst.
+        data.DF1.cmd	       |= 0x40
+        data.DF1.src,data.DF1.dst = data.DF1.dst,data.DF1.src
+        data.input		= bytearray( self.produce( data ))
+        return True
+
+    @classmethod
+    def produce( cls, data ):
+        return cls.parser.produce( data )
 
 # 
 # Simulate a simple ANC-120e DF1 device, w/ an instance of class 0xA6
