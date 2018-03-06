@@ -553,18 +553,23 @@ class client( object ):
         if result is not None and 'enip.CIP.send_data' in result:
             for item in result.enip.CIP.send_data.CPF.item:
                 if 'unconnected_send.request' in item:
-                    # An Unconnected Send that contained an encapsulated request (ie. not just a Get
-                    # Attribute All).  Use the globally-defined cpppo.server.enip.client's dialect's
-                    # (eg. logix.Logix) parser to parse the contents of the CIP payload's CPF items.
-                    dialect	= self.dialect or device.dialect # May be (temporarily) changed
-                    with dialect.parser as machine:
-                        with contextlib.closing( machine.run( # for pypy, where gc may delay destruction of generators
-                                source=cpppo.peekable( item.unconnected_send.request.input ),
-                                data=item.unconnected_send.request )) as engine:
-                            for m,s in engine:
-                                pass
-                            assert machine.terminal, "No %r request in the EtherNet/IP CIP CPF frame: %r" % (
-                                device.dialect, result )
+                    request	= item.unconnected_send.request
+                elif 'connection_data.request' in item:
+                    request	= item.connection_data.request
+                else:
+                    continue
+                # A Connected/Unconnected Send that contained an encapsulated request (ie. not just a Get
+                # Attribute All).  Use the globally-defined cpppo.server.enip.client's dialect's
+                # (eg. logix.Logix) parser to parse the contents of the CIP payload's CPF items.
+                dialect	= self.dialect or device.dialect # May be (temporarily) changed
+                with dialect.parser as machine:
+                    with contextlib.closing( machine.run( # for pypy, where gc may delay destruction of generators
+                            source=cpppo.peekable( request.input ),
+                            data=request )) as engine:
+                        for m,s in engine:
+                            pass
+                        assert machine.terminal, "No %r request in the EtherNet/IP CIP CPF frame: %r" % (
+                            dialect, result )
         log.info( "Returning result: %r", result )
         return result
 
@@ -982,7 +987,8 @@ class client( object ):
         sd.CPF.item[1].type_id	= 0xb1 # 177
         sd.CPF.item[1].connection_data = {}
         sd.CPF.item[1].connection_data.sequence	= sequence or 0
-        sd.CPF.item[1].connection_data.payload	= payload
+        sd.CPF.item[1].connection_data.request= {}
+        sd.CPF.item[1].connection_data.request.input = payload
 
         # Use EtherNet/IP command 0x0070 SendUnitData, instead of (default) 0x006f SendRRData
         return self.cip_send( cip=cip, command=0x0070, sender_context=sender_context, timeout=timeout )

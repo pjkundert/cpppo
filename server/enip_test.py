@@ -30,7 +30,7 @@ if __name__ == "__main__":
 import cpppo
 from   cpppo.misc import hexdump
 from   cpppo.server import network, enip
-from   cpppo.server.enip import parser, device, logix, client
+from   cpppo.server.enip import parser, device, logix, client, pccc
 
 log				= logging.getLogger( "enip" )
 
@@ -1536,7 +1536,7 @@ CIP_tests			= [
                 # An empty request (usually indicates termination of session)
                 b'', enip.Message_Router, {}
             ), (
-                snd_u01_req, enip.Message_Router, 
+                snd_u01_req, pccc.PCCC_ANC_120e, 
                 {
                     "enip.status": 0,
                     "enip.session_handle": 1,
@@ -1548,7 +1548,7 @@ CIP_tests			= [
                     "enip.CIP.send_data.CPF.item[1].type_id": 177,
                     "enip.CIP.send_data.CPF.item[1].length": 15,
                     "enip.CIP.send_data.CPF.item[1].connection_data.sequence": 1,
-                    "enip.CIP.send_data.CPF.item[1].connection_data.payload":
+                    "enip.CIP.send_data.CPF.item[1].connection_data.request.input":
                         array.array( cpppo.type_bytes_array_symbol, b'\x00\x00\x01\x00\x00\x00\x00\x00\x06\x00J\n\x03'),
                     "enip.CIP.send_data.CPF.item[0].type_id": 161,
                     "enip.CIP.send_data.CPF.item[0].length": 4,
@@ -1569,7 +1569,7 @@ CIP_tests			= [
                     "enip.CIP.send_data.CPF.item[1].type_id": 177,
                     "enip.CIP.send_data.CPF.item[1].length": 38,
                     "enip.CIP.send_data.CPF.item[1].connection_data.sequence": 1,
-                    "enip.CIP.send_data.CPF.item[1].connection_data.payload":
+                    "enip.CIP.send_data.CPF.item[1].connection_data.request.input":
                         array.array( cpppo.type_bytes_array_symbol, b'\x00\x00\x00\x00\x00\x00\x01\x00F\x00J\n\x00\xee1[#5/04       V\x00\x91$\x05D \xfc'),
                     "enip.CIP.send_data.CPF.item[0].type_id": 161,
                     "enip.CIP.send_data.CPF.item[0].length": 4,
@@ -2368,7 +2368,7 @@ def test_enip_CIP( repeat=1 ):
     enip.lookup_reset() # Flush out any existing CIP Objects for a fresh start
     ENIP			= enip.enip_machine( context='enip' )
     CIP				= enip.CIP()
-
+    logging.getLogger().setLevel( logging.INFO )
     for pkt,cls,tst in client.recycle( CIP_tests, times=repeat ):
         assert type( cls ) is type
         # Parse just the CIP portion following the EtherNet/IP encapsulation header
@@ -2404,25 +2404,31 @@ def test_enip_CIP( repeat=1 ):
             dialect_bak,device.dialect = device.dialect,cls # save/restore enip.dialect
             for item in data.enip.CIP.send_data.CPF.item:
                 if 'unconnected_send.request' in item:
-                    # An Unconnected Send that contained an encapsulated request (ie. not just a Get
-                    # Attribute All)
-                    with cls.parser as machine:
-                        if log.getEffectiveLevel() <= logging.NORMAL:
-                            log.normal( "Parsing %3d bytes using %s.parser, from %s", 
-                                        len( item.unconnected_send.request.input ),
-                                        cls, enip.enip_format( item ))
-                        # Parse the unconnected_send.request.input octets, putting parsed items into the
-                        # same request context
-                        for i,(m,s) in enumerate( machine.run(
-                                source=cpppo.peekable( item.unconnected_send.request.input ),
-                                data=item.unconnected_send.request )):
-                            log.detail( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r",
-                                        machine.name_centered(), i, s, source.sent, source.peek(), data )
-                    # Post-processing of some parsed items is only performed after lock released!
+                    request		= item.unconnected_send.request
+                elif 'connection_data.request' in item:
+                    request		= item.connection_data.request
+                else:
+                    continue
+
+                # A Connected/Unconnected Send that contained an encapsulated request (ie. not just a Get
+                # Attribute All)
+                with cls.parser as machine:
                     if log.getEffectiveLevel() <= logging.NORMAL:
-                        log.normal( "Parsed  %3d bytes using %s.parser, into %s", 
-                                    len( item.unconnected_send.request.input ),
-                                    cls, enip.enip_format( data ))
+                        log.normal( "Parsing %3d bytes using %s.parser, from %s", 
+                                    len( request.input ),
+                                    cls, enip.enip_format( item ))
+                    # Parse the unconnected_send.request.input octets, putting parsed items into the
+                    # same request context
+                    for i,(m,s) in enumerate( machine.run(
+                            source=cpppo.peekable( request.input ),
+                            data=request )):
+                        log.detail( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r",
+                                    machine.name_centered(), i, s, source.sent, source.peek(), data )
+                # Post-processing of some parsed items is only performed after lock released!
+                if log.getEffectiveLevel() <= logging.NORMAL:
+                    log.normal( "Parsed  %3d bytes using %s.parser, into %s", 
+                                len( request.input ),
+                                cls, enip.enip_format( data ))
           finally:
             device.dialect	= dialect_bak
 
@@ -2446,7 +2452,10 @@ def test_enip_CIP( repeat=1 ):
                 for item in cpf.CPF.item:
                     if 'unconnected_send' in item:
                         item.unconnected_send.request.input	= bytearray( cls.produce( item.unconnected_send.request ))
-                        log.normal("Produce Logix message from: %r", item.unconnected_send.request )
+                        log.normal("Produce %s message from: %r", cls,item.unconnected_send.request )
+                    elif 'connection_data' in item:
+                        item.connection_data.request.input	= bytearray( cls.produce( item.connection_data.request ))
+                        log.normal("Produce %s message from: %r", cls,item.connection_data.request )
 
             # Next, reconstruct the CIP Register, ListIdentity, ListServices, or SendRRData.  The CIP.produce must
             # be provided the EtherNet/IP header, because it contains data (such as .command)

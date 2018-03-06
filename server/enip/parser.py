@@ -1321,14 +1321,14 @@ class connection_ID( cpppo.dfa ):
 
 
 class connection_data( cpppo.dfa ):
-    """EtherNet/IP CIP command 0x00b1 carries a CPF payload with a number of bytes of 'payload' data,
-    after a 2-byte sequence number.
+    """EtherNet/IP CIP command 0x00b1 carries a CPF payload with a number of payload bytes of
+    'request.input' data, after a 2-byte sequence number.
 
     """
     def __init__( self, name=None, **kwds ):
         name			= name or kwds.setdefault( 'context', self.__class__.__name__ )
         sequ			= UINT( 	context='sequence' )
-        sequ[True]	= data	= octets( 	context='payload', octets_extension='', # repeat='..length', # length - 2, actually: so don't check
+        sequ[True]	= data	= octets( 	context='request', # repeat='..length', # length - 2, actually: so don't check
                                                 terminal=True )
         data[True]		= data # all remaining data...
         
@@ -1338,7 +1338,7 @@ class connection_data( cpppo.dfa ):
     def produce( cls, data ):
         result			= b''
         result		       += UINT.produce( data.sequence )
-        result		       += octets_encode( data.payload )
+        result		       += octets_encode( data.request.input )
         return result
 
 
@@ -1376,7 +1376,7 @@ class CPF( cpppo.dfa ):
     ITEM_PARSERS		= {
         0x0001:	legacy_CPF_0x0001,	# used in EtherNet/IP Legacy command 0x0001
         0x00a1:	connection_ID,		# Connected session ID; used in PCCC transport, for example
-        0x00b1:	connection_data,	#   Payload data for a connected session; sequence count + payload
+        0x00b1:	connection_data,	#   Payload data for a connected session; sequence count + request.input
         0x00b2:	unconnected_send,	# used in SendRRData request/response
         0x0100:	communications_service, # used in ListServices response
         0x000c:	identity_object,	# used in ListIdentity response

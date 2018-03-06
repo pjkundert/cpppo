@@ -1361,15 +1361,11 @@ class UCMM( Object ):
                     data.enip.CIP.send_data.CPF.item[1].unconnected_send  = dotdict()
                     data.enip.CIP.send_data.CPF.item[1].unconnected_send.request = unc_send.request
                 else:
-                    # Connected session; extract connection_data.payload
+                    # Connected session; extract connection_data.request.input payload
                     con_id	= data.enip.CIP.send_data.CPF.item[0].connection_ID.connection
                     con_data	= data.enip.CIP.send_data.CPF.item[1].connection_data
-                    con_send	= dotdict()
-                    con_send.request= dotdict()
-                    con_send.request.input = con_data.payload
                     CM		= lookup( class_id=0x06, instance_id=1 ) # Connection Manager default address
-                    CM.request( con_send, addr=(addr[0],addr[1],con_id) )
-                    con_data.payload = con_send.request.input
+                    CM.request( con_data, addr=(addr[0],addr[1],con_id) ) # Converts request to reply
 
                 # And finally, re-encapsulate the CIP SendRRData/SendUnitData, with its (now
                 # unwrapped) Unconnected Send / Connection Data request response payload.

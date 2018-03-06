@@ -282,7 +282,7 @@ class PCCC_ANC_120e( enip.Object ):
     """
     class_id			= 0xA6
 
-    parser			= ANC_120e_DF1( context="DF1" )
+    parser			= ANC_120e_DF1( context="DF1", terminal=True )
 
     # Data tables shared by all instance of PCCC Object
     tables			= {
