@@ -96,51 +96,51 @@ class ANC_120e_DF1( cpppo.dfa ):
     def __init__( self, name=None, **kwds ):
         name 			= name or kwds.setdefault( 'context', self.__class__.__name__ )
         # All command request/reply share the first 12 bytes:
-        init			= USINT(	 	  	context='byt0' )
-        init[True]		= byt1	= USINT(	 	  	context='byt1' )
-        byt1[True]		= dst	= USINT(	 	  	context='dst' )
-        dst[True]		= byt3	= USINT(	 	  	context='byt3' )
-        byt3[True]		= byt4	= USINT(	 	  	context='byt4' )
-        byt4[True]		= byt5	= USINT(	 	  	context='byt5' )
-        byt5[True]		= src	= USINT(	 	  	context='src' )
-        src[True]		= byt7	= USINT(	 	  	context='byt7' )
-        byt7[True]		= cmd	= USINT(	 	  	context='cmd' )
-        cmd[True]		= sts	= USINT(	  		context='sts' )
-        sts[True]		= tns	= UINT(	 	  		context='tns' )
+        init			= USINT(			context='byt0' )
+        init[True]	= byt1	= USINT(			context='byt1' )
+        byt1[True]	= dst	= USINT(			context='dst' )
+        dst[True]	= byt3	= USINT(			context='byt3' )
+        byt3[True]	= byt4	= USINT(			context='byt4' )
+        byt4[True]	= byt5	= USINT(			context='byt5' )
+        byt5[True]	= src	= USINT(			context='src' )
+        src[True]	= byt7	= USINT(			context='byt7' )
+        byt7[True]	= cmd	= USINT(			context='cmd' )
+        cmd[True]	= sts	= USINT(			context='sts' )
+        sts[True]	= tns	= UINT(				context='tns' )
     
         # Reply has STS == 0xF0, then EXT STS is parsed
         rpy_extsts		= USINT(			context='extsts',	terminal=True )
         # Reply has STS != 0x00, then reply is done
         rpy_sts			= octets_noop(						terminal=True )
         # Reply has STS == 0; collect remaining USINTs into .data (cannot parse, b/c replies not self-describing)
-        rpy			= typed_data( tag_type=USINT.tag_type,			terminal=True )
+        rpy			= typed_data( tag_type=USINT.tag_type, context='',	terminal=True )
     
         # Split the replies off
         # For a Reply (CMD & 0xb01000000 set); If sts was !0, then the byte following TNS is EXT STS.
         tns[None]		= cpppo.decide(	'RPY EXT STS?',	state=rpy_extsts,
                                             predicate=lambda path=None, data=None, **kwds: \
-                                                        bool( data[path].cmd & 0b01000000 ) and data[path].sts == 0xf0 )
-        tns[None]		= cpppo.decide(	'RPY',		state=rpy_sts,
+                                                bool( data[path].cmd & 0b01000000 ) and data[path].sts == 0xf0 )
+        tns[None]		= cpppo.decide(	'RPY STS?',	state=rpy_sts,
                                             predicate=lambda path=None, data=None, **kwds: \
                                                 bool( data[path].cmd & 0b01000000 ) and data[path].sts != 0x00 )
-        tns[None]		= cpppo.decide(	'RPY',		state=rpy,
+        tns[None]		= cpppo.decide(	'RPY?',		state=rpy,
                                             predicate=lambda path=None, data=None, **kwds: \
                                                 bool( data[path].cmd & 0b01000000 ) and data[path].sts == 0x00 )
     
         # Request follows TNS. May be a request w/o a FNC.  See:
         # http://literature.rockwellautomation.com/idc/groups/literature/documents/rm/1770-rm516_-en-p.pdf
         # 7-2 for a table of all CMD/FNC codes. Just collect the rest into .data.
-        req_nonfnc		= typed_data( tag_type=USINT.tag_type,			terminal=True )
+        req_nonfnc		= typed_data( tag_type=USINT.tag_type, context='',	terminal=True )
         tns[None]		= cpppo.decide(	'REQ NON FNC',	state=req_nonfnc,
                                         predicate=lambda path=None, data=None, **kwds: \
                                             data[path].cmd in (
                                                 0x00, #   protected write
-                                                        0x01, # unprotected read
-                                                        0x02, #   protected bit write
-                                                        0x05, #    physical read
-                                                        0x05, # unprotected bit write
-                                                        0x08, # Unprotected write
-                                                    ))
+                                                0x01, # unprotected read
+                                                0x02, #   protected bit write
+                                                0x05, #    physical read
+                                                0x05, # unprotected bit write
+                                                0x08, # unprotected write
+                                            ))
     
         # ... 7-17: .read...: Protected Typed Logical Read w/ 3 Address Fields has (sub-)element w/ 1 or 2-byte values
         tlr3		= tlr3b	= USINT(			context='read', extension='.bytes' )
@@ -171,19 +171,19 @@ class ANC_120e_DF1( cpppo.dfa ):
         diagm.initial[None]	= move_if(	'mark',		initializer=True )
     
         # A Request CMD w/ a FNC code. See if we recognize it.
-        tns[True]		= fnc	= USINT(			context='fnc' )
+        tns[None]		= fnc	= USINT(			context='fnc' )
         #fnc[None]		= cpppo.decide(	'Typed Read?',		state=tlr3,  # Typed Read (read block) w/ PLC-5 sys. addressing
         #                                        predicate=lambda path=None, data=None, **kwds: \
-        #                                            data[path].cmd == 0x0F and data[path].fnc == 0x68 )
+        #                                            data[path].cmd in (0x0F, 0x2F) and data[path].fnc == 0x68 )
         fnc[None]		= cpppo.decide(	'Typed Read 3?',	state=tlr3,  # Protected Typed Logical Read w/ 3 Address Fields
                                                 predicate=lambda path=None, data=None, **kwds: \
-                                                    data[path].cmd == 0x0F and data[path].fnc == 0xA2 )
+                                                    data[path].cmd in (0x0F, 0x2F) and data[path].fnc == 0xA2 )
         fnc[None]		= cpppo.decide(	'Diagnostic Status? ',	state=diag,  # Diagnostic Status
                                                 predicate=lambda path=None, data=None, **kwds: \
-                                                    data[path].cmd == 0x06 and data[path].fnc == 0x03 )
+                                                    data[path].cmd in (0x06, 0x26) and data[path].fnc == 0x03 )
 
         # Unknown CMD/FNC; just harvest the rest of the request into .data (often no further command data)
-        fnc[None]			= typed_data( tag_type=USINT.tag_type, context="",	terminal=True )
+        fnc[None]			= typed_data( tag_type=USINT.tag_type, context='',	terminal=True )
         
         super( ANC_120e_DF1, self ).__init__( name=name, initial=init, **kwds )
 
@@ -195,47 +195,46 @@ class ANC_120e_DF1( cpppo.dfa ):
         result		       += b'\x00\x00'
         result		       += USINT.produce( data.DF1.src )	# SRC
         result		       += b'\x00'
-        if data.DF1.setdefault( 'sts', 0 ) != 0 and data.DF1.get( 'cmd', 0) & 0x40:
+        if data.DF1.setdefault( 'sts', 0 ) != 0 and data.DF1.get( 'cmd', 0 ) & 0x40:
             # A reply containing a non-zero STS, and possibly an EXTSTS
+            result	       += USINT.produce( data.DF1.cmd )		# CMD & 0x40
             result	       += USINT.produce( data.DF1.sts )		# STS != 0
             result	       += UINT.produce( data.DF1.tns )		# TNS
             if data.DF1.sts & 0xF0 == 0xF0:
                 assert 'extsts' in data.DF1 and data.DF1.extsts != 0, \
                     "A non-zero .extsts is required, if the upper 4 bits of .sts are set"
                 result	       += UINT.produce( data.DF1.extsts )	# EXTSTS
-        elif 'read' in data.DF1 or data.DF1.get( 'cmd' ) in (0x0F, 0x4F) and data.DF1.get( 'fnc' ) == 0xA2:
-            result	       += USINT.produce( data.DF1.get( 'cmd', 0x0F )) # CMD
-            result	       += USINT.produce( data.DF1.sts )		# STS
+        elif data.DF1.setdefault( 'sts', 0 ) == 0 and data.DF1.get( 'cmd', 0 ) & 0x40:
+            # Reply w/ a 0 STS. We assume that the raw binary response data is already marshalled
+            # into a .data array of 8-bit unsigned integers. Since no FNC code is supplied,
+            # request.data payload is opaque.
+            result	       += USINT.produce( data.DF1.cmd )		# CMD & 0x40
+            result	       += USINT.produce( 0 )			# STS == 0
             result	       += UINT.produce( data.DF1.tns )		# TNS
-            if data.DF1.get( 'cmd', 0x0F ) & 0x40:
-                # Reply. We assume that the raw binary response data is already marshalled into a
-                # .data array of 8-bit unsigned integers.
-                result	       += typed_data.produce( data.DF1, tag_type=USINT.tag_type )
-            else:
-                # Request
-                result	       += USINT.produce( data.DF1.get( 'fnc', 0xA2 )) # FNC
-                result	       += USINT.produce( data.DF1.read.bytes )	# BYTES
-                result	       += USINT.produce( min( data.DF1.read.file, 0xFF ))
-                if data.DF1.read.file >= 255:
-                    result       += UINT.produce( data.DF1.read.file )	# FILE (8 or 16 bits)
-                result	       += USINT.produce( data.DF1.read.type )	# TYPE
-                result	       += USINT.produce( min( data.DF1.read.element, 0xFF ))
-                if data.DF1.read.element >= 255:
-                    result     += UINT.produce( data.DF1.read.element )	# ELEMENT
-                result	       += USINT.produce( min( data.DF1.read.subelement, 0xFF ))
-                if data.DF1.read.subelement >= 255:
-                    result     += UINT.produce( data.DF1.read.subelement ) # SUBELEMENT
-        elif 'status' in data.DF1 or data.DF1.get( 'cmd' ) in (0x06, 0x46) and data.DF1.get( 'fnc' ) == 0x03:
-            result	       += USINT.produce( data.DF1.get( 'cmd', 0x06 ))# CMD
-            result	       += USINT.produce( data.DF1.sts )		# STS
+            result	       += typed_data.produce( data.DF1, tag_type=USINT.tag_type )
+        elif 'read' in data.DF1 or data.DF1.get( 'cmd' ) in ( 0x0F, 0x2F) and data.DF1.get( 'fnc' ) == 0xA2:
+            # Protected Typed Logical Read w/ 3 Address Fields Request (Normal or Priority)
+            result	       += USINT.produce( data.DF1.get( 'cmd', 0x0F )) # CMD (default: 0x0F)
+            result	       += USINT.produce( 0 )			# STS == 0
             result	       += UINT.produce( data.DF1.tns )		# TNS
-            if data.DF1.get( 'cmd', 0x0F ) & 0x40:
-                # Reply. We assume that the raw binary response data is already marshalled into a
-                # .data array of 8-bit unsigned integers.
-                result	       += typed_data.produce( data.DF1, tag_type=USINT.tag_type )
-            else:
-                # Request
-                result	       += USINT.produce( data.DF1.get( 'fnc', 0x03 )) # FNC
+            result	       += USINT.produce( data.DF1.get( 'fnc', 0xA2 )) # FNC (default: 0xA2)
+            result	       += USINT.produce( data.DF1.read.bytes )	# BYTES
+            result	       += USINT.produce( min( data.DF1.read.file, 0xFF ))
+            if data.DF1.read.file >= 255:
+                result	       += UINT.produce( data.DF1.read.file )	# FILE (8 or 16 bits)
+            result	       += USINT.produce( data.DF1.read.type )	# TYPE
+            result	       += USINT.produce( min( data.DF1.read.element, 0xFF ))
+            if data.DF1.read.element >= 255:
+                result	       += UINT.produce( data.DF1.read.element )	# ELEMENT
+            result	       += USINT.produce( min( data.DF1.read.subelement, 0xFF ))
+            if data.DF1.read.subelement >= 255:
+                result	       += UINT.produce( data.DF1.read.subelement ) # SUBELEMENT
+        elif 'status' in data.DF1 or data.DF1.get( 'cmd' ) in (0x06, 0x26) and data.DF1.get( 'fnc' ) == 0x03:
+            # Diagnostic Status Request (Normal or Priority)
+            result	       += USINT.produce( data.DF1.get( 'cmd', 0x06 ))# CMD (default: 0x06)
+            result	       += USINT.produce( 0 )			# STS == 0
+            result	       += UINT.produce( data.DF1.tns )		# TNS
+            result	       += USINT.produce( data.DF1.get( 'fnc', 0x03 )) # FNC (default: 0x03)
         else:
             # PCCC ANC-120e only recognizes its own services (not the generic CIP Object's)
             raise AssertionError( "%s doesn't recognize request/reply format: %r" % ( cls.__name__, data ))
@@ -295,10 +294,10 @@ class PCCC_ANC_120e( enip.Object ):
         if log.isEnabledFor( logging.DETAIL ):
             log.detail( "%s Request: %s", self, enip.enip_format( data ))
         
-        # Pick out our services added at this level.  We only accept ANC-120e DF1.
-        # If unrecognized, return a non-zero STS.
+        # Pick out our services added at this level.  We only accept ANC-120e DF1.  If unrecognized,
+        # return a non-zero STS. Normal or Priority CMD codes are accepted.
         data.DF1.sts		= 0x10 # Illegal command or format
-        if   data.DF1.get( 'cmd' ) == 0x06 and data.DF1.get( 'fnc' ) == 0x03:
+        if   data.DF1.get( 'cmd' ) in (0x06, 0x26) and data.DF1.get( 'fnc' ) == 0x03:
             log.warning( "DF1: Diagnostic Status: %s", enip.enip_format( data ))
             # eg. Status Request/Reply:
             # b'\x00\x00\x01\x00\x00\x00\x00\x00\x06\x00J\n\x03'
@@ -307,7 +306,7 @@ class PCCC_ANC_120e( enip.Object ):
             data.DF1.data	= array.array(
                 cpppo.type_bytes_array_symbol,
                 b'\xee1[#5/04       V\x00\x9e$\x05D \xfc' )
-        elif data.DF1.get( 'cmd' ) == 0x0f and data.DF1.get( 'fnc' ) == 0xA2:
+        elif data.DF1.get( 'cmd' ) in (0x0F, 0x2F) and data.DF1.get( 'fnc' ) == 0xA2:
             log.warning( "DF1: Protected typed Logical Read w/ 3 Address Fields: %s", enip.enip_format( data ))
             # eg. Read Request/Reply:
             # b'\x00\x00\x01\x00\x00\x00\x00\x00\x0f\x00K\n\xa2D\x00\x01\x00\x00'

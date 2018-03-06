@@ -1536,7 +1536,7 @@ CIP_tests			= [
                 # An empty request (usually indicates termination of session)
                 b'', enip.Message_Router, {}
             ), (
-                snd_u01_req, pccc.PCCC_ANC_120e, 
+                snd_u01_req, pccc.PCCC_ANC_120e,
                 {
                     "enip.status": 0,
                     "enip.session_handle": 1,
@@ -1550,6 +1550,13 @@ CIP_tests			= [
                     "enip.CIP.send_data.CPF.item[1].connection_data.sequence": 1,
                     "enip.CIP.send_data.CPF.item[1].connection_data.request.input":
                         array.array( cpppo.type_bytes_array_symbol, b'\x00\x00\x01\x00\x00\x00\x00\x00\x06\x00J\n\x03'),
+                    "enip.CIP.send_data.CPF.item[1].connection_data.request.DF1.status": True,
+                    "enip.CIP.send_data.CPF.item[1].connection_data.request.DF1.src": 0,
+                    "enip.CIP.send_data.CPF.item[1].connection_data.request.DF1.cmd": 6,
+                    "enip.CIP.send_data.CPF.item[1].connection_data.request.DF1.tns": 2634,
+                    "enip.CIP.send_data.CPF.item[1].connection_data.request.DF1.dst": 1,
+                    "enip.CIP.send_data.CPF.item[1].connection_data.request.DF1.fnc": 3,
+                    "enip.CIP.send_data.CPF.item[1].connection_data.request.DF1.sts": 0,
                     "enip.CIP.send_data.CPF.item[0].type_id": 161,
                     "enip.CIP.send_data.CPF.item[0].length": 4,
                     "enip.CIP.send_data.CPF.item[0].connection_ID.connection": 2381185046,
@@ -1557,7 +1564,7 @@ CIP_tests			= [
                 }
             ),
             (
-                snd_u01_rpy, enip.Message_Router, 
+                snd_u01_rpy, pccc.PCCC_ANC_120e,
                 {
                     "enip.status": 0,
                     "enip.session_handle": 1,
@@ -1571,6 +1578,38 @@ CIP_tests			= [
                     "enip.CIP.send_data.CPF.item[1].connection_data.sequence": 1,
                     "enip.CIP.send_data.CPF.item[1].connection_data.request.input":
                         array.array( cpppo.type_bytes_array_symbol, b'\x00\x00\x00\x00\x00\x00\x01\x00F\x00J\n\x00\xee1[#5/04       V\x00\x91$\x05D \xfc'),
+                    "enip.CIP.send_data.CPF.item[1].connection_data.request.DF1.src": 1,
+                    "enip.CIP.send_data.CPF.item[1].connection_data.request.DF1.cmd": 70, # 0x46; reply to CMD 0x06
+                    "enip.CIP.send_data.CPF.item[1].connection_data.request.DF1.tns": 2634,
+                    "enip.CIP.send_data.CPF.item[1].connection_data.request.DF1.dst": 0,
+                    "enip.CIP.send_data.CPF.item[1].connection_data.request.DF1.sts": 0,
+                    #"enip.CIP.send_data.CPF.item[1].connection_data.request.DF1.fnc": 0, Reply packets do not contain FNC
+                    "enip.CIP.send_data.CPF.item[1].connection_data.request.DF1.data": [
+                        0,
+                        238,
+                        49,
+                        91,
+                        35,
+                        53,
+                        47,
+                        48,
+                        52,
+                        32,
+                        32,
+                        32,
+                        32,
+                        32,
+                        32,
+                        32,
+                        86,
+                        0,
+                        145,
+                        36,
+                        5,
+                        68,
+                        32,
+                        252
+                    ],
                     "enip.CIP.send_data.CPF.item[0].type_id": 161,
                     "enip.CIP.send_data.CPF.item[0].length": 4,
                     "enip.CIP.send_data.CPF.item[0].connection_ID.connection": 2147483652,
@@ -2368,7 +2407,6 @@ def test_enip_CIP( repeat=1 ):
     enip.lookup_reset() # Flush out any existing CIP Objects for a fresh start
     ENIP			= enip.enip_machine( context='enip' )
     CIP				= enip.CIP()
-    logging.getLogger().setLevel( logging.INFO )
     for pkt,cls,tst in client.recycle( CIP_tests, times=repeat ):
         assert type( cls ) is type
         # Parse just the CIP portion following the EtherNet/IP encapsulation header
@@ -2400,8 +2438,8 @@ def test_enip_CIP( repeat=1 ):
         # Assume the request in the CIP's CPF items are Logix requests.
         # Now, parse the encapsulated message(s).  We'll assume it is destined for a Logix Object.
         if 'enip.CIP.send_data' in data:
+          dialect_bak,device.dialect	= device.dialect,cls # save/restore enip.dialect
           try:
-            dialect_bak,device.dialect = device.dialect,cls # save/restore enip.dialect
             for item in data.enip.CIP.send_data.CPF.item:
                 if 'unconnected_send.request' in item:
                     request		= item.unconnected_send.request
@@ -2445,6 +2483,7 @@ def test_enip_CIP( repeat=1 ):
             if k.endswith( 'input' ) and 'sender_context' not in k:
                 log.detail( "del data[%r]", k )
                 del data[k]
+
         try:
             # First reconstruct any SendRRData CPF items, containing encapsulated requests/responses
             if 'enip.CIP.send_data' in data:
@@ -2465,8 +2504,8 @@ def test_enip_CIP( repeat=1 ):
             data.input			= bytearray( enip.enip_encode( data.enip ))
             log.detail( "EtherNet/IP CIP Request produced payload: %r", bytes( data.input ))
             assert data.input == pkt, "original:\n" + hexdump( pkt ) + "\nproduced:\n" + hexdump( data.input )
-        except:
-            log.warning ( "Invalid packet produced from EtherNet/IP CIP data: %r", data )
+        except Exception as exc:
+            log.warning( "Invalid packet produced from EtherNet/IP CIP data: %s\n%s", enip.enip_format( data ), exc)
             raise
 
 
