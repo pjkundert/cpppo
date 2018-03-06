@@ -1618,6 +1618,18 @@ class implicit( connector ):
     Open request, and 'self.timeout' will contain the original timeout.  These will be used to issue
     the correct Forward Close request at the close of the session.
 
+    While we typically issue a single Forward Open request on a connection, there is no reason that
+    multiple Forward Open requests cannot be issued on a single EtherNet/IP session.  We'll track
+    the O_T_connection_ID on each forward open, and create a sequence number for each Forward Open
+    session, which subsequent calls to .connected_send( ..., connection=#, ... ) will use (it is
+    expected that the O_T_connection_ID's for the desired supplied to identify the desired
+    connection).
+
+    A global sequence of connection_serial (used, by default, also as O_T_connection_ID is
+    maintained.  This is unnecessarily strict, and there is nothing preventing independent Implicit
+    connections from using the same O_T_connection_ID on different Forward Open sessions.
+    Therefore, the connection-->sequence dict is maintained on a per-instance basis.
+
     """
     connection_serial		= 0
     def __init__( self, host, port=None, timeout=None, connection_path=None, path=None, 
@@ -1631,6 +1643,7 @@ class implicit( connector ):
         self.timeout		= timeout
         self.requested		= cpppo.dotdict()
         self.established	= cpppo.dotdict()
+        self.seqs		= {} # Forward Open connected_send( connection --> sequence )
 
         super( implicit, self ).__init__( host=host, port=port, timeout=timeout, **kwds )
 
@@ -1776,6 +1789,26 @@ class implicit( connector ):
         finally:
             self.dialect	= dialect_bak # Restore original self.dialect
             super( implicit, self ).close()
+
+    def connected_send( self, request, timeout=None,
+                        connection=None, sequence=None, payload=None,
+                        sender_context=b'', dialect=None ):
+        """If connection and/or sequence not supplied default to the established Forward Open
+        O_T_connection_ID, and/or the next sequence number for the O_T_connection_ID (starting w/
+        sequence == 0 for each connection).
+
+        """
+        if connection is None:
+            connection		= self.established.forward_open.O_T_connection_ID
+        if sequence is None:
+            sequence = self.seqs[connection] = self.seqs.get( connection, -1 ) + 1 # 0, 1, ...
+        return super( implicit, self ).connected_send( request,
+                    timeout		= timeout,
+                    connection		= connection,
+                    sequence		= sequence,
+                    payload		= payload,
+                    sender_context	= sender_context,
+                    dialect		= dialect )
 
 
 def recycle( iterable, times=None ):
