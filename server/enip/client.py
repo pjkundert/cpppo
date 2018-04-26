@@ -27,7 +27,7 @@ __license__                     = "Dual License: GPLv3 (or later) and Commercial
 
 __all__				= ['parse_int', 'parse_path', 'parse_path_elements', 'parse_path_component',
                                    'format_path', 'format_context', 'parse_context', 'CIP_TYPES', 'parse_operations',
-                                   'client', 'await_response', 'connector', 'recycle', 'main' ]
+                                   'client', 'await_response', 'connector', 'recycle', 'main', 'ENIPStatusError' ]
 
 
 """enip.client	-- EtherNet/IP client API and module entry point
@@ -69,6 +69,11 @@ def parse_path_component( *args, **kwds ):
     return device.parse_path_component( *args, **kwds )
 
 log				= logging.getLogger( "enip.cli" )
+
+class ENIPStatusError( Exception ):
+    def __init__(self, status=None):
+        self.status		= status
+        super( ENIPStatusError, self ).__init__("Response EtherNet/IP status: %d" % ( status ))
 
 
 def format_path( segments, count=None ):
@@ -1153,7 +1158,7 @@ class connector( client ):
             elif not response:	# empty response indicates clean EOF
                 raise StopIteration( "Session terminated" )
             elif 'enip.status' in response and response.enip.status != 0:
-                raise Exception( "Response EtherNet/IP status: %d" % ( response.enip.status ))
+                raise ENIPStatusError( status=response.enip.status )
             elif 'enip.CIP.send_data.CPF.item[1].unconnected_send.request.multiple.request' in response:
                 # Multiple Service Packet; request.multiple.request is an array of read/write_tag/frag
                 replies		= response.enip.CIP.send_data.CPF.item[1].unconnected_send.request.multiple.request
