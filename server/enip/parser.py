@@ -373,9 +373,9 @@ class STRING( STRUCT ):
         return result
 
 
-class IPADDR( UDINT_network ):
-    """Acts alot like a UDINT_network, but .produce takes an optional string value, and parses a
-    UDINT_network to produce an IPv4 dotted-quad address string.
+class IPADDR( UDINT ):
+    """Acts alot like a UDINT, but .produce takes an optional string value, and parses a
+    UDINT to produce an IPv4 dotted-quad address string.
 
     """
     def terminate( self, exc, machine, path, data ):
@@ -395,7 +395,7 @@ class IPADDR( UDINT_network ):
                 ( unicode if sys.version_info[0] < 3 else str )( value ))
             value		= int( ipaddr )
             log.info( "Converted IP %r --> %d", ipaddr, value )
-        return UDINT_network.produce( value )
+        return UDINT.produce( value )
 
 
 class IFACEADDRS( STRUCT ):
