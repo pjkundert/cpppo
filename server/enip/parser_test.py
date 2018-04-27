@@ -15,20 +15,22 @@ log				= logging.getLogger( "parser" )
 
 
 def test_IPADDR():
-    # IP addresses are expressed as Network byte-ordered UDINTs, on the wire
-    source			= parser.IPADDR.produce( '10.0.0.1' )
+    """IP addresses for some requests (eg. ListIdentity) are expressed as Network byte-ordered UDINTs,
+    on the wire"""
+    source			= parser.IPADDR_network.produce( '10.0.0.1' )
     assert source == b'\x0A\x00\x00\x01'
     # But, we parse them as Network byte-ordered UDINTs and present them as IP addresses
     result			= cpppo.dotdict()
-    with parser.IPADDR() as machine:
+    with parser.IPADDR_network() as machine:
         with contextlib.closing( machine.run( source=source, data=result )) as engine:
             for m,s in engine:
                 if s is None:
                     assert m.terminal
-    assert result.IPADDR == '10.0.0.1'
+    assert result.IPADDR_network == '10.0.0.1'
 
 
 def test_IFACEADDRS():
+    """TCPIP Object Interface Addresses are in litle-endian byte order."""
     data			= cpppo.dotdict()
     data.ip_address		= "10.161.1.5"
     data.network_mask		= "255.255.255.0"
@@ -38,8 +40,7 @@ def test_IFACEADDRS():
     data.domain_name		= "acme.ca"
 
     source			= parser.IFACEADDRS.produce( data )
-    assert source == b'\n\xa1\x01\x05\xff\xff\xff\x00\n\xa1\x01\x01\x08\x08\x08\x08\x08\x08\x04\x04\x07\x00acme.ca\x00'
-
+    assert source == b'\x05\x01\xa1\n\x00\xff\xff\xff\x01\x01\xa1\n\x08\x08\x08\x08\x04\x04\x08\x08\x07\x00acme.ca\x00'
     result			= cpppo.dotdict()
     with parser.IFACEADDRS() as machine:
         with contextlib.closing( machine.run( source=source, data=result )) as engine:

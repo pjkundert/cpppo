@@ -398,6 +398,28 @@ class IPADDR( UDINT ):
         return UDINT.produce( value )
 
 
+class IPADDR_network( UDINT_network ):
+    """Some CIP requests return network-ordered IPADDRs (eg. ListIdentity).
+
+    """
+    def terminate( self, exc, machine, path, data ):
+        """Post-process a parsed UDINT_netowrk IP address to produce it in dotted-quad string form"""
+        super( IPADDR_network, self ).terminate( exc, machine=machine, path=path, data=data )
+        ours			= self.context( path )
+        ipaddr			= ipaddress.ip_address( data[ours] )
+        log.info( "Converting %d --> %r (network byte ordered)", data[ours], ipaddr )
+        data[ours]		= str( ipaddr )
+
+    @classmethod
+    def produce( cls, value ):
+        if isinstance( value, cpppo.type_str_base ):
+            ipaddr		= ipaddress.ip_address(
+                ( unicode if sys.version_info[0] < 3 else str )( value ))
+            value		= int( ipaddr )
+            log.info( "Converted IP %r --> %d (network byte ordered)", ipaddr, value )
+        return UDINT_network.produce( value )
+
+
 class IFACEADDRS( STRUCT ):
     """Parses/produces a struct of TCP/IP interface IP address data, as per. Attribute 5 of the TCPIP
     Interface Object.  Takes a dict, eg.: {
@@ -1166,7 +1188,7 @@ class identity_object( cpppo.dfa ):
                                         context='sin_family' )
         sfam[True]	= sprt	= UINT_network(
                                         context='sin_port' )
-        sprt[True]	= sadd	= IPADDR(
+        sprt[True]	= sadd	= IPADDR_network(
                                         context='sin_addr' )
         sadd[True]	= szro	= octets_drop( context='sin_zero', repeat=8 )
         szro[True]	= vndr	= UINT(	context='vendor_id' )
@@ -1201,7 +1223,7 @@ class identity_object( cpppo.dfa ):
         result	       	       += UINT.produce( data.version )
         result	               += INT_network.produce( data.sin_family )
         result	               += UINT_network.produce( data.sin_port )
-        result	               += IPADDR.produce( data.sin_addr )
+        result	               += IPADDR_network.produce( data.sin_addr )
         result		       += b'\0' * 8
         result		       += UINT.produce( data.vendor_id )
         result		       += UINT.produce( data.device_type )
@@ -1256,7 +1278,7 @@ class legacy_CPF_0x0001( cpppo.dfa ):
                                         context='sin_family' )
         sfam[True]	= sprt	= UINT_network(
                                         context='sin_port' )
-        sprt[True]	= sadd	= IPADDR(
+        sprt[True]	= sadd	= IPADDR_network(
                                         context='sin_addr' )
         sadd[True]	= szro	= octets_drop( context='sin_zero', repeat=8 )
         szro[True]	= addr	= cpppo.string_bytes( 'ip_address', context='ip_address',
@@ -1278,21 +1300,21 @@ class legacy_CPF_0x0001( cpppo.dfa ):
         # Contains IP information in sin_addr (network byte-order) and/or ip_address (string).
         # Accept both/either in data (eg. product sin_addr from ip_address or vice versa)
         sin_addr		= data.sin_addr if 'sin_addr' in data else data.ip_address
-        sin_addr_octets		= IPADDR.produce( sin_addr ) # accept 32-bit int or IP address string
+        sin_addr_octets		= IPADDR_network.produce( sin_addr ) # accept 32-bit int or IP address string
         result	               += sin_addr_octets
         result		       += b'\0' * 8 # sin_zero
 
         # If data.ip_address not supplied, convert the 32-bit host-ordered IP address in ip_octets
-        # to a string using the IPADDR parser.
+        # to a string using the IPADDR_network parser.
         ip_address		= data.get( 'ip_address' )
         if ip_address is None:
             ip_address_data	= cpppo.dotdict()
-            with IPADDR() as machine:
+            with IPADDR_network() as machine:
                 with contextlib.closing( machine.run(
                         source=sin_addr_octets, data=ip_address_data )) as engine:
                     for m,s in engine:
                         pass
-            ip_address		= ip_address_data.IPADDR
+            ip_address		= ip_address_data.IPADDR_network
 
         # Use the SSTRING producer to properly encode and NUL-pad the string to 16 characters.
         # We'll use the produced SSTRING, discarding the length.
