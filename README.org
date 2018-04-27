@@ -141,8 +141,9 @@
     (ie. only an empty =route_path= is allowed), use 0 or false:
     : --route-path '[{"port": 1, "link": 0]'              # backplane, slot 0
     : --route-path 1/0                                    #   ''
-    : --route-path '[{"port": 2, "link": "192.168.1.2"}]' # port 2, link 192.168.1.2
+    : --route-path '[{"port": 2, "link": "192.168.1.2"}]' # { port 2, link 192.168.1.2 }
     : --route-path 2/192.168.1.2                          #   ''
+    : --route-path 1/0/2/192.168.1.2 # { backplane, slot 0 }, { port 2, link 192.168.1.2 }
     : --route-path false                                  # No route_path accepted
     
     Alternatively, to easily specify acceptance of no routing Unconnected Send

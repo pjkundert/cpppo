@@ -363,9 +363,9 @@ def parse_path_component( path, elm=None, cnt=None ):
 
 
 def port_link( pl ):
-    """Convert "1/1" or "1/1.2.3.4" (or validate provided dict) to: {"port": 1, "link": 1/"1.2.3.4"}.
-    Link may be integer or IPv4 dotted-quad address.  Raises an Exception if not valid port/link
-    types.  This result could be one element of a route_path list.
+    """Convert "1/1" or "2/1.2.3.4" (or validate provided dict) to: {"port": 1, "link": 1} or {"port":
+    2, "link": "1.2.3.4"}.  Link may be integer or IPv4 dotted-quad address.  Raises an Exception if
+    not valid port/link types.  This result could be one element of a route_path list.
 
     """
     if isinstance( pl, cpppo.type_str_base ):
@@ -396,7 +396,11 @@ def parse_route_path( route_path ):
             if route_path and isinstance( route_path, dict ):
                 route_path	= [route_path] # a dict; validate as eg. [{"port":<int>,"link":<int>/"<ip>"}]
         except:
-            route_path		= [route_path] # Not JSON; validate as eg. ["1/2"]
+            # Handle multiple route_path strings like: "1/0/2/1.2.3.4", by splitting on even '/'
+            pls			= route_path.split( '/' )
+            assert len( pls ) % 2 == 0, "A route_path must have pairs of link/port values"
+            seg			= [ '/'.join( [pls[i], pls[i+1]] ) for i in range( 0, len( pls ), 2 ) ]
+            route_path		= seg
         else:
             # Was JSON; better be one of the known types
             assert isinstance( route_path, (type(None),bool,int,list)), \
