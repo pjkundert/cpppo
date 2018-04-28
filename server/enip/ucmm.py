@@ -318,13 +318,16 @@ class UCMM( device.Object ):
                     # No route_path, or port/link not in self.route.  Local request.
 
                     # Make sure the route_path matches what we've been configured w/; the supplied
-                    # route_path.segment list must match the configured self.route_path, eg: {'link': 0,
-                    # 'port': 1}.  Thus, if an empty route_path supplied in Unconnected Send request, it
-                    # will not match any configured route_path.  Also, if we've specified a Falsey
-                    # (eg. 0, False) UCMM object .route_path, we'll only accept requests with an empty
-                    # route_path.
+                    # route_path.segment list must match the configured self.route_path, eg:
+                    # {'link': 0, 'port': 1}.  Thus, if a non-empty route_path is supplied in
+                    # Unconnected Send request, it will not match any differing configured
+                    # route_path.  Also, if we've specified a Falsey (eg. 0, False) UCMM object
+                    # .route_path, we'll only accept requests with an empty route_path. However: any
+                    # "Simple" (non route_path encapsulated) request will be allowed by any device
+                    # (self.route_path configured or not).
                     if self.route_path is not None: # may be [{"port"}...]}, or 0/False
-                        assert ( not self.route_path and not route_path # both Falsey, or match
+                        assert ( not route_path		# Request has no route_path; its to some Object known to this simulator
+                                 or not self.route_path # Our specified route_path is Falsey, or they match
                                  or route_path == self.route_path ), \
                             "Unconnected Send route path %r differs from configured: %r" % (
                                 route_path, self.route_path )

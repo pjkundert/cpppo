@@ -138,13 +138,17 @@
     =port= and =link= value.  The =port= is either an 8- or 16-bit number (eg. port 1 typically
     indicates the local backplane).  The =link= is typically in the range 0-15 (eg. a "slot"
     number), or is an IP address (eg. "1.2.3.4"). To specify that no =route_path= is accepted
-    (ie. only an empty =route_path= is allowed), use 0 or false:
+    (ie. only an empty =route_path= is allowed, ie. a Simple request), use 0 or false:
     : --route-path '[{"port": 1, "link": 0]'              # backplane, slot 0
     : --route-path 1/0                                    #   ''
     : --route-path '[{"port": 2, "link": "192.168.1.2"}]' # { port 2, link 192.168.1.2 }
     : --route-path 2/192.168.1.2                          #   ''
     : --route-path 1/0/2/192.168.1.2 # { backplane, slot 0 }, { port 2, link 192.168.1.2 }
     : --route-path false                                  # No route_path accepted
+
+    Note that incoming "Simple" requests to a full-featured "Routing" simulator configured with a
+    route path *will be accepted*; the specified target CIP Object(s) must exist in the target
+    simulator.
     
     Alternatively, to easily specify acceptance of no routing Unconnected Send
     encapsulation (eg. to simulate simple non-routing CIP devices such as
