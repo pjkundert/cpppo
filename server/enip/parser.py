@@ -688,7 +688,7 @@ class EPATH( cpppo.dfa ):
 
     """
     PADSIZE			= False
-    UNSIZED			= False # True --> 1 or more, 1 --> a single EPATH segment
+    SINGLE			= False # True --> a single EPATH segment (w/ no SIZE)
     SEGMENTS			= {
         'symbolic':	0x91,
         'class':	0x20,
@@ -704,17 +704,17 @@ class EPATH( cpppo.dfa ):
         # Get the size, and chain remaining machine onto rest.  When used as a Route Path, the size
         # is padded, so insert a state to drop the pad, and chain rest to that instead.  We handle a
         # Route Path with a zero size; it'll be empty, except for the size.
-        if not self.UNSIZED:
+        if not self.SINGLE:
             size		= rest	= USINT(			context='size' )
             if self.PADSIZE:
                 size[True]	= rest	= octets_drop( 	'pad', 		repeat=1 )
 
-        # After capturing each segment__ (pseg), move it onto the path segment list, and loop
+        # After capturing each segment__ (pseg), move it onto the path segment list
         pseg			= octets_noop(	'type',		terminal=True )
-        # ...segment parsers...
+        # ...segment parsers..., and loop (unless SINGLE)
         pmov			= move_if( 	'move',		initializer=lambda **kwds: [],
                                             source='..segment__', destination='..segment',
-                                                state=pseg )
+                                    state=octets_noop( 'done', terminal=True ) if self.SINGLE else pseg )
 
         # Wire each different segment type parser between pseg and pmov
         
@@ -890,12 +890,12 @@ class EPATH( cpppo.dfa ):
 
         each			= cpppo.dfa(    'each',		context='segment__',
                                                 initial=pseg,	terminal=True,
-                                                limit=None if self.UNSIZED else size_init )
-        if self.UNSIZED:
+                                                limit=None if self.SINGLE else size_init )
+        if self.SINGLE:
             init		= each
         else:
-            # if sized, then the parser starts with parsing a size, and continues parsing each
-            # segment after either the size or its pad (rest, set above).
+            # if sized (not SINGLE), then the parser starts with parsing a size, and continues
+            # parsing each segment after either the size or its pad (rest, set above).
             init		= size
             rest[None]		= each
 
@@ -986,7 +986,7 @@ class EPATH( cpppo.dfa ):
             assert len( result ) % 2 == 0, \
                 "Failed to retain even EPATH word length after %r in %r" % ( segnam, data )
 
-        if cls.UNSIZED:
+        if cls.SINGLE:
             return result
         return USINT.produce( len( result ) // 2 ) + ( b'\x00' if cls.PADSIZE else b'' ) + result
 
@@ -995,13 +995,13 @@ class EPATH_padded( EPATH ):
     PADSIZE			= True
 
 
-class EPATH_unsized( EPATH ):
+class EPATH_single( EPATH ):
     """Sometimes it is known that an EPATH contains only a single segment (eg. a single port/link
     specification).  In these cases, the parser doesn't require an EPATH size to limit the number of
     EPATH segments to parse.
 
     """
-    UNSIZED			= True
+    SINGLE			= True
 
 
 class route_path( EPATH_padded ):

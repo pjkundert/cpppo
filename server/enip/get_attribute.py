@@ -193,7 +193,8 @@ class proxy( object ):
         "ipaddr":	( parser.IPADDR,	"IPADDR" ),		# a network-order UDINT as a dotted-quad
         "string":	( parser.STRING,	"STRING.string" ),
         "sstring":	( parser.SSTRING,	"SSTRING.string" ),
-        "epath":	( parser.EPATH_padded, "EPATH_padded.segment" ), # Supports padded EPATH: <words> 0x00 <EPATH> [<pad>]
+        "epath":	( parser.EPATH_padded,	"EPATH_padded.segment" ), # Supports padded EPATH: <words> 0x00 <EPATH> [<pad>]
+        "epath_single":	( parser.EPATH_single,	"EPATH_single.segment" ), # A single EPATH segment (w/ no <words> SIZE)
     }
 
     # 

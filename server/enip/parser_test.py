@@ -49,18 +49,18 @@ def test_IFACEADDRS():
     assert result.IFACEADDRS == data
 
 
-def test_EPATH_unsized():
+def test_EPATH_single():
     logging.getLogger().setLevel( logging.DEBUG )
     data			= cpppo.dotdict()
     source			= b'\x12\x0810.0.7.1'
-    with parser.EPATH_unsized() as machine:
+    with parser.EPATH_single() as machine:
         with contextlib.closing( machine.run( source=source, data=data )) as engine:
             for m,s in engine:
                 pass
 
-    assert data.EPATH_unsized.segment == [{"port": 2, "link": "10.0.7.1" }]
+    assert data.EPATH_single.segment == [{"port": 2, "link": "10.0.7.1" }]
 
-    result			= parser.EPATH_unsized.produce( data.EPATH_unsized )
+    result			= parser.EPATH_single.produce( data.EPATH_single )
     assert result == source
 
 
