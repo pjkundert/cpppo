@@ -688,6 +688,7 @@ class EPATH( cpppo.dfa ):
 
     """
     PADSIZE			= False
+    UNSIZED			= False # True --> 1 or more, 1 --> a single EPATH segment
     SEGMENTS			= {
         'symbolic':	0x91,
         'class':	0x20,
@@ -703,9 +704,10 @@ class EPATH( cpppo.dfa ):
         # Get the size, and chain remaining machine onto rest.  When used as a Route Path, the size
         # is padded, so insert a state to drop the pad, and chain rest to that instead.  We handle a
         # Route Path with a zero size; it'll be empty, except for the size.
-        size		= rest	= USINT(			context='size' )
-        if self.PADSIZE:
-            size[True]	= rest	= octets_drop( 	'pad', 		repeat=1 )
+        if not self.UNSIZED:
+            size		= rest	= USINT(			context='size' )
+            if self.PADSIZE:
+                size[True]	= rest	= octets_drop( 	'pad', 		repeat=1 )
 
         # After capturing each segment__ (pseg), move it onto the path segment list, and loop
         pseg			= octets_noop(	'type',		terminal=True )
@@ -794,7 +796,6 @@ class EPATH( cpppo.dfa ):
         #                |
         #                +------> link size+address; 0=>numeric, 1=>size+string
         # 
-
         def port_fix( path=None, data=None, **kwds ):
             """Discard port values above 0x0F; return True (transition) if remaining port value is 0x0F
             (Optional Extended port number > 0x0E)"""
@@ -887,11 +888,18 @@ class EPATH( cpppo.dfa ):
                 data[path+'..segment'] = []
             return octets
 
-        rest[None]		= cpppo.dfa(    'each',		context='segment__',
+        each			= cpppo.dfa(    'each',		context='segment__',
                                                 initial=pseg,	terminal=True,
-                                                limit=size_init )
+                                                limit=None if self.UNSIZED else size_init )
+        if self.UNSIZED:
+            init		= each
+        else:
+            # if sized, then the parser starts with parsing a size, and continues parsing each
+            # segment after either the size or its pad (rest, set above).
+            init		= size
+            rest[None]		= each
 
-        super( EPATH, self ).__init__( name=name, initial=size, **kwds )
+        super( EPATH, self ).__init__( name=name, initial=init, **kwds )
 
     @classmethod
     def produce( cls, data ):
@@ -977,12 +985,23 @@ class EPATH( cpppo.dfa ):
                 assert False, "Invalid EPATH segment %r found in %r" % ( segnam, data )
             assert len( result ) % 2 == 0, \
                 "Failed to retain even EPATH word length after %r in %r" % ( segnam, data )
-    
+
+        if cls.UNSIZED:
+            return result
         return USINT.produce( len( result ) // 2 ) + ( b'\x00' if cls.PADSIZE else b'' ) + result
 
 
 class EPATH_padded( EPATH ):
     PADSIZE			= True
+
+
+class EPATH_unsized( EPATH ):
+    """Sometimes it is known that an EPATH contains only a single segment (eg. a single port/link
+    specification).  In these cases, the parser doesn't require an EPATH size to limit the number of
+    EPATH segments to parse.
+
+    """
+    UNSIZED			= True
 
 
 class route_path( EPATH_padded ):

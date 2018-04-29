@@ -49,6 +49,21 @@ def test_IFACEADDRS():
     assert result.IFACEADDRS == data
 
 
+def test_EPATH_unsized():
+    logging.getLogger().setLevel( logging.DEBUG )
+    data			= cpppo.dotdict()
+    source			= b'\x12\x0810.0.7.1'
+    with parser.EPATH_unsized() as machine:
+        with contextlib.closing( machine.run( source=source, data=data )) as engine:
+            for m,s in engine:
+                pass
+
+    assert data.EPATH_unsized.segment == [{"port": 2, "link": "10.0.7.1" }]
+
+    result			= parser.EPATH_unsized.produce( data.EPATH_unsized )
+    assert result == source
+
+
 def test_STRINGs():
     """SSTRING is 1-byte len + string; STRING is 2-byte len + string + pad (if odd len)"""
     base			= "Of the increase of His government and peace there shall be no end "
