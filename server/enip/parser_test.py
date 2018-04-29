@@ -63,6 +63,11 @@ def test_EPATH_single():
     result			= parser.EPATH_single.produce( data.EPATH_single )
     assert result == source
 
+    # Try out an "extended" 16-bit port number
+    # [1F][SS][PPPP]'123.123.123.123'[00]	port 0xPPPP,  link address '123.123.123.123' (pad if size SS odd)
+    data.EPATH_single.segment[0]['port'] = 0x56CE # 22222
+    result			= parser.EPATH_single.produce( data.EPATH_single )
+    assert result == b'\x1F\x08\xCE\x5610.0.7.1'
 
 def test_STRINGs():
     """SSTRING is 1-byte len + string; STRING is 2-byte len + string + pad (if odd len)"""
