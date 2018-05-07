@@ -978,7 +978,7 @@ class EPATH( cpppo.dfa ):
                     result     += USINT.produce( 0 )
                     result     += UDINT.produce( segval )
                 else:
-                    assert False, "Invalid value for numeric EPATH segment %r == %d: %d" % (
+                    assert False, "Invalid value for numeric EPATH segment %r == %d: %r" % (
                         segnam, segval, data )
                 break
             if not found:
