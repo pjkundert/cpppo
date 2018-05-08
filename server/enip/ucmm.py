@@ -326,10 +326,11 @@ class UCMM( device.Object ):
                     # "Simple" (non route_path encapsulated) request will be allowed by any device
                     # (self.route_path configured or not).
                     if self.route_path is not None: # may be [{"port"}...]}, or 0/False
-                        assert ( not route_path		# Request has no route_path; its to some Object known to this simulator
-                                 or not self.route_path # Our specified route_path is Falsey, or they match
-                                 or route_path == self.route_path ), \
-                            "Unconnected Send route path %r differs from configured: %r" % (
+                        assert ( not route_path			# Request has no route_path (Simple Request); its to some Object known to this simulator
+                                 or ( not self.route_path	# Our specified route_path is Falsey (Simple Device)
+                                      and route_path is None )	#   and the incoming request had not route_path
+                                 or route_path == self.route_path # Or they match
+                        ),  "Unconnected Send route path %r differs from configured: %r" % (
                                 route_path, self.route_path )
 
                     # If the standard Connection Manager isn't addressed, that's strange but, OK...
