@@ -602,14 +602,14 @@
     =link= is typically in the range 0-15 (a backplane slot) or an IP address.  A string with a '/'
     in it is parsed as <port>/<link>.  If a only single =route_path= element is intended, the JSON
     array notation is optional:
-    : --route-path '[{"port": 1, "link": 0}]'             # backplane, slot 0
-    : --route-path '{"port": 1, "link": 0}'               #  ''
-    : --route-path '1/0'                                  #  ''
+    : --route-path '[{"port": 1, "link": 0}]'           # backplane, slot 0
+    : --route-path '{"port": 1, "link": 0}'             #  ''
+    : --route-path '1/0'                                #  ''
     Complex multi-segment route-paths must be specified in a JSON list.  For example, to route via
     an EtherNet/IP module in backplane slot 3, and then out its second Ethernet port to address
     1.2.3.4:
-    : --route-path '["1/3", {"port":2,"link":"1.2.3.4"}]'# backplane slot 3,
-    : --route-path '["1/3", "2/1.2.3.4"]'                #   then second port and IP 1.2.3.4
+    : --route-path '["1/3",{"port":2,"link":"1.2.3.4"}]'# backplane slot 3,
+    : --route-path '["1/3","2/1.2.3.4"]'                #   then second port and IP 1.2.3.4
     To specify no =route_path=, use 0 or false (usually only in concert with --send-path='', or just
     use -S):
     : --route-path false
@@ -627,6 +627,13 @@
     Therefore, to communicate with simple, non-routing CIP devices (eg. AB
     PowerFlex, ...), use =-S= or =--simple=, or explicitly:
     : --send-path='' --route-path=false
+
+    The default request timeout is specified in "timeout_ticks".  Each tick has a duration from 1 to
+    32,768 milliseconds, computed in ms.: =2 ** <priority_tick_time>=
+    : --priority-time-tick 0                            # 1ms. ticks
+
+    Specify =timeout_ticks= (default: 157 * 32ms == 5s.)
+    : --timeout-ticks 63                                # ~2s (if ticks == 32ms)
 
     Alternatively, to easily specify use of no routing Unconnected Send
     encapsulation in requests:

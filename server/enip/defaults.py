@@ -36,8 +36,15 @@ import cpppo
 latency				=  0.1 	# network I/O polling (should allow several round-trips)
 timeout				= 20.0	# Await completion of all I/O, thread activity (on many threads)
 address				= ('', 44818)	# The default cpppo.enip.address
+
+# Default assumes target (eg. CPU) in backplane, slot 0, 
 route_path_default		= [{'port': 1, 'link': 0}] # default controller address: backplane, slot 0 
 send_path_default		= [{'class': 6}, {'instance': 1}]
+
+# Round-trip request timeout; each node in the route_path subtracts 2x is est. rx-to-processing time (or 512ms)
+priority_time_tick		= 5	#  2**5 == 32ms/tick See: Vol 3.15, 3-5.5.1.4 Connection Timing
+timeout_ticks			= 157	#  157 * 32 == 5.024s
+
 config_name			= 'cpppo.cfg'
 config_files			= [
     os.path.join( os.path.dirname( cpppo.__file__ ), config_name ),	# cpppo install dir

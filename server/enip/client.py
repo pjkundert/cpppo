@@ -305,6 +305,8 @@ class client( object ):
     """
     route_path_default		= defaults.route_path_default
     send_path_default		= defaults.send_path_default
+    priority_time_tick		= defaults.priority_time_tick
+    timeout_ticks		= defaults.timeout_ticks
 
     def __init__( self, host, port=None, timeout=None, dialect=None, profiler=None,
                   udp=False, broadcast=False, source_address=None ):
@@ -642,6 +644,7 @@ class client( object ):
     # CIP SendRRData Requests; may be deferred (eg. for Multiple Service Packet)
     def get_attributes_all( self, path,
               route_path=None, send_path=None, timeout=None, send=True,
+              priority_time_tick=None, timeout_ticks=None,
               sender_context=b'',
               data_size=None, elements=None, tag_type=None ):
         req			= cpppo.dotdict()
@@ -650,11 +653,13 @@ class client( object ):
         if send:
             self.unconnected_send(
                 request=req, route_path=route_path, send_path=send_path, timeout=timeout,
+                priority_time_tick=priority_time_tick, timeout_ticks=timeout_ticks,
                 sender_context=sender_context )
         return req
 
     def get_attribute_single( self, path,
               route_path=None, send_path=None, timeout=None, send=True,
+              priority_time_tick=None, timeout_ticks=None,
               sender_context=b'',
               data_size=None, elements=None, tag_type=None ):
         req			= cpppo.dotdict()
@@ -663,11 +668,13 @@ class client( object ):
         if send:
             self.unconnected_send(
                 request=req, route_path=route_path, send_path=send_path, timeout=timeout,
+                priority_time_tick=priority_time_tick, timeout_ticks=timeout_ticks,
                 sender_context=sender_context )
         return req
 
     def set_attribute_single( self, path, data, elements=1, tag_type=None,
               route_path=None, send_path=None, timeout=None, send=True,
+              priority_time_tick=None, timeout_ticks=None,
               sender_context=b'' ):
         """Convert the supplied tag_type data into USINTs if necessary, and perform the Set Attribute
         Single.  If no/None tag_type supplied, the data is assumed to be SINT/USINT.
@@ -694,11 +701,13 @@ class client( object ):
         if send:
             self.unconnected_send(
                 request=req, route_path=route_path, send_path=send_path, timeout=timeout,
+                priority_time_tick=priority_time_tick, timeout_ticks=timeout_ticks,
                 sender_context=sender_context )
         return req
 
     def read( self, path, elements=1, offset=0,
               route_path=None, send_path=None, timeout=None, send=True,
+              priority_time_tick=None, timeout_ticks=None,
               sender_context=b'',
               data_size=None, tag_type=None ):
         """Issue a Read Tag Fragmented request for the specified path.  If no specific number of
@@ -723,11 +732,13 @@ class client( object ):
         if send:
             self.unconnected_send(
                 request=req, route_path=route_path, send_path=send_path, timeout=timeout,
+                priority_time_tick=priority_time_tick, timeout_ticks=timeout_ticks,
                 sender_context=sender_context )
         return req
 
     def write( self, path, data, elements=1, offset=0, tag_type=None,
                route_path=None, send_path=None, timeout=None, send=True,
+               priority_time_tick=None, timeout_ticks=None,
                sender_context=b'' ):
         req			= cpppo.dotdict()
         seg,elm,cnt		= parse_path_elements( path )
@@ -752,10 +763,12 @@ class client( object ):
         if send:
             self.unconnected_send(
                 request=req, route_path=route_path, send_path=send_path, timeout=timeout,
+                priority_time_tick=priority_time_tick, timeout_ticks=timeout_ticks,
                 sender_context=sender_context )
         return req
 
     def multiple( self, request, path=None, route_path=None, send_path=None, timeout=None, send=True,
+                          priority_time_tick=None, timeout_ticks=None,
                           sender_context=b'' ):
         assert isinstance( request, list ), \
             "A Multiple Service Packet requires a request list"
@@ -768,10 +781,12 @@ class client( object ):
         if send:
             self.unconnected_send(
                 request=req, route_path=route_path, send_path=send_path, timeout=timeout,
+                priority_time_tick=priority_time_tick, timeout_ticks=timeout_ticks,
                 sender_context=sender_context )
         return req
 
     def unconnected_send( self, request, route_path=None, send_path=None, timeout=None,
+                          priority_time_tick=None, timeout_ticks=None,
                           sender_context=b'' ):
         """The default route_path is the CPU in chassis (link 0), port 1, and the default send_path is
         to its Connection Manager (Class 6, Instance 1).  These defaults can be configured on a
@@ -810,8 +825,8 @@ class client( object ):
         if send_path or route_path:
             us.service		= 82
             us.status		= 0
-            us.priority		= 5
-            us.timeout_ticks	= 157
+            us.priority		= self.priority_time_tick if priority_time_tick is None else priority_time_tick
+            us.timeout_ticks	= self.timeout_ticks      if timeout_ticks      is None else timeout_ticks
             us.path		= { 'segment': [ cpppo.dotdict( s ) for s in parse_path( send_path ) ]}
             if route_path: # May be None/0/False or empty
                 us.route_path	= { 'segment': [ cpppo.dotdict( s ) for s in route_path ]} # must be {link/port}
@@ -1524,6 +1539,14 @@ which is required to carry this Send/Route Path data. """ )
     ap.add_argument( '--send-path',
                      default=None,
                      help="Send Path to UCMM (default: @6/1); Specify an empty string '' for no Send Path" )
+    ap.add_argument( '--priority-time-tick',
+                     default=None,
+                     help="Timeout tick length N range (0,15) (default: %s == %sms), where each tick is 2**N ms. Eg. 0 ==> 1ms., 5 ==> 32ms., 15 ==> 32768ms." % (
+                         defaults.priority_time_tick, 2 ** defaults.priority_time_tick ))
+    ap.add_argument( '--timeout-ticks',
+                     default=None,
+                     help="Timeout duration ticks in range (1,255) (default: %s == %sms)" % (
+                         defaults.timeout_ticks, defaults.timeout_ticks * ( 2 ** defaults.priority_time_tick )))
     ap.add_argument( '-S', '--simple', action='store_true',
                      default=False,
                      help="Access a simple (non-routing) EtherNet/IP CIP device (eg. MicroLogix)")
@@ -1587,7 +1610,10 @@ which is required to carry this Send/Route Path data. """ )
                                       else [] if args.simple else None
     send_path			= args.send_path                if args.send_path \
                                       else '' if args.simple else None
-
+    priority_time_tick		= None if args.priority_time_tick is None \
+                                      else int( args.priority_time_tick )
+    timeout_ticks		= None if args.timeout_ticks is None \
+                                      else int( args.timeout_ticks )
     if '-' in args.tags:
         # Collect tags from sys.stdin 'til EOF, at position of '-' in argument list
         minus			= args.tags.index( '-' )
@@ -1653,7 +1679,8 @@ which is required to carry this Send/Route Path data. """ )
             # Issue Tag I/O operations, optionally printing a summary
             begun		= cpppo.timer()
             operations		= parse_operations(
-                recycle( tags, times=repeat ), route_path=route_path, send_path=send_path )
+                recycle( tags, times=repeat ), route_path=route_path, send_path=send_path,
+                timeout_ticks=timeout_ticks, priority_time_tick=priority_time_tick )
             failed,transactions	= connection.process(
                 operations=operations, depth=depth, multiple=multiple,
                 fragment=fragment, printing=printing, timeout=timeout )

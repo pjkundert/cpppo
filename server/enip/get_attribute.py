@@ -263,6 +263,7 @@ class proxy( object ):
     
     def __init__( self, host, port=44818, timeout=None, depth=None, multiple=None,
                   gateway_class=client.connector, route_path=None, send_path=None,
+                  priority_time_tick=None, timeout_ticks=None,
                   identity_default=None, **gateway_kwds ):
         """Capture the desired I/O parameters for the target CIP Device.
 
@@ -279,6 +280,8 @@ class proxy( object ):
         self.multiple		= 0 if multiple is None else multiple
         self.route_path		= route_path
         self.send_path		= send_path
+        self.priority_time_tick	= priority_time_tick
+        self.timeout_ticks	= timeout_ticks
         self.gateway_kwds	= gateway_kwds	# Any additional args to gateway
         self.gateway_class	= gateway_class
         self.gateway		= None
@@ -553,7 +556,8 @@ class proxy( object ):
                     # desired; get raw data using Get Attribute Single.
                     parser	= client.parse_operations if typ is None else attribute_operations
                     opp,	= parser( ( att, ), route_path=device.parse_route_path( self.route_path ),
-                                          send_path=self.send_path )
+                                          send_path=self.send_path, priority_time_tick=self.priority_time_tick,
+                                          timeout_ticks=self.timeout_ticks )
                 except Exception as exc:
                     log.warning( "Failed to parse attribute %r; %s", att, exc )
                     raise
