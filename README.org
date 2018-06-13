@@ -628,16 +628,17 @@
     PowerFlex, ...), use =-S= or =--simple=, or explicitly:
     : --send-path='' --route-path=false
 
-    The default request timeout is specified in "timeout_ticks".  Each tick has a duration from 1 to
-    32,768 milliseconds, computed in ms.: =2 ** <priority_tick_time>=
-    : --priority-time-tick 0                            # 1ms. ticks
+    Alternatively, to easily specify use of no routing Unconnected Send
+    encapsulation in requests:
+    : -S|--simple
 
     Specify =timeout_ticks= (default: 157 * 32ms == 5s.)
     : --timeout-ticks 63                                # ~2s (if ticks == 32ms)
 
-    Alternatively, to easily specify use of no routing Unconnected Send
-    encapsulation in requests:
-    : -S|--simple
+    Specify the tick duration to use, when computing the actual timeout from =timeout_ticks=.  Each
+    tick has a duration from 1 to 32,768 milliseconds, computed as =2 ** <priority_tick_time>=
+    milliseconds.
+    : --priority-time-tick 0                            # Set 1ms. ticks
 
     To send log output to a file (limited to 10MB, rotates through 5 copies):
     : -l|--log <file>
