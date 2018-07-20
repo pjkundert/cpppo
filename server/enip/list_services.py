@@ -86,7 +86,7 @@ if __name__ == "__main__":
                 connection.list_interfaces()
             connection.shutdown() # starts a client-initiated clean shutdown for TCP/IP
             while True:
-                response,ela	= client.await( connection, timeout=timeout )
+                response,ela	= client.await_( connection, timeout=timeout )
                 if response:
                     print( enip.enip_format( response ))
                 else:

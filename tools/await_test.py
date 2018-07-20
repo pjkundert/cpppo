@@ -5,21 +5,21 @@ from __future__ import division
 import os
 
 from ..misc import timer, near
-from . import await
+from . import await_
 
 def test_await():
-    assert all( await.existence()( "/etc/hosts" ))
-    assert all( await.existence()( __file__ + "%^def test_await" ))
+    assert all( await_.existence()( "/etc/hosts" ))
+    assert all( await_.existence()( __file__ + "%^def test_await" ))
 
-    assert not all( await.existence()( .1, __file__ + ".boo" )) # timeout on filename
-    assert not all( await.existence()( .1, __file__ + "%^boo" )) # timeout on regex
+    assert not all( await_.existence()( .1, __file__ + ".boo" )) # timeout on filename
+    assert not all( await_.existence()( .1, __file__ + "%^boo" )) # timeout on regex
 
     # Ensure timeout delay is computed correctly (exponential back-off)
 
     # A bare .25-second timeout.  The timeout delay should implemented after
     # yielding last value, but before raising StopIteration.
     v			= .25
-    a			= iter( await.existence()( str( v )))
+    a			= iter( await_.existence()( str( v )))
     beg			= timer()
     assert next( a ) == True
     assert 0.0 <= timer() - beg < v * 0.1
@@ -32,7 +32,7 @@ def test_await():
 
     # A 100 second timeout on an existing file (this one)
     v			= 100
-    a			= iter( await.existence()( str( v ), __file__ ))
+    a			= iter( await_.existence()( str( v ), __file__ ))
     beg			= timer()
     assert next( a ) == True
     assert 0.0 <= timer() - beg < v * 0.1
@@ -69,7 +69,7 @@ def test_await_presence():
     # are treated as if they don't yet exist.
     beg			= timer()
     iamroot		= os.geteuid() == 0
-    assert all( await.existence()( .1, "/etc/shadow" )) == iamroot
+    assert all( await_.existence()( .1, "/etc/shadow" )) == iamroot
     if iamroot:
         assert timer() - beg < .1
     else:
@@ -77,29 +77,29 @@ def test_await_presence():
 
     # We can reverse presence detection.  Check that we can fail due to a file that exists
     beg			= timer()
-    assert all( await.existence( terms=[ .1, __file__ ], presence=False )) == False
+    assert all( await_.existence( terms=[ .1, __file__ ], presence=False )) == False
     assert .1 <= timer() - beg < .2
     # But a file that doesn't exist completes right away
     beg			= timer()
-    assert all( await.existence( terms=[ __file__+"asdfds" ], presence=False )) == True
+    assert all( await_.existence( terms=[ __file__+"asdfds" ], presence=False )) == True
     assert  timer() - beg < .1
     beg			= timer()
-    assert all( await.existence( terms=[ "+inf", __file__+"asdfds" ], presence=False )) == True
+    assert all( await_.existence( terms=[ "+inf", __file__+"asdfds" ], presence=False )) == True
     assert  timer() - beg < .1
     beg			= timer()
-    assert all( await.existence( terms=[ ".1", __file__+"asdfds" ], presence=False )) == True
+    assert all( await_.existence( terms=[ ".1", __file__+"asdfds" ], presence=False )) == True
     assert  timer() - beg < .1
     # and a failing regex is the same as not existing
     beg			= timer()
-    assert all( await.existence( terms=[ .1, __file__+"%^asdfsdaf" ], presence=False )) == True
+    assert all( await_.existence( terms=[ .1, __file__+"%^asdfsdaf" ], presence=False )) == True
     assert  timer() - beg < .1
     # but a matching regex has to be timed out and fails
     beg			= timer()
-    assert all( await.existence( terms=[ .1, __file__+"%^def test_await_presence" ], presence=False )) == False
+    assert all( await_.existence( terms=[ .1, __file__+"%^def test_await_presence" ], presence=False )) == False
     assert .1 <= timer() - beg < .2
 
 def test_await_duration():
-    truth,timing	= next( await.duration( await.existence( [ lambda: True ], timeout=1.0 )))
+    truth,timing	= next( await_.duration( await_.existence( [ lambda: True ], timeout=1.0 )))
     assert truth is True and timing <= .01
-    truth,timing	= next( await.duration( await.existence( [ lambda: False ], timeout=.25 )))
+    truth,timing	= next( await_.duration( await_.existence( [ lambda: False ], timeout=.25 )))
     assert truth is False and .25 <= timing <= .25+.01

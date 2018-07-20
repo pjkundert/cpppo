@@ -373,7 +373,7 @@ class proxy( object ):
         """
         with self.gateway as connection: # waits 'til any Thread's txn. completes
             connection.list_identity( timeout=self.timeout )
-            rsp,ela		= client.await( connection, timeout=self.timeout )
+            rsp,ela		= client.await_( connection, timeout=self.timeout )
             assert rsp, \
                 "No response to List Identity within timeout: %r" % ( self.timeout )
             return rsp,ela

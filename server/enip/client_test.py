@@ -107,7 +107,7 @@ def test_client_timeout():
     # Await the termination of the Process, which should happen just after .5s.
     beg				= misc.timer()
     try:
-        assert all( tools.await.existence( terms=[ lambda: not conn.is_alive() ], timeout=1.0 )), \
+        assert all( tools.await_.existence( terms=[ lambda: not conn.is_alive() ], timeout=1.0 )), \
             "enip.client.connector to non-existent host didn't time out; took: %.3fs" % ( misc.timer() - beg )
     finally:
         conn.terminate()

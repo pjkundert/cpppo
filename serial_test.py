@@ -90,7 +90,7 @@ try:
 except ImportError:
     logging.warning( "Failed to import pymodbus module; skipping Modbus/TCP related tests; run 'pip install pymodbus'" )
 
-from .tools.await import waitfor
+from .tools.await_ import waitfor
 from .modbus_test import start_modbus_simulator, has_o_nonblock, run_plc_modbus_polls
 if has_pymodbus and has_pyserial:
     from .remote.pymodbus_fixes import modbus_client_rtu, modbus_rtu_framer_collecting

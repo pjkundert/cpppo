@@ -30,7 +30,7 @@ __license__                     = "Dual License: GPLv3 (or later) and Commercial
 
 __all__				= ['parse_int', 'parse_path', 'parse_path_elements', 'parse_path_component',
                                    'format_path', 'format_context', 'parse_context', 'CIP_TYPES', 'parse_operations',
-                                   'client', 'await', 'connector', 'recycle', 'main']
+                                   'client', 'await_', 'connector', 'recycle', 'main']
 
 """enip.client	-- EtherNet/IP client API and module entry point
 
@@ -850,7 +850,7 @@ class client( object ):
         return data
 
 
-def await( cli, timeout=None ):
+def await_( cli, timeout=None ):
     """Await a response on an iterable client() instance (for timeout seconds, or forever if None).
     Returns (response,elapsed).  A 'timeout' may be supplied, of:
 
@@ -916,7 +916,7 @@ class connector( client ):
                 self.register( timeout=None if timeout is None else max( 0, timeout - elapsed_req ))
                 # Await the CIP response for remainder of timeout
                 elapsed_req	= cpppo.timer() - begun
-                data,elapsed_rpy= await( self, timeout=None if timeout is None else max( 0, timeout - elapsed_req ))
+                data,elapsed_rpy= await_( self, timeout=None if timeout is None else max( 0, timeout - elapsed_req ))
 
             assert data is not None, "Failed to receive any response"
             assert 'enip.status' in data, "Failed to receive EtherNet/IP response"
@@ -1112,7 +1112,7 @@ class connector( client ):
             if self.profiler:
                 self.profiler.disable()
             try:
-                response,elapsed	= await( self, timeout=timeout )
+                response,elapsed	= await_( self, timeout=timeout )
             finally:
                 if self.profiler:
                     self.profiler.enable()
@@ -1607,7 +1607,7 @@ which is required to carry this Send/Route Path data. """ )
             counter		= 0
             while ( elapsed is None or elapsed < timeout ):
                 remains		= timeout - ( elapsed or 0 )
-                reply,_		= await( connection, timeout=remains )
+                reply,_		= await_( connection, timeout=remains )
                 if reply:
                     print( "%s %2d from %r: %s" % (
                         desc, counter, reply.peer, enip.enip_format( reply.get( path, reply ))))

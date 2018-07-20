@@ -32,7 +32,7 @@ import traceback
 
 import pytest
 
-from .tools.await import waitfor
+from .tools.await_ import waitfor
 from .modbus_test import start_modbus_simulator, has_o_nonblock, run_plc_modbus_polls
 from .remote.plc import poller_simulator, PlcOffline
 from .remote.io	import motor

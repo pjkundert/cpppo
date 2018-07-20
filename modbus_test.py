@@ -16,7 +16,7 @@ except Exception:
     logging.warning( "Failed to import fcntl; skipping simulated Modbus/TCP PLC tests" )
 
 from . import misc
-from .tools.await import waitfor
+from .tools.await_ import waitfor
 
 RTU_WAIT			= 2.0  # How long to wait for the simulator
 RTU_LATENCY			= 0.05 # poll for command-line I/O response 

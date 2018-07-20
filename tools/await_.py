@@ -43,13 +43,13 @@ class existence( object ):
     Assuming args.wait is a list of 0 or more #[.#] numeric or 'filename[%regex]' terms, to process
     the condition terms 'til the first failure, and then raise an Exception:
 
-        assert all( await.existence()( *args.wait )), \
+        assert all( await_.existence()( *args.wait )), \
             "Failed awaiting <timeout> and/or <filename>[%<regex>]: %r" % ( args.wait )
 
     To process each term and log the details of which term failed (the default str() representation 
-    of an await.existence instance, is the last term awaited):
+    of an await_.existence instance, is the last term awaited):
     
-        waiter			= await.existence( terms=args.wait )
+        waiter			= await_.existence( terms=args.wait )
         for success in waiter:
             assert success, \
                 "Failed awaiting <timeout> and/or <filename>[%<regex>]: %s" % ( waiter )

@@ -749,7 +749,7 @@ def logix_remote( count, svraddr, kwargs ):
     begun			= cpppo.timer()
     with cli:
         cli.register( timeout=timeout )
-        data,elapsed		= client.await( cli, timeout=timeout )
+        data,elapsed		= client.await_( cli, timeout=timeout )
     log.normal( "Client Register Rcvd %7.3f/%7.3fs: %r", elapsed, timeout, data )
     assert data is not None and 'enip.CIP.register' in data, "Failed to receive Register response"
     assert data.enip.status == 0, "Register response indicates failure: %s" % data.enip.status
@@ -763,7 +763,7 @@ def logix_remote( count, svraddr, kwargs ):
             begun		= cpppo.timer()
             cli.read( path=[{'symbolic': 'SCADA'}, {'element': 12}],
                       elements=201, offset=2, timeout=timeout )
-            data,elapsed	= client.await( cli, timeout=timeout )
+            data,elapsed	= client.await_( cli, timeout=timeout )
             log.normal( "Client ReadFrg. Rcvd %7.3f/%7.3fs: %r", elapsed, timeout, data )
 
     duration			= cpppo.timer() - start

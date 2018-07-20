@@ -18,7 +18,7 @@ host			= sys.argv[1] if sys.argv[1:] else '255.255.255.255'
 with client.client( host=host, udp=True, broadcast=True ) as conn:
     conn.list_identity( timeout=timeout )
     while True:
-        response,elapsed= client.await( conn, timeout=timeout )
+        response,elapsed= client.await_( conn, timeout=timeout )
         if response:
             print( enip.enip_format( response ))
         else:
