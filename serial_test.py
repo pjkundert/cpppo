@@ -98,8 +98,8 @@ if has_pymodbus and has_pyserial:
     from .remote.plc_modbus import poller_modbus
 
 
-@pytest.mark.skipif( 'SERIAL_TEST' not in os.environ or not has_pymodbus,
-                     reason="Needs SERIAL_TEST and pymodbus" )
+@pytest.mark.skipif( not has_pymodbus,
+                     reason="Needs pymodbus" )
 def test_pymodbus_version():
     """The serial_tests.py must have pymodbus >= 1.3, because we need to use ignore_missing_slaves.
 
