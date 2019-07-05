@@ -498,9 +498,9 @@ def test_history_sequential():
 
         # Attempt to begin loading history around the middle of the recording
         rdr		= reader( path,
-                                          historical=now - random.uniform( 3.0, 9.0 ),
-                                          basis=now + random.uniform( -.5, +.5 ),
-                                          factor=3 )
+                                  historical=now - random.uniform( 3.0, 9.0 ),
+                                  basis=now + random.uniform( -.5, +.5 ),
+                                  factor=3 )
 
         # Begin with the first historical file before our computed advancing historical time (we
         # could provide a specific timestamp here, if we wanted).  No lookahead.

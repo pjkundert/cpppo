@@ -446,6 +446,9 @@ class reader( object ):
                     fd		= opener( self.path + f )
                     n		= -1
                     n,(ts,sn,js)= parse_record( fd, encoding=encoding )
+                except StopIteration:
+                    # No more records; on to the next file
+                    break
                 except Exception as exc:
                     log.warning( "%s Ignoring history file %s: %s", self, self.name+f, exc )
                     if fd:
@@ -506,7 +509,10 @@ class reader( object ):
                 # processing mode; it is not likely safe for them to try again, because they'll
                 # probably process the same file and get the same error.  Report the file and
                 # timestamp so it can be fixed, if necessary...  If empty file, raise StopIteration
-                n,(ts,sn,js)	= parse_record( fd, n=n, encoding=encoding )
+                try:
+                    n,(ts,sn,js) = parse_record( fd, n=n, encoding=encoding )
+                except StopIteration:
+                    break
 
                 # a valid (ts,js) has been parsed; loop to advancing historical time, and return it
                 # when appropriate.
