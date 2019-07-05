@@ -79,13 +79,16 @@ class dotdict( dict ):
         self.update( *args, **kwds )
 
     def update( self, *args, **kwds ):
-        """Give each dict and keyword a chance to be converted into a dotdict() layer"""
-        if args:
-            for key, val in dict( *args ).items():
-                self.__setitem__( key, val )
-        if kwds:
-            for key, val in kwds.items():
-                self.__setitem__( key, val )
+        """Give each dict or k,v iterable, and all keywords a chance to be converted into a dotdict() layer.
+
+        """
+        # There is a defect in python 3.7 that erroneously passes back a single dict object passed
+        # to dict.__init__ as the result...   
+        assert 0 <= len( args ) <= 1, "A single dict or iterable of key/value pairs is allowed"
+        if args and isinstance( args[0], dict ) and type(args[0]) is not dict:
+            args = (dict.items( args[0] ),)
+        for key, val in dict( *args, **kwds ).items():
+            self.__setitem__( key, val )
 
     def __dir__( self ):
         """We try to present a sensible .attribute interface.  Therefore, it doesn't make sense for

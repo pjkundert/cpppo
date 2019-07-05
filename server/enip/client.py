@@ -1163,10 +1163,9 @@ class connector( client ):
             # Find the replies in the response; could be single or multiple; should match requests!
             replies		= []
             if response is None:# None response indicates timeout
-                raise StopIteration( "Response Not Received w/in %7.2fs" % (
-                    cpppo.inf if timeout is None else timeout ))
+                return # "Response Not Received w/in %7.2fs" % ( cpppo.inf if timeout is None else timeout )
             elif not response:	# empty response indicates clean EOF
-                raise StopIteration( "Session terminated" )
+                return # "Session terminated" # =~= raise StopIteration( "Session terminated" )
             elif 'enip.status' in response and response.enip.status != 0:
                 raise ENIPStatusError( status=response.enip.status )
             elif 'enip.CIP.send_data.CPF.item[1].unconnected_send.request.multiple.request' in response:

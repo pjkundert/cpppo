@@ -50,7 +50,6 @@ def test_IFACEADDRS():
 
 
 def test_EPATH_single():
-    logging.getLogger().setLevel( logging.DEBUG )
     data			= cpppo.dotdict()
     source			= b'\x12\x0810.0.7.1'
     with parser.EPATH_single() as machine:

@@ -392,7 +392,7 @@ def bench( server_func, client_func, client_count,
                 if result:
                     log.warning( "Client failed w/ non-0 result: %s", result )
             except Exception as exc:
-                log.warning( "Client failed w/ Exception: %s", exc )
+                log.exception( "Client failed w/ Exception: %s", exc )
 
 
         failures		= client_count - successes

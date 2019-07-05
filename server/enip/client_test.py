@@ -110,6 +110,13 @@ def test_client_timeout():
         conn.terminate()
 
 
+def test_dotdict_request():
+    d = dotdict()
+    o = dotdict({'something': 99})
+    d.item = [o,o,o]
+    d2 = dotdict( d )
+
+
 def test_client_api():
     """Performance of executing an operation a number of times on a socket connected
     Logix simulator, within the same Python interpreter (ie. all on a single CPU

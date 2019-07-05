@@ -516,7 +516,7 @@ class reader( object ):
 
             # Exhausted playback of this history file
             log.debug( "%s Playback complete: %s, line %d", self, f, n )
-            raise StopIteration
+            return # raise StopIteration
 
         finally:
             # On success or failure, every remaining opened file must be closed
