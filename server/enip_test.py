@@ -1,6 +1,8 @@
-from __future__ import absolute_import
-from __future__ import print_function
-from __future__ import division
+from __future__ import absolute_import, print_function, division
+try:
+    from future_builtins import zip, map # Use Python 3 "lazy" zip, map
+except ImportError:
+    pass
 
 import codecs
 import logging
@@ -53,7 +55,10 @@ def test_octets():
         assert machine.terminal, "%s: Should have reached terminal state" % machine.name_centered()
         assert i == 4
     assert source.peek() == b'3'[0]
-    assert data.octets.five.input.tostring() == b'abc12'
+    if sys.version_info[0] < 3:
+        assert data.octets.five.input.tostring() == b'abc12'
+    else:
+        assert data.octets.five.input.tobytes() == b'abc12'
 
 
 def test_octets_singly():
@@ -78,7 +83,10 @@ def test_octets_singly():
         assert machine.terminal, "%s: Should have reached terminal state" % machine.name_centered()
         assert i == 9
     assert origin.peek() == b'3'[0]
-    assert data.octets.singly.input.tostring() == b'abc12'
+    if sys.version_info[0] < 3:
+        assert data.octets.singly.input.tostring() == b'abc12'
+    else:
+        assert data.octets.singly.input.tobytes() == b'abc12'
 
 def test_octets_deficient():
     """Scans octets where the source is deficient"""
@@ -141,7 +149,10 @@ def test_words():
         assert machine.terminal, "%s: Should have reached terminal state" % machine.name_centered()
         assert i == 11
     assert origin.peek() == b'z'[0]
-    assert data.words.singly.input.tostring() == b'abc123'
+    if sys.version_info[0] < 3:
+        assert data.words.singly.input.tostring() == b'abc123'
+    else:
+        assert data.words.singly.input.tobytes() == b'abc123'
 
 
 def test_octets_struct():

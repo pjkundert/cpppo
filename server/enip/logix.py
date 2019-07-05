@@ -1,4 +1,3 @@
-#! /usr/bin/env python3
 
 # 
 # Cpppo -- Communication Protocol Python Parser and Originator
@@ -15,9 +14,11 @@
 # A PARTICULAR PURPOSE.  See the GNU General Public License for more details.
 # 
 
-from __future__ import absolute_import
-from __future__ import print_function
-from __future__ import division
+from __future__ import absolute_import, print_function, division
+try:
+    from future_builtins import zip, map # Use Python 3 "lazy" zip, map
+except ImportError:
+    pass
 
 __author__                      = "Perry Kundert"
 __email__                       = "perry@hardconsulting.com"
@@ -39,8 +40,9 @@ import traceback
 from ...dotdict import dotdict
 from ... import automata, misc
 from .device import ( Object, Attribute,
-                      Message_Router, Connection_Manager, UCMM, Identity, TCPIP,
+                      Message_Router, Connection_Manager, Identity, TCPIP,
                       resolve_element, resolve_tag, resolve, redirect_tag, lookup )
+from . import ucmm
 from .parser import ( BOOL, UDINT, DINT, UINT, INT, USINT, SINT, REAL, EPATH, typed_data,
                       move_if, octets_drop, octets_noop, enip_format, status )
 
@@ -315,10 +317,20 @@ class Logix( Message_Router ):
                 data.status_ext= {'size': 1, 'data':[0x2107]}
                 allowed_tag_types = {
                     BOOL.tag_type:      (BOOL.tag_type,),
-                    REAL.tag_type:	(BOOL.tag_type, SINT.tag_type, INT.tag_type, DINT.tag_type, REAL.tag_type),
-                    DINT.tag_type:	(BOOL.tag_type, SINT.tag_type, INT.tag_type, DINT.tag_type),
-                    INT.tag_type:	(BOOL.tag_type, SINT.tag_type, INT.tag_type),
-                    SINT.tag_type:	(BOOL.tag_type, SINT.tag_type,),
+                    REAL.tag_type:	(BOOL.tag_type,
+                                         SINT.tag_type, USINT.tag_type,
+                                          INT.tag_type,  UINT.tag_type,
+                                         DINT.tag_type, UDINT.tag_type,
+                                         REAL.tag_type),
+                    DINT.tag_type:	(BOOL.tag_type,
+                                         SINT.tag_type, USINT.tag_type,
+                                          INT.tag_type,  UINT.tag_type,
+                                         DINT.tag_type, UDINT.tag_type),
+                    INT.tag_type:	(BOOL.tag_type,
+                                         SINT.tag_type, USINT.tag_type,
+                                         INT.tag_type,   UINT.tag_type),
+                    SINT.tag_type:	(BOOL.tag_type,
+                                         SINT.tag_type, USINT.tag_type),
                 }
                 assert data[context].type in allowed_tag_types.get(
                     attribute.parser.tag_type, (attribute.parser.tag_type,) ), \
@@ -606,7 +618,7 @@ def setup( **kwds ):
                 tcpip( instance_id=1 )		# Class 0xF5, Instance 1
 
         if not setup.ucmm:
-            setup.ucmm		= kwds.get( 'UCMM_class', 		UCMM )()
+            setup.ucmm		= kwds.get( 'UCMM_class', 		ucmm.UCMM )()
             if setup.ucmm.route_path:
                 log.normal( "UCMM is restricting request route_path to match: %r",
                             str( json.dumps( setup.ucmm.route_path )))

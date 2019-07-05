@@ -1,3 +1,5 @@
+#+OPTIONS: ^:nil # Disable sub/superscripting with bare _; _{...} still works
+
 * Comm. Protocol Python Parser and Originator
   
   Cpppo (pronounced 'c'+3*'p'+'o' in Python) is used to implement binary
@@ -130,15 +132,23 @@
     : -p|--print
     : --no-print (the default)
 
-    To specify and check for a specific route_path in incoming Unconnected Send
-    requests, provide one in JSON format; the default is to ignore the specified
-    route_path.  It must be a list containing one dict, usually specifying a
-    =link= and =port= value.  The =link= is typically in the range 0-15, and the
-    =port= is either an 8- or 16-bit number, or an IP address.  To specify that no
-    route_path is accepted (ie. only an empty route_path is allowed), use 0 or false:
-    : --route-path '[{"link": 0, "port": 1}]'
-    : --route-path '[{"link": 0, "port": "192.168.1.2"}]'
-    : --route-path false
+    To specify and check for a specific =route_path= in incoming Unconnected Send requests, provide
+    one in "<port>/<link>" or JSON format; the default is to ignore the specified =route_path=
+    (accepting any =route_path=).  If specified, it must be a list containing one dict, specifying a
+    =port= and =link= value.  The =port= is either an 8- or 16-bit number (eg. port 1 typically
+    indicates the local backplane).  The =link= is typically in the range 0-15 (eg. a "slot"
+    number), or is an IP address (eg. "1.2.3.4"). To specify that no =route_path= is accepted
+    (ie. only an empty =route_path= is allowed, ie. a Simple request), use 0 or false:
+    : --route-path '[{"port": 1, "link": 0]'              # backplane, slot 0
+    : --route-path 1/0                                    #   ''
+    : --route-path '[{"port": 2, "link": "192.168.1.2"}]' # { port 2, link 192.168.1.2 }
+    : --route-path 2/192.168.1.2                          #   ''
+    : --route-path 1/0/2/192.168.1.2 # { backplane, slot 0 }, { port 2, link 192.168.1.2 }
+    : --route-path false                                  # No route_path accepted
+
+    Note that incoming "Simple" requests to a full-featured "Routing" simulator configured with a
+    route path *will be accepted*; the specified target CIP Object(s) must exist in the target
+    simulator.
     
     Alternatively, to easily specify acceptance of no routing Unconnected Send
     encapsulation (eg. to simulate simple non-routing CIP devices such as
@@ -169,18 +179,18 @@
     #+BEGIN_EXAMPLE
     [Identity]
     # Generally, strings are not quoted
-    Product Name		= 1756-L61/B LOGIX5561
+    Product Name                = 1756-L61/B LOGIX5561
 
     [TCPIP]
     # However, some complex structures require JSON configuration:
-    Interface Configuration	= {
+    Interface Configuration     = {
         "ip_address":             "192.168.0.201",
         "network_mask":           "255.255.255.0",
         "dns_primary":            "8.8.8.8",
         "dns_secondary":          "8.8.4.4",
         "domain_name":            "example.com"
         }
-    Host Name			= controller
+    Host Name                   = controller
     #+END_EXAMPLE
 
     See [[https://github.com/pjkundert/cpppo/blob/master/cpppo.cfg]] for details on
@@ -203,6 +213,39 @@
           '255.255.255.0', '0.0.0.0', '8.8.8.8', '8.8.4.4', 'example.com', 'controller']
     Identity: [1, 15, 54, 2836, 12640, 7079450, '1756-L61/C LOGIX5561', 255]
     #+END_EXAMPLE
+
+*** Routing via =route_path= to other CIP Devices
+
+    A very basic facility for routing incoming CIP requests with complex =route_path= values is
+    available in the Cpppo EtherNet/IP CIP Communications Simulator.  By default, the Simulator
+    responds to incoming requests with *any* route_path (basically, it ignores the value).
+
+    If you specify =--route-path=1/0= on the command-line, it will only respond to requests with
+    exactly the =route_path= equal to '{"port": 1, "link": 0}' (backplane, slot 0).  Every other
+    CIP reqeuest with some other =route_path= value will be responded to with an error status.
+
+    If you wish to configure the allowable =route_path= in the =cpppo.cfg= file, use "Route Path =
+    ...".  Furthermore, if you want to route any other valid CIP request by the first element in
+    its =route_path=, specify a JSON mapping in the configuration file's "Route = { ...",
+    specifying each =route_path= by <port>/<link> (link ranges are handled), and the <IP>:<port> it
+    should be routed to:
+    #+BEGIN_EXAMPLE
+    [UCMM]
+    Route Path                 = 1/0
+    Route                      = {
+            "1/1-15":  "localhost:44819"
+        }
+    #+END_EXAMPLE
+    This example (see =cpppo/cpppo-router.cfg= and =cpppo/cpppo.cfg= for more details) accepts and
+    handles CIP requests to =route_path= port 1, link 0 (backplane slot 0), and routes requests to
+    all other backplane slots to the EtherNet/IP CIP simulator on localhost port 44819.  Any valid
+    =route_path= is allowed; for example, "2/1.2.3.4" would route requests with a =route_path=
+    segment specifying port 2, link "1.2.3.4".
+
+    When the request is forwarded, the first =route_path= segment is removed, and the remaining
+    segments (if any) are forwarded.  If no more =route_path= segments are left, then the request
+    is forwarded as a "Simple" CIP request (with no =route_path= or =send_path= configured, as for
+    a simple non-routing CIP device such as a MicroLogix or A-B Powerflex, etc.)
 
 *** EtherNet/IP Controller I/O Customization
 
@@ -240,7 +283,7 @@
      $ python -m cpppo.server.enip.client Tag_Name[0-3]=[0,1,2,3]
      #+END_EXAMPLE
    
-     You can examine the code in cpppo/server/enip/historize.py to see how to
+     You can examine the code in =cpppo/server/enip/historize.py= to see how to
      easily implement your own customization of the EtherNet/IP CIP Controller
      simulator.
    
@@ -552,14 +595,23 @@
     Specify a number of times to repeat the specified operations:
     : -r|--repeat #
 
-    To specify an Unconnected Send route_path (other than the default '[{"link":
-    0, "port": 1}]', which is a guess at the location of a *Logix controller in
-    a typical backplane), provide one in JSON format.  It must be a list
-    containing one dict, usually specifying a =link= and =port= value.  The
-    =link= is typically in the range 0-15, and the =port= is either an 8- or
-    16-bit number, or an IP address.  To specify no route_path, use 0 or false:
-    : --route-path '[{"link": 0, "port": 1}]'
-    : --route-path '[{"link": 0, "port": "192.168.1.2"}]'
+    To specify an Unconnected Send =route_path= (other than the default backplane port 0, '1/0' or
+    '[{"port": 1, "link": 0}]', which is a guess at the location of a *Logix controller in a typical
+    backplane), provide one in short <port>/<link> or JSON format.  It must be a list containing one
+    dict specifying a =port= and =link= value.  The =port= is either an 8- or 16-bit number, and
+    =link= is typically in the range 0-15 (a backplane slot) or an IP address.  A string with a '/'
+    in it is parsed as <port>/<link>.  If a only single =route_path= element is intended, the JSON
+    array notation is optional:
+    : --route-path '[{"port": 1, "link": 0}]'           # backplane, slot 0
+    : --route-path '{"port": 1, "link": 0}'             #  ''
+    : --route-path '1/0'                                #  ''
+    Complex multi-segment route-paths must be specified in a JSON list.  For example, to route via
+    an EtherNet/IP module in backplane slot 3, and then out its second Ethernet port to address
+    1.2.3.4:
+    : --route-path '["1/3",{"port":2,"link":"1.2.3.4"}]'# backplane slot 3,
+    : --route-path '["1/3","2/1.2.3.4"]'                #   then second port and IP 1.2.3.4
+    To specify no =route_path=, use 0 or false (usually only in concert with --send-path='', or just
+    use -S):
     : --route-path false
 
     If a simple EtherNet/IP CIP device doesn't support routing of message to
@@ -568,7 +620,7 @@
     usually used in combination with =--route-path=false=.  This can be used to
     prevent the issuance of Unconnected Send Service encapsulation, which "Only
     originating devices and devices that route between links need to implement"
-    (see: The CIP Networks Library, Vol 1, Table 3-5.8).  Also avoid use of
+    (see The CIP Networks Library, Vol 1, Table 3-5.8).  Also avoid use of
     =--multiple=, as these devices do not generally accept Multiple Service
     Packet requests, either.
 
@@ -579,6 +631,14 @@
     Alternatively, to easily specify use of no routing Unconnected Send
     encapsulation in requests:
     : -S|--simple
+
+    Specify =timeout_ticks= (default: 157 * 32ms == 5s.)
+    : --timeout-ticks 63                                # ~2s (if ticks == 32ms)
+
+    Specify the tick duration to use, when computing the actual timeout from =timeout_ticks=.  Each
+    tick has a duration from 1 to 32,768 milliseconds, computed as =2 ** <priority_tick_time>=
+    milliseconds.
+    : --priority-time-tick 0                            # Set 1ms. ticks
 
     To send log output to a file (limited to 10MB, rotates through 5 copies):
     : -l|--log <file>
@@ -734,16 +794,16 @@
      The base class =client.client= implements  all the basic I/O capabilities
      for pipeline-capable TCP/IP and UDP/IP I/O with EtherNet/IP CIP devices.
 
-     | Keyword           | Description                                                        |
-     |-------------------+--------------------------------------------------------------------|
-     | host              | A cpppo.server.enip.get\_attribute proxy derived class             |
-     | port              | Target port (if not 44818)                                         |
-     | timeout           | Optional timeout on socket.create_connection                       |
-     | dialect           | An EtherNet/IP CIP dialect, if not logix.Logix                     |
-     | udp (False)       | Establishes a UDP/IP socket to use for request (eg. List Identity) |
-     | broadcast (False) | Avoids connecting UDP/IP sockets; may receive many replies         |
-     | source_address    | Bind to a specific local interface (Default: 0.0.0.0:0)            |
-     | profiler          | If using a Python profiler, provide it to disable around I/O code  |
+     | Keyword                        | Description                                                        |
+     |--------------------------------+--------------------------------------------------------------------|
+     | host                           | A =cpppo.server.enip.get_attribute= proxy derived class            |
+     | port                           | Target port (if not 44818)                                         |
+     | timeout                        | Optional timeout on =socket.create_connection=
+     | dialect                        | An EtherNet/IP CIP dialect, if not logix.Logix                     |
+     | udp (False)                    | Establishes a UDP/IP socket to use for request (eg. List Identity) |
+     | broadcast (False)              | Avoids connecting UDP/IP sockets; may receive many replies         |
+     | source_address | Bind to a specific local interface (Default: 0.0.0.0:0)            |
+     | profiler                       | If using a Python profiler, provide it to disable around I/O code  |
 
      Once connectivity is established, a sequence of CIP requests can be issued
      using the the methods =.read=, =.write=, =.list_identity=, etc.
@@ -841,11 +901,11 @@
      >>> from cpppo.server.enip include client
      >>> list( client.parse_operations( [ "A_Tag[1-2]=(REAL)111,222" ] ))
      [{
-         'data':	[111.0, 222.0],
-         'elements':	2,
-         'method':	'write',
-         'path':	[{'symbolic': 'A_Tag'},{'element': 1}],
-         'tag_type': 202
+         'data':        [111.0, 222.0],
+         'elements':    2,
+         'method':      'write',
+         'path':        [{'symbolic': 'A_Tag'},{'element': 1}],
+         'tag_type':    202
      }]
      #+END_EXAMPLE
 
@@ -874,9 +934,7 @@
      | connection | 8/16-bit Connection number             |
      | symbolic   | ISO-8859-1 Symbolic Tag name           |
      | port,link  | Port number, Link number or IP address |
-
-     So, you can specify something as complex as as route_path like:
-     : @{"port":123,"link":"130.151.137.105"},{"port":1,"link":2}
+     |            | (typically valid only in =route_path=) | 
 
      The number of elements in a request is normally deduced from an index
      range; for example, to specify 10 elements:
@@ -905,14 +963,14 @@
      Must be provided a sequence of 'operations' to perform, each as a dict
      containing:
 
-     | Key       | Description                                                           |
-     |-----------+-----------------------------------------------------------------------|
-     | method    | 'read', 'write', 'set/get\_attribute\_single', 'get\_attributes\_all' |
-     | path      | The operation's path, eg [{"class": 2},{"instance": 1},...]           |
-     | offset    | A byte offset, for Fragmented read/write                              |
-     | elements  | The number of elements to read/write                                  |
-     | tag\_type | The EtherNet/IP type, eg. 0x00ca for "REAL"                           |
-     | data      | For write, set\_attribute\_single; the sequence of data to write      |
+     | Key                      | Description                                                           |
+     |--------------------------+-----------------------------------------------------------------------|
+     | method                   | 'read', 'write', 'set/get_attribute_single', 'get_attributes_all'     |
+     | path                     | The operation's path, eg [{"class": 2},{"instance": 1},...]           |
+     | offset                   | A byte offset, for Fragmented read/write                              |
+     | elements                 | The number of elements to read/write                                  |
+     | tag_type | The EtherNet/IP type, eg. 0x00ca for "REAL"                           |
+     | data                     | For 'write', 'set_attribute...'; the sequence of data to write        |
 
      Use =client.parse_operations= to convert a sequence of simple Tag assignments
      to a sequence suitable for 'operations':
@@ -923,7 +981,7 @@
      | Keyword    | Description                                                   |
      |------------+---------------------------------------------------------------|
      | operations | A sequence of operations                                      |
-     | index      | The starting index used for "sender\_context"                 |
+     | index      | The starting index used for "sender_context"                  |
      | fragment   | If True, forces use of Fragmented read/write                  |
      | multiple   | If >0, uses Multiple Service Packets of up to this many bytes |
      | timeout    | A timeout, in seconds.                                        |
@@ -951,7 +1009,7 @@
 
      | Item    | Description                                                 |
      |---------+-------------------------------------------------------------|
-     | 0 - idx | The index of the operation, sent as the "sender\_context"   |
+     | 0 - idx | The index of the operation, sent as the "sender_context"    |
      | 1 - dsc | A description of the operation                              |
      | 2 - req | The request                                                 |
      | 3 - rpy | The reply                                                   |
@@ -1128,7 +1186,7 @@
      with client.client( host=host, udp=True, broadcast=True ) as conn:
          conn.list_identity( timeout=timeout )
          while True:
-             response,elapsed	= client.await( conn, timeout=timeout )
+             response,elapsed	= client.await_response( conn, timeout=timeout )
              if response:
                  print( enip.enip_format( response ))
              else:
@@ -1270,7 +1328,7 @@
 
      In your Python code, to access the parameter "A Sensor Parameter" from the
      remote A-B PowerFlex device (the supplied name is transformed to
-     =a_sensor_parameter= by lowering case and transforming ' ' to '\_', to check
+     =a_sensor_parameter= by lowering case and transforming ' ' to '_', to check
      for matching any =proxy.PARAMETER= entry):
      #+BEGIN_EXAMPLE python
      via                = some_sensor( host="10.0.1.2" )
@@ -1604,24 +1662,23 @@
 
      The full set of keywords to =.poll= are:
 
-     | Keyword        | Description                                                       |
-     |----------------+-------------------------------------------------------------------|
-     | proxy\_class   | A cpppo.server.enip.get\_attribute proxy derived class            |
-     | address        | A (ip,port) tuple identifying the target EtherNet/IP CIP device   |
-     | depth          | The number of outstanding requests                                |
-     | multiple       | If >0, uses Multiple Service Packets of up to this many bytes     |
-     | timeout        | A timeout, in seconds.                                            |
-     | route\_path    | A list of {"link":...,"port":...} of the request target (or None) |
-     | send\_path     | The CIP address of the Message Router (eg. "@6/1"), or ""         |
-     | gateway\_class | The deprecated keyword identifying the proxy\_class               |
-     | via            | A proxy class instance, if desired (no proxy\_class created)      |
-     | params         | A list of Tag names or proxy parameter shortcut names             |
-     | pass\_thru     | If False, fails poll if any params bare name isn't recognized     |
-     | cycle          | Target poll cycle time                                            |
-     | process        | A callable invoked for each parameter,value tuple polled          |
-     | failure        | A callable invoked for each poll failure                          |
-     | backoff\_...   | Controls the exponential polling back-off on failure              |
-     | latency        | Maximum poll loop check time (ie. responsiveness to done signal)  |
+     | Keyword     | Description                                                       |
+     |-------------+-------------------------------------------------------------------|
+     | proxy_class | A =cpppo.server.enip.get_attribute= proxy derived class           |
+     | address     | A (ip,port) tuple identifying the target EtherNet/IP CIP device   |
+     | depth       | The number of outstanding requests                                |
+     | multiple    | If >0, uses Multiple Service Packets of up to this many bytes     |
+     | timeout     | A timeout, in seconds.                                            |
+     | route_path  | A list of {"link":...,"port":...} of the request target (or None) |
+     | send_path   | The CIP address of the Message Router (eg. "@6/1"), or ""         |
+     | via         | A proxy class instance, if desired (no =proxy_class= created)     |
+     | params      | A list of Tag names or proxy parameter shortcut names             |
+     | pass_thru   | If False, fails poll if any params bare name isn't recognized     |
+     | cycle       | Target poll cycle time                                            |
+     | process     | A callable invoked for each parameter,value tuple polled          |
+     | failure     | A callable invoked for each poll failure                          |
+     | backoff_... | Controls the exponential polling back-off on failure              |
+     | latency     | Maximum poll loop check time (ie. responsiveness to done signal)  |
 
 **** =poll.run=
 
@@ -1637,7 +1694,7 @@
      | via          | A proxy class instance                                           |
      | process      | A callable invoked for each parameter,value tuple polled         |
      | failure      | A callable invoked for each poll failure                         |
-     | backoff\_... | Controls the exponential polling back-off on failure             |
+     | backoff_...  | Controls the exponential polling back-off on failure             |
      | latency      | Maximum poll loop check time (ie. responsiveness to done signal) |
      
      Any further keywords are passed unchanged to =poll.loop=
@@ -1648,12 +1705,11 @@
 
      The full set of keywords to =.loop= are:
 
-     | Keyword    | Description                                                  |
-     |------------+--------------------------------------------------------------|
-     | via        | A proxy class instance                                       |
-     | cycle      | Target poll cycle time                                       |
-     | last\_poll | The timestamp of the start of the last poll cycle            |
-     |            |                                                              |
+     | Keyword   | Description                                       |
+     |-----------+---------------------------------------------------|
+     | via       | A proxy class instance                            |
+     | cycle     | Target poll cycle time                            |
+     | last_poll | The timestamp of the start of the last poll cycle |
 
      Any further keywords are passed unchanged to =poll.execute=
 
@@ -1663,11 +1719,11 @@
 
      The full set of keywords to =.execute= are:
 
-     | Keyword    | Description                                                   |
-     |------------+---------------------------------------------------------------|
-     | via        | A proxy class instance                                        |
-     | params     | A list of Tag names or proxy parameter shortcut names         |
-     | pass\_thru | If False, fails poll if any params bare name isn't recognized |
+     | Keyword   | Description                                                   |
+     |-----------+---------------------------------------------------------------|
+     | via       | A proxy class instance                                        |
+     | params    | A list of Tag names or proxy parameter shortcut names         |
+     | pass_thru | If False, fails poll if any params bare name isn't recognized |
 
 *** Web Interface
 
@@ -2183,7 +2239,7 @@
     The default behaviour is to recognize the maximal regular expression; to
     continue running 'til input symbols are exhausted, or the first symbol is
     encountered that *cannot* form part of an acceptable sentence in the regular
-    expression's grammar.  Specify =greedy\=False= to force the dfa to only
+    expression's grammar.  Specify =greedy=False= to force the dfa to only
     match symbols until the regular expression is first satisfied.
 
 *** Detect if regular expression satisfied: =terminal=
@@ -2207,8 +2263,8 @@
 * Running State Machines
 
   State machines define the grammar for a language which can be run against a
-  sentence of input.  All these machines ultimately use state\_input instances
-  to store their data; the path used is the cpppo.dfa's <context> + '\_input':
+  sentence of input.  All these machines ultimately use state_input instances
+  to store their data; the path used is the cpppo.dfa's <context> + '_input':
 
   #+BEGIN_SRC python
   data                  = cpppo.dotdict()
@@ -2266,7 +2322,7 @@
 
    If you are not running on a host capable of directly hosting Docker images,
    one can be provided for you.  Install Vagrant (http://vagrantup.com) on your
-   system, and then use the cpppo/GNUmakefile target to bring up a  VirtualBox
+   system, and then use the =cpppo/GNUmakefile= target to bring up a  VirtualBox
    or VMWare Fusion (license required: http://www.vagrantup.com/vmware):
    : $ make vmware-debian-up # or virtualbox-ubuntu-up
 
@@ -2309,7 +2365,7 @@
     configurations.
 
     Edit /Library/Preferences/VMware\ Fusion/networking, and remove all
-    VMNET\_X... lines, EXCEPT VMNET\_1... and VMNET\_8... (these are the lines
+    VMNET_X... lines, EXCEPT VMNET_1... and VMNET_8... (these are the lines
     that are configured with stock VMware Fusion).  It should end up looking
     something like:
     : VERSION=1,0
@@ -2360,7 +2416,7 @@
 
     The Debian Jessie + Docker VirtuaBox and VMware images used by the
     Vagrantfiles are hosted at http://box.hardconsulting.com.  When you use the
-    cpppo/GNUmakefile targets to bring up a Vagrant box (eg. 'make
+    =cpppo/GNUmakefile= targets to bring up a Vagrant box (eg. 'make
     virtualbox-debian-up'), the appropriate box is downloaded using 'vagrant box
     add ...'.  If you don't trust these boxes (the safest position), you can
     rebuild them yourself, using [[https://packer.io/downloads.html][packer.io]].
@@ -2385,7 +2441,7 @@
     : $ make add-vmware-jessie64 # or add-virtualbox-jessie64
 
     Now, you can fire up the new VirtualBox image using Vagrant, and the targets
-    provided in the cpppo/GNUmakefile:
+    provided in the =cpppo/GNUmakefile=:
     : $ cd src/cpppo
     : $ make vmware-debian-up
 

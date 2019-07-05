@@ -1,6 +1,8 @@
-from __future__ import absolute_import
-from __future__ import print_function
-from __future__ import division
+from __future__ import absolute_import, print_function, division
+try:
+    from future_builtins import zip, map # Use Python 3 "lazy" zip, map
+except ImportError:
+    pass
 
 __author__                      = "Perry Kundert"
 __email__                       = "perry@hardconsulting.com"
@@ -86,7 +88,7 @@ if __name__ == "__main__":
                 connection.list_interfaces()
             connection.shutdown() # starts a client-initiated clean shutdown for TCP/IP
             while True:
-                response,ela	= client.await( connection, timeout=timeout )
+                response,ela	= client.await_response( connection, timeout=timeout )
                 if response:
                     print( enip.enip_format( response ))
                 else:

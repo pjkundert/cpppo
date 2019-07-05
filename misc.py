@@ -14,10 +14,11 @@
 # A PARTICULAR PURPOSE.  See the GNU General Public License for more details.
 # 
 
-
-from __future__ import absolute_import
-from __future__ import print_function
-from __future__ import division
+from __future__ import absolute_import, print_function, division
+try:
+    from future_builtins import zip, map # Use Python 3 "lazy" zip, map
+except ImportError:
+    pass
 
 import functools
 import logging
@@ -166,6 +167,7 @@ def change_function( function, **kwds ):
 # 
 # logging.normal	-- regular program output 
 # logging.detail	-- detail in addition to normal output
+# logging.trace		-- logs less relevant than debug (eg. multiline logs)
 # 
 #     Augment logging with some new levels, between INFO and WARNING, used for normal/detail output.
 # 
@@ -173,13 +175,19 @@ def change_function( function, **kwds ):
 # stack; it looks for the first function whose co_filename is *not* the logger source file.  So, we
 # need to change our functions to appear as if they originated from logging._srcfile.
 # 
+#      .FATAL 		       == 50
+#      .ERROR 		       == 40
 #      .WARNING 	       == 30
 logging.NORMAL			= logging.INFO+5
 logging.DETAIL			= logging.INFO+3
 #      .INFO    	       == 20
+#      .DEBUG    	       == 10
+logging.TRACE			= logging.NOTSET+5
+#      .NOTSETG    	       == 0
 
-logging.addLevelName( logging.NORMAL, 'NORMAL' )
-logging.addLevelName( logging.DETAIL, 'DETAIL' )
+logging.addLevelName( logging.NORMAL,	'NORMAL' )
+logging.addLevelName( logging.DETAIL,	'DETAIL' )
+logging.addLevelName( logging.TRACE,	'TRACE' )
 
 def __normal( self, msg, *args, **kwargs ):
     if self.isEnabledFor( logging.NORMAL ):
@@ -189,11 +197,17 @@ def __detail( self, msg, *args, **kwargs ):
     if self.isEnabledFor( logging.DETAIL ):
         self._log( logging.DETAIL, msg, args, **kwargs )
 
+def __trace( self, msg, *args, **kwargs ):
+    if self.isEnabledFor( logging.TRACE ):
+        self._log( logging.TRACE, msg, args, **kwargs )
+
 change_function( __normal, co_filename=logging._srcfile )
 change_function( __detail, co_filename=logging._srcfile )
+change_function( __trace, co_filename=logging._srcfile )
 
 logging.Logger.normal		= __normal
 logging.Logger.detail		= __detail
+logging.Logger.trace		= __trace
 
 def __normal_root( msg, *args, **kwargs ):
     if len( logging.root.handlers ) == 0:
@@ -205,10 +219,17 @@ def __detail_root( msg, *args, **kwargs ):
         logging.basicConfig()
     logging.root.detail( msg, *args, **kwargs )
 
+def __trace_root( msg, *args, **kwargs ):
+    if len( logging.root.handlers ) == 0:
+        logging.basicConfig()
+    logging.root.trace( msg, *args, **kwargs )
+
 change_function( __normal_root, co_filename=logging._srcfile )
 change_function( __detail_root, co_filename=logging._srcfile )
+change_function( __trace_root, co_filename=logging._srcfile )
 logging.normal			= __normal_root
 logging.detail			= __detail_root
+logging.trace			= __trace_root
 
 # 
 # function_name -- Attempt to elaborate on the module/class heritage of the given function

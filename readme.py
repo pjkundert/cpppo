@@ -2,7 +2,11 @@
 #
 # readme.py: A demo of plain and composite cpppo state machinery; works under python 2 or 3 
 #
-from __future__ import print_function
+from __future__ import absolute_import, print_function, division
+try:
+    from future_builtins import zip, map # Use Python 3 "lazy" zip, map
+except ImportError:
+    pass
 
 import os, sys
 

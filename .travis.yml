@@ -17,6 +17,6 @@ install:
   - pip install 'argparse; python_version < "2.7"'
   - pip install 'configparser; python_version < "3.0"'
 
-# command to run tests
+# command to run tests.  Must give a concrete location for time-related tests to pass
 script:
-  - python -m pytest -v
+  - TZ=Canada/Mountain python -m pytest -v

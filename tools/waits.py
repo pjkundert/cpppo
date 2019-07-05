@@ -14,9 +14,12 @@
 # A PARTICULAR PURPOSE.  See the GNU General Public License for more details.
 # 
 
-from __future__ import absolute_import
-from __future__ import print_function
-from __future__ import division
+from __future__ import absolute_import, print_function, division
+try:
+    from future_builtins import zip, map # Use Python 3 "lazy" zip, map
+except ImportError:
+    pass
+
 
 __author__                      = "Perry Kundert"
 __email__                       = "perry@hardconsulting.com"
@@ -35,7 +38,7 @@ from .. import misc
 log				= logging.getLogger( __package__ )
 
 class existence( object ):
-    """Await zero or more numeric <timeout> and/or <filename> (existence) [and %<regex> (content)]
+    """Waits for zero or more numeric <timeout> and/or <filename> (existence) [and %<regex> (content)]
     and/or predicate truth events, yielding a sequence of True/False indicators as terms are
     processed.  Unless a floating-point numeric timeout is specified, the default timeout waits
     forever, sampling from time to time.
@@ -43,19 +46,19 @@ class existence( object ):
     Assuming args.wait is a list of 0 or more #[.#] numeric or 'filename[%regex]' terms, to process
     the condition terms 'til the first failure, and then raise an Exception:
 
-        assert all( await.existence()( *args.wait )), \
-            "Failed awaiting <timeout> and/or <filename>[%<regex>]: %r" % ( args.wait )
+        assert all( waits.existence()( *args.wait )), \
+            "Failed waiting for <timeout> and/or <filename>[%<regex>]: %r" % ( args.wait )
 
     To process each term and log the details of which term failed (the default str() representation 
-    of an await.existence instance, is the last term awaited):
+    of an waits.existence instance, is the last term waited for):
     
-        waiter			= await.existence( terms=args.wait )
+        waiter			= waits.existence( terms=args.wait )
         for success in waiter:
             assert success, \
-                "Failed awaiting <timeout> and/or <filename>[%<regex>]: %s" % ( waiter )
-            logging.info( "Successfully awaited: %s", waiter )
+                "Failed waiting for <timeout> and/or <filename>[%<regex>]: %s" % ( waiter )
+            logging.info( "Successfully waited: %s", waiter )
 
-    The 'presence' can be set False, if we want to await the removal of the file, or the cessation
+    The 'presence' can be set False, if we want to wait for the removal of the file, or the cessation
     of matching the regular expression.
 
     The default timeout (None) is an infinite timeout.  This is also available by specifying '+inf'
@@ -89,7 +92,7 @@ class existence( object ):
         return "" if self.last is None else str( self.last )
 
     def __call__( self, *args ):
-        """Await all the the specified <timeout> and/or <filename>[%<regex>] terms.  Adds the supplied terms
+        """Waits for all the the specified <timeout> and/or <filename>[%<regex>] terms.  Adds the supplied terms
         after any yet pending processing.  New terms can be added at any time, even during iteration.
 
         """
@@ -110,17 +113,17 @@ class existence( object ):
             self.last, self.terms= self.terms[0], self.terms[1:]
 
             # Each time we see a #[.#] timeout, reset the started time for subsequent files
-            # awaited.  +inf ==> None (no timeout).
+            # waited for.  +inf ==> None (no timeout).
             try:
                 self.timeout	= float( self.last )
                 if misc.isinf( self.timeout ):
                     self.timeout= None
                 else:
-                    assert self.timeout >= 0, "await timeout must be a +'ve value"
+                    assert self.timeout >= 0, "waits timeout must be a +'ve value"
                 self.started	= misc.timer()
                 self.awaited	= False
                 self.last	= "(timeout %s)" % ( "%.3fs" % self.timeout if self.timeout is not None else self.timeout )
-                log.debug( "await timeout: %s",
+                log.debug( "waits timeout: %s",
                                 "%.3fs" % self.timeout if self.timeout is not None else self.timeout )
                 return True
             except ( ValueError, TypeError ):	# Not a numeric timeout
@@ -141,12 +144,12 @@ class existence( object ):
             now			= misc.timer()
             remains		= self.started + self.timeout - now
             if remains > 0:
-                log.debug( "await terminal timeout: %.3fs", self.timeout )
+                log.debug( "waits terminal timeout: %.3fs", self.timeout )
                 time.sleep( remains )
             else:
-                log.debug( "await terminal timeout: satisfied" )
+                log.debug( "waits terminal timeout: satisfied" )
         else:
-            log.debug( "await terminal" )
+            log.debug( "waits terminal" )
         raise StopIteration
 
     next			= __next__
@@ -180,7 +183,7 @@ class existence( object ):
         return min( timeouts )
 
     def truth( self, predicate ):
-        """Await predicate to evaluate.  We'll keep doubling the delay (exponential backoff) 'til we
+        """Waits for predicate to evaluate.  We'll keep doubling the delay (exponential backoff) 'til we
         get to 1/2 the timeout, when we'll begin using 1/2 the remaining timeout.
 
         The only valid states are that that the file doesn't exist, or that it exists and is
@@ -196,18 +199,18 @@ class existence( object ):
                 now		= misc.timer()
                 if self.timeout is not None: # A finite timeout
                     if now >= self.started + self.timeout:
-                        log.info( "await truth: %r; timeout of %s exceeded" % (
+                        log.info( "waits for truth: %r; timeout of %s exceeded" % (
                             predicate, None if self.timeout is None else "%.3fs" % self.timeout ))
                         return False
                 if self.idle_service:
                     self.idle_service()
                 delay		= self.delay( target=delay*2, now=now )
-                log.info( "await truth for %7.3fs: %r", delay, predicate )
+                log.info( "waits for truth for %7.3fs: %r", delay, predicate )
                 time.sleep( delay )
         return True
 
     def exists( self, filename, regex=None ):
-        """Await <filename> with an optional %<regex>.  We'll keep trying to search for the regex after
+        """Wait for <filename> with an optional %<regex>.  We'll keep trying to search for the regex after
         we find the file exists, 'til we find a match or time out (use start/end anchors if exact
         matching is desired).  We'll keep doubling the delay (exponential backoff) 'til we get to
         1/2 the timeout, when we'll begin using 1/2 the remaining timeout.
@@ -241,26 +244,26 @@ class existence( object ):
                     found	= opened = True
                 else:
                     # eg. EACCES (Permission denied), etc. 
-                    log.debug( "await filename:?%r, regex: %r; indeterminate file state: %s", 
+                    log.debug( "wait for filename:?%r, regex: %r; indeterminate file state: %s", 
                                     filename, regex, error )
             if found != self.presence:
                 now		= misc.timer()
                 if self.timeout is not None: # A finite timeout
                     if now >= self.started + self.timeout:
-                        log.info( "await filename: %r, regex: %r; timeout of %s exceeded" % (
+                        log.info( "wait for filename: %r, regex: %r; timeout of %s exceeded" % (
                             filename, regex,
                             None if self.timeout is None else "%.3fs" % self.timeout ))
                         return False
                 if self.idle_service:
                     self.idle_service()
                 delay		= self.delay( target=delay*2, now=now )
-                log.info( "await filename:%s%r, regex:%s%r, for %.3fs of %s...", 
+                log.info( "wait for filename:%s%r, regex:%s%r, for %.3fs of %s...", 
                     ( "?" if opened is None else ">" if opened else " " ), filename, 
                     ( ">" if matched else " " ), regex, 
                     delay, None if self.timeout is None else "%.3fs" % self.timeout )
                 time.sleep( delay )
 
-        log.info( "await filename:%s%r, regex:%s%r, in  %.3fs of %s; successful",
+        log.info( "wait for filename:%s%r, regex:%s%r, in  %.3fs of %s; successful",
                        ( "?" if opened is None else ">" if opened else " " ), filename, 
                        ( ">" if matched else " " ), regex,
                        misc.timer() - self.started,

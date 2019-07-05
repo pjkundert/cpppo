@@ -14,9 +14,11 @@
 # A PARTICULAR PURPOSE.  See the GNU General Public License for more details.
 # 
 
-from __future__ import absolute_import
-from __future__ import print_function
-from __future__ import division
+from __future__ import absolute_import, print_function, division
+try:
+    from future_builtins import zip, map # Use Python 3 "lazy" zip, map
+except ImportError:
+    pass
 
 __author__                      = "Perry Kundert"
 __email__                       = "perry@hardconsulting.com"
@@ -32,7 +34,7 @@ import traceback
 
 import pytest
 
-from .tools.await import waitfor
+from .tools.waits import waitfor
 from .modbus_test import start_modbus_simulator, has_o_nonblock, run_plc_modbus_polls
 from .remote.plc import poller_simulator, PlcOffline
 from .remote.io	import motor

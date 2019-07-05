@@ -1,6 +1,8 @@
-from __future__ import absolute_import
-from __future__ import print_function
-from __future__ import division
+from __future__ import absolute_import, print_function, division
+try:
+    from future_builtins import zip, map # Use Python 3 "lazy" zip, map
+except ImportError:
+    pass
 
 import datetime
 import json
@@ -65,6 +67,7 @@ def test_history_timestamp_abbreviations():
         'America/Mazatlan', 'America/Merida', 'America/Mexico_City', 'America/Monterrey',
         'America/Bahia_Banderas', 'America/Cancun', 'America/Chihuahua', 'America/Havana',
         'America/Santa_Isabel', 'America/Grand_Turk', 'America/Cayman', 'America/Port-au-Prince',
+        'America/Metlakatla',
     ]
     #print()
     #print( "America, w/o %r" % ( exclude ))
@@ -97,17 +100,21 @@ def test_history_timestamp_abbreviations():
     assert 'EEST' not in timestamp._tzabbrev
 
     # And all of Europe, w/o some troublesome time zones
-    exclude			= [ 'Europe/Simferopol', 'Europe/Istanbul', 'Europe/Minsk', 'Europe/Chisinau' ]
+    exclude			= [ 'Europe/Simferopol', 'Europe/Istanbul', 'Europe/Minsk', 'Europe/Chisinau', 'Europe/Dublin' ]
     #print()
     #print( "Europe, w/o %r" % ( exclude ))
     abbrev			= timestamp.support_abbreviations( 'Europe', exclude=exclude )
     #print( sorted( abbrev ))
-    if pytz_version < (2016,3):
+    if pytz_version < (2015,2):
+        assert sorted( abbrev ) == ['BST', 'EEST', 'EET', 'MSK', 'SAMT', 'WEST', 'WET']
+    elif pytz_version < (2016,3):
         assert sorted( abbrev ) == ['BST', 'EEST', 'EET', 'IST', 'MSK', 'SAMT', 'WEST', 'WET']
     elif pytz_version < (2016,7):
         assert sorted( abbrev ) == ['BST', 'EEST', 'EET', 'IST', 'MSK', 'SAMT', 'WEST', 'WET']
-    else:
+    elif pytz_version < (2018,5):
         assert sorted( abbrev ) == ['BST', 'EEST', 'EET', 'IST', 'MSK', 'WEST', 'WET']
+    else:
+        assert sorted( abbrev ) == ['BST', 'EEST', 'EET', 'MSK', 'WEST', 'WET']
         
     assert 'EEST' in timestamp._tzabbrev
     try:

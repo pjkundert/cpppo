@@ -15,12 +15,9 @@
 # A PARTICULAR PURPOSE.  See the GNU General Public License for more details.
 # 
 
-from __future__ import absolute_import
-from __future__ import print_function
-from __future__ import division
-
+from __future__ import absolute_import, print_function, division
 try:
-    from future_builtins import zip # Use Python 3 "lazy" zip
+    from future_builtins import zip, map # Use Python 3 "lazy" zip, map
 except ImportError:
     pass
 
@@ -41,12 +38,10 @@ import logging
 import sys
 import time
 import traceback
-import warnings
 
 from ...automata import log_cfg
 from ...misc import timer
-from .main import address as enip_address
-from .client import connector
+from . import defaults
 
 # Default poll params list, used if None supplied to poll; change, if desired
 PARAMS				= [
@@ -181,7 +176,7 @@ def run( via, process, failure=None, backoff_min=None, backoff_multiplier=None, 
 
 
 def poll( proxy_class=None, address=None, depth=None, multiple=None, timeout=None,
-          route_path=None, send_path=None, gateway_class=None, via=None,
+          route_path=None, send_path=None, via=None,
           params=None, pass_thru=None, cycle=None, process=None, failure=None,
           backoff_min=None, backoff_multiplier=None, backoff_max=None, latency=None ):
     """Connect to the Device (eg. CompactLogix, MicroLogix, PowerFlex) using the supplied 'via', or an
@@ -198,24 +193,11 @@ def poll( proxy_class=None, address=None, depth=None, multiple=None, timeout=Non
     achieve polling of various CIP Attributes at differing rates, over the same EtherNet/IP CIP
     session.
 
-    PENDING DEPRECATION
-
-    We used to call the first positional parameter 'gateway_class'; this is confusing, because the
-    proxy classes call their underlying instance of the cpppo.server.enip.client connector their
-    'gateway'.  So, we changed the name to proxy_class, and retained an optional keyword parameter
-    'gateway_class'.  We'll warn for now, and deprecate it at a later major version change.
-
     """
-    if gateway_class is not None:
-        warnings.warn(
-            "cpppo.server.enip.poll poll( gateway_class=... ) is deprecated; use proxy_class=... instead",
-            PendingDeprecationWarning )
-        assert proxy_class is None, "Cannot specify both gateway_class and proxy_class"
-        proxy_class		= gateway_class
     if proxy_class is not None:
         assert via is None, "Cannot specify both a proxy_class and a 'via' proxy instance"
     if address is None:
-        address			= enip_address # cpppo.server.enip.address
+        address			= defaults.address
     if process is None:
         process			= lambda p,v: print( "%15s: %r" % ( p, v ))
     if via is None:
@@ -230,13 +212,26 @@ def poll( proxy_class=None, address=None, depth=None, multiple=None, timeout=Non
 def main( argv=None ):
     ap				= argparse.ArgumentParser(
         description = "Poll Parameters from CIP Device via proxy gateway (AB PowerFlex 750, by default)",
-        epilog = "" )
+        formatter_class = argparse.RawDescriptionHelpFormatter,
+        epilog = """\
+
+    Poll one or more EtherNet/IP CIP Tags or pre-defined named PARAMETER CIP Object/Instance
+Attributes.  See cpppo.server.enip.ab.py for an example of how to define names and CIP data types
+for CIP Object/Instance/Attributes.
+
+    To allow accessing to arbitrary C*Logix Tags, specify the --pass-thru option; to poll values
+from a C*Logix Controller, run something like:
+
+        python -m cpppo.server.enip.poll -v --pass-thru 'This.SCADA[0-9]' 'That.Something'
+
+This polls the target Tags at the default cycle of 1 second.  The -v option also causes logging
+of missed polls.""" )
 
     ap.add_argument( '-v', '--verbose', default=0, action="count",
                      help="Display logging information." )
-    ap.add_argument( '-a', '--address', default="%s:%s" % enip_address,
+    ap.add_argument( '-a', '--address', default="%s:%s" % defaults.address,
                      help="Address of EtherNet/IP CIP device to connect to (default: %s:%s)" % (
-                         enip_address[0], enip_address[1] ))
+                         defaults.address[0], defaults.address[1] ))
     ap.add_argument( '-c', '--cycle', default=None,
                      help="Poll cycle (default: 1)" )
     ap.add_argument( '-t', '--timeout', default=None,
@@ -244,7 +239,7 @@ def main( argv=None ):
     ap.add_argument( '--route-path',
                      default=None,
                      help="Route Path, in JSON (default: %r); 0/false to specify no/empty route_path" % (
-                         str( json.dumps( connector.route_path_default ))))
+                         str( json.dumps( defaults.route_path_default ))))
     ap.add_argument( '--send-path',
                      default=None,
                      help="Send Path to UCMM (default: @6/1); Specify an empty string '' for no Send Path" )
@@ -264,7 +259,6 @@ def main( argv=None ):
 
     args			= ap.parse_args()
 
-    # Set up logging level (-v...) and --log <file>
     # Set up logging level (-v...) and --log <file>
     levelmap 			= {
         0: logging.WARNING,
@@ -287,8 +281,8 @@ def main( argv=None ):
     # Deduce interface:port address to connect to, and correct types (default is address, above)
     address			= args.address.split( ':', 1 )
     assert 1 <= len( address ) <= 2, "Invalid --address [<interface>]:[<port>}: %s" % args.address
-    address			= ( str( address[0] ) if address[0] else enip_address[0],
-                                    int( address[1] ) if len( address ) > 1 and address[1] else enip_address[1] )
+    address			= ( str( address[0] ) if address[0] else defaults.address[0],
+                                    int( address[1] ) if len( address ) > 1 and address[1] else defaults.address[1] )
 
     multiple			= 500 if args.multiple else 0
     depth			= int( args.depth ) if args.depth is not None else None

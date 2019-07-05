@@ -14,8 +14,7 @@
 # A PARTICULAR PURPOSE.  See the GNU General Public License for more details.
 # 
 
-from __future__ import absolute_import
-from __future__ import print_function
+from __future__ import absolute_import, print_function, division
 
 __author__                      = "Perry Kundert"
 __email__                       = "perry@hardconsulting.com"
@@ -25,6 +24,8 @@ __license__                     = "Dual License: GPLv3 (or later) and Commercial
 __all__				= ["logix", "client"]
 
 # These form the public interface of cpppo.server.enip
-from .main   import *
-from .parser import *
-from .device import *
+from .defaults import *
+from .main     import *
+from .parser   import *
+from .device   import *
+from .ucmm     import *

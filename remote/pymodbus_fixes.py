@@ -14,9 +14,11 @@
 # A PARTICULAR PURPOSE.  See the GNU General Public License for more details.
 # 
 
-from __future__ import absolute_import
-from __future__ import print_function
-from __future__ import division
+from __future__ import absolute_import, print_function, division
+try:
+    from future_builtins import zip, map # Use Python 3 "lazy" zip, map
+except ImportError:
+    pass
 
 __author__                      = "Perry Kundert"
 __email__                       = "perry@hardconsulting.com"
@@ -56,7 +58,7 @@ from ..server import network
 # We need to monkeypatch pymodbus' ModbusTcpServer's SocketServer.serve_forever
 # to be Python3 socketserver interface-compatible.  When pymodbus is ported to
 # Python3, this will not be necessary in the Python3 implementation.
-assert sys.version_info[0] < 3, "pymodbus is not yet Python3 compatible"
+# assert sys.version_info[0] < 3, "pymodbus is not yet Python3 compatible"
 from pymodbus import __version__ as pymodbus_version
 from pymodbus.server.sync import (
     ModbusTcpServer, ModbusSerialServer, ModbusSingleRequestHandler, ModbusConnectedRequestHandler )

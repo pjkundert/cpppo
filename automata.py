@@ -14,9 +14,11 @@
 # A PARTICULAR PURPOSE.  See the GNU General Public License for more details.
 #
 
-from __future__ import absolute_import
-from __future__ import print_function
-from __future__ import division
+from __future__ import absolute_import, print_function, division
+try:
+    from future_builtins import zip, map # Use Python 3 "lazy" zip, map
+except ImportError:
+    pass
 
 import array
 import logging
@@ -232,7 +234,7 @@ class remembering( chaining ):
         if self.memory:
             assert self.memory.pop() == item
         super( remembering, self ).push( item )
-        
+
 
 class decide( object ):
     """A type of object that may be supplied as a state transition target, instead of a state.  It must
@@ -777,9 +779,9 @@ class state( dict ):
         # StopIteration after yielding a transition, or if self is a terminal state
 
     def delegate( self, source, machine=None, path=None, data=None, ending=None ):
-        """Base state class delegate generator does nothing."""
-        raise StopIteration
-        yield None 
+        """Base state class delegate generator does nothing; equivalent to `yield from ()` in Python 3.3+"""
+        return
+        yield
 
     def initialize( self, machine=None, path=None, data=None ):
         """Done once at state entry."""
@@ -1399,7 +1401,7 @@ class regex_bytes( regex ):
 
 
 class string_base( object ):
-    """When combined with a regex class, collects a string matching the regular expression, and puts it
+    r"""When combined with a regex class, collects a string matching the regular expression, and puts it
     in the data artifact at path.context 'string' by default.
 
     The default initial=".*\n", greedy=False configuration scans input only until the regular
@@ -1463,7 +1465,7 @@ class string_base( object ):
         value			= data[subs]
         if isinstance( value, array.array ):
             if value.typecode == 'c':
-                value		= value.tostring()
+                value		= value.tostring() if sys.version_info[0] < 3 else value.tobytes()
             elif value.typecode == 'B':
                 value		= value.tobytes()
             elif value.typecode == 'u':
@@ -1487,7 +1489,7 @@ class integer_base( string_base ):
     def __init__( self, name, initial=None, context="integer", **kwds ):
         assert initial is None, "Cannot specify a sub-machine for %s.%s" % (
             __package__, self.__class__.__name__ )
-        super( integer_base, self ).__init__( name=name, initial="\d+", context=context,
+        super( integer_base, self ).__init__( name=name, initial=r"\d+", context=context,
                                               greedy=True, **kwds )
 
     def terminate( self, exception, machine=None, path=None, data=None ):

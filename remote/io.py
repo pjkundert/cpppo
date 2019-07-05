@@ -14,9 +14,11 @@
 # A PARTICULAR PURPOSE.  See the GNU General Public License for more details.
 # 
 
-from __future__ import absolute_import
-from __future__ import print_function
-from __future__ import division
+from __future__ import absolute_import, print_function, division
+try:
+    from future_builtins import zip, map # Use Python 3 "lazy" zip, map
+except ImportError:
+    pass
 
 __author__                      = "Perry Kundert"
 __email__                       = "perry@hardconsulting.com"
@@ -26,6 +28,7 @@ __license__                     = "Dual License: GPLv3 (or later) and Commercial
 """
 remote.io	-- Interact with remote I/O singularly and in groups
 """
+
 __all__				= ['address', 'input', 'output',
                                    'capture', 'input_event', 'output_event',
                                    'device', 'motor', 'motor_simulator']

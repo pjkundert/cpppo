@@ -14,9 +14,11 @@
 # A PARTICULAR PURPOSE.  See the GNU General Public License for more details.
 # 
 
-from __future__ import absolute_import
-from __future__ import print_function
-from __future__ import division
+from __future__ import absolute_import, print_function, division
+try:
+    from future_builtins import zip, map # Use Python 3 "lazy" zip, map
+except ImportError:
+    pass
 
 __author__                      = "Perry Kundert"
 __email__                       = "perry@hardconsulting.com"
@@ -390,7 +392,7 @@ def bench( server_func, client_func, client_count,
                 if result:
                     log.warning( "Client failed w/ non-0 result: %s", result )
             except Exception as exc:
-                log.warning( "Client failed w/ Exception: %s", exc )
+                log.exception( "Client failed w/ Exception: %s", exc )
 
 
         failures		= client_count - successes

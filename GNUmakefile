@@ -71,9 +71,11 @@ help:
 	@echo "  vmware-debian-up	Brings up Jessie VM w/ Docker capability" 
 	@echo "  vmware-debian-ssh	Log in to the VM" 
 
-test:
+test2:
 	$(PY2TEST) || true
+test3:
 	$(PY3TEST) || true
+test: test2 test3
 
 install:
 	$(PY2) setup.py install
@@ -164,6 +166,10 @@ test-%:
 	$(PY2TEST) *$*_test.py
 	$(PY3TEST) *$*_test.py
 
+unit2-%:
+	$(PY2TEST) -k $*
+unit3-%:
+	$(PY3TEST) -k $*
 unit-%:
 	$(PY2TEST) -k $*
 	$(PY3TEST) -k $*
