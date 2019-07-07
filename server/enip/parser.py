@@ -51,7 +51,7 @@ log				= logging.getLogger( "enip.srv" )
 # octets_encode	--   and converts array of octets back to a bytes string
 # octets_struct	-- Scans octets sufficient to fulfill struct 'format', and parses
 # words_base	-- A dfa_base that default to scan octet pairs (words) from bytes data
-# words		-- Scands words into <context>.input array
+# words		-- Scans words into <context>.input array
 # 
 #     You must provide either a name or a context; if you provide neither, then both default to the
 # name of the class.
@@ -370,6 +370,115 @@ class STRING( STRUCT ):
             result	       += b'\x00' * ( value.length - actual )
         if value.length % 2:
             result	       += b'\x00' # pad, if length is odd
+        return result
+
+
+class REVISION( STRUCT ):
+    """Revision struct used by Identity attribute 4 (product revision).  Handles the bytes in network
+    order (as if [ USINT, USINT ]) instead of using UINT's little-endian.
+
+    """
+
+    def __init__( self, name=None, **kwds):
+        name			= name or kwds.setdefault( 'context', self.__class__.__name__ )
+
+        def size_init( path=None, data=None, **kwds ):
+            data[path+'.data']	= []
+            return 2
+
+        pair			= USINT( terminal=True )
+        pair[None] 		= move_if( 	'move',
+	                                        source		='.USINT',
+                                                destination	='.data' )
+
+        init			= cpppo.dfa( 	'init',
+                                                initial=pair,
+                                                limit=size_init,
+	                                        repeat=2,
+                                                terminal=True )
+
+        super( REVISION, self ).__init__( name=name, initial=init, **kwds )
+
+    @classmethod
+    def produce( cls, value ):
+        """Determine major/minor numbers from given input. Then, emit the (four byte) uint+uint.  Accepts
+        either a {.data: <revision> } dotdict, (major, minor), [major, minor], "major.minor", or
+        float.
+
+        """
+        result			= b''
+
+        if not isinstance( value, cpppo.dotdict ):
+            value		= cpppo.dotdict( {'data': value } )
+
+        if type( value.data ) is float:
+            value.data		= str( value.data )
+        if type( value.data ) is str:
+            value.data		= list( map(int, value.data.split('.')))
+        assert type(value.data) is list, "Not a valid value type for %s.produce: %s" % ( cls.__name__, type(value.data).__name__ )
+
+        dleng			= len( value.data )
+        assert dleng == 2, "There should only be 2 values [major, minor]: %s" % ( value.data, )
+
+        for n in value.data:
+            result	       += USINT.produce( n )
+
+        return result
+
+class UINT_ARRAY( STRUCT ):
+    """STRUCT of UINT ( number of UINTs ) + [ UINT, ...UINT(s) ].  Used in class instance attributes 4
+    and 5 (Optional attribute list, optional services list).
+
+    """
+
+    def __init__( self, name=None, **kwds):
+        name			= name or kwds.setdefault( 'context', self.__class__.__name__ )
+
+        leng			= UINT( 'length', context='length' )
+
+        def size_init( path=None, data=None, **kwds ):
+            data[path+'.data']	= []
+            return data[path+'.length'] * 2
+
+        ityp			= UINT( terminal=True )
+        ityp[None] 		= move_if( 	'move',
+	                                        source		='.UINT',
+                                                destination	='.data' )
+
+        leng[None]		= cpppo.dfa( 	'loop',
+                                                initial=ityp,
+                                                limit=size_init,
+	                                        repeat='.length',
+                                                terminal=True )
+
+        super( UINT_ARRAY, self ).__init__( name=name, initial=leng, **kwds )
+
+    @classmethod
+    def produce( cls, value ):
+        """Truncate or NUL-fill the provided list to the given .length (if provided and not None).  Then,
+        emit the (two byte) length+array.  Accepts either a {.length: ..., .data: list } dotdict, or
+        a list.
+
+        """
+        result			= b''
+
+        if not isinstance( value, cpppo.dotdict ):
+            value		= cpppo.dotdict( {'data': value } )
+
+        assert type(value.data) is list, "Value type must be a list, not: %s" % ( type(value.data), )
+
+        actual			= len( value.data )
+        if value.get('length') is None:
+            value.length 	= actual
+        assert value.length < 1<<16, "%s must be < 65536 bytes in length; %r" % ( cls.__name__, value )
+
+        result		       += UINT.produce( value.length )
+        for i in value.data[:value.length]:
+            result	       += UINT.produce( i )
+
+        if actual < value.length:
+            result	       += UINT.produce( 0 ) * ( value.length - actual )
+
         return result
 
 

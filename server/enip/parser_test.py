@@ -99,3 +99,80 @@ def test_STRINGs():
                     pass
         assert result.SSTRING.length == len( original )
         assert result.SSTRING.string == original
+
+def test_UINT_ARRAY():
+    """UINT_ARRAY is 1-byte len + [ uint, ... ]"""
+
+    encoded			= b'"\x00\x16Nn0-N\x920\x000\x82aW0h0\x840U0W0h0\x000J0\x820x0i0\x820\x000\xdb\x98s0\xcbza0K0m0d0\x000\xe5\x9ck0W0B0\x890m0p0'
+    data			= [
+        19990, 12398, 20013, 12434, 12288, 24962, 12375, 12392, 12420, 12373,
+        12375, 12392, 12288, 12362, 12418, 12408, 12393, 12418, 12288, 39131,
+        12403, 31435, 12385, 12363, 12397, 12388, 12288, 40165, 12395, 12375,
+        12354, 12425, 12397, 12400
+    ]
+
+    result			= cpppo.dotdict()
+    with parser.UINT_ARRAY() as machine:
+        with contextlib.closing( machine.run( source=encoded, data=result )) as engine:
+            for m,s in engine:
+                pass
+
+    print( result )
+    assert result.UINT_ARRAY.length	== 34
+    assert result.UINT_ARRAY.data	== data
+
+    result			= parser.UINT_ARRAY.produce( result.UINT_ARRAY )
+    assert result == encoded
+
+    result			= parser.UINT_ARRAY.produce( data )
+    assert result == encoded
+
+    ctx				= cpppo.dotdict()
+    ctx.length			= 10
+    ctx.data			= data
+    result			= parser.UINT_ARRAY.produce( ctx )
+    assert result == b'\n\x00\x16Nn0-N\x920\x000\x82aW0h0\x840U0'
+
+    ctx.length			= 100
+    ctx.data			= data
+    result			= parser.UINT_ARRAY.produce( ctx )
+    assert result[:2] == b'\x64\x00'
+    assert result[2:70] == encoded[2:]
+
+
+def test_REVISION():
+    """REVISION is 1-byte len + [ uint, ... ]"""
+
+    encoded			= b'\x05\x1c'
+
+    result			= cpppo.dotdict()
+    with parser.REVISION() as machine:
+        with contextlib.closing( machine.run( source=encoded, data=result )) as engine:
+            for m,s in engine:
+                pass
+
+    print( result )
+    assert result.REVISION.data	== [ 5, 28 ]
+
+    ctx				= cpppo.dotdict()
+    ctx.data = [ 5, 28 ]
+    encoded			= parser.REVISION.produce( ctx )
+    assert encoded ==  b'\x05\x1c'
+    ctx.data = 5.28
+    encoded			= parser.REVISION.produce( ctx )
+    assert encoded ==  b'\x05\x1c'
+    ctx.data = "5.28"
+    encoded			= parser.REVISION.produce( ctx )
+    assert encoded ==  b'\x05\x1c'
+
+    encoded			= parser.REVISION.produce( 5.28 )
+    assert encoded ==  b'\x05\x1c'
+    encoded			= parser.REVISION.produce( "5.28" )
+    assert encoded ==  b'\x05\x1c'
+
+    failed			= False
+    try:
+        encoded			= parser.REVISION.produce( "5.28.90" )
+    except AssertionError:
+        failed			= True
+    assert failed
