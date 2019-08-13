@@ -82,12 +82,19 @@ class dotdict( dict ):
         """Give each dict or k,v iterable, and all keywords a chance to be converted into a dotdict() layer.
 
         """
-        # There is a defect in python 3.7 that erroneously passes back a single dict object passed
-        # to dict.__init__ as the result...   
+        # In cpython 3.7 (and possibly others), copying a dict-derived object may use that classes
+        # keys() list/iterator, or (if the iter method is unchanged), may just access underlying
+        # dict data's raw keys.  Thus, convert any supplied dict (or dotdict, or whatever) to
+        # an iterable of key/value pairs.
         assert 0 <= len( args ) <= 1, "A single dict or iterable of key/value pairs is allowed"
-        if args and isinstance( args[0], dict ) and type(args[0]) is not dict:
-            args = (dict.items( args[0] ),)
-        for key, val in dict( *args, **kwds ).items():
+        if args:
+            if isinstance( args[0], dict ): # and type(args[0]) is not dict:
+                args = (dict.items( args[0] ),)
+            # for key, val in dict( *args, **kwds ).items():
+            #     self.__setitem__( key, val )
+            for key, val in args[0]:
+                self.__setitem__( key, val )
+        for key, val in kwds.items():
             self.__setitem__( key, val )
 
     def __dir__( self ):
