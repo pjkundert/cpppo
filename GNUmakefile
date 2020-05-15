@@ -72,9 +72,9 @@ help:
 	@echo "  vmware-debian-ssh	Log in to the VM" 
 
 test:
-	$(PY_TEST) || true
+	$(PY_TEST)
 test3:
-	$(PY3TEST) || true
+	$(PY3TEST)
 test23: test test3
 
 install:
