@@ -75,11 +75,15 @@ test:
 	$(PY_TEST)
 test3:
 	$(PY3TEST)
+
 test23: test test3
 
 install:
 	$(PY_) setup.py install
+install3:
 	$(PY3) setup.py install
+
+install23: install install3
 
 analyze:
 	flake8 -j 1 --max-line-length=110					\
@@ -91,7 +95,7 @@ pylint:
 	cd .. && pylint cpppo --disable=W,C,R
 
 # Support uploading a new version of cpppo to pypi.  Must:
-#   o advance __version__ number in cpppo/misc.py
+#   o advance __version__ number in cpppo/version.py
 #   o log in to your pypi account (ie. for package maintainer only)
 upload:
 	python setup.py sdist upload
