@@ -559,7 +559,7 @@ class proxy( object ):
                                           send_path=self.send_path, priority_time_tick=self.priority_time_tick,
                                           timeout_ticks=self.timeout_ticks )
                 except Exception as exc:
-                    log.warning( "Failed to parse attribute %r; %s", att, exc )
+                    log.warning( "Failed to parse attribute %r; %s", a, exc )
                     raise
                 # For read_tag.../get_attribute..., tag_type is never required; but, it is used (if
                 # provided) to estimate data sizes for Multiple Service Packets.  For
