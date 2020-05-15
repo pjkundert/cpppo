@@ -224,8 +224,8 @@ class timestamp( object ):
         # Check consistency during relevant time periods for all timezones using the same
         # DST-specific abbreviations.  It is problematic to have multiple timezones with the same
         # abbreviation but with different DST change times or UTC offsets.
-        if reach is None:# 1 year on either side by default
-            reach		= datetime.timedelta( 365 )
+        if reach is None:# 1/2 year on either side by default
+            reach		= datetime.timedelta( 365/2 )
         if at is None:	 # around the current time by default (naive, UTC)
             at			= datetime.datetime.utcnow()
         oneday			= datetime.timedelta( 1 )

@@ -141,6 +141,8 @@ def change_function( function, **kwds ):
     attrs			= [ "co_argcount" ]
     if sys.version_info[0] >= 3:
         attrs		       += [ "co_kwonlyargcount" ]
+        if sys.version_info[1] >= 8:
+            attrs	       += [ "co_posonlyargcount" ]
     attrs		       += [ "co_nlocals",
                                     "co_stacksize",
                                     "co_flags",

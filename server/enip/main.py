@@ -617,7 +617,7 @@ def enip_srv( conn, addr, enip_process=None, delay=None, **kwds ):
     elif udp:
         enip_srv_udp( conn, name=name, enip_process=enip_process, **kwds )
     else:
-        raise NotImplemented( "Unknown socket protocol for EtherNet/IP CIP" )
+        raise NotImplementedError( "Unknown socket protocol for EtherNet/IP CIP" )
 
 
 def enip_srv_udp( conn, name, enip_process, **kwds ):

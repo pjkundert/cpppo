@@ -2,9 +2,9 @@
 # GNU 'make' file
 # 
 
-# PY[23] is the target Python interpreter.  It must have pytest installed.
+# PY[3] is the target Python interpreter.  It must have pytest installed.
 
-PY2=python
+PY=python
 PY3=python3
 
 # PY[23]TEST is the desired method of invoking py.test; either as a command, or
@@ -43,7 +43,7 @@ PYTESTOPTS=-v # --capture=no
 # zones
 TZ=Canada/Mountain
 
-PY2TEST=TZ=$(TZ) $(PY2) -m pytest $(PYTESTOPTS)
+PY_TEST=TZ=$(TZ) $(PY)  -m pytest $(PYTESTOPTS)
 PY3TEST=TZ=$(TZ) $(PY3) -m pytest $(PYTESTOPTS)
 
 .PHONY: all test clean upload
@@ -71,19 +71,23 @@ help:
 	@echo "  vmware-debian-up	Brings up Jessie VM w/ Docker capability" 
 	@echo "  vmware-debian-ssh	Log in to the VM" 
 
-test2:
-	$(PY2TEST) || true
+test:
+	$(PY_TEST)
 test3:
-	$(PY3TEST) || true
-test: test2 test3
+	$(PY3TEST)
+
+test23: test test3
 
 install:
-	$(PY2) setup.py install
+	$(PY_) setup.py install
+install3:
 	$(PY3) setup.py install
+
+install23: install install3
 
 analyze:
 	flake8 -j 1 --max-line-length=110					\
-	  --ignore=E221,E201,E202,E203,E223,E225,E226,E231,E241,E242,E261,E272,E302,W503,E701,E702,E,W	\
+	  --ignore=F401,E221,E201,E202,E203,E223,E225,E226,E231,E241,E242,E261,E272,E302,W503,E701,E702,E,W	\
 	  --exclude="__init__.py" \
 	  .
 
@@ -91,7 +95,7 @@ pylint:
 	cd .. && pylint cpppo --disable=W,C,R
 
 # Support uploading a new version of cpppo to pypi.  Must:
-#   o advance __version__ number in cpppo/misc.py
+#   o advance __version__ number in cpppo/version.py
 #   o log in to your pypi account (ie. for package maintainer only)
 upload:
 	python setup.py sdist upload
@@ -163,15 +167,19 @@ $(HOME)/.vagrant.d/boxes/precise64/vmware_fusion: 	vagrant
 
 # Run only tests with a prefix containing the target string, eg test-blah
 test-%:
-	$(PY2TEST) *$*_test.py
+	$(PY_TEST) *$*_test.py
+test3-%:
+	$(PY3TEST) *$*_test.py
+test23-%:
+	$(PY_TEST) *$*_test.py
 	$(PY3TEST) *$*_test.py
 
-unit2-%:
-	$(PY2TEST) -k $*
+unit-%:
+	$(PY_TEST) -k $*
 unit3-%:
 	$(PY3TEST) -k $*
-unit-%:
-	$(PY2TEST) -k $*
+unit23-%:
+	$(PY_TEST) -k $*
 	$(PY3TEST) -k $*
 
 

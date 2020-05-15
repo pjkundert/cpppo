@@ -840,7 +840,7 @@ class client( object ):
         # request.input; if so, use it.
         try:
             us.request.input	= bytearray( device.dialect.produce( us.request )) # eg. logix.Logix
-        except device.RequestUnrecognized as exc:
+        except device.RequestUnrecognized:
             if 'input' not in us.request:
                 raise # No request, and no already-produced serialization
 

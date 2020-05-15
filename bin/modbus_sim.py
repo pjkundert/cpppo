@@ -636,7 +636,7 @@ def main( argv=None ):
             starter( registers=args.registers, framer=framer, address=address, **starter_kwds )
         except KeyboardInterrupt:
             return 1
-        except Exception as exc:
+        except Exception:
             log.info( "Couldn't start PLC simulator on %s: %s",
                     address, traceback.format_exc() )
 
