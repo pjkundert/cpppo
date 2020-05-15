@@ -2,9 +2,9 @@
 # GNU 'make' file
 # 
 
-# PY[23] is the target Python interpreter.  It must have pytest installed.
+# PY[3] is the target Python interpreter.  It must have pytest installed.
 
-PY2=python
+PY=python
 PY3=python3
 
 # PY[23]TEST is the desired method of invoking py.test; either as a command, or
@@ -43,7 +43,7 @@ PYTESTOPTS=-v # --capture=no
 # zones
 TZ=Canada/Mountain
 
-PY2TEST=TZ=$(TZ) $(PY2) -m pytest $(PYTESTOPTS)
+PY_TEST=TZ=$(TZ) $(PY)  -m pytest $(PYTESTOPTS)
 PY3TEST=TZ=$(TZ) $(PY3) -m pytest $(PYTESTOPTS)
 
 .PHONY: all test clean upload
@@ -71,14 +71,14 @@ help:
 	@echo "  vmware-debian-up	Brings up Jessie VM w/ Docker capability" 
 	@echo "  vmware-debian-ssh	Log in to the VM" 
 
-test2:
-	$(PY2TEST) || true
+test:
+	$(PY_TEST) || true
 test3:
 	$(PY3TEST) || true
-test: test2 test3
+test23: test test3
 
 install:
-	$(PY2) setup.py install
+	$(PY_) setup.py install
 	$(PY3) setup.py install
 
 analyze:
@@ -163,15 +163,19 @@ $(HOME)/.vagrant.d/boxes/precise64/vmware_fusion: 	vagrant
 
 # Run only tests with a prefix containing the target string, eg test-blah
 test-%:
-	$(PY2TEST) *$*_test.py
+	$(PY_TEST) *$*_test.py
+test3-%:
+	$(PY3TEST) *$*_test.py
+test23-%:
+	$(PY_TEST) *$*_test.py
 	$(PY3TEST) *$*_test.py
 
-unit2-%:
-	$(PY2TEST) -k $*
+unit-%:
+	$(PY_TEST) -k $*
 unit3-%:
 	$(PY3TEST) -k $*
-unit-%:
-	$(PY2TEST) -k $*
+unit23-%:
+	$(PY_TEST) -k $*
 	$(PY3TEST) -k $*
 
 
