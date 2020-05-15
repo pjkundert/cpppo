@@ -36,7 +36,6 @@ import os
 import select
 import serial
 import socket
-import sys
 import threading
 import traceback
 

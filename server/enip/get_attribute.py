@@ -21,11 +21,6 @@ try:
 except ImportError:
     pass
 
-try:
-    from future_builtins import map
-except ImportError:
-    pass # already available in Python3
-
 __author__                      = "Perry Kundert"
 __email__                       = "perry@hardconsulting.com"
 __copyright__                   = "Copyright (c) 2013 Hard Consulting Corporation"

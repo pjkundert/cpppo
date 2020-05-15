@@ -80,7 +80,7 @@ def connector( **kwds ):
     try:
         log.info( "Connecting to %s:%s for %s sec. timeout", kwds.get('host'), kwds.get('port'), kwds.get('timeout') )
         return enip.client.connector( **kwds )
-    except socket.timeout as exc:
+    except socket.timeout:
         log.info( "EtherNet/IP CIP connection timed out after %.3fs",
                   misc.timer() - beg )
     except socket.error as exc:
@@ -115,7 +115,8 @@ def test_dotdict_request():
     o = dotdict({'something': 99})
     d.item = [o,o,o]
     d2 = dotdict( d )
-
+    assert len( d2 ) == 1
+    assert len( d2.item ) == 3
 
 def test_client_api():
     """Performance of executing an operation a number of times on a socket connected
