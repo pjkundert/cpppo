@@ -72,8 +72,8 @@ def mutexmethod( mutex='lock', blocking=True ):
 # 
 # Select platform appropriate timer function
 # 
-if sys.platform == 'win32':
-    # On Windows, the best timer is time.clock
+if sys.platform == 'win32' and sys.version_info[0:2] < (3,8):
+    # On Windows (before Python 3.8), the best timer is time.clock
     timer 			= time.clock
 else:
     # On most other platforms the best timer is time.time
