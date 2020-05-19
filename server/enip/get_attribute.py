@@ -260,7 +260,7 @@ class proxy( object ):
     
     def __init__( self, host, port=44818, timeout=None, depth=None, multiple=None,
                   gateway_class=client.connector, route_path=None, send_path=None,
-                  identity_default=None, **gateway_kwds ):
+                  identity_default=None, dialect=None, **gateway_kwds ):
         """Capture the desired I/O parameters for the target CIP Device.
 
         By default, the CIP Device will be identified using a List Identity request each time a CIP
@@ -285,6 +285,7 @@ class proxy( object ):
         assert not identity_default or hasattr( identity_default, 'product_name' )
         self.identity_default	= identity_default
         self.identity		= identity_default
+        self.dialect		= dialect
 
     def __str__( self ):
         return "%s at %s" % ( self.identity.product_name if self.identity else None, self.gateway )
@@ -307,7 +308,7 @@ class proxy( object ):
             ( log.warning if exc else log.normal )(
                 "Closed EtherNet/IP CIP gateway %s due to: %s%s",
                 self.gateway, exc or "(unknown)",
-                "" if log.getEffectiveLevel() > logging.INFO
+                "" if log.getEffectiveLevel() > logging.INFO # is below INFO
                 else ''.join( traceback.format_exc() ))
             self.gateway	= None
             self.identity	= self.identity_default
@@ -315,11 +316,13 @@ class proxy( object ):
     def open_gateway( self ):
         """Ensure that the gateway is open, in a Thread-safe fashion.  First Thread in creates the
         gateway_class instance and registers a session, and (if necessary) queries the identity of the
-        device -- all under the protection of the gateway_lock Mutex."""
+        device -- all under the protection of the gateway_lock Mutex.  All gateways must use the 
+        same (globally defined) device.dialect, if they specify one."""
         with self.gateway_lock:
             if self.gateway is None:
                 self.gateway = self.gateway_class(
-                    host=self.host, port=self.port, timeout=self.timeout, **self.gateway_kwds )
+                    host=self.host, port=self.port, timeout=self.timeout, dialect=self.dialect,
+                    **self.gateway_kwds )
                 if not self.identity:
                     try:
                         rsp,ela = self.list_identity_details()
