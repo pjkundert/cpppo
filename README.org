@@ -159,6 +159,10 @@
     is required:
     : <tag>=<type>[<length>]   # eg. SCADA=INT[1000]
 
+    You may specifiy a CIP Class, Instance and Attribute number for the Tag to be
+    associated with:
+    : Motor_Velocity@0x93/3/10=REAL
+
     The available types are SINT (8-bit), INT (16-bit), DINT (32-bit) integer,
     and REAL (32-bit float).  BOOL (8-bit, bit #0), SSTRING and STRING are also
     supported.

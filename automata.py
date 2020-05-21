@@ -314,6 +314,10 @@ class state( dict ):
     state processes its input symbol (if any).  The incoming symbol source iterator's .sent property
     is tested before transitioning, and transitioning is terminated if the computed ending symbol
     has been reached."""
+
+    ANY				= -1 # The [True] default transition on any input 
+    NON				= -2 # The [None] fallback transition on no input
+
     def __init__( self, name, terminal=False, alphabet=None, context=None, extension=None,
                   encoder=None, typecode=None, greedy=True, limit=None ):
         if isinstance( name, state ):
@@ -435,9 +439,15 @@ class state( dict ):
     # encode(inp)	-- Transform the input symbol according to the supplied encoder
     # 
     def encode( self, inp ):
-        """All input symbols are encoded using the supplied encoder; the resultant encoded symbol or
-        tuple of symbols are used to establish and find transitions."""
-        if inp is None or self.encoder is None:
+        """All input symbols are encoded using the supplied encoder; the resultant encoded symbol or tuple
+        of symbols are used to establish and find transitions.  We do not expect the value None or
+        True to appear in input streams, so we will transform them to their place-holder values
+        here, for use in setting up the parser tables.
+
+        """
+        if inp is True or inp is None:
+            return self.ANY if inp else self.NON
+        if self.encoder is None:
             return inp
         enc			= tuple( self.encoder( inp ))
         return enc if len( enc ) > 1 else enc[0]
@@ -453,6 +463,8 @@ class state( dict ):
             self.recognizers.append( (inp,target) )
         else:
             # We can allow zero or more "decide" callables followed by zero or one state.
+            # Since None and True hash to the same values as 0/1, we'll encode them to
+            # -'ve input placeholder symbols that should not appear in valid input.
             enc			= self.encode( inp )
             present		= super( state, self ).setdefault( enc, target )
             if present is not target:
@@ -464,8 +476,9 @@ class state( dict ):
             if type( present ) is list:
                 # and make sure we only allow: <decide>, ... <decide>, [<state>]
                 assert all( not isinstance( v, state ) for v in present[:-1] )
-            #log.debug( "%s   [%-10.10r] == %-10s%s", self.name_centered(),
-            #           inp, present, ( "" if enc is inp else (" (via encoding, on %s)" % repr( enc ))))
+            #log.debug( "%s   [%-10.10s] == %-10s%s", self.name_centered(),
+            #           ( "ANY" if enc == self.ANY else "NON" if enc == self.NON else repr( enc )),
+            #           present, ( "" if enc is inp else (" (via %s encoding)" % repr( inp ))))
 
     def __getitem__( self, inp ):
         """Default is a dictionary lookup of the target state, for the encoded input from most specific
@@ -475,21 +488,26 @@ class state( dict ):
         a valid target.
 
         This usually returns a <state>, but may return a list: <decide>, ..., <decide>[, <state>]
+
+        Returns None if no transition available.
+
+        Callers may invoke with None/True to detect the presence/absence of an ALL/NON transition.
+
         """
         enc			= self.encode( inp )
         try:
             return super( state, self ).__getitem__( enc )
         except KeyError:
             pass
-        if enc is not None:
+        if enc is not self.NON: # Only apply recognizers (and ANY wildcard transition) when input is present
             for pred,target in self.recognizers:
                 if pred( enc ):
                     return target
             try:
-                return super( state, self ).__getitem__( True )
+                return super( state, self ).__getitem__( self.ANY )	# inp not specifically recognized; an ANY tx available?
             except KeyError:
                 pass
-        return super( state, self ).__getitem__( None )
+        return super( state, self ).__getitem__( self.NON )		# inp not available (or no ANY tx); a NON tx available?
 
 
     def get( self, inp, default=None ):
@@ -785,7 +803,8 @@ class state( dict ):
 
     def initialize( self, machine=None, path=None, data=None ):
         """Done once at state entry."""
-        log.debug( "%s -- initialized", self.name_centered() )
+        if log.isEnabledFor( logging.DEBUG ):
+            log.debug( "%s -- initialized", self.name_centered() )
 
     def terminate( self, exception, machine=None, path=None, data=None ):
         """Invoked on termination (after yielding our final state transition).  Exception could be:
@@ -869,11 +888,11 @@ class state( dict ):
         # Accept any of regex/lego/fsm, and build the missing ones.
         regexstr, regex		= None, None
         if isinstance( machine, type_str_base ):
-            log.debug( "Converting Regex to greenery.lego: %r", machine )
+            #log.debug( "Converting Regex to greenery.lego: %r", machine )
             regexstr		= machine
             machine		= greenery.lego.parse( regexstr )
         if isinstance( machine, greenery.lego.lego ):
-            log.debug( "Converting greenery.lego to   fsm: %r", machine )
+            #log.debug( "Converting greenery.lego to   fsm: %r", machine )
             regex		= machine
             machine		= regex.fsm()
         if not isinstance( machine, greenery.fsm.fsm ):
@@ -892,7 +911,7 @@ class state( dict ):
         # a non-terminal state.  We want our machine to fail (yield a non-transition) on that input,
         # instead.  So, below, we'll explicitly store a transition to None (a non-transition) for
         # any transition into a dead state.
-        log.debug( "greenery.fsm:\n%s", machine )
+        #log.debug( "greenery.fsm:\n%s", machine )
         states			= {}
         for pre,tab in machine.map.items():
             terminal		= pre in machine.finals
@@ -1122,11 +1141,13 @@ class dfa_base( object ):
         self.cycle		= 0
         self.final		= 1
         self.lock		= threading.Lock()
+        '''
         if log.isEnabledFor( logging.DEBUG ):
             for sta in sorted( self.initial.nodes(), key=lambda s: misc.natural( s.name )):
                 for inp,dst in sta.edges():
-                    log.debug( "%s <- %-10.10r --> %s", sta.name_centered(), inp, dst )
-
+                    log.debug( "%s <- %-10.10s --> %s", sta.name_centered(),
+                               ( "ANY" if inp == self.ANY else "NON" if inp == self.NON else repr( inp )), dst )
+        '''
     def __enter__( self ):
         """Must only be in use by a single state machine.  Block 'til we can acquire the lock."""
         # assert self.lock.acquire( False ) is True
