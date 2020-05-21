@@ -54,7 +54,7 @@ import traceback
 
 import cpppo
 from .. import network
-from . import logix, device, parser
+from . import ucmm, logix, device, parser
 
 # Globals
 latency				=  0.1 	# network I/O polling (should allow several round-trips)
@@ -632,7 +632,7 @@ def enip_srv( conn, addr, enip_process=None, delay=None, **kwds ):
     elif udp:
         enip_srv_udp( conn, name=name, enip_process=enip_process, **kwds )
     else:
-        raise NotImplemented( "Unknown socket protocol for EtherNet/IP CIP" )
+        raise NotImplementedError( "Unknown socket protocol for EtherNet/IP CIP" )
 
 
 def enip_srv_udp( conn, name, enip_process, **kwds ):
@@ -1241,9 +1241,9 @@ def main( argv=None, attribute_class=device.Attribute, idle_service=None, identi
         # no route_path accepted (must be empty in request).  Can only get in here with a
         # --route-path=0/false/[], or -S|--simple, which implies a --route-path=false (no routing
         # Unconnected Send accepted).
-        class UCMM_class_with_route( device.UCMM ):
+        class UCMM( ucmm.UCMM ): # class name defines config section: [UCMM]
             route_path		= json.loads( args.route_path ) if args.route_path else False
-        UCMM_class		= UCMM_class_with_route
+        UCMM_class		= UCMM
     if UCMM_class:
         options.setdefault( 'UCMM_class', UCMM_class )
     if message_router_class:

@@ -28,3 +28,4 @@ __all__				= ["logix", "client"]
 from .main   import *
 from .parser import *
 from .device import *
+from .ucmm   import *
