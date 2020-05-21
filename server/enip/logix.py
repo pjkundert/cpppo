@@ -39,8 +39,9 @@ import traceback
 from ...dotdict import dotdict
 from ... import automata, misc
 from .device import ( Object, Attribute,
-                      Message_Router, Connection_Manager, UCMM, Identity, TCPIP,
+                      Message_Router, Connection_Manager, Identity, TCPIP,
                       resolve_element, resolve_tag, resolve, redirect_tag, lookup )
+from . import ucmm
 from .parser import ( BOOL, UDINT, DINT, UINT, INT, USINT, SINT, REAL, EPATH, typed_data,
                       move_if, octets_drop, octets_noop, enip_format, status )
 
@@ -223,7 +224,7 @@ class Logix( Message_Router ):
             "Attribute %s ending element before beginning: %r" % ( attribute, (beg, end) )
         return (beg,end,endactual)
 
-    def request( self, data ):
+    def request( self, data, addr=None ):
         """Any exception should result in a reply being generated with a non-zero status."""
 
         # See if this request is for us; if not, route to the correct Object, and return its result.
@@ -234,7 +235,7 @@ class Logix( Message_Router ):
         if target:
             if log.isEnabledFor( logging.DETAIL ):
                 log.detail( "%s Routing to %s: %s", self, target, enip_format( data ))
-            return target.request( data )
+            return target.request( data, addr=addr )
 
         if log.isEnabledFor( logging.DETAIL ):
             log.detail( "%s Request: %s", self, enip_format( data ))
@@ -260,7 +261,7 @@ class Logix( Message_Router ):
             pass
         else:
             # Not recognized; more generic command?
-            return super( Logix, self ).request( data )
+            return super( Logix, self ).request( data, addr=addr )
 
         # It is a recognized request.  Set the data.status to the appropriate error code, should a
         # failure occur at that location during processing.  We will be returning a reply beyond
@@ -427,18 +428,18 @@ class Logix( Message_Router ):
         elif ( data.get( 'service' ) == cls.WR_TAG_RPY
                or data.get( 'service' ) == cls.WR_FRG_RPY ):
             result	       += USINT.produce(	data.service )
-            result	       += USINT.produce(	0x00 )
+            result	       += b'\x00' # reserved
             result	       += status.produce(	data )
         elif data.get( 'service' ) == cls.RD_TAG_RPY:
             result	       += USINT.produce(	data.service )
-            result	       += USINT.produce(	0x00 )	# fill
+            result	       += b'\x00' # reserved
             result	       += status.produce(	data )
             if data.status in (0x00, 0x06):
                 result	       += UINT.produce(		data.read_tag.type )
                 result	       += typed_data.produce(	data.read_tag )
         elif data.get( 'service' ) == cls.RD_FRG_RPY:
             result	       += USINT.produce(	data.service )
-            result	       += USINT.produce(	0x00 )
+            result	       += b'\x00' # reserved
             result	       += status.produce(	data )
             if data.status in (0x00, 0x06):
                 result	       += UINT.produce(		data.read_frag.type )
@@ -606,7 +607,7 @@ def setup( **kwds ):
                 tcpip( instance_id=1 )		# Class 0xF5, Instance 1
 
         if not setup.ucmm:
-            setup.ucmm		= kwds.get( 'UCMM_class', 		UCMM )()
+            setup.ucmm		= kwds.get( 'UCMM_class', 		ucmm.UCMM )()
             if setup.ucmm.route_path:
                 log.normal( "UCMM is restricting request route_path to match: %r",
                             str( json.dumps( setup.ucmm.route_path )))
@@ -754,9 +755,17 @@ def process( addr, data, **kwds ):
         # Find the Connection Manager, and use it to parse the encapsulated EtherNet/IP request.  We
         # pass an additional request.addr, to allow the Connection Manager to identify the
         # connection, in the case where the connection is closed spontaneously (no request, no
-        # request.enip.session_handle).
-        data['request.addr']	= addr	  		# data.request may not exist, or be empty
+        # request.enip.session_handle).  We'll pass this along explicitly to every request( ... ).
 
+        # TODO: remove? Some API users may depend on it... Yes; also, we want to retain the ability
+        # to transport in an empty request, indicating the termination of a session! However, we'll
+        # promote an empty data to contain empty data.request, and (hence) empty data.response.
+        # Only transport data.request.addr if data/data.request is not empty.
+        if 'request' not in data:
+            data.request	= {}
+        if data.request:
+            data.request.addr	= addr
+        
         if 'enip' in data.request:
             # Some requests have no encapsulated CIP payload (eg. empty ListServices requests)
             if 'input' in data.request.enip:
@@ -798,7 +807,7 @@ def process( addr, data, **kwds ):
         # with other response.enip... values (eg. .session_handle for a new Register Session).  The
         # enip.status should normally be 0x00; the encapsulated response will contain appropriate
         # error indications if the encapsulated request failed.
-        proceed			= ucmm.request( data.response )
+        proceed			= ucmm.request( data.response, addr=addr )
         if log.isEnabledFor( logging.DETAIL ):
             log.detail( "EtherNet/IP CIP Response (Client %16s): %s", addr, enip_format( data.response ))
 
@@ -811,5 +820,7 @@ def process( addr, data, **kwds ):
         future			= bytes(bytearray( b for b in source ))
         where			= "at %d total bytes:\n%s\n%s (byte %d)" % (
             processed, repr(memory+future), '-' * (len(repr(memory))-1) + '^', pos )
-        log.error( "EtherNet/IP CIP error %s\n", where )
+        log.error( "EtherNet/IP CIP error %s\n%s", where,
+                   ( '' if log.getEffectiveLevel() >= logging.NORMAL
+                     else ''.join( traceback.format_exception( *sys.exc_info() ))))
         raise
