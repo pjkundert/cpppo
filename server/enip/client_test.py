@@ -7,20 +7,21 @@ except ImportError:
 import errno
 import logging
 import multiprocessing
-#import threading
 import os
 import random
 import socket
 import sys
+import threading
 import time
+import traceback
 
 if __name__ == "__main__":
     # Allow relative imports when executing within package directory, for
     # running tests directly
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))))
     from cpppo.automata import log_cfg
+    #log_cfg['level'] 		= logging.INFO
     logging.basicConfig( **log_cfg )
-    #logging.getLogger().setLevel( logging.INFO )
 
 from ...dotdict import dotdict, apidict
 from ... import misc, tools
@@ -117,14 +118,111 @@ def test_dotdict_request():
     d2 = dotdict( d )
 
 
+def test_client_api_simple():
+    taglen			= 100 # able to fit request for Attribute into 1 packet
+    logging.getLogger().setLevel( logging.NORMAL )
+    server_addr		        = ('localhost', 12398)
+    server_kwds			= dotdict({
+        'argv': [
+            '-v',
+            '--address',	'%s:%d' % server_addr,
+            'Int@0x99/1/1=INT[%d]' % ( taglen ),
+            'Real@0x99/1/2=REAL[%d]' % ( taglen ),
+            'DInt@0x99/1/3=DINT[%d]' % ( taglen ),
+        ],
+        'server': {
+            'control':	apidict( enip.timeout, {
+                'done': False
+            }),
+        },
+    })
+    server_func			= enip.main
+
+    Process			= threading.Thread # multiprocessing.Process
+    server			= Process( target=server_func, kwargs=server_kwds )
+    server.start()
+
+    client_timeout		= 15.0
+
+    try:
+        connection		= None
+        while not connection:
+            time.sleep( .1 )
+            try:
+                connection	= enip.client.implicit( *server_addr, timeout=client_timeout, connection_path=None )
+            except socket.error as exc:
+                logging.warning( "enip.client.connector socket.error: %r", exc )
+                if exc.errno != errno.ECONNREFUSED:
+                    raise
+            except Exception as exc:
+                logging.warning( "enip.client.connector Exception: %r", exc )
+                raise
+
+        with connection:
+            # Get Attribute Single's payload is an EPATH
+            req			= connection.service_code(
+                code=enip.Object.GA_SNG_REQ, path='@0x99/1/2' )
+            assert 'service_code' in req and req.service_code is True # no payload
+            assert connection.readable( timeout=10.0 ) # receive reply
+            rpy			= next( connection )
+            assert rpy and 'enip.CIP' in rpy and 'send_data.CPF.item[1].unconnected_send.request.get_attribute_single' in rpy.enip.CIP
+
+            # Set Attribute Single's payload is an EPATH + USINT data
+            req			= connection.service_code(
+                code=enip.Object.SA_SNG_REQ, path='@0x99/1/2',
+                data=list( bytearray(
+                    #enip.EPATH.produce( enip.parse_path( '@0x99/1/2' )) +
+                    enip.typed_data.produce( { 'data': list( map( float, range( taglen ))) }, tag_type=enip.REAL.tag_type ))))
+            assert 'service_code' in req and isinstance( req.service_code, dict ) and 'data' in req.service_code
+            assert connection.readable( timeout=10.0 ) # receive reply
+            rpy			= next( connection )
+            assert rpy and 'enip.CIP' in rpy and 'send_data.CPF.item[1].unconnected_send.request.set_attribute_single' in rpy.enip.CIP
+
+            '''
+            # Try to send some PCCC I/O
+            req		= connection.connected_send( b'\x00\x00\x01\x00\x00\x00\x00\x00\x06\x00\x4a\x0a\x03',
+                                                     connection=0x8dee0016, sequence=1 )
+            logging.normal("PCCC Request: %s", enip.enip_format( req ))
+            #assert 'service_code' in req and req.service_code is True # no payload
+            assert connection.readable( timeout=10.0 ) # receive reply
+            rpy			= next( connection )
+            logging.normal("PCCC Response: %s", enip.enip_format( rpy )) # will be EtherNet/IP status 8; nothing implemented
+            '''
+
+        if not random.randint( 0, 9 ): # 10% of the time...
+            # Try a clean shutdown, closing the outgoing half of the socket, leading to an EOF on
+            # the server.  This will cause the subsequent Forward Close to fail w/ an EPIPE
+            logging.normal( "Skip Forward Close; send EOF" )
+            connection.shutdown()
+            assert connection.readable( timeout=1.0 ) # receive EOF
+            try:
+                connection.close()
+            except socket.error as exc:
+                if exc.errno != errno.EPIPE:
+                    raise
+        else:
+            # Normal close procedure; send Forward Close + EOF, receive Forward Close + EOF.
+            logging.normal( "Send Forward Close; then EOF" )
+            del connection
+    finally:
+        control			= server_kwds.get( 'server', {} ).get( 'control', {} ) if server_kwds else {}
+        if 'done' in control:
+            log.normal( "Server %r done signalled", misc.function_name( server_func ))
+            control['done']	= True	# only useful for threading.Thread; Process cannot see this
+        if hasattr( server, 'terminate' ):
+            log.normal( "Server %r done via .terminate()", misc.function_name( server_func ))
+            server.terminate() 		# only if using multiprocessing.Process(); Thread doesn't have
+        server.join( timeout=1.0 )
+
+
 def test_client_api():
     """Performance of executing an operation a number of times on a socket connected
     Logix simulator, within the same Python interpreter (ie. all on a single CPU
     thread).
 
-    """
-    #logging.getLogger().setLevel( logging.NORMAL )
+    We'll point the Tags to CIP Class 0x99, Instance 1, starting at Attribute 1.
 
+    """
     taglen			= 100 # able to fit request for Attribute into 1 packet
 
     svraddr		        = ('localhost', 12399)
@@ -132,9 +230,9 @@ def test_client_api():
         'argv': [
             #'-v',
             '--address',	'%s:%d' % svraddr,
-            'Int=INT[%d]' % ( taglen ),
-            'Real=REAL[%d]' % ( taglen ),
-            'DInt=DINT[%d]' % ( taglen ),
+            'Int@0x99/1/1=INT[%d]' % ( taglen ),
+            'Real@0x99/1/2=REAL[%d]' % ( taglen ),
+            'DInt@0x99/1/3=DINT[%d]' % ( taglen ),
         ],
         'server': {
             'control':	apidict( enip.timeout, { 
@@ -175,7 +273,7 @@ def test_client_api():
 
             yield (elm+( off or 0 ),cnt-( off or 0 )),tag
 
-    def clitest( n ):
+    def clitest_tag( n ):
         times			= clitimes  # How many I/O per client
         # take apart the sequence of ( ..., ((elm,cnt), "Int[1-2]=1,2"), ...)
         # into two sequences: (..., (elm,cnt), ...) and (..., "Int[1-2]=1,2", ...)
@@ -186,7 +284,7 @@ def test_client_api():
         while not connection:
             try:
                 connection	= enip.client.connector( *svraddr, timeout=clitimeout )
-            except OSError as exc:
+            except socket.error as exc:
                 if exc.errno != errno.ECONNREFUSED:
                     raise
                 time.sleep( .1 )
@@ -194,6 +292,7 @@ def test_client_api():
         results			= []
         failures		= 0
         with connection:
+            begins		= misc.timer()
             multiple		= random.randint( 0, 4 ) * climultiple // 4 	# eg. 0, 125, 250, 375, 500
             depth		= random.randint( 0, clidepth )			# eg. 0 .. 5
             for idx,dsc,req,rpy,sts,val in connection.pipeline(
@@ -205,9 +304,12 @@ def test_client_api():
                                  n, len( results ), len( tags ), rpy )
                     failures       += 1
                 results.append( (dsc,val) )
+        duration		= misc.timer() - begins
         if len( results ) != len( tags ):
             log.warning( "Client %d harvested %d/%d results", n, len( results ), len( tags ))
             failures	       += 1
+        log.normal( "Client (Tags)    %3d: %s TPS", n, duration/times )
+
         # Now, ensure that any results that reported values reported the correct values -- each
         # value equals its own index or 0.
         for i,(elm,cnt),tag,(dsc,val) in zip( range( times ), regs, tags, results ):
@@ -226,6 +328,61 @@ def test_client_api():
 
         return 1 if failures else 0
 
+    def clitest_svc( n ):
+        """Issue a series of CIP Service Codes."""
+        times			= clitimes  #  How many I/O per client
+        connection		= None
+        while not connection:
+            try:
+                connection	= enip.client.connector( *svraddr, timeout=clitimeout )
+            except socket.error as exc:
+                if exc.errno != errno.ECONNREFUSED:
+                    raise
+                time.sleep( .1 )
+
+        # Issue a sequence of simple CIP Service Code operations.
+        operations = times * [{
+            "method":	"service_code",
+            "path":	'@0x99/1/2',
+            "code":	enip.Object.GA_SNG_REQ,
+            "data":	[],
+        }]
+
+        results			= []
+        failures		= 0
+        try:
+            with connection:
+                begins		= misc.timer()
+                multiple	= random.randint( 0, 4 ) * climultiple // 4 	# eg. 0, 125, 250, 375, 500
+                depth		= random.randint( 0, clidepth )			# eg. 0 .. 5
+                for idx,dsc,req,rpy,sts,val in connection.pipeline(
+                        operations=operations, timeout=clitimeout,
+                        multiple=multiple, depth=depth ):
+                    log.detail( "Client %3d: %s --> %r ", n, dsc, val )
+                    if not val:
+                        log.warning( "Client %d harvested %d/%d results; failed request: %s",
+                                     n, len( results ), len( operations ), rpy )
+                        failures += 1
+                    results.append( (dsc,val) )
+            duration		= misc.timer() - begins
+        except Exception as exc:
+            logging.warning( "%s: %s", exc, ''.join( traceback.format_exception( *sys.exc_info() )))
+            failures	       += 1
+
+        if len( results ) != len( operations ):
+            log.warning( "Client %d harvested %d/%d results", n, len( results ), len( operations ))
+            failures	       += 1
+        log.normal( "Client (service) %3d: %s TPS", n, duration/times )
+        return 1 if failures else 0
+
+    # Use a random one of the available testing functions
+    def clitest( n ):
+        random.choice( [
+            clitest_tag,
+            clitest_svc,
+        ] )( n )
+
+    
     failed			= network.bench( server_func	= enip.main,
                                                  server_kwds	= svrkwds,
                                                  client_func	= clitest,

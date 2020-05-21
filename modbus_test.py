@@ -77,8 +77,9 @@ class nonblocking_command( object ):
         else:
             logging.info( "Waiting for command (PID [%d]) to terminate", self.process.pid )
             self.process.wait()
-
-        logging.info("Command (PID [%d]) finished with status [%d]: %s", self.process.pid, self.process.returncode, self.command )
+        # Process may exit with a non-numeric returncode (eg. None)
+        logging.info( "Command (PID [%d]) finished with status %r: %s",
+                      self.process.pid, self.process.returncode, self.command )
 
     __del__			= kill
 
@@ -98,7 +99,7 @@ def start_modbus_simulator( options ):
             raw			= command.stdout.read()
             logging.debug( "Socket received: %r", raw)
             if raw:
-                data  	       += raw.decode( 'utf-8' )
+                data  	       += raw.decode( 'utf-8', 'backslashreplace' )
         except IOError as exc:
             logging.debug( "Socket blocking...")
             assert exc.errno == errno.EAGAIN, "Expected only Non-blocking IOError"

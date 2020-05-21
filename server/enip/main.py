@@ -617,7 +617,7 @@ def enip_srv( conn, addr, enip_process=None, delay=None, **kwds ):
     elif udp:
         enip_srv_udp( conn, name=name, enip_process=enip_process, **kwds )
     else:
-        raise NotImplemented( "Unknown socket protocol for EtherNet/IP CIP" )
+        raise NotImplementedError( "Unknown socket protocol for EtherNet/IP CIP" )
 
 
 def enip_srv_udp( conn, name, enip_process, **kwds ):
@@ -654,8 +654,8 @@ def enip_srv_udp( conn, name, enip_process, **kwds ):
                             brx		= cpppo.timer()
                             msg,frm	= network.recvfrom( conn, timeout=wait )
                             now		= cpppo.timer()
-                            ( log.detail if msg else log.debug )(
-                                "Transaction receive after %7.3fs (%5s bytes in %7.3f/%7.3fs): %r",
+                            if msg and log.isEnabledFor( logging.DETAIL ):
+                                log.detail( "Transaction receive after %7.3fs (%5s bytes in %7.3f/%7.3fs): %r",
                                         now - begun, len( msg ) if msg is not None else "None",
                                         now - brx, wait, stats_for( frm )[0] )
                             # If we're at a None (can't proceed), and we haven't yet received input,
@@ -671,7 +671,7 @@ def enip_srv_udp( conn, name, enip_process, **kwds ):
                         assert stats and not stats.get( 'eof' ), \
                             "Ignoring UDP request from client %r: %r" % ( addr, msg )
                         stats['received']+= len( msg )
-                        if log.getEffectiveLevel() <= logging.DETAIL:
+                        if log.isEnabledFor( logging.DETAIL ):
                             log.detail( "%s recv: %5d: %s", machine.name_centered(),
                                         len( msg ), cpppo.reprlib.repr( msg ))
                         source.chain( msg )
@@ -694,7 +694,7 @@ def enip_srv_udp( conn, name, enip_process, **kwds ):
                         assert data.response.enip.status, "If no/empty response payload, expected non-zero EtherNet/IP status"
 
                     rpy		= parser.enip_encode( data.response.enip )
-                    if log.getEffectiveLevel() <= logging.DETAIL:
+                    if log.isEnabledFor( logging.DETAIL ):
                         log.detail( "%s send: %5d: %s", machine.name_centered(),
                                     len( rpy ), cpppo.reprlib.repr( rpy ))
                     conn.sendto( rpy, addr )
@@ -773,7 +773,7 @@ def enip_srv_tcp( conn, addr, name, enip_process, delay=None, **kwds ):
                             if msg is not None:
                                 stats['received']+= len( msg )
                                 stats['eof']	= stats['eof'] or not len( msg )
-                                if log.getEffectiveLevel() <= logging.DETAIL:
+                                if log.isEnabledFor( logging.DETAIL ):
                                     log.detail( "%s recv: %5d: %s", machine.name_centered(),
                                                 len( msg ), cpppo.reprlib.repr( msg ))
                                 source.chain( msg )
@@ -809,7 +809,7 @@ def enip_srv_tcp( conn, addr, name, enip_process, delay=None, **kwds ):
                             assert data.response.enip.status, "If no/empty response payload, expected non-zero EtherNet/IP status"
 
                         rpy	= parser.enip_encode( data.response.enip )
-                        if log.getEffectiveLevel() <= logging.DETAIL:
+                        if log.isEnabledFor( logging.DETAIL ):
                             log.detail( "%s send: %5d: %s %s", machine.name_centered(),
                                         len( rpy ), cpppo.reprlib.repr( rpy ),
                                         ("delay: %r" % delay) if delay else "" )
@@ -832,16 +832,17 @@ def enip_srv_tcp( conn, addr, name, enip_process, delay=None, **kwds ):
                                         data.response.enip.status, data.response.enip.status )
                             stats['eof'] = True
                     else:
-                        # Session terminated.  No response, just drop connection.
-                        if log.getEffectiveLevel() <= logging.DETAIL:
+                        # Session terminated cleanly.  No response, just drop connection.
+                        if log.isEnabledFor( logging.DETAIL ):
                             log.detail( "Session ended (client initiated): %s",
                                         parser.enip_format( data ))
                         stats['eof'] = True
                     log.detail( "Transaction complete after %7.3fs (w/ %7.3fs delay)",
                         cpppo.timer() - begun, delayseconds )
                 except:
+                    # Session terminated spontaneously; empty data
                     log.error( "Failed request: %s", parser.enip_format( data ))
-                    enip_process( addr, data=cpppo.dotdict() ) # Terminate.
+                    enip_process( addr, data=cpppo.dotdict() )
                     raise
 
             stats['processed']	= source.sent
@@ -1116,7 +1117,7 @@ def main( argv=None, attribute_class=device.Attribute, idle_service=None, identi
             "SSTRING":	( parser.SSTRING, '' ),
             "STRING":	( parser.STRING, '' ),
         }
-        assert tag_type in typenames, "Invalid tag type; must be one of %r" % list( typenames )
+        assert tag_type in typenames, "Invalid tag type %r; must be one of %r" % ( tag_type, list( typenames ))
         tag_class,tag_default	= typenames[tag_type]
         try:
             tag_size		= int( tag_size )

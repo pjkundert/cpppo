@@ -75,7 +75,7 @@ def start_powerflex_simulator( *options, **kwds ):
         while data.find( '\n' ) >= 0:
             line,data		= data.split( '\n', 1 )
             logging.info( "%s", line )
-            m			= re.search( "running on (\([^)]*\))", line )
+            m			= re.search( r"running on (\([^)]*\))", line )
             if m:
                 address		= ast.literal_eval( m.group(1).strip() )
                 logging.normal( "EtherNet/IP CIP Simulator started after %7.3fs on %s:%d",
