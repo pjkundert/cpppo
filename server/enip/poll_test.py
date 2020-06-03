@@ -44,11 +44,11 @@ def start_powerflex_simulator( *options, **kwds ):
     At least one positional parameter containing a Tag=<type>[<size>] must be provided.
 
     """
-    command                     = nonblocking_command( [
+    command                     = nonblocking_command( ' '.join( [
         'python',
         os.path.abspath( __file__ ),
-        '-v',
-    ] + list( options ))
+        '-vv',
+    ] + list( options )) + ' >poll_test.out 2>&1' ) 
 
     # For python 2/3 compatibility (can't mix positional wildcard, keyword parameters in Python 2)
     CMD_WAIT			= kwds.pop( 'CMD_WAIT', 10.0 )
@@ -64,7 +64,7 @@ def start_powerflex_simulator( *options, **kwds ):
             raw			= command.stdout.read()
             logging.debug( "Socket received: %r", raw)
             if raw:
-                data  	       += raw.decode( 'utf-8' )
+                data  	       += raw.decode( 'utf-8', 'backslashreplace' )
         except IOError as exc:
             logging.debug( "Socket blocking...")
             assert exc.errno == errno.EAGAIN, "Expected only Non-blocking IOError"
