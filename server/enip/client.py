@@ -1811,7 +1811,7 @@ class implicit( connector ):
                 data,elapsed_rpy= await_response( self, timeout=None if self.timeout is None else max( 0, self.timeout - elapsed_req ))
             assert data is not None, "Failed to receive any response"
             if log.isEnabledFor( logging.INFO ):
-                log.info( "Forward Close Reply: %s", enip.parser.enip_format( data ))
+                log.info( "Forward Close Reply: %s", parser.enip_format( data ))
             assert 'enip.status' in data, "Failed to receive EtherNet/IP response"
             assert data.enip.status == 0, "EtherNet/IP response indicates failure: %s" % data.enip.status
             response			= data.get( 'enip.CIP.send_data.CPF.item[1].unconnected_send.request' )
