@@ -213,7 +213,7 @@ class server_thread_profiling( server_thread ):
 
 
 def server_main( address, target=None, kwargs=None, idle_service=None, thread_factory=server_thread,
-                 reuse=True, tcp=True, udp=False, **kwds ):
+                 reuse=True, tcp=True, udp=False, address_output=None, **kwds ):
     """A generic server main, binding to address (on TCP/IP but not UDP/IP by default), and serving
     each incoming connection with a separate thread_factory (server_thread by default, a
     threading.Thread) instance running the target function (or its overridden run method, if
@@ -254,7 +254,11 @@ def server_main( address, target=None, kwargs=None, idle_service=None, thread_fa
 
     name			= target.__name__ if target else thread_factory.__name__
     threads			= {}
+
+    # Log the server's network i'face/port binding.  This is used by various tests/tools to
+    # detect and use the server, so don't remove!
     log.normal( "%s server PID [%5d] running on %r", name, os.getpid(), address )
+
     # Ensure that any server.control in kwds is a dotdict.  Specifically, we can handle an
     # cpppo.apidict, which responds to getattr by releasing the corresponding setattr.  We will
     # respond to server.control.done and .disable.  When this loop awakens it will sense
@@ -297,12 +301,7 @@ def server_main( address, target=None, kwargs=None, idle_service=None, thread_fa
             conn.close()
             del thrd
 
-    # Establish TCP/IP (listen) and/or UDP/IP (I/O) sockets
-    if udp:
-        udp_sock		= socket.socket( socket.AF_INET, socket.SOCK_DGRAM )
-        udp_sock.bind( address )
-        thread_start( udp_sock, None )
-
+    # Establish TCP/IP (listen) and/or UDP/IP (I/O) sockets (TCP first, in case someone is waiting to bind)
     if tcp:
         tcp_sock		= socket.socket( socket.AF_INET, socket.SOCK_STREAM )
         if reuse:
@@ -311,6 +310,17 @@ def server_main( address, target=None, kwargs=None, idle_service=None, thread_fa
                 tcp_sock.setsockopt( socket.SOL_SOCKET, socket.SO_REUSEPORT, 1 )
         tcp_sock.bind( address )
         tcp_sock.listen( 100 ) # How may simultaneous unaccepted connection requests
+        if address_output:
+            print( "Network TCP Server running on {locl!r}".format( locl=tcp_sock.getsockname() ))
+            sys.stdout.flush()
+
+    if udp:
+        udp_sock		= socket.socket( socket.AF_INET, socket.SOCK_DGRAM )
+        udp_sock.bind( address )
+        if address_output:
+            print( "Network UDP Server running on {locl!r}".format( locl=udp_sock.getsockname() ))
+            sys.stdout.flush()
+        thread_start( udp_sock, None )
 
     while not control.disable and not control.done: # and report completion to external API (eg. web)
         try:

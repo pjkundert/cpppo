@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 from __future__ import absolute_import
 from __future__ import print_function
 from __future__ import division
@@ -45,10 +46,9 @@ def start_hart_simulator( *options, **kwds ):
 
     """
     command                     = nonblocking_command( [
-        'python',
         os.path.abspath( __file__ ),
-        '-v',
-    ] + list( options ))
+        '-a', ':0', '-A', '-p', '-v',
+    ] + list( options ), stderr=None )
 
     # For python 2/3 compatibility (can't mix positional wildcard, keyword parameters in Python 2)
     CMD_WAIT			= kwds.pop( 'CMD_WAIT', 10.0 )
@@ -60,6 +60,7 @@ def start_hart_simulator( *options, **kwds ):
     data			= ''
     while address is None and timer() - begun < CMD_WAIT:
         # On Python2, socket will raise IOError/EAGAIN; on Python3 may return None 'til command started.
+        raw			= None
         try:
             raw			= command.stdout.read()
             #log.debug( "Socket received: %r", raw)

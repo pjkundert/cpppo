@@ -180,7 +180,7 @@ class HART( Message_Router ):
     PT_FLQ_REQ			= 0x50
     PT_FLQ_RPY			= PT_FLQ_REQ | 0x80
 
-    def request( self, data ):
+    def request( self, data, addr=None ):
         """Any exception should result in a reply being generated with a non-zero status."""
 
         # See if this request is for us; if not, route to the correct Object, and return its result.
@@ -191,7 +191,7 @@ class HART( Message_Router ):
         if target:
             if log.isEnabledFor( logging.DETAIL ):
                 log.detail( "%s Routing to %s: %s", self, target, enip_format( data ))
-            return target.request( data )
+            return target.request( data, addr=addr )
 
         if log.isEnabledFor( logging.DETAIL ):
             log.detail( "%s Request: %s", self, enip_format( data ))
@@ -225,7 +225,7 @@ class HART( Message_Router ):
             pass
         else:
             # Not recognized; more generic command?
-            return super( HART, self ).request( data )
+            return super( HART, self ).request( data, addr=addr )
 
         # It is a recognized HART Object request.  Set the data.status to the appropriate error
         # code, should a failure occur at that location during processing.  We will be returning a

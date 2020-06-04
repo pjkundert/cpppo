@@ -944,6 +944,9 @@ def main( argv=None, attribute_class=device.Attribute, idle_service=None, identi
                      default=( "%s:%d" % defaults.address ),
                      help="EtherNet/IP interface[:port] to bind to (default: %s:%d)" % (
                          defaults.address[0], defaults.address[1] ))
+    ap.add_argument( '-A', '--address-output', action='store_true',
+                     default=False,
+                     help="Output server network binding as '... running on (<interface>, <port>)' to stdout" )
     ap.add_argument( '-u', '--udp', action='store_true',
                      default=True, 
                      help="Enable UDP/IP server (default: True)" )
@@ -1260,7 +1263,6 @@ def main( argv=None, attribute_class=device.Attribute, idle_service=None, identi
         webserver.daemon	= True
         webserver.start()
 
-        
     # The EtherNet/IP Simulator.  Pass all the top-level options keys/values as keywords, and pass
     # the entire tags dotdict as a tags=... keyword.  The server_main server.control signals (.done,
     # .disable) are also passed as the server= keyword.  We are using an cpppo.apidict with a long
@@ -1281,7 +1283,7 @@ def main( argv=None, attribute_class=device.Attribute, idle_service=None, identi
             if disabled:
                 logging.detail( "EtherNet/IP Server enabled" )
                 disabled= False
-            network.server_main( address=bind, target=enip_srv, kwargs=kwargs,
+            network.server_main( address=bind, address_output=args.address_output, target=enip_srv, kwargs=kwargs,
                                  idle_service=lambda: map( lambda f: f(), idle_service ),
                                  udp=args.udp, tcp=args.tcp, thread_factory=tf, **tf_kwds )
         else:

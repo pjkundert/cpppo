@@ -50,19 +50,20 @@ class nonblocking_command( object ):
 
             # do other stuff in loop...
 
-    The command is killed when it goes out of scope.
+    The command is killed when it goes out of scope.  Pass a file-like object for stderr if desired; None would
+    cause it to share the enclosing interpreter's stderr.
     """
-    def __init__( self, command ):
+    def __init__( self, command, stderr=subprocess.STDOUT, stdin=None, bufsize=0, blocking=None ):
         shell			= type( command ) is not list
         self.command		= ' '.join( command ) if not shell else command
         logging.info( "Starting command: %s", self.command )
         self.process		= subprocess.Popen(
-            command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-            preexec_fn=os.setsid, shell=shell )
-
-        fd 			= self.process.stdout.fileno()
-        fl			= fcntl.fcntl( fd, fcntl.F_GETFL )
-        fcntl.fcntl( fd, fcntl.F_SETFL, fl | os.O_NONBLOCK )
+            command, stdout=subprocess.PIPE, stderr=stderr, stdin=stdin,
+            bufsize=bufsize, preexec_fn=os.setsid, shell=shell )
+        if not blocking:
+            fd 			= self.process.stdout.fileno()
+            fl			= fcntl.fcntl( fd, fcntl.F_GETFL )
+            fcntl.fcntl( fd, fcntl.F_SETFL, fl | os.O_NONBLOCK )
 
     @property
     def stdout( self ):
@@ -85,16 +86,20 @@ class nonblocking_command( object ):
 
 
 def start_modbus_simulator( options ):
+    """Start bin/modbus_sim.py; assumes it flushes stdout when printing bindings so we can parse it
+    here.
+
+    """
     command                     = nonblocking_command( [
-        'python',
         os.path.join( os.path.dirname( os.path.abspath( __file__ )), 'bin', 'modbus_sim.py' ),
-    ] + list( options ))
+    ] + list( options ), stderr=None, bufsize=0 )
 
     begun			= misc.timer()
     address			= None
     data			= ''
     while address is None and misc.timer() - begun < RTU_WAIT:
         # On Python2, socket will raise IOError/EAGAIN; on Python3 may return None 'til command started.
+        raw			= None
         try:
             raw			= command.stdout.read()
             logging.debug( "Socket received: %r", raw)
@@ -105,7 +110,7 @@ def start_modbus_simulator( options ):
             assert exc.errno == errno.EAGAIN, "Expected only Non-blocking IOError"
         except Exception as exc:
             logging.warning("Socket read return Exception: %s", exc)
-        if not data:
+        if not raw:
             time.sleep( RTU_LATENCY )
         while data.find( '\n' ) >= 0:
             line,data		= data.split( '\n', 1 )

@@ -14,6 +14,8 @@ import string
 import sys
 import time
 
+# For the purposes of this history_test, we assume the Canada/Mountain timezone 
+os.environ['TZ']		= "Canada/Mountain"
 
 if __name__ == "__main__":
     # If you run tests in-place (instead of using py.test), ensure local version is tested!
