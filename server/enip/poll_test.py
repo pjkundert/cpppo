@@ -56,9 +56,8 @@ def start_powerflex_simulator( *options, **kwds ):
     """
     command                     = nonblocking_command( [
         os.path.abspath( __file__ ),
-        '-a', ':0', '-A', '-p', '-v'
+        '-a', ':0', '-A', '-p', '-v', '--no-udp',
     ] + list( options ), stderr=None, bufsize=0, blocking=None )
-    # stderr=open( os.path.basename( __file__ ) + '.out', 'wb' ), bufsize=1 ) #line-buffered
 
     # For python 2/3 compatibility (can't mix positional wildcard, keyword parameters in Python 2)
     CMD_WAIT			= kwds.pop( 'CMD_WAIT', 10.0 )

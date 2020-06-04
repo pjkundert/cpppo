@@ -141,6 +141,7 @@ def test_client_api_simple():
 
     Process			= threading.Thread # multiprocessing.Process
     server			= Process( target=server_func, kwargs=server_kwds )
+    server.daemon		= True
     server.start()
 
     client_timeout		= 15.0
