@@ -130,7 +130,7 @@ class UCMM( device.Object ):
         # "<host>":<port>.  However, it is the *follow* route_path element (if any) that routes the
         # request in that destination device.  We'll use a enip.client.connector (to establish and
         # register an EtherNet/IP session) for each target "<host>":<port>, and arrange for a copy
-        # of the request to be sent via <conn>.unconnected_send.  Then, we'll client.await a
+        # of the request to be sent via <conn>.unconnected_send.  Then, we'll client.await_response a
         # response from the socket; a failure to receive a response w'in timeout will result in an
         # error status being returned.
         self.route_conn		= {}

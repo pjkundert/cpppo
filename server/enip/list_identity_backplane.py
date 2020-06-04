@@ -137,7 +137,7 @@ def list_identity( address=('255.255.255.255',enip.address[1]), broadcast=True, 
         conn.list_identity( timeout=timeout )
         while True:
             used		= cpppo.timer() - begin
-            response,elapsed	= client.await( conn, timeout=max( 0, timeout - used ))
+            response,elapsed	= client.await_response( conn, timeout=max( 0, timeout - used ))
             if not response:
                 break # No response (None) w'in timeout or EOF ({})
             yield response
