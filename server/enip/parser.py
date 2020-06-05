@@ -1,5 +1,3 @@
-#! /usr/bin/env python3
-
 # 
 # Cpppo -- Communication Protocol Python Parser and Originator
 # 

@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#! /usr/bin/env python
 from __future__ import absolute_import
 from __future__ import print_function
 from __future__ import division
@@ -45,10 +45,9 @@ def start_hart_simulator( *options, **kwds ):
     At least one positional parameter containing a Tag=<type>[<size>] must be provided.
 
     """
-    logging.getLogger().setLevel( logging.INFO )
     command                     = nonblocking_command( [
-        os.path.abspath( __file__ ),
-        '-a', ':0', '-A', '-p', '-v',
+        sys.executable, os.path.abspath( __file__ ),
+        '-a', ':0', '-A', '-p', '-v', '--no-udp',
     ] + list( options ), stderr=None )
 
     # For python 2/3 compatibility (can't mix positional wildcard, keyword parameters in Python 2)

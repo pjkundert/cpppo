@@ -11,6 +11,7 @@ import random
 import re
 import signal
 import subprocess
+import sys
 import time
 
 has_o_nonblock			= False
@@ -91,6 +92,7 @@ def start_modbus_simulator( options ):
 
     """
     command                     = nonblocking_command( [
+        sys.executable,
         os.path.join( os.path.dirname( os.path.abspath( __file__ )), 'bin', 'modbus_sim.py' ),
     ] + list( options ), stderr=None, bufsize=0 )
 

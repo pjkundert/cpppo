@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#! /usr/bin/env python
 from __future__ import absolute_import, print_function, division, unicode_literals
 try:
     from future_builtins import zip, map # Use Python 3 "lazy" zip, map
@@ -53,7 +53,7 @@ def start_powerflex_simulator( *options, **kwds ):
 
     """
     command                     = nonblocking_command( [
-        os.path.abspath( __file__ ),
+        sys.executable, os.path.abspath( __file__ ),
         '-a', ':0', '-A', '-p', '-v', '--no-udp',
     ] + list( options ), stderr=None, bufsize=0, blocking=None )
 
