@@ -45,6 +45,7 @@ def start_hart_simulator( *options, **kwds ):
     At least one positional parameter containing a Tag=<type>[<size>] must be provided.
 
     """
+    logging.getLogger().setLevel( logging.INFO )
     command                     = nonblocking_command( [
         os.path.abspath( __file__ ),
         '-a', ':0', '-A', '-p', '-v',

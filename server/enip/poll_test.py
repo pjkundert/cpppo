@@ -23,11 +23,9 @@ if __name__ == "__main__":
         __package__	= "cpppo.server.enip"
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))))
     print( "Set sys.path: {path!r}".format( path=sys.path ))
-    '''
     from cpppo.automata import log_cfg
+    log_cfg['level']	= logging.NORMAL
     logging.basicConfig( **log_cfg )
-    logging.getLogger().setLevel( logging.DEBUG )
-    '''
 
 from cpppo.dotdict import dotdict
 from cpppo.misc import timer, near

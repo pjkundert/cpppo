@@ -5,7 +5,7 @@
 # PY[3] is the target Python interpreter.  It must have pytest installed.
 
 PY=python
-PY2=python3
+PY2=python2
 PY3=python3
 
 # PY[23]TEST is the desired method of invoking py.test; either as a command, or
@@ -36,10 +36,10 @@ PY3=python3
 # 
 
 # To see all pytest output, uncomment --capture=no
-PYTESTOPTS=-v # --capture=no
+PYTESTOPTS=-v --capture=no
 
 PY_TEST=TZ=$(TZ) $(PY)  -m pytest $(PYTESTOPTS)
-PY2TEST=TZ=$(TZ) $(PY2)  -m pytest $(PYTESTOPTS)
+PY2TEST=TZ=$(TZ) $(PY2) -m pytest $(PYTESTOPTS)
 PY3TEST=TZ=$(TZ) $(PY3) -m pytest $(PYTESTOPTS)
 
 .PHONY: all test clean upload
