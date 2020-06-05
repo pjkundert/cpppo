@@ -5,6 +5,7 @@
 # PY[3] is the target Python interpreter.  It must have pytest installed.
 
 PY=python
+PY2=python3
 PY3=python3
 
 # PY[23]TEST is the desired method of invoking py.test; either as a command, or
@@ -37,13 +38,8 @@ PY3=python3
 # To see all pytest output, uncomment --capture=no
 PYTESTOPTS=-v # --capture=no
 
-# Preferred timezone for tests.  If you change this, then you will probably have
-# to augment history_test.py to include checking for timestamp.local output in
-# your local timezone; See history_test.py test_history_timestamp() for supported
-# zones
-TZ=Canada/Mountain
-
 PY_TEST=TZ=$(TZ) $(PY)  -m pytest $(PYTESTOPTS)
+PY2TEST=TZ=$(TZ) $(PY2)  -m pytest $(PYTESTOPTS)
 PY3TEST=TZ=$(TZ) $(PY3) -m pytest $(PYTESTOPTS)
 
 .PHONY: all test clean upload
@@ -73,17 +69,23 @@ help:
 
 test:
 	$(PY_TEST)
+test2:
+	$(PY2TEST)
 test3:
 	$(PY3TEST)
-
-test23: test test3
+test23:
+	$(PY2TEST)
+	$(PY3TEST)
 
 install:
-	$(PY_) setup.py install
+	$(PY) setup.py install
+install2:
+	$(PY2) setup.py install
 install3:
 	$(PY3) setup.py install
-
-install23: install install3
+install23:
+	$(PY2) setup.py install
+	$(PY3) setup.py install
 
 analyze:
 	flake8 -j 1 --max-line-length=110					\
@@ -142,44 +144,27 @@ jessie64-%:
 	    vagrant box add jessie64 http://box.hardconsulting.com/jessie64-$*.box --provider $*; \
 	fi
 
-# Another more direct way of detecting the availability of a specific Vagrant box
-raring_virtualbox:	$(HOME)/.vagrant.d/boxes/raring/virtualbox
-
-precise64-virtualbox:	$(HOME)/.vagrant.d/boxes/precise64/virtualbox
-
-precise64-vmware_fusion:$(HOME)/.vagrant.d/boxes/precise64/vmware_fusion
-
-$(HOME)/.vagrant.d/boxes/raring/virtualbox:		vagrant
-	@if [ ! -d $@ ]; then 						\
-	    vagrant box add raring http://cloud-images.ubuntu.com/raring/current/raring-server-cloudimg-vagrant-amd64-disk1.box; \
-	fi
-
-$(HOME)/.vagrant.d/boxes/precise64/virtualbox:		vagrant
-	@if [ ! -d $@ ]; then 						\
-	    vagrant box add precise64 http://files.vagrantup.com/precise64.box;	\
-	fi
-
-$(HOME)/.vagrant.d/boxes/precise64/vmware_fusion: 	vagrant
-	@if [ ! -d $@ ]; then						\
-	    vagrant box add precise64 http://files.vagrantup.com/precise64_vmware_fusion.box; \
-	fi
 
 
 # Run only tests with a prefix containing the target string, eg test-blah
 test-%:
 	$(PY_TEST) *$*_test.py
+test2-%:
+	$(PY2TEST) *$*_test.py
 test3-%:
 	$(PY3TEST) *$*_test.py
 test23-%:
-	$(PY_TEST) *$*_test.py
+	$(PY2TEST) *$*_test.py
 	$(PY3TEST) *$*_test.py
 
 unit-%:
 	$(PY_TEST) -k $*
+unit2-%:
+	$(PY2TEST) -k $*
 unit3-%:
 	$(PY3TEST) -k $*
 unit23-%:
-	$(PY_TEST) -k $*
+	$(PY2TEST) -k $*
 	$(PY3TEST) -k $*
 
 
