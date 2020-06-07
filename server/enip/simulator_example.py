@@ -5,17 +5,17 @@ import logging
 import sys
 
 from cpppo.server import enip
-from cpppo.server.enip import client, Object
-from cpppo.server.enip.main import tags, config_files
+from cpppo.server.enip import client, Object, config_files
+from cpppo.server.enip.main import tags
 
 def main( argv=None, idle_service=None, **kwds ):
     """Run a cpppo.server.enip.main simulating a bunch of Tags, with the initial data specified in the
     config file matching the name of the simulator (eg. simulator_example.cfg).  Append your own
-    configuration file name to the enip.config_files list, or put a [Simulator] block in an of the
+    configuration file name to the enip.config_files list, or put a [Simulator] block in one of the
     other Cpppo configuration files.
 
-    We'll traverse any [Tags] specified in the configuration, create the specified Attributes (at
-    the specified Class/Instance/Attribute CIP address), and populate the enip.tags dictionary with
+    We'll traverse any keys specified in the configuration, create each of them as Attributes (at
+    any specified @<class>/<instance>/<attribute> CIP address), and populate the enip.tags dictionary with
     them.  Any number of tags can be specified with their type, optional CIP address and/or array
     length, and optionaly initial value(s) data.  We'll add any [Simulator] tags to the supplies sys.argv data,
     and let the enip.main parse all the tag names and type/address/size.  Then, we'll initialize the
