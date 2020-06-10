@@ -1945,34 +1945,43 @@ class Connection_Manager( Object ):
             result	       += b'\x00' # reserved
             result	       += status.produce( data )
             fo			= data.forward_open
-            result	       += UDINT.produce( fo.O_T_connection_ID )
-            result	       += UDINT.produce( fo.T_O_connection_ID )
-            result	       += UINT.produce( fo.connection_serial )
-            result	       += UINT.produce( fo.O_vendor )
-            result	       += UDINT.produce( fo.O_serial )
-            result	       += UDINT.produce( fo.O_T_API )
-            result	       += UDINT.produce( fo.T_O_API )
+            if data.status == 0x00:
+                result	       += UDINT.produce( fo.O_T_connection_ID )
+                result	       += UDINT.produce( fo.T_O_connection_ID )
+                result	       += UINT.produce( fo.connection_serial )
+                result	       += UINT.produce( fo.O_vendor )
+                result	       += UDINT.produce( fo.O_serial )
+                result	       += UDINT.produce( fo.O_T_API )
+                result	       += UDINT.produce( fo.T_O_API )
 
-            # The forward_open.application data in the reply is typed data, by default USINT.  It
-            # must be an even number of bytes, so pad it out if not.
-            app			= fo.setdefault( 'application', dotdict() )
-            if 'data' not in app:
-                app.data	= []
-            if app.data:
-                # Something has been provided
-                if 'type' not in app and 'tag_type' not in app:
-                    app.tag_type= USINT.tag_type
-                app.input	= typed_data.produce( app )
-                if len( app.input ) % 2:
-                    app.input  += b'\x00'
-                app.size	= len( app.input ) // 2 # words
+                # The forward_open.application data in the reply is typed data, by default USINT.  It
+                # must be an even number of bytes, so pad it out if not.
+                app			= fo.setdefault( 'application', dotdict() )
+                if 'data' not in app:
+                    app.data	= []
+                if app.data:
+                    # Something has been provided
+                    if 'type' not in app and 'tag_type' not in app:
+                        app.tag_type= USINT.tag_type
+                    app.input	= typed_data.produce( app )
+                    if len( app.input ) % 2:
+                        app.input  += b'\x00'
+                    app.size	= len( app.input ) // 2 # words
+                else:
+                    app.size	= 0
+
+                result	       += USINT.produce( app.size ) # application data size (words)
+                result	       += b'\x00' # pad
+                if app.size:
+                    result     += app.input
             else:
-                app.size	= 0
-
-            result	       += USINT.produce( app.size ) # application data size (words)
-            result	       += b'\x00' # pad
-            if app.size:
-                result	       += app.input
+                # Failure response; see Vol1_3.15 table 3-5.21
+                result	       += UINT.produce( fo.connection_serial )
+                result	       += UINT.produce( fo.O_vendor )
+                result	       += UDINT.produce( fo.O_serial )
+                if 'remaining_path_size' in fo: # iff "routing type errors"; # words in original route path
+                    result     += USINT.produce( fo.remaining_path_size )
+                    result     += b'\x00' # reserved
 
         elif cls.FWD_CLOS_CTX in data and data.setdefault( 'service', cls.FWD_CLOS_REQ ) == cls.FWD_CLOS_REQ:
             if log.isEnabledFor( logging.DETAIL ):
@@ -2055,7 +2064,10 @@ def __forward_open_reply():
     srvc			= USINT(	context='service' )
     srvc[True]		= rsvd	= octets_drop(	'reserved',	repeat=1 )
     rsvd[True]		= stts	= status()
-    stts[True]		= otid	= UDINT(		context='forward_open', extension='.O_T_connection_ID' )
+    stts[None]		= schk	= octets_noop(	'check',
+                                                terminal=True )
+    # Successful reply, if status is 0x00
+    otid			= UDINT(		context='forward_open', extension='.O_T_connection_ID' )
     otid[True]		= toid	= UDINT(		context='forward_open', extension='.T_O_connection_ID' )
     toid[True]		= cser	= UINT(			context='forward_open', extension='.connection_serial' )
     cser[True]		= ovnd	= UINT(			context='forward_open', extension='.O_vendor' )
@@ -2082,6 +2094,20 @@ def __forward_open_reply():
                                                     terminal=True ),
                                                 limit=size_data,
                                                 terminal=True )
+    # Choose between Successful reply (otid), or if status is not 0x00, fall through and parse Failure reply
+    schk[True]			= automata.decide( 'ok',	state=otid,
+        predicate=lambda path=None, data=None, **kwds: data[path+'.status' if path else 'status'] == 0x00 )
+    schk[True]		= cser	= UINT(			context='forward_open', extension='.connection_serial' )
+    cser[True]		= ovnd	= UINT(			context='forward_open', extension='.O_vendor' )
+    ovnd[True]		= oser	= UDINT(		context='forward_open', extension='.O_serial' )
+    oser[None]			= octets_noop(	'check',
+                                                terminal=True )
+    
+    # Optionally may include a remaining_path_size
+    oser[True]		= rpth	= USINT(		context='forward_open', extension='.remaining_path_size' )
+    rpth[True]		= rsvd	= octets_drop(	'reserved',	repeat=1,
+    						terminal=True )
+
     return srvc
 
 Connection_Manager.register_service_parser( number=Connection_Manager.FWD_OPEN_RPY, name=Connection_Manager.FWD_OPEN_NAM + " Reply",

@@ -883,11 +883,12 @@ class EPATH( cpppo.dfa ):
         # If the size is zero, we won't be parsing anything; initialize segment to []
         def size_init( path=None, data=None, **kwds ):
             octets		= data[path+'..size'] * 2
+            log.info( "Size of EPATH in octets: %d", octets )
             if not octets:
                 data[path+'..segment'] = []
             return octets
 
-        each			= cpppo.dfa(    'each',		context='segment__',
+        each			= cpppo.dfa(    'seg',		context='segment__',
                                                 initial=pseg,	terminal=True,
                                                 limit=None if self.SINGLE else size_init )
         if self.SINGLE:
@@ -939,10 +940,12 @@ class EPATH( cpppo.dfa ):
                         result += USINT.produce( 0 )
                     break
                 
-                # A Port/Link segment?
+                # A Port/Link segment?  Ensure port is in the proper (1,0x0F) or (0x10,0xFFFF)
                 if segnam == 'port':
                     assert 'link' in seg, \
                         "A path port segment requires a link #/address: %s" % ( seg )
+                    assert seg.port > 0, \
+                        "A path port must be greater than zero"
                     port, pext	= (seg.port, 0) if seg.port < 0x0F else (0x0F, seg.port)
                     assert isinstance( seg.link, ( int, cpppo.type_str_base )), \
                         "A path port link must be either an integer or a address string: % ( seg )"
