@@ -992,25 +992,22 @@ class client( object ):
 
 
     def connected_send( self, request, timeout=None,
-                        connection=None, sequence=None, payload=None,
+                        connection=None, sequence=None,
                         sender_context=b'', dialect=None ):
-        """A connected send is much like an unconnected_send, except its CPF contains a 0x00a1 connection
-        ID, and a 0x00b1 data sequence number and payload.  Defaults to 0 connection ID, 0 sequence
-        number, empty payload; the caller should increment sequence between calls.
+        """A connected send is much like an unconnected_send, except its CPF contains a 0x00a1
+        connection ID, and a 0x00b1 data sequence number and payload.  Defaults to 0 connection ID,
+        0 sequence number; the caller should increment sequence between calls.
 
         If payload is a dict, we'll try to produce it; otherwise, assumes request is an opaque byte
         string.
 
         Uses dialect, self.dialect or device.dialect (in that order).
+
         """
-        # The payload is an opaque byte string; we probably don't know how to en/decode it.
+        # The payload may be an opaque byte string; we probably don't know how to en/decode it.
         # However, if dict is provided, we'll try.
         if dialect is None:
             dialect		= self.dialect or device.dialect
-        if isinstance( request, dict ):
-            payload		= bytearray( dialect.produce( request ))
-        else:
-            payload		= bytearray( request or b'' )
 
         cip			= cpppo.dotdict()
         cip.send_data		= {}
@@ -1025,9 +1022,20 @@ class client( object ):
         sd.CPF.item[0].connection_ID.connection = connection or 0
         sd.CPF.item[1].type_id	= 0xb1 # 177
         sd.CPF.item[1].connection_data = {}
-        sd.CPF.item[1].connection_data.sequence	= sequence or 0
-        sd.CPF.item[1].connection_data.request= {}
-        sd.CPF.item[1].connection_data.request.input = payload
+
+        cd			= sd.CPF.item[1].connection_data
+        cd.sequence		= sequence or 0
+
+        if isinstance( request, dict ):
+            cd.request		= request
+            try:
+                cd.request.input= bytearray( dialect.produce( request ))
+            except device.RequstUnrecognized:
+                if 'input' not in cd.request:
+                    raise # No request, and no already-produced serialization
+        else:
+            cd.request		= {}
+            cd.request.input	= bytearray( request or b'' )
 
         # Use EtherNet/IP command 0x0070 SendUnitData, instead of (default) 0x006f SendRRData
         return self.cip_send( cip=cip, command=0x0070, sender_context=sender_context, timeout=timeout )
@@ -1829,7 +1837,7 @@ class implicit( connector ):
             super( implicit, self ).close()
 
     def connected_send( self, request, timeout=None,
-                        connection=None, sequence=None, payload=None,
+                        connection=None, sequence=None,
                         sender_context=b'', dialect=None ):
         """If connection and/or sequence not supplied default to the established Forward Open
         O_T_connection_ID, and/or the next sequence number for the O_T_connection_ID (starting w/
@@ -1844,7 +1852,6 @@ class implicit( connector ):
                     timeout		= timeout,
                     connection		= connection,
                     sequence		= sequence,
-                    payload		= payload,
                     sender_context	= sender_context,
                     dialect		= dialect )
 
