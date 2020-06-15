@@ -1917,8 +1917,6 @@ class Connection_Manager( Object ):
     def produce( cls, data ):
         result			= b''
         if cls.FWD_OPEN_CTX in data and data.setdefault( 'service', cls.FWD_OPEN_REQ ) == cls.FWD_OPEN_REQ:
-            if log.isEnabledFor( logging.DETAIL ):
-                log.detail( "%s producing Forward Open Request: %s", cls.__name__, enip_format( data ))
             result	       += USINT.produce( data.service )
             result	       += EPATH.produce( data.path )
             fo			= data.forward_open
@@ -1939,8 +1937,6 @@ class Connection_Manager( Object ):
             result	       += EPATH.produce( fo.connection_path )
 
         elif data.get( 'service' ) == cls.FWD_OPEN_RPY:
-            if log.isEnabledFor( logging.DETAIL ):
-                log.detail( "%s producing Forward Open Reply: %s", cls.__name__, enip_format( data ))
             result	       += USINT.produce( data.service )
             result	       += b'\x00' # reserved
             result	       += status.produce( data )
@@ -1984,8 +1980,6 @@ class Connection_Manager( Object ):
                     result     += b'\x00' # reserved
 
         elif cls.FWD_CLOS_CTX in data and data.setdefault( 'service', cls.FWD_CLOS_REQ ) == cls.FWD_CLOS_REQ:
-            if log.isEnabledFor( logging.DETAIL ):
-                log.detail( "%s producing Forward Close Request: %s", cls.__name__, enip_format( data ))
             result	       += USINT.produce( data.service )
             result	       += EPATH.produce( data.path )
             fc			= data.forward_close
@@ -1997,36 +1991,35 @@ class Connection_Manager( Object ):
             result	       += EPATH_padded.produce( fc.connection_path )
 
         elif data.get( 'service' ) == cls.FWD_CLOS_RPY:
-            if log.isEnabledFor( logging.DETAIL ):
-                log.detail( "%s producing Forward Close Reply: %s", cls.__name__, enip_format( data ))
             result	       += USINT.produce( data.service )
             result	       += b'\x00' # reserved
             result	       += status.produce( data )
-            fc			= data.forward_close
-            result	       += UINT.produce( fc.connection_serial )
-            result	       += UINT.produce( fc.O_vendor )
-            result	       += UDINT.produce( fc.O_serial )
+            fc			= data.setdefault( 'forward_close', True )
+            if isinstance( fc, dict ): # May be just a failure status code (ie. == True)
+                result	       += UINT.produce( fc.connection_serial )
+                result	       += UINT.produce( fc.O_vendor )
+                result	       += UDINT.produce( fc.O_serial )
 
-            # The forward_close.application data in the reply is typed data, by default USINT.  It
-            # must be an even number of bytes, so pad it out if not.
-            app			= fc.setdefault( 'application', dotdict() )
-            if 'data' not in app:
-                app.data	= []
-            if app.data:
-                # Something has been provided
-                if 'type' not in app and 'tag_type' not in app:
-                    app.tag_type= USINT.tag_type
-                app.input	= typed_data.produce( app )
-                if len( app.input ) % 2:
-                    app.input  += b'\x00'
-                app.size	= len( app.input ) // 2 # words
-            else:
-                app.size	= 0
+                # The forward_close.application data in the reply is typed data, by default USINT.  It
+                # must be an even number of bytes, so pad it out if not.
+                app		= fc.setdefault( 'application', dotdict() )
+                if 'data' not in app:
+                    app.data	= []
+                if app.data:
+                    # Something has been provided
+                    if 'type' not in app and 'tag_type' not in app:
+                        app.tag_type= USINT.tag_type
+                    app.input	= typed_data.produce( app )
+                    if len( app.input ) % 2:
+                        app.input  += b'\x00'
+                    app.size	= len( app.input ) // 2 # words
+                else:
+                    app.size	= 0
 
-            result	       += USINT.produce( app.size ) # application data size (words)
-            result	       += b'\x00' # pad
-            if app.size:
-                result	       += app.input
+                result	       += USINT.produce( app.size ) # application data size (words)
+                result	       += b'\x00' # pad
+                if app.size:
+                    result	       += app.input
         else:
             # Connection Manager only recognizes its own services (not the generic CIP Object's)
             raise AssertionError( "%s doesn't recognize request/reply format: %r" % ( cls.__name__, data ))
@@ -2064,8 +2057,11 @@ def __forward_open_reply():
     srvc			= USINT(	context='service' )
     srvc[True]		= rsvd	= octets_drop(	'reserved',	repeat=1 )
     rsvd[True]		= stts	= status()
-    stts[None]		= schk	= octets_noop(	'check',
+    # A minimal Forward Open reply may be just a success/failure status?  Not supported, but we'll parse...
+    stts[None]		= mark	= octets_noop(	'check',context='forward_open',
                                                 terminal=True )
+    mark.initial[None]		= move_if( 	'mark',		initializer=True )
+
     # Successful reply, if status is 0x00
     otid			= UDINT(		context='forward_open', extension='.O_T_connection_ID' )
     otid[True]		= toid	= UDINT(		context='forward_open', extension='.T_O_connection_ID' )
@@ -2095,9 +2091,9 @@ def __forward_open_reply():
                                                 limit=size_data,
                                                 terminal=True )
     # Choose between Successful reply (otid), or if status is not 0x00, fall through and parse Failure reply
-    schk[True]			= automata.decide( 'ok',	state=otid,
+    stts[True]			= automata.decide( 'ok',	state=otid,
         predicate=lambda path=None, data=None, **kwds: data[path+'.status' if path else 'status'] == 0x00 )
-    schk[True]		= cser	= UINT(			context='forward_open', extension='.connection_serial' )
+    stts[True]		= cser	= UINT(			context='forward_open', extension='.connection_serial' )
     cser[True]		= ovnd	= UINT(			context='forward_open', extension='.O_vendor' )
     ovnd[True]		= oser	= UDINT(		context='forward_open', extension='.O_serial' )
     oser[None]			= octets_noop(	'check',
@@ -2139,6 +2135,11 @@ def __forward_close_reply():
     srvc			= USINT(	context='service' )
     srvc[True]		= rsvd	= octets_drop(	'reserved',	repeat=1 )
     rsvd[True]		= stts	= status()
+    # A minimal Forward Close reply may be just a success/failure status?  Yes, we've observed these from C*Logix.
+    stts[None]		= mark	= octets_noop(		context='forward_close',
+                                                terminal=True )
+    mark.initial[None]		= move_if( 	'mark',		initializer=True )
+
     stts[True]		= cser	= UINT(			context='forward_close', extension='.connection_serial' )
     cser[True]		= ovnd	= UINT(			context='forward_close', extension='.O_vendor' )
     ovnd[True]		= oser	= UDINT(		context='forward_close', extension='.O_serial' )

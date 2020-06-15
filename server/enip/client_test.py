@@ -167,7 +167,7 @@ def test_client_api_simple():
             assert 'service_code' in req and req.service_code is True # no payload
             assert connection.readable( timeout=10.0 ) # receive reply
             rpy			= next( connection )
-            assert rpy and 'enip.CIP' in rpy and 'send_data.CPF.item[1].unconnected_send.request.get_attribute_single' in rpy.enip.CIP
+            assert rpy and 'enip.CIP' in rpy and 'send_data.CPF.item[1].connection_data.request.get_attribute_single' in rpy.enip.CIP
 
             # Set Attribute Single's payload is an EPATH + USINT data
             req			= connection.service_code(
@@ -178,7 +178,7 @@ def test_client_api_simple():
             assert 'service_code' in req and isinstance( req.service_code, dict ) and 'data' in req.service_code
             assert connection.readable( timeout=10.0 ) # receive reply
             rpy			= next( connection )
-            assert rpy and 'enip.CIP' in rpy and 'send_data.CPF.item[1].unconnected_send.request.set_attribute_single' in rpy.enip.CIP
+            assert rpy and 'enip.CIP' in rpy and 'send_data.CPF.item[1].connection_data.request.set_attribute_single' in rpy.enip.CIP
 
             '''
             # Try to send some PCCC I/O
@@ -352,9 +352,9 @@ def test_client_api():
 
         results			= []
         failures		= 0
+        begins			= misc.timer()
         try:
             with connection:
-                begins		= misc.timer()
                 multiple	= random.randint( 0, 4 ) * climultiple // 4 	# eg. 0, 125, 250, 375, 500
                 depth		= random.randint( 0, clidepth )			# eg. 0 .. 5
                 for idx,dsc,req,rpy,sts,val in connection.pipeline(
@@ -366,10 +366,10 @@ def test_client_api():
                                      n, len( results ), len( operations ), rpy )
                         failures += 1
                     results.append( (dsc,val) )
-            duration		= misc.timer() - begins
         except Exception as exc:
             logging.warning( "%s: %s", exc, ''.join( traceback.format_exception( *sys.exc_info() )))
             failures	       += 1
+        duration		= misc.timer() - begins
 
         if len( results ) != len( operations ):
             log.warning( "Client %d harvested %d/%d results", n, len( results ), len( operations ))

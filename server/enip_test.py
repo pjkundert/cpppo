@@ -1523,6 +1523,9 @@ fwd_f01_request_bad		= b'o\x00<\x00\x00b\x02\x15\x00\x00\x00\x00\x00\x00\x00\x00
 fwd_f01_reply			= b'o\x00\x20\x00\x00b\x02\x15\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x08\x00\x02\x00\x00\x00\x00\x00\xb2\x00\x10\x00\xd4\x00\x01\x01\x11\x03\x00\x00\xff\xffxV4\x12\x01\x00'
 fwd_f01_reply_no_remain		= b'o\x00\x1E\x00\x00b\x02\x15\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x08\x00\x02\x00\x00\x00\x00\x00\xb2\x00\x0E\x00\xd4\x00\x01\x01\x11\x03\x00\x00\xff\xffxV4\x12'
 
+# Forward close with failure status only; have seen from C*Logix
+fwd_clo_reply_just_sts		= b'o\x00\x16\x00\x02\\\x02\x14\x00\x00\x00\x00open_ex.\x00\x00\x00\x00\x00\x00\x00\x00\x08\x00\x02\x00\x00\x00\x00\x00\xb2\x00\x06\x00\xce\x00\x01\x01\x00\x01'
+
 # Send Unit Data for DH+ I/O: PCCC via EtherNet/IP, via the Forward Open (above)
 snd_u01_req		= bytes(bytearray([
       0x70, 0x00, 0x23, 0x00, 0x01, 0x00, 0x00, 0x00,
@@ -2497,6 +2500,27 @@ CIP_tests			= [
                       "enip.CIP.send_data.CPF.item[1].unconnected_send.request.forward_open.O_vendor": 65535, 
                       "enip.CIP.send_data.CPF.item[1].unconnected_send.request.forward_open.O_serial": 305419896, 
                       "enip.CIP.send_data.timeout": 8, 
+                  }
+              ), (
+                  fwd_clo_reply_just_sts, enip.Connection_Manager,
+                  {
+                      "enip.status": 0,
+                      "enip.options": 0,
+                      "enip.command": 111, 
+                      "enip.session_handle": 335698946, 
+                      "enip.length": 22, 
+                      "enip.CIP.send_data.interface": 0, 
+                      "enip.CIP.send_data.timeout": 8, 
+                      "enip.CIP.send_data.CPF.count": 2, 
+                      "enip.CIP.send_data.CPF.item[0].length": 0, 
+                      "enip.CIP.send_data.CPF.item[0].type_id": 0, 
+                      "enip.CIP.send_data.CPF.item[1].length": 6, 
+                      "enip.CIP.send_data.CPF.item[1].type_id": 178, 
+                      "enip.CIP.send_data.CPF.item[1].unconnected_send.request.service": 206, 
+                      "enip.CIP.send_data.CPF.item[1].unconnected_send.request.status": 1, 
+                      "enip.CIP.send_data.CPF.item[1].unconnected_send.request.status_ext.size": 1, 
+                      "enip.CIP.send_data.CPF.item[1].unconnected_send.request.status_ext.data": [ 256 ], 
+                      "enip.CIP.send_data.CPF.item[1].unconnected_send.request.forward_close": True, 
                   }
             )
 ]

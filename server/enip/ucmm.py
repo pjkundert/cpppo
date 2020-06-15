@@ -356,19 +356,21 @@ class UCMM( device.Object ):
                         CM		= device.lookup( class_id=ids[0], instance_id=ids[1] )
                         CM.request( unc_send, addr=addr )
                     
-                # After successful processing of the Unconnected Send on the target node, we
-                # eliminate the Unconnected Send wrapper (the unconnected_send.service = 0x52,
-                # route_path, etc, by eliminating the route_path, send_path, priority, etc.), and
-                # replace it with a simple encapsulated raw request.input.  We do that by emptying
-                # out the unconnected_send, except for the bare request.  Basically, all the
-                # Unconnected Send encapsulation and routing is used to deliver the request to the
-                # target Object, and then is discarded and the EtherNet/IP envelope is simply
-                # returned directly to the originator carrying the response payload.
+                    # After successful processing of the Unconnected Send on the target node, we
+                    # eliminate the Unconnected Send wrapper (the unconnected_send.service = 0x52,
+                    # route_path, etc, by eliminating the route_path, send_path, priority, etc.), and
+                    # replace it with a simple encapsulated raw request.input.  We do that by emptying
+                    # out the unconnected_send, except for the bare request.  Basically, all the
+                    # Unconnected Send encapsulation and routing is used to deliver the request to the
+                    # target Object, and then is discarded and the EtherNet/IP envelope is simply
+                    # returned directly to the originator carrying the response payload.
+                    data.enip.CIP.send_data.CPF.item[1].unconnected_send  = dotdict()
+                    data.enip.CIP.send_data.CPF.item[1].unconnected_send.request = unc_send.request
+
+                # Either an implicit "Connected" request (Send RR Data or Send Unit Data), or an
+                # explicit "Unconnected" request (Send RR Data).
                 if log.isEnabledFor( logging.DEBUG ):
                     log.debug( "%s Repackaged: %s", self, parser.enip_format( data ))
-                
-                data.enip.CIP.send_data.CPF.item[1].unconnected_send  = dotdict()
-                data.enip.CIP.send_data.CPF.item[1].unconnected_send.request = unc_send.request
                 
                 # And finally, re-encapsulate the CIP SendRRData, with its (now unwrapped)
                 # Unconnected Send request response payload.

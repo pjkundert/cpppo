@@ -134,6 +134,9 @@ class peeking( object ):
         self._back		= []	# stack of input objects
         self._sent		= 0     # how many objects returned (net)
 
+    def __repr__( self ):
+        return "after %d symbols" % ( self._sent )
+
     @property
     def sent( self ):
         return self._sent
@@ -220,6 +223,9 @@ class remembering( chaining ):
     def __init__( self, *args, **kwds ):
         super( remembering, self ).__init__( *args, **kwds )
         self.memory		= []
+
+    def __repr__( self ):
+        return super( remembering, self ).__repr__() + ": %r" % ( self.memory )
 
     def forget( self ):
         self.memory		= []
@@ -1311,7 +1317,7 @@ class dfa_base( object ):
             # dfa transition away to the next state.  We are forced to indicate failure to accept
             # the sentence with an exception.
             if not self.current.terminal:
-                raise NonTerminal( "%s sub-machine terminated in a non-terminal state" % ( self ))
+                raise NonTerminal( "%s sub-machine terminated in a non-terminal state, %r" % ( self, source ))
 
         #log.debug( "%s <sub   term>", self.name_centered() )
 
