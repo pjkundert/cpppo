@@ -221,7 +221,7 @@ def parse_operations( tags, fragment=False, int_type=None, **kwds ):
 
         # If a count of elements is defined, save it; Otherwise, deduce it from values (write_tag),
         # or leave it unset and use the method default (usually 1) if necessary (read_tag/frag)
-        seg,elm,cnt		= parse_path_elements( tag )
+        seg,elm,cnt		= device.parse_path_elements( tag )
         opr['path']		= seg
         if cnt is not None:
             opr['elements']	= cnt
@@ -719,7 +719,10 @@ class client( object ):
 
         """
         req			= cpppo.dotdict()
-        req.path		= { 'segment': [ cpppo.dotdict( d ) for d in parse_path( path ) ]}
+        req.path		= { 'segment': [
+            cpppo.dotdict( d )
+            for d in device.parse_path( path )
+        ]}
         req.forward_open 	= {}
         fo			= req.forward_open
         fo.priority_time_tick	= priority_time_tick
@@ -735,7 +738,9 @@ class client( object ):
         fo.O_serial		= O_serial
         fo.transport_class_triggers = transport_class_triggers
         fo.connection_timeout_multiplier = connection_timeout_multiplier
-        fo.connection_path	= { 'segment': [ cpppo.dotdict( d ) for d in parse_path( connection_path ) ]}
+        fo.connection_path	= { 'segment': [
+            cpppo.dotdict( d ) for d in device.parse_connection_path( connection_path )
+        ]}
         if send:
             self.unconnected_send(
                 request=req, route_path=route_path, send_path=send_path, timeout=timeout,
@@ -748,7 +753,9 @@ class client( object ):
                        timeout=None, send=True,
                        route_path=False, send_path='', sender_context=b'' ):
         req			= cpppo.dotdict()
-        req.path		= { 'segment': [ cpppo.dotdict( d ) for d in parse_path( path ) ]}
+        req.path		= { 'segment': [
+            cpppo.dotdict( d ) for d in device.parse_path( path )
+        ]}
         req.forward_close 	= {}
         fc			= req.forward_close
         fc.priority_time_tick	= priority_time_tick
@@ -756,7 +763,9 @@ class client( object ):
         fc.connection_serial	= connection_serial
         fc.O_vendor		= O_vendor
         fc.O_serial		= O_serial
-        fc.connection_path	= { 'segment': [ cpppo.dotdict( d ) for d in parse_path( connection_path ) ]}
+        fc.connection_path	= { 'segment': [
+            cpppo.dotdict( d ) for d in device.parse_connection_path( connection_path )
+        ]}
         if send:
             self.req_send(
                 request=req, route_path=route_path, send_path=send_path, timeout=timeout,
@@ -780,7 +789,9 @@ class client( object ):
 
         """
         req			= cpppo.dotdict()
-        req.path		= { 'segment': [ cpppo.dotdict( d ) for d in parse_path( path ) ]}
+        req.path		= { 'segment': [
+            cpppo.dotdict( d ) for d in device.parse_path( path )
+        ]}
         req.service		= code
         if data is None:
             req.service_code	= True		# indicate a payload-free Service Code request
@@ -816,7 +827,9 @@ class client( object ):
               sender_context=b'',
               data_size=None, elements=None, tag_type=None, **kwds ):
         req			= cpppo.dotdict()
-        req.path		= { 'segment': [ cpppo.dotdict( d ) for d in parse_path( path ) ]}
+        req.path		= { 'segment': [
+            cpppo.dotdict( d ) for d in device.parse_path( path )
+        ]}
         req.get_attributes_all	= True
         if send:
             self.req_send(
@@ -829,7 +842,9 @@ class client( object ):
               sender_context=b'',
               data_size=None, elements=None, tag_type=None, **kwds ):
         req			= cpppo.dotdict()
-        req.path		= { 'segment': [ cpppo.dotdict( d ) for d in parse_path( path ) ]}
+        req.path		= { 'segment': [
+            cpppo.dotdict( d ) for d in device.parse_path( path )
+        ]}
         req.get_attribute_single= True
         if send:
             self.unconnected_send(
@@ -857,7 +872,9 @@ class client( object ):
                         parser.typed_data.TYPES_SUPPORTED[tag_type], elements, len( usints ))
             data,elements	= usints,len( usints )
         req			= cpppo.dotdict()
-        req.path		= { 'segment': [ cpppo.dotdict( d ) for d in parse_path( path ) ]}
+        req.path		= { 'segment': [
+            cpppo.dotdict( d ) for d in device.parse_path( path )
+        ]}
         req.set_attribute_single= {
             'data':		data,
             'elements':		elements,
@@ -879,7 +896,7 @@ class client( object ):
 
         """
         req			= cpppo.dotdict()
-        seg,elm,cnt		= parse_path_elements( path )
+        seg,elm,cnt		= device.parse_path_elements( path )
         if cnt is not None:
             elements		= cnt
         req.path		= { 'segment': [ cpppo.dotdict( s ) for s in seg ]}
@@ -903,7 +920,7 @@ class client( object ):
                route_path=None, send_path=None, timeout=None, send=True,
                sender_context=b'', **kwds ):
         req			= cpppo.dotdict()
-        seg,elm,cnt		= parse_path_elements( path )
+        seg,elm,cnt		= device.parse_path_elements( path )
         if cnt is not None:
             elements		= cnt
         req.path		= { 'segment': [ cpppo.dotdict( s ) for s in seg ]}
@@ -934,7 +951,9 @@ class client( object ):
             "A Multiple Service Packet requires a request list"
         req			= cpppo.dotdict()
         if path:
-            req.path		= { 'segment': [ cpppo.dotdict( s ) for s in parse_path( path )]}
+            req.path		= { 'segment': [
+                cpppo.dotdict( s ) for s in device.parse_path( path )
+            ]}
         req.multiple		= {
             'request':		request,
         }
@@ -963,10 +982,13 @@ class client( object ):
         if route_path is None:
             route_path		= self.route_path_default
         if route_path:
-            assert isinstance( route_path, list )
+            route_path		= device.parse_route_path( route_path )
+            assert send_path or send_path is None, \
+                "Must supply a send_path (or None for default), if route_path supplied"
         if send_path is None: # could be a string path to parse or a list
-            # Default to the Connection Manager
-            send_path		= self.send_path_default
+            send_path		= self.send_path_default # Default to the Connection Manager
+        if send_path:
+            send_path		= device.parse_path( send_path )
         if dialect is None:
             dialect		= self.dialect or device.dialect # May be (temporarily) changed
 
@@ -993,9 +1015,13 @@ class client( object ):
             us.status		= 0
             us.priority		= self.priority_time_tick if priority_time_tick is None else priority_time_tick
             us.timeout_ticks	= self.timeout_ticks      if timeout_ticks      is None else timeout_ticks
-            us.path		= { 'segment': [ cpppo.dotdict( s ) for s in parse_path( send_path ) ]}
-            if route_path: # May be None/0/False or empty
-                us.route_path	= { 'segment': [ cpppo.dotdict( s ) for s in route_path ]} # must be {link/port}
+            us.path		= { 'segment': [
+                cpppo.dotdict( s ) for s in send_path
+            ]}
+            if route_path: # May be None/0/False or empty, to eliminate routing encapsulation
+                us.route_path	= { 'segment': [
+                    cpppo.dotdict( s ) for s in route_path
+                ]}
 
         # If the paylaod is an opaque byte string, just pass it thru (we probably don't know how to
         # en/decode it, eg. raw PCCC requests, etc.).  However, if dict is provided, we'll try (the
@@ -1735,27 +1761,26 @@ class implicit( connector ):
             assert not self.udp, "Cannot establish Implicit UDP EtherNet/IP CIP connections"
             self.__class__.connection_serial += 1
 
-            # TODO: Get these all from config file
-            if path is None:
-                path		= [{'class': 6},{'instance':1}]
-            if connection_path is None:
-                connection_path	= [{'port': 1, 'link': 0}, {'class': 2}, {'instance': 1}]
-            if priority_time_tick is None:
-                priority_time_tick= 7
-            if timeout_ticks is None:
-                timeout_ticks	= 249
-            if O_serial is None:
-                O_serial	= 507346703
-            if O_vendor is None:
-                O_vendor	= 77
-            if T_O_RPI is None:
-                T_O_RPI		= 8000000
-            if T_O_NCP is None:
-                T_O_NCP		= 0x43F4
-            if O_T_RPI is None:
-                O_T_RPI		= 8000000
-            if O_T_NCP is None:
-                O_T_NCP		= 0x43F4
+            # Arrange to get the Forward Open parameters from the config file's 'configuration' section 
+            config			= device.Object.config_section( configuration )
+            def default_named( val, name ):
+                return device.Object.config_override(
+                    val, name, defaults.forward_open_default.get( name ), config=config )
+            path		= default_named( path,			'path' )
+            connection_path	= default_named( connection_path,	'connection_path' )
+            priority_time_tick	= default_named( priority_time_tick,	'priority_time_tick' ) 
+            timeout_ticks	= default_named( timeout_ticks,		'timeout_ticks' )
+            O_serial		= default_named( O_serial,		'O_serial' )
+            O_vendor		= default_named( O_vendor,		'O_vendor' )
+            T_O_RPI		= default_named( T_O_RPI,		'T_O_RPI' )
+            T_O_NCP		= default_named( T_O_NCP,		'T_O_NCP' )
+            O_T_RPI		= default_named( O_T_RPI,		'O_T_RPI' )
+            O_T_NCP		= default_named( O_T_NCP,		'O_T_NCP' )
+            transport_class_triggers \
+                                = default_named( transport_class_triggers,'transport_class_triggers' )
+            connection_timeout_multiplier \
+                                = default_named( connection_timeout_multiplier, 'connection_timeout_multiplier' )
+
             # Default the connection ID and serial to the same incrementing number
             if connection_serial is None:
                 connection_serial = self.connection_serial
@@ -1763,10 +1788,7 @@ class implicit( connector ):
                 O_T_connection_ID = self.connection_serial
             if T_O_connection_ID is None:
                 T_O_connection_ID = 2**32-1 # set by Target; doesn't matter
-            if transport_class_triggers is None:
-                transport_class_triggers = 163
-            if connection_timeout_multiplier is None:
-                connection_timeout_multiplier = 0
+
             with self:
                 # The forward_open( timeout=... ) applies to the socket send only
                 elapsed_req	= cpppo.timer() - begun
@@ -2068,9 +2090,9 @@ which is required to carry this Send/Route Path data. """ )
     printing			= args.print
     # route_path may be None/0/False/'[]', send_path may be None/''/'@2/1'.  -S|--simple designates
     # '[]', '' respectively, appropriate for non-routing CIP devices, eg. MicroLogix, PowerFlex, ...
-    route_path			= device.parse_route_path( args.route_path ) if args.route_path \
+    route_path			= args.route_path if args.route_path \
                                       else [] if args.simple else None
-    send_path			= args.send_path                if args.send_path \
+    send_path			= args.send_path if args.send_path \
                                       else '' if args.simple else None
     priority_time_tick		= None if args.priority_time_tick is None \
                                       else int( args.priority_time_tick )

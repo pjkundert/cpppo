@@ -6,7 +6,10 @@ except ImportError:
 
 import threading
 
-from .misc import ( near, scale, magnitude, centeraxis, natural, change_function, mutexmethod )
+from .misc import (
+    near, scale, magnitude, centeraxis, natural, change_function, mutexmethod,
+    parse_ip_port, ip, network
+)
 
 def test_scale():
     assert near( scale(   0., ( 0., 100. ), ( 32., 212. )),  32. )
@@ -157,3 +160,35 @@ def test_mutexmethod():
     # Two different locks; should not interfere
     c.clsmethod_lock_cls( c.insmethod_lock_ins )
 
+
+def test_parse_ip_port():
+
+    for t,(a,p) in {
+        "127.0.0.1":			( ip("127.0.0.1"),			None ),
+        "127.0.0.1:80":			( ip("127.0.0.1"),			80 ),
+        "::1":				( ip("::1"),				None ),
+        "[::1]:80":			( ip("::1"),				80 ),
+        "::192.168.0.1":		( ip("::c0a8:1"), 			None ),
+        "2605:2700:0:3::4713:93e3":	( ip("2605:2700:0:3::4713:93e3"),	None ),
+        "[2605:2700:0:3::4713:93e3]:80":( ip("2605:2700:0:3::4713:93e3"),	80),
+        "boogaloo.cash:443":		( "boogaloo.cash",			443 ),
+    }.items():
+        assert parse_ip_port( t ) == (a,p)
+
+    for t,(a,p) in {
+        "127.0.0.1":			( ip("127.0.0.1"),			123 ),
+        "127.0.0.1:80":			( ip("127.0.0.1"),			80 ),
+        "::1":				( ip("::1"),				123 ),
+        "[::1]:80":			( ip("::1"),				80 ),
+        "::192.168.0.1":		( ip("::c0a8:1"), 			123 ),
+        "2605:2700:0:3::4713:93e3":	( ip("2605:2700:0:3::4713:93e3"),	123 ),
+        "[2605:2700:0:3::4713:93e3]:80":( ip("2605:2700:0:3::4713:93e3"),	80),
+        "boogaloo.cash:443":		( "boogaloo.cash",			443 ),
+    }.items():
+        assert parse_ip_port( t, default=(None,123) ) == (a,p)
+
+    assert parse_ip_port( ":11", default=('',456)) == ('',11)
+    assert parse_ip_port( ":11", default=('boo',456)) == ('boo',11)
+    assert parse_ip_port( "", default=('',456)) == ('',456)
+
+    assert str( network( "192.168.1.0/24" ).broadcast_address ) == "192.168.1.255"

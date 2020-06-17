@@ -939,7 +939,7 @@ class EPATH( cpppo.dfa ):
                     if seglen % 2:
                         result += USINT.produce( 0 )
                     break
-                
+
                 # A Port/Link segment?  Ensure port is in the proper (1,0x0F) or (0x10,0xFFFF)
                 if segnam == 'port':
                     assert 'link' in seg, \

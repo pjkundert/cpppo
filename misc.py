@@ -27,6 +27,15 @@ import sys
 import time
 import types
 
+# Import ip_address/network and urlparse into the cpppo namespace.  ip_address requires unicode, so
+# we also provide a Python2 shim to ensure a str is interpreted as unicode, as well as provide
+# cpppo.ip/network functions that handle str sensibly.
+from ipaddress import ( ip_address, ip_network )
+try:
+    from urllib.parse import urlparse
+except ImportError:
+    from urlparse import urlparse
+
 try:
     import reprlib
 except ImportError:
@@ -559,4 +568,58 @@ def hexdump( src, length=16, sep='.' ):
 
     return '\n'.join(result);
 
+# 
+# unicode, ip/network, parse_ip_port -- handle unicode/str IP addresses
+# 
+#     Converts str (assumed unicode) to IP address (ipaddress.ip_address).  Provides a Python-2
+# compatible unicode shim to re-interpret a str as unicode in a Python version-agnosic fashion.
+# 
+if sys.version_info[0] >= 3:
+    def unicode( s ):
+        return str( s )
 
+def ip( a ):
+    return ip_address( unicode( a ))
+
+def network( a ):
+    return ip_network( unicode( a ))
+
+def parse_ip_port( netloc, default=(None,None) ):
+    """Parse an <interface>[:<port>] with the supplied defaults, returning <host>,<port>.  A Truthy host
+    portion is required (ie. non-empty); port is optional.  Returns ip as an ip_address (if
+    possible), otherwise as a str; either form can be converted to str, if desired.
+
+    """
+    try:
+        # Raw IPv{4,6} address, eg 1.2.3.4, ::1
+        addr			= ip( netloc )
+        port			= None
+    except ValueError:
+        # IPv{4,6} address:port, eg 1.2.3.4:80, [::1]:80 (raw IP only returned as an ip_address)
+        try:
+            parsed		= urlparse( '//{}'.format( netloc ))
+            addr		= ip( parsed.hostname )
+            port		= parsed.port
+        except:
+            # <hostname>[:<port>] (anything other than a rew IP will be returned as a str)
+            addr_port		= netloc.split( ':' )
+            assert 1 <= len( addr_port ) <= 2, \
+                "Expected <host>[:<port>], found {netloc!r}"
+            addr		= addr_port[0]
+            port		= None if len( addr_port ) < 2 else addr_port[1]
+
+    # An empty ip is overridden by a non-None default[0], but either could still be '', which is a
+    # valid i'face designation.
+    if not addr and default and default[0] is not None:
+        addr			= default[0]
+    assert addr is not None, \
+        "No IP/hostname found in {netloc!r} w/ default={default!r}".format(
+            netloc=netloc, default=default
+        )
+    # A None port is overridden by a non-None default[1], but ensure we allow a zero port number.
+    if port is None and default and default[1] is not None:
+        port			= default[1]
+    if port is not None:
+        port			= int( port )
+
+    return addr, port # (None/str/ip_address, None/int)

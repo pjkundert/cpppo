@@ -8,6 +8,7 @@ import errno
 import logging
 import multiprocessing
 import os
+import pytest
 import random
 import socket
 import sys
@@ -75,6 +76,17 @@ def test_parse_path():
         == ([{"class": 1}, {"instance": 2}, {"attribute": 3}, {"element": 4}, ],4,6)
 
 
+def test_parse_route_path():
+    assert enip.parse_route_path( '1/0/2/0::1' ) \
+        == [{"port": 1, "link":0}, {"port": 2, "link": "::1"}]
+
+    with pytest.raises(Exception) as e:
+        assert enip.parse_route_path( '1/0/2/0::1/@2/1' )
+    assert "unhandled: ['@2/1']" in str( e.value )
+    assert enip.parse_connection_path( '1/0/2/0::1/@2/1' ) \
+        == [{"port": 1, "link":0}, {"port": 2, "link": "::1"}, {"class": 2}, {"instance": 1}]
+
+
 def connector( **kwds ):
     """An enip.client.connector that logs and ignores socket errors (returning None)."""
     beg				= misc.timer()
@@ -121,7 +133,6 @@ def test_dotdict_request():
 
 def test_client_api_simple():
     taglen			= 100 # able to fit request for Attribute into 1 packet
-    logging.getLogger().setLevel( logging.NORMAL )
     server_addr		        = ('localhost', 12398)
     server_kwds			= dotdict({
         'argv': [

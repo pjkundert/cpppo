@@ -33,11 +33,12 @@ enip.device	-- support for implementing an EtherNet/IP device Objects and Attrib
 __all__				= ['dialect', 'lookup_reset', 'lookup', 'resolve', 'resolve_element',
                                    'redirect_tag', 'resolve_tag',
                                    'parse_int', 'parse_path', 'parse_path_elements', 'parse_path_component',
-                                   'port_link', 'parse_route_path', 
+                                   'port_link', 'parse_route_path', 'parse_connection_path',
                                    'RequestUnrecognized', 'Object', 'Attribute',
                                    'Connection_Manager', 'Message_Router', 'Identity', 'TCPIP']
 
 import contextlib
+import itertools
 import json
 import logging
 import random
@@ -301,8 +302,13 @@ def parse_path_elements( path, elm=None, cnt=None ):
     A default <element> 'elm' and/or <count> 'cnt' (if non-None) may be specified.
 
     """
-    if not isinstance( path, cpppo.type_str_base ):
-        # Already better be a list-like path...
+    if isinstance( path, list ) and len( path ) == 1 and isinstance( path[0], cpppo.type_str_base ):
+        # Unpack single-element list containing a string
+        path			= path[0]
+    elif not isinstance( path, cpppo.type_str_base ):
+        # Already better be a list-like CIP path...
+        assert isinstance( path, list ) and all( isinstance( p, dict ) for p in path ), \
+            "parse_path unrecognized: %r" % ( path, )
         return path,None,None
 
     segments			= []
@@ -373,48 +379,119 @@ def port_link( pl ):
 
     """
     if isinstance( pl, cpppo.type_str_base ):
-        try: port,link	= map( str.strip, str( pl ).split( '/', 1 ))
-        except: raise AssertionError( "port/link: must have exactly 2 components, not: %r" % ( pl ))
+        pl			= map( str.strip, str( pl ).split( '/', 1 ))
+    if not isinstance( pl, dict ):
+        # If its not already a dict, it better be an iterable satisfying exactly [<port>, <link>]
+        try:
+            port,link		= pl
+        except:
+            raise AssertionError( "port/link: must have exactly 2 components, not: %r" % ( pl ))
         pl			= { "port": port, "link": link }
     assert isinstance( pl, dict ) and 'port' in pl and 'link' in pl, \
         """port/link: must be dict containing { "port": <int>, "link": <int>/"<ip>" }"""
-    
-    try: pl["port"]		= int( pl["port"] )
-    except: raise AssertionError( "port/link: port must be an integer" )
-    try: pl["link"]		= int( pl["link"] )
-    except: # Not an int; must be an IPv4 address
+
+    try:
+        pl["port"]		= int( pl["port"] )
+    except:
+        raise AssertionError( "port/link: port must be an integer" )
+    assert pl["port"] > 0, \
+        "port/link: port number must be > 0"
+
+    try:
+        pl["link"]		= int( pl["link"] )
+    except: # Not an int; must be an IPv{4,6} address; canonicalize
         try:
-            octs		= pl["link"].split( '.' )
-            assert len( octs ) == 4 and all( 0 <= int( n ) <= 255 for n in octs )
-        except:
-            raise AssertionError( "port/link: link IP addresses must be dotted quad" )
+            pl["link"]		= str( cpppo.ip( pl["link"] ))
+        except Exception as exc:
+            raise AssertionError( "port/link: %r: %s" % ( pl["Link"], exc ))
     return pl
 
 
-def parse_route_path( route_path ):
-    """A route path is None/0/False, or list of port/link segments.  Allows a single port/link
-    element to be specified bare, and will en-list it, eg: "--route_path=1/2"."""
+def parse_route_path( route_path, trailer_parser=None ):
+    """A route path is None/0/False, or list of port/link[/port/link] segments.  Allows a single
+    port/link element to be specified bare, and will en-list it, eg: "--route_path=1/2".
+    
+    Must either result in a Falsey, or a valid sequence of port/link[/port/link...], followed by
+    whatever sequence trailer_parser produces (if supplied).
+
+    """
     if isinstance( route_path, cpppo.type_str_base ):
         try:
             route_path		= json.loads( route_path )
             if route_path and isinstance( route_path, dict ):
-                route_path	= [route_path] # a dict; validate as eg. [{"port":<int>,"link":<int>/"<ip>"}]
-        except:
-            # Handle multiple route_path strings like: "1/0/2/1.2.3.4", by splitting on even '/'
-            pls			= route_path.split( '/' )
-            assert len( pls ) % 2 == 0, "A route_path must have pairs of link/port values"
-            seg			= [ '/'.join( [pls[i], pls[i+1]] ) for i in range( 0, len( pls ), 2 ) ]
-            route_path		= seg
+                # a dict; validate as eg. [{"port":<int>,"link":<int>/"<ip>"}]
+                route_path	= [route_path]
+            assert isinstance( route_path, list ), \
+                "route_path invalid; must resolve to list, not: %r" % ( route_path, )
+        except Exception as exc:
+            # Handle multiple route_path strings like: "1/0/2/1.2.3.4", by splitting on even '/'.
+            # Ceases splitting when port_link fails to recognize a component; the remainder is
+            # re-joined and appended for processing in final stage, below.
+            assert route_path[:1] not in '[{"', \
+                "route_path JSON invalid: %r; %s" % ( route_path, exc, ) # JSON was intended, but was invalid
+            rps			= []
+            pls			= iter( route_path.split( '/' ))
+            pl			= list( itertools.islice( pls, 2 ))
+            while pl:
+                try:
+                    rps.append( port_link( pl ))
+                except Exception as exc:
+                    # Done processing; this wasn't a valid port_link element
+                    break
+                pl		= list( itertools.islice( pls, 2 ))
+            # Done all port_link segments; put any remaining back on the end
+            trailer		= '/'.join( pl + list( pls ))
+            if trailer:
+                rps.append( trailer )
+            log.info( "Converted route_path %r to %r", route_path, rps )
+            route_path		= rps
         else:
             # Was JSON; better be one of the known types
             assert isinstance( route_path, (type(None),bool,int,list)), \
                 "route_path: must be null/0/false/true or a (sequence of) port/link, not: %r" % ( route_path )
-    if route_path: # not a JSON 0/false/null (0/False/None)
-        try:
-            route_path		= [ port_link( pl ) for pl in route_path ]
-        except Exception as exc:
-            raise AssertionError( "route_path: invalid port/link element: %s" % ( exc ))
+    if route_path:
+        # not a JSON 0/false/null (0/False/None); must be a sequence of str/dict port_link elements,
+        # followed optionally by something acceptable to trailer_parser (producing a sequence)
+        rps			= []
+        pls			= iter( route_path )
+        pl			= next( pls, None )
+        while pl:
+            try:
+                rps.append( port_link( pl ))
+            except Exception as exc:
+                break
+            pl			= next( pls, None )
+        trs			= ( [] if pl is None else [ pl ] ) + list( pls )
+        if trs:
+            # All trailer elements are CIP paths
+            assert trailer_parser, "route_path unhandled: %r" % ( trs, )
+            try:
+                pth		= trailer_parser( trs )
+                rps.extend( pth )
+            except Exception as exc:
+                raise AssertionError( "route_path invalid: %s" % ( exc ))
+        log.info( "Converted route_path %r to %r", route_path, rps )
+        route_path		= rps
     return route_path
+
+
+def parse_connection_path( path ):
+    """A Connection Path (eg. for Forward Open) consists of a route path, eg. 2/192.168.0.24/1/0
+    (eg. port 2, link 192.168.0.24, then port 1 (backplane), link 0.  Following may optionally be
+    another '/' + CIP path, eg. "/@2/1" (Connection Manaager), "/@1/1/7" (CIP Identity ProductName
+    SSTRING), or "/TagName[0].SubName").  The only restriction is that a 'symbolic' CIP path may not
+    contain a '/' character.
+
+    The trailing CIP path is identified typically by the presense of a non-[0-9.:] element (ie. not
+    a port/link component); once the parse_route_path and port_link ceases to be able to parse
+    '/'-separated components, then parse_path must successfully consume the remainder.
+
+    The only ambiguity is between IPv6 addresses eg. '2001:db8::1' and Tag names; therefore, we do
+    not support Tag names with ':' symbols in them; if necessary, supply these as JSON-encoded
+    connection paths.
+
+    """
+    return parse_route_path( path, trailer_parser=parse_path )
 
 
 # 
@@ -716,6 +793,42 @@ class Object( object ):
         interpolation=configparser.ExtendedInterpolation() )
 
     @classmethod
+    def config_section( cls, section ):
+        if section and section in cls.config_loader:
+            return cls.config_loader[section]
+        return cls.config_loader['DEFAULT']
+
+    @classmethod
+    def config_override( cls, val, key, default=None, config=None, section=None ):
+        """Use the provided val (or get key's value from config, toggling '_'/' ' so either
+        "Some Thing" or "some_thing" are acceptable config file keys), converting to type of
+        default.
+
+        """
+        if config is None:
+            config		= cls.config_section( section ) # if neither, uses 'DEFAULT'
+        if val is None:
+            val			= config.get( key.replace( '_', ' ' ), None )
+        if val is None:
+            val			= config.get( key.replace( ' ', '_' ), None )
+        if val is None:
+            val			= default
+        elif isinstance( default, (bool )) and \
+             isinstance( val,     (                  cpppo.type_str_base)):
+            # Python bools supplied as strings or from config files are a special case, eg  "False"
+            val			= type( default )( ast.literal_eval( val.capitalize() ))
+        elif isinstance( default, (bool, int, float, cpppo.type_str_base)) and \
+             isinstance( val,     (bool, int, float, cpppo.type_str_base)):
+            # Otherwise, any basic-typed val supplied or loaded from config file will be converted to
+            # type of any basic-typed default supplied.  This allows conversion of values
+            # supplied as valid literals, or from string to numeric types.
+            try:
+                val		= type( default )( val )			# eg.   123,  abc
+            except ValueError:
+                val		= type( default )( ast.literal_eval( val ))	# eg. 0x123, "abc"
+        return val
+
+    @classmethod
     def register_service_parser( cls, number, name, short, machine ):
         """Registers a parser with the Object.  May be invoked during import; no logging.  Allows a single
         "default" parser w/ number == True to be defined. So, use our parser's .encode() method to
@@ -757,10 +870,7 @@ class Object( object ):
     @property
     def config( self ):
         if self._config is None:
-            if self.name in self.config_loader:
-                self._config	= self.config_loader[self.name]
-            else:
-                self._config	= self.config_loader['DEFAULT']
+            self._config	= self.config_section( self.name )
         return self._config
 
     @misc.logresult( log=log, log_level=logging.DETAIL )
