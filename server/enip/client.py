@@ -48,6 +48,7 @@ import csv
 import itertools
 import json
 import logging
+import random
 import select
 import socket
 import sys
@@ -344,7 +345,7 @@ class client( object ):
     timeout_ticks		= defaults.timeout_ticks
 
     def __init__( self, host, port=None, timeout=None, dialect=None, profiler=None,
-                  udp=False, broadcast=False, source_address=None ):
+                  udp=False, broadcast=False, source_address=None, configuration=None ):
         """Connect to the EtherNet/IP client, waiting up to 'timeout' for a connection.  Avoid using
         the host OS platform default if 'host' is empty; this will be different on Mac OS-X, Linux,
         Windows, ...  So, for an empty host, we'll default to 'localhost'; this should be IPv4/IPv6
@@ -363,6 +364,9 @@ class client( object ):
         If source_address "<address>[:<port>]" is specified, we'll attempt to bind to that
         interface, and send using the specified source address (and optionally port number).
 
+        If host of None is provided, we'll load the default from 'Address' in the named
+        'configuration' section.
+
         """
         # Bind to nothing by default (use default i'face as source address).  Otherwise, use the
         # specified interface (or the system default, specified by ''), and the specified port (or
@@ -372,9 +376,15 @@ class client( object ):
             ifce		= source_address.split( ':', 1 )
             self.ifce		= ( str( ifce[0] ), int( ifce[1] if len( ifce ) > 1 else 0 ))
 
-        addr			= ( host if host is not None else defaults.address[0],
-                                    port if port is not None else defaults.address[1] )
-        self.addr		= ( str( addr[0] or 'localhost' ), int( addr[1] or 44818 ))
+        # If no 'host' supplied; get from 'Address' in configuration.  Default is 
+        if host is None:
+            addr_str		= device.Object.config_override( host, 'Address', default='', section=configuration ).strip()
+            host,port_cnf	= cpppo.parse_ip_port( addr_str, default=('localhost',defaults.address[1]) )
+            if port is None:
+                port	= port_cnf # only override if nonexistent/None
+        if port is None:
+            port		= defaults.address[1]
+        self.addr		= str( host ),int( port ) # host may be ip_address; str-ingify...
         self.addr_connected	= not ( udp and broadcast )
         self.conn		= None
         self.udp		= udp
@@ -1739,7 +1749,7 @@ class implicit( connector ):
     Therefore, the connection-->sequence dict is maintained on a per-instance basis.
 
     """
-    connection_serial		= 0
+    connection_serial		= random.randint( 0, 2**16-1 )
     def __init__( self, host, port=None, timeout=None, connection_path=None, path=None, 
                   configuration=None, priority_time_tick=None, timeout_ticks=None,
                   O_T_connection_ID=None, T_O_connection_ID=None, connection_serial=None,
@@ -1753,7 +1763,8 @@ class implicit( connector ):
         self.established	= cpppo.dotdict()
         self.seqs		= {} # Forward Open connected_send( connection --> sequence )
 
-        super( implicit, self ).__init__( host=host, port=port, timeout=timeout, **kwds )
+        super( implicit, self ).__init__( host=host, port=port, timeout=timeout,
+                                          configuration=configuration, **kwds )
 
         # Substitute Connection_Manager for response parsing for duration of Forward Open
         dialect_bak,self.dialect= self.dialect,device.Connection_Manager

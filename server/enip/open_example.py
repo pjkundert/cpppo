@@ -29,7 +29,7 @@ hostname			= sys.argv[1] if len( sys.argv ) > 1 else 'localhost'
 
 # Parameters valid for device; for *Logix, others, try:
 #params				= [('@1/1/1','INT'),('@1/1/7','SSTRING')] # not supported
-params_default			= [ "A63FGRDT", "T455ADT", ]
+params_default			= [ "A63FGRDT", "T455ADT" ]
 params				= sys.argv[2:] if len( sys.argv ) > 2 else params_default
 
 # See Vol1_3.15, Section 3-4 Transport Class Bits

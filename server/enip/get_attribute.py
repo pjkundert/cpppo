@@ -26,7 +26,7 @@ __email__                       = "perry@hardconsulting.com"
 __copyright__                   = "Copyright (c) 2013 Hard Consulting Corporation"
 __license__                     = "Dual License: GPLv3 (or later) and Commercial (see LICENSE)"
 
-__all__				= ['attribute_operations', 'proxy', 'proxy_simple', 'main']
+__all__				= ['attribute_operations', 'proxy', 'proxy_simple', 'proxy_connected', 'main']
 
 
 """Get Attributes (Single/All) interface from a target EtherNet/IP CIP device.
@@ -257,7 +257,7 @@ class proxy( object ):
             yield tag
     
     def __init__( self, host, port=44818, timeout=None, depth=None, multiple=None,
-                  gateway_class=client.connector, route_path=None, send_path=None,
+                  gateway_class=None, route_path=None, send_path=None,
                   priority_time_tick=None, timeout_ticks=None,
                   identity_default=None, dialect=None, **gateway_kwds ):
         """Capture the desired I/O parameters for the target CIP Device.
@@ -278,7 +278,7 @@ class proxy( object ):
         self.priority_time_tick	= priority_time_tick
         self.timeout_ticks	= timeout_ticks
         self.gateway_kwds	= gateway_kwds	# Any additional args to gateway
-        self.gateway_class	= gateway_class
+        self.gateway_class	= client.connector if gateway_class is None else gateway_class
         self.gateway		= None
         self.gateway_lock	= threading.Lock()
         if isinstance( identity_default, cpppo.type_str_base ):
@@ -672,6 +672,33 @@ class proxy_simple( proxy ):
             send_path		= ''
         super( proxy_simple, self ).__init__(
             host=host, route_path=route_path, send_path=send_path, **kwds )
+
+
+class proxy_connected( proxy_simple ):
+    """Use a Forward Open to establish an Implicit "Connected" proxy to a remote EtherNet/IP CIP device
+    via the specified Route Path' connection_path'.
+
+    The normal proxy will set up an Explicit connection to the target C*Logix PLC, and then use the
+    supplied route_path with *each* subsequent request/response, requiring the target PLCs to
+    establish communications along the route, perform the request, and then tear down the route.
+    This class will establish a Connected session with the path, and then issue future requests to
+    the already-connected target CIP device.
+
+    We'll collect a set of appropriate Forward Open parameters for the (default) client.implicit
+    connector from the supplied named configuration.
+
+    Load defaults from configuration file.  If no 'host' supplied, we get from 'Address' in
+    configuration If None, the default connection_path will be the backplane slot 1 Connection
+    Manager (0/1/@2/1)
+
+    """
+    def __init__( self, host, gateway_class=client.implicit,
+                  connection_path=None, configuration=None, # new gateway_kwds (above)
+                  **kwds ):
+        super( proxy_connected, self ).__init__(
+            host, gateway_class=gateway_class,
+            connection_path=connection_path, configuration=configuration,
+            **kwds )
 
 
 def main( argv=None ):

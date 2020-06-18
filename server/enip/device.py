@@ -795,7 +795,9 @@ class Object( object ):
     @classmethod
     def config_section( cls, section ):
         if section and section in cls.config_loader:
+            log.detail( "[{section}]".format( section=section ))
             return cls.config_loader[section]
+        log.detail( "[{section}]".format( section='DEFAULT' ))
         return cls.config_loader['DEFAULT']
 
     @classmethod
@@ -808,11 +810,16 @@ class Object( object ):
         if config is None:
             config		= cls.config_section( section ) # if neither, uses 'DEFAULT'
         if val is None:
-            val			= config.get( key.replace( '_', ' ' ), None )
+            key_sp		= key.replace( '_', ' ' )
+            val			= config.get( key_sp, None )
+            if val: log.info( "  {key:<20} == {val}".format( key=key_sp, val=val ))
         if val is None:
-            val			= config.get( key.replace( ' ', '_' ), None )
+            key_un		= key.replace( ' ', '_' )
+            val			= config.get( key_un, None )
+            if val: log.info( "  {key:<20} == {val}".format( key=key_un, val=val ))
         if val is None:
             val			= default
+            if val: log.info( "  {key:<20} == {val:<20} (default)".format( key=key, val=val ))
         elif isinstance( default, (bool )) and \
              isinstance( val,     (                  cpppo.type_str_base)):
             # Python bools supplied as strings or from config files are a special case, eg  "False"
@@ -826,6 +833,7 @@ class Object( object ):
                 val		= type( default )( val )			# eg.   123,  abc
             except ValueError:
                 val		= type( default )( ast.literal_eval( val ))	# eg. 0x123, "abc"
+            log.detail( "  {key:<20} == {val}".format( key=key, val=val ))
         return val
 
     @classmethod
