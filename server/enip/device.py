@@ -37,6 +37,7 @@ __all__				= ['dialect', 'lookup_reset', 'lookup', 'resolve', 'resolve_element',
                                    'RequestUnrecognized', 'Object', 'Attribute',
                                    'Connection_Manager', 'Message_Router', 'Identity', 'TCPIP']
 
+import ast
 import contextlib
 import itertools
 import json
@@ -812,28 +813,43 @@ class Object( object ):
         if val is None:
             key_sp		= key.replace( '_', ' ' )
             val			= config.get( key_sp, None )
-            if val: log.info( "  {key:<20} == {val}".format( key=key_sp, val=val ))
+            if val: log.info( "  {key:<20} == {val!r}".format( key=key_sp, val=val ))
         if val is None:
             key_un		= key.replace( ' ', '_' )
             val			= config.get( key_un, None )
-            if val: log.info( "  {key:<20} == {val}".format( key=key_un, val=val ))
-        if val is None:
-            val			= default
-            if val: log.info( "  {key:<20} == {val:<20} (default)".format( key=key, val=val ))
-        elif isinstance( default, (bool )) and \
-             isinstance( val,     (                  cpppo.type_str_base)):
-            # Python bools supplied as strings or from config files are a special case, eg  "False"
-            val			= type( default )( ast.literal_eval( val.capitalize() ))
-        elif isinstance( default, (bool, int, float, cpppo.type_str_base)) and \
-             isinstance( val,     (bool, int, float, cpppo.type_str_base)):
-            # Otherwise, any basic-typed val supplied or loaded from config file will be converted to
-            # type of any basic-typed default supplied.  This allows conversion of values
-            # supplied as valid literals, or from string to numeric types.
-            try:
-                val		= type( default )( val )			# eg.   123,  abc
-            except ValueError:
-                val		= type( default )( ast.literal_eval( val ))	# eg. 0x123, "abc"
-            log.detail( "  {key:<20} == {val}".format( key=key, val=val ))
+            if val: log.info( "  {key:<20} == {val!r}".format( key=key_un, val=val ))
+        try:
+            if val is None:
+                val			= default
+                if val: log.info( "  {key:<20} == {val!r:<20} (default)".format( key=key, val=val ))
+            elif isinstance( default, bool) and \
+                 isinstance( val,     cpppo.type_str_base):
+                # Python bools supplied as strings or from config files are a special case, eg. 0 or
+                # "False" ==> False, 1 or "True' ==> True
+                val			= type( default )( ast.literal_eval( val.capitalize() ))
+            elif isinstance( default, (list, dict )) and \
+                 isinstance( val,     cpppo.type_str_base):
+                # Other complex types eg. "[ ... ]" must be obtained by ast.literal_eval.
+                val			= type( default )( ast.literal_eval( val ))
+            elif isinstance( default, (bool, int, float, cpppo.type_str_base)) and \
+                 isinstance( val,     (bool, int, float, cpppo.type_str_base)):
+                # Otherwise, any basic-typed val supplied or loaded from config file will be converted to
+                # type of any basic-typed default supplied.  This allows conversion of values
+                # supplied as valid literals, or from string to numeric types.
+                try:
+                    val		= type( default )( val )			# eg.   123,  abc
+                except ValueError:
+                    if isinstance( val, cppppo.type_str_base ):
+                        val	= type( default )( ast.literal_eval( val ))	# eg. 0x123, "abc"
+                    else:
+                        raise
+            # else leave val as str/None
+            log.detail( "  {key:<20} == {val!r}".format( key=key, val=val ))
+        except Exception as exc:
+            msg			= "Converting {key} from {val!r} failed (default type {typ.__name__}): {exc}".format(
+                key=key, val=val, typ=type( default ), exc=exc )
+            log.warning( "  %s", msg )
+            raise Exception( msg )
         return val
 
     @classmethod

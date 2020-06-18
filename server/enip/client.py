@@ -151,7 +151,7 @@ def int_validate( x, lo, hi ):
 
 def bool_validate( b ):
     try:
-        res = int( b ) != 0
+        res		= int( b ) != 0
         return res
     except ValueError:
         pass
@@ -164,7 +164,7 @@ def bool_validate( b ):
 
 CIP_TYPES			= {
     'STRING':	(parser.STRING.tag_type, 0,				str ),
-    'SSTRING':	(parser.SSTRING.tag_type,	 0,				str ),
+    'SSTRING':	(parser.SSTRING.tag_type, 0,				str ),
     'BOOL':	(parser.BOOL.tag_type,	parser.BOOL.struct_calcsize,	bool_validate ),
     'REAL': 	(parser.REAL.tag_type,	parser.REAL.struct_calcsize,	float ),
     'DINT':	(parser.DINT.tag_type,	parser.DINT.struct_calcsize,	lambda x: int_validate( x, -2**31, 2**32-1 )), # extra range
