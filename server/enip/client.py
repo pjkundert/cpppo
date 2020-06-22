@@ -468,6 +468,9 @@ class client( object ):
     def __str__( self ):
         return "%s:%s[%r]" % ( self.addr[0], self.addr[1], self.session )
 
+    def __repr__( self ):
+        return "<%s %s>" % ( self.__class__.__name__, self )
+
     def shutdown( self ):
         """A client-initiated clean shutdown of the EtherNet/IP session requires the client to close the
         outgoing half of its TCP/IP connection, while harvesting the remaining responses incoming.
@@ -783,8 +786,9 @@ class client( object ):
         return req
 
     def service_code( self, code, path, data=None, elements=None, tag_type=None,
-                route_path=None, send_path=None, timeout=None, send=True,
-                sender_context=b'', data_size=None, **kwds ): # response data_size estimation
+                      route_path=None, send_path=None, timeout=None, send=True,
+                      data_size=None, # for response data_size estimation
+                      sender_context=b'', **kwds ):
         """Generic CIP Service Code, with path to target CIP Object, and supplied data payload (converted
         to USINTs, if necessary).  Minimally, we require the service, and an indication that it is a
         bare Service Code request w/ no data:
@@ -834,8 +838,8 @@ class client( object ):
 
     def get_attributes_all( self, path,
               route_path=None, send_path=None, timeout=None, send=True,
-              sender_context=b'',
-              data_size=None, elements=None, tag_type=None, **kwds ):
+              data_size=None, elements=None, tag_type=None, # for response data_size estimation
+              sender_context=b'', **kwds ):
         req			= cpppo.dotdict()
         req.path		= { 'segment': [
             cpppo.dotdict( d ) for d in device.parse_path( path )
@@ -849,15 +853,15 @@ class client( object ):
 
     def get_attribute_single( self, path,
               route_path=None, send_path=None, timeout=None, send=True,
-              sender_context=b'',
-              data_size=None, elements=None, tag_type=None, **kwds ):
+              data_size=None, elements=None, tag_type=None, # for response data_size estimation
+              sender_context=b'', **kwds ):
         req			= cpppo.dotdict()
         req.path		= { 'segment': [
             cpppo.dotdict( d ) for d in device.parse_path( path )
         ]}
         req.get_attribute_single= True
         if send:
-            self.unconnected_send(
+            self.req_send(
                 request=req, route_path=route_path, send_path=send_path, timeout=timeout,
                 sender_context=sender_context, **kwds )
         return req
@@ -897,9 +901,8 @@ class client( object ):
 
     def read( self, path, elements=1, offset=0,
               route_path=None, send_path=None, timeout=None, send=True,
-              priority_time_tick=None, timeout_ticks=None,
-              sender_context=b'',
-              data_size=None, tag_type=None ):
+              data_size=None, tag_type=None, # for response data_size estimation
+              sender_context=b'', **kwds ):
         """Issue a Read Tag Fragmented request for the specified path.  If no specific number of
         elements is specified, get it from the path (if it is unparsed, eg Tag[0-9] or
         @0x04/5/connection=100)
@@ -920,10 +923,9 @@ class client( object ):
                 'offset':	offset,
             }
         if send:
-            self.unconnected_send(
+            self.req_send(
                 request=req, route_path=route_path, send_path=send_path, timeout=timeout,
-                priority_time_tick=priority_time_tick, timeout_ticks=timeout_ticks,
-                sender_context=sender_context )
+                sender_context=sender_context, **kwds )
         return req
 
     def write( self, path, data, elements=1, offset=0, tag_type=None,
@@ -956,7 +958,7 @@ class client( object ):
         return req
 
     def multiple( self, request, path=None, route_path=None, send_path=None, timeout=None, send=True,
-                          sender_context=b'', **kwds ):
+                  sender_context=b'', **kwds ):
         assert isinstance( request, list ), \
             "A Multiple Service Packet requires a request list"
         req			= cpppo.dotdict()
@@ -973,7 +975,16 @@ class client( object ):
                 sender_context=sender_context, **kwds )
         return req
 
+    # 
+    # ..._send -- transmit a request using the appropriate encapsulation
+    # 
+    #     Depending on the class of CIP connection, various encapsulations are appropriate.  These
+    # should be as close to transparent to the higher-level APIs as possible; for consistency, we'll
+    # accept all of the required arguments, ignoring any that are irrelevant (in case they are
+    # provided in general-purpose higher-level code).
+    # 
     def unconnected_send( self, request, route_path=None, send_path=None, timeout=None,
+                          connection=None, sequence=None, # ignored
                           priority_time_tick=None, timeout_ticks=None,
                           sender_context=b'', dialect=None ):
         """The default route_path is the CPU in chassis (link 0), port 1, and the default send_path is
@@ -1057,6 +1068,7 @@ class client( object ):
 
     def connected_send( self, request, timeout=None,
                         connection=None, sequence=None,
+                        priority_time_tick=None, timeout_ticks=None, # ignored
                         sender_context=b'', dialect=None ):
         """A connected send is much like an unconnected_send, except its CPF contains a 0x00a1
         connection ID, and a 0x00b1 data sequence number and payload.  Defaults to 0 connection ID,
@@ -1151,16 +1163,14 @@ class client( object ):
                 self.profiler.enable()
         return data
 
-    def req_send( self, request, timeout=None,
-                  sender_context=b'', dialect=None, **kwds ):
+    def req_send( self, request, **kwds ):
         """Sending a request on a client connector/implicit connection requires the use of the
         appropriate encapsulation.  An explicit "Unconnected" session connection normally uses a
         unconnected_send "Send RR Data".  We many have a non-default priority_time_tick or
         timeout_ticks.
 
         """
-        return self.unconnected_send( request, timeout=timeout,
-                                      sender_context=sender_context, dialect=dialect, **kwds )
+        return self.unconnected_send( request, **kwds )
 
 
 def await_response( cli, timeout=None ):
@@ -1450,8 +1460,15 @@ class connector( client ):
 
             # Find the replies in the response; could be single or multiple; should match requests!
             replies		= enip_replies( response )
-            if not response: # [<replies>], None or {} (EOF), or Exception/ENIPStatusError
-                yield response
+            if not response: # [<replies>], None or {} (EOF), or Exception/ENIPStatusError On EOF or
+                # timeout, cease responding; downstream could decide what to do on lack of matching
+                # response for a previously submitted request; probably should terminate EtherNet/IP
+                # CIP connection, b/c it is not impossible to reliably match future requests with
+                # replies.
+                log.detail( "Terminated with %s: %r", "timeout" if replies is None else "EOF", self )
+                #yield response	#? Nope...
+                # A timeout/EOF means no response collected, and none (reliably) expected: upstream
+                # can determine "health" of that fact.
                 return
             ctx			= parse_context( response.enip.sender_context.input )
             log.detail( "Receive %2d (Context %10r)", len( replies ), ctx )
@@ -1481,8 +1498,8 @@ class connector( client ):
 
     def harvest( self, issued, timeout=None ):
         """As we iterate over issued requests, collect the corresponding replies, match them up, and
-        yield them as: (<index>,<descr>,<request>,<reply>,<status>,<value>).  We use the "lazy"
-        itertools.izip, to only collect responses as we need them.
+        yield them as: (<index>,<descr>,<request>,<reply>,<status>,<value>).  We use the "lazy" zip
+        to only collect responses as we need them.
 
         Invoke this directly with self.issue(...) to synchronously issue requests and collect their
         responses:
@@ -1496,10 +1513,14 @@ class connector( client ):
         pipeline).
 
         """
-        for (idx,req_ctx,dsc,op,req),(rpy_ctx,rpy,sts,val) in zip(
-                issued, self.collect( timeout=timeout )): # must be "lazy" zip!
-            assert rpy_ctx == req_ctx, "Request: %5d (Context: %10r/%10r) Mismatched;\nop: %s\nrequest: %s\nreply: %s" % (
-                idx, req_ctx, rpy_ctx, parser.enip_format( op ), parser.enip_format( req ), parser.enip_format( rpy ))
+        for (idx,req_ctx,dsc,op,req),col in zip(issued, self.collect( timeout=timeout )): # must be "lazy" zip!
+            assert col, \
+                "Request: %5d (Context: %10r/%10r) No Reply;\nop: %s\nrequest: %s\ncollected: %r via %r" % (
+                    idx, req_ctx, None, parser.enip_format( op ), parser.enip_format( req ), col, self )
+            (rpy_ctx,rpy,sts,val) = col
+            assert rpy_ctx == req_ctx, \
+                "Request: %5d (Context: %10r/%10r) Mismatched;\nop: %s\nrequest: %s\nreply: %s" % (
+                    idx, req_ctx, rpy_ctx, parser.enip_format( op ), parser.enip_format( req ), parser.enip_format( rpy ))
             yield idx,dsc,req,rpy,sts,val
 
     # 
@@ -1910,9 +1931,8 @@ class implicit( connector ):
         """Disappointingly, C*Logix PLCs do *not* respond with the supplied Sender Context..."""
         return b''
 
-    def connected_send( self, request, timeout=None,
-                        connection=None, sequence=None,
-                        sender_context=b'', dialect=None ):
+    def connected_send( self, request,
+                        connection=None, sequence=None, **kwds ):
         """If connection and/or sequence not supplied default to the established Forward Open
         O_T_connection_ID, and/or the next sequence number for the O_T_connection_ID (starting w/
         sequence == 0 for each connection).
@@ -1922,15 +1942,10 @@ class implicit( connector ):
             connection		= self.established.forward_open.O_T_connection_ID
         if sequence is None:
             sequence = self.seqs[connection] = self.seqs.get( connection, -1 ) + 1 # 0, 1, ...
-        return super( implicit, self ).connected_send( request,
-                    timeout		= timeout,
-                    connection		= connection,
-                    sequence		= sequence,
-                    sender_context	= sender_context,
-                    dialect		= dialect )
+        return super( implicit, self ).connected_send(
+            request, connection=connection, sequence=sequence, **kwds )
 
-    def req_send( self, request, timeout=None, route_path=None, send_path=None,
-                  sender_context=b'', dialect=None, **kwds ):
+    def req_send( self, request, route_path=None, send_path=None, **kwds ):
         """Sending a request on a client connector/implicit connection requires the use of the appropriate
         encapsulation.  An implicit connection normally uses a connected_send "Send Unit Data".
         Normally, we'll deduce the 'connection' and 'sequence' in connected_send.
@@ -1939,12 +1954,10 @@ class implicit( connector ):
         via an implicit connection, with SendRRData encapsulation.
         """
         if route_path or send_path:
-            return super( implicit, self ).req_send( request,
-                timeout=timeout, route_path=route_path, send_path=send_path,
-                sender_context=sender_context, dialect=dialect, **kwds )
-        return self.connected_send( request,
-                timeout=timeout,
-                sender_context=sender_context, dialect=dialect, **kwds )
+            return super( implicit, self ).req_send(
+                request, route_path=route_path, send_path=send_path, **kwds )
+        else:
+            return self.connected_send( request, **kwds )
 
 
 def recycle( iterable, times=None ):
@@ -2180,7 +2193,7 @@ which is required to carry this Send/Route Path data. """ )
                 operations=operations, depth=depth, multiple=multiple,
                 fragment=fragment, printing=printing, timeout=timeout )
             failures	       += failed
-            elapsed			= cpppo.timer() - begun
+            elapsed		= cpppo.timer() - begun
             if transactions: # May be [], if from stdin, and no operations provided
                 log.normal( "Client Tag I/O  Average %7.3f TPS (%7.3fs ea)." % (
                     len( transactions ) / elapsed, elapsed / len( transactions )))

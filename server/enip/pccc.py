@@ -237,7 +237,7 @@ class ANC_120e_DF1( cpppo.dfa ):
             result	       += USINT.produce( data.DF1.get( 'fnc', 0x03 )) # FNC (default: 0x03)
         else:
             # PCCC ANC-120e only recognizes its own services (not the generic CIP Object's)
-            raise AssertionError( "%s doesn't recognize request/reply format: %r" % ( cls.__name__, data ))
+            raise RequestUnrecognized( "%s doesn't recognize request/reply format: %r" % ( cls.__name__, data ))
 
         return result
 

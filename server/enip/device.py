@@ -2156,7 +2156,7 @@ class Connection_Manager( Object ):
                     result	       += app.input
         else:
             # Connection Manager only recognizes its own services (not the generic CIP Object's)
-            raise AssertionError( "%s doesn't recognize request/reply format: %r" % ( cls.__name__, data ))
+            raise RequestUnrecognized( "%s doesn't recognize request/reply format: %r" % ( cls.__name__, data ))
         return result
 
 

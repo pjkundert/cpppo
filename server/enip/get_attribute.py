@@ -291,6 +291,9 @@ class proxy( object ):
     def __str__( self ):
         return "%s at %s" % ( self.identity.product_name if self.identity else None, self.gateway )
 
+    def __repr__( self ):
+        return "<%s via %r>" % ( self.__class__.__name__, self.gateway )
+
     def __enter__( self ):
         """Ensures that the gateway is open."""
         self.open_gateway()
@@ -319,11 +322,15 @@ class proxy( object ):
         gateway_class instance and registers a session, and (if necessary) queries the identity of the
         device -- all under the protection of the gateway_lock Mutex.  All gateways must use the 
         same (globally defined) device.dialect, if they specify one."""
+        blocked			= cpppo.timer()
         with self.gateway_lock:
             if self.gateway is None:
+                creating	= cpppo.timer()
                 self.gateway = self.gateway_class(
                     host=self.host, port=self.port, timeout=self.timeout, dialect=self.dialect,
                     **self.gateway_kwds )
+                log.info( "Creating gateway %r connection, after blocking %7.3fs, in %7.3fs",
+                          self.gateway, creating - blocked, cpppo.timer() - creating )
                 if not self.identity:
                     try:
                         rsp,ela = self.list_identity_details()
@@ -332,7 +339,7 @@ class proxy( object ):
                     except Exception as exc:
                         self.close_gateway( exc )
                         raise
-                log.normal( "Opened EtherNet/IP CIP gateway %s", self )
+                log.normal( "Opened EtherNet/IP CIP gateway %r, in %7.3fs", self, cpppo.timer() - creating )
 
     def maintain_gateway( function ):
         """A decorator to open the gateway (if necessary), and discard it on any Exception.  Atomically
@@ -604,9 +611,13 @@ class proxy( object ):
         # 
         # assert not self.gateway.frame.lock.locked(), \
         #     "Attempting recursive read on %r" % ( self.gateway.frame, )
-        log.info( "Acquiring gateway connection: %s",
-                      "locked" if self.gateway.frame.lock.locked() else "available" )
+        log.info( "Acquiring gateway %r connection: %s", self.gateway,
+                  "locked" if self.gateway.frame.lock.locked() else "available" )
+        blocked			= cpppo.timer()
         with self.gateway as connection: # waits 'til any Thread's txn. completes
+          polling		= cpppo.timer()
+          try:
+            log.info( "Operating gateway %r connection, after blocking %7.3fs", self.gateway, polling - blocked )
             for i,(idx,dsc,req,rpy,sts,val) in enumerate( connection.operate(
                     ( opr for opr,_ in operations ),
                     depth=self.depth, multiple=self.multiple, timeout=self.timeout )):
@@ -649,9 +660,12 @@ class proxy( object ):
                             break
                 typ_types	= [t for t,_ in typ_dat] if typ_is_list else typ_dat[0][0]
                 yield res,(sts,(att,typ_types,uni))
+          finally:
+            log.info( "Releasing gateway %r connection, after polling  %7.3fs", self.gateway, cpppo.timer() - polling )
 
     # Supply "Tag = <value>" to perform a write.
     write = read
+
 
 class proxy_simple( proxy ):
     """Monitor/Control a simple non-routing CIP device (eg. an AB MicroLogix, AB PowerFlex AC Drive).
@@ -674,7 +688,7 @@ class proxy_simple( proxy ):
             host=host, route_path=route_path, send_path=send_path, **kwds )
 
 
-class proxy_connected( proxy_simple ):
+class proxy_connected( proxy ):
     """Use a Forward Open to establish an Implicit "Connected" proxy to a remote EtherNet/IP CIP device
     via the specified Route Path' connection_path'.
 
@@ -695,10 +709,13 @@ class proxy_connected( proxy_simple ):
     def __init__( self, host, gateway_class=client.implicit,
                   connection_path=None, configuration=None, # new gateway_kwds (above)
                   **kwds ):
+        """We use a route_path, send_path and connection_path to create the underlying "Implicit" connection."""
         super( proxy_connected, self ).__init__(
             host, gateway_class=gateway_class,
             connection_path=connection_path, configuration=configuration,
             **kwds )
+        self.route_path		= False
+        self.send_path		= ''
 
 
 def main( argv=None ):
