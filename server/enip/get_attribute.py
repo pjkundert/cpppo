@@ -103,7 +103,7 @@ def attribute_operations( paths, int_type=None, **kwds ):
         if 'instance' in path_end:
             op['method'] = 'get_attributes_all'
             assert 'data' not in op, "All Attributes cannot be operated on using Set Attribute services"
-        elif 'symbolic' in path_end or 'attribute' in path_end or 'element':
+        elif 'symbolic' in path_end or 'attribute' in path_end or 'element' in path_end:
             op['method'] = 'set_attribute_single' if 'data' in op else 'get_attribute_single'
         else:
             raise AssertionError( "Path invalid for Attribute services: %r", op['path'] )
@@ -621,8 +621,9 @@ class proxy( object ):
             for i,(idx,dsc,req,rpy,sts,val) in enumerate( connection.operate(
                     ( opr for opr,_ in operations ),
                     depth=self.depth, multiple=self.multiple, timeout=self.timeout )):
-                log.detail( "%3d (pkt %3d) %16s %-12s: %r ", 
-                                i, idx, dsc, sts or "OK", val )
+                log.detail( "%3d (pkt %3d) %16s %-12s: %r %s", 
+                                i, idx, dsc, sts or "OK", val,
+                            repr( rpy ) if log.isEnabledFor( logging.INFO ) else '' )
                 opr,(att,typ,uni) = next( attrtypes )
                 if typ is None or sts not in (0,6) or val in (True,None):
                     # No type conversion; just return whatever type produced by Read Tag.  Also, if

@@ -1792,6 +1792,7 @@ class implicit( connector ):
         try:
             assert not self.udp, "Cannot establish Implicit UDP EtherNet/IP CIP connections"
             self.__class__.connection_serial += 1
+            self.__class__.connection_serial %= 2**16
 
             # Arrange to get the Forward Open parameters from the config file's 'configuration' section 
             config			= device.Object.config_section( configuration )

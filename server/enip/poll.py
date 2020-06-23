@@ -51,18 +51,18 @@ PARAMS				= [
     'Motor Velocity',
 ]
 
-def execute( via, params=None, pass_thru=None ):
+def execute( via, params=None, pass_thru=None, details=False ):
     """Perform a single poll via the supplied enip.get_attribute 'proxy' instance, yielding the
-    parameters and their polled values.
+    parameters and their polled values (or full result details, if True)
 
     By default, we'll look for the parameters in the module's PARAMS list, which must be recognized
     by the supplied via's parameter_substitutions method, if pass_thru is not Truthy (default:
     True).
 
-    Yields tuples of each of the supplied params, with their polled values.
+    Yields tuples of each of the supplied params, each with their polled values/details.
 
     """
-    with contextlib.closing( via.read(
+    with contextlib.closing( ( via.read_details if details else via.read )(
             via.parameter_substitution( params or PARAMS, pass_thru=pass_thru ))) as reader:
         for p,v in zip( params or PARAMS, reader ): # "lazy" zip
             yield p,v
