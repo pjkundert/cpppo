@@ -21,6 +21,8 @@ try:
 except ImportError:
     pass
 
+import argparse
+
 __author__                      = "Perry Kundert"
 __email__                       = "perry@hardconsulting.com"
 __copyright__                   = "Copyright (c) 2013 Hard Consulting Corporation"
@@ -82,6 +84,7 @@ bytes_conf 			= {
     "typecode":	cpppo.type_bytes_array_symbol,
 }
 
+
 def data_parser( **kwds ):
     """Parses raw bytes into .data, by default using ..size to denote the amount.  """
     kwds.setdefault( "name", "DATA" )
@@ -89,6 +92,7 @@ def data_parser( **kwds ):
     kwds.setdefault( "repeat", "..size" )
     return cpppo.dfa(
         initial=cpppo.state_input( name="BYTE", terminal=True, **bytes_conf ), **kwds )
+
 
 def tnet_machine( name="TNET", context="tnet" ):
     """Accept a sentence of input bytes matching a tnetstring, and then
@@ -148,43 +152,96 @@ def tnet_machine( name="TNET", context="tnet" ):
     return cpppo.dfa( name=name, context=context, initial=SIZE, terminal=True )
 
 
-def tnet_server( conn, addr ):
-    """Serve one tnet client 'til EOF; then close the socket"""
+def tnet_from( conn, addr, server=cpppo.dotdict({'done': False}), timeout=1.0, latency=0.25 ):
+    """Parse and yield TNET messages from a socket w/in timeout, blocking 'til server.done or EOF
+    between messages.
+
+    """
     source			= cpppo.chainable()
-    with tnet_machine( "tnet_%s" % addr[1] ) as tnet_mesg:
+    with tnet_machine( "tnet_%s" % addr[1] ) as engine:
         eof			= False
-        while not eof:
+        while not ( eof or server.done ):
             data		= cpppo.dotdict()
-            # Loop blocking for input, while we've consumed input from source since the last time.
-            # If we hit this again without having used any input, we know we've hit a symbol
-            # unacceptable to the state machine; stop
-            for mch, sta in tnet_mesg.run( source=source, data=data ):
+            started		= 0		# When did we start the current TNET string?
+            for mch,sta in engine.run( source=source, data=data ):
+                duration	= cpppo.timer() - started if started else 0
+                log.debug( "%s: After %7.3fs: %s", engine.name_centered(), duration, sta )
                 if sta is not None:
+                    if not started and source.peek() is not None:
+                        # We've transitioned into a non-terminal state and have data; begun collecting - start timeout count-down!
+                        log.info( "%s: After %7.3fs, started TNET", engine.name_centered(), duration )
+                        started	= cpppo.timer()
                     continue
-                # Non-transition; check for input, blocking if non-terminal and none left.  On
-                # EOF, terminate early; this will raise a GeneratorExit.
-                timeout		= 0 if tnet_mesg.terminal or source.peek() is not None else None
-                msg		= network.recv( conn, timeout=timeout ) # blocking
-                if msg is not None:
-                    eof		= not len( msg )
-                    log.info( "%s: recv: %5d: %s", tnet_mesg.name_centered(), len( msg ),
-                              "EOF" if eof else cpppo.reprlib.repr( msg )) 
-                    source.chain( msg )
-                    if eof:
-                        break
+                # Non-transition state; need data: check for more data, enforce timeout.  Waits up
+                # to latency, or remainder of timeout.
+                remains		= min( latency, max( timeout - duration, 0 ))
+                msg		= network.recv( conn, timeout=remains )
+                duration	= cpppo.timer() - started if started else 0
+                if msg is None:
+                    log.info( "%s: After %7.3fs, no data after %7.3fs recv timeout",
+                              engine.name_centered(), duration, remains )
+                    # No need to assert for failure here; engine will fail on successive starts w/ no data.
+                    # assert not start or duration < timeout, \
+                    #     "%s: After %7.3fs, timeout exceeded receiving TNET message" % (
+                    #         engine.name_centered(), duration )
+                    log.normal( "%s: After %7.3fs, timeout exceeded receiving TNET message",
+                                 engine.name_centered(), duration )
+                    continue
+                # EOF or data
+                eof		= len( msg ) == 0
+                log.info( "%s: After %7.3fs, recv: %5d: %s",
+                          engine.name_centered(), duration, len( msg ), 'EOF' if eof else cpppo.reprlib.repr( msg ))
+                source.chain( msg )
+                if eof:
+                    break
+            # Terminal state (or EOF)
+            duration		= cpppo.timer() - started if started else 0
+            if engine.terminal:
+                log.info( "%s: After %7.3fs, found a TNET: %r", engine.name_centered(), duration, data.tnet.type.input )
+                yield data.tnet.type.input # Could be a 0:~ / null ==> None
 
-            # Terminal state (or EOF).
-            log.detail( "%s: byte %5d: data: %r", tnet_mesg.name_centered(), source.sent, data )
-            if tnet_mesg.terminal:
-                res			= json.dumps( data.tnet.type.input, indent=4, sort_keys=True )
-                conn.send(( res + "\n\n" ).encode( "utf-8" ))
-    
-        log.info( "%s done", tnet_mesg.name_centered() )
+        log.detail( "%s: done w/ %s", engine.name_centered(),
+                    ', '.join( ['EOF'] if eof else [] + ['done'] if server.done else [] ))
 
 
-def main():
+def tnet_server_json( conn, addr ):
+    for msg in tnet_from( conn, addr ):
+        res			= json.dumps( msg, indent=4, sort_keys=True )
+        conn.send( ( res + "\n\n" ).encode( "utf-8" ))
+
+
+def main( argv=None ):
+    ap				= argparse.ArgumentParser(
+        description = "TNET Network Client",
+        epilog = "" )
+
+    ap.add_argument( '-v', '--verbose', action="count",
+                     default=0, 
+                     help="Display logging information." )
+    ap.add_argument( '-l', '--log',
+                     help="Log file, if desired" )
+
+    args			= ap.parse_args( argv )
+
+    idle_service		= []
+
+    # Set up logging level (-v...) and --log <file>, handling log-file rotation
+    levelmap 			= {
+        0: logging.WARNING,
+        1: logging.NORMAL,
+        2: logging.DETAIL,
+        3: logging.INFO,
+        4: logging.DEBUG,
+        }
+    cpppo.log_cfg['level']	= ( levelmap[args.verbose] 
+                                    if args.verbose in levelmap
+                                    else logging.DEBUG )
+    if args.log:
+        cpppo.log_cfg['filename']= args.log
+ 
     logging.basicConfig( **cpppo.log_cfg )
-    return network.server_main( address=address, target=tnet_server )
+
+    return network.server_main( address=address, target=tnet_server_json )
 
 
 if __name__ == "__main__":

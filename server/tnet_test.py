@@ -86,7 +86,6 @@ def test_tnet_string():
     assert successes == len( testvec )
 
 
-
 client_count			= 15
 charrange, chardelay		= (2,10), .01	# split/delay outgoing msgs
 draindelay			= 2.0  		# long in case server slow, but immediately upon EOF
@@ -165,13 +164,26 @@ def tnet_cli( number, tests=None ):
     return failed
 
 
-def test_tnet_bench():
-    failed			= cpppo.server.network.bench( server_func=tnet.main,
-                                                 client_func=tnet_cli, client_count=client_count, 
-                                                 client_kwds=tnet_cli_kwds )
+tnet_svr_kwds			= {
+    "argv": [ "-v" ]
+}
+
+
+def tnet_bench():
+    logging.getLogger().setLevel(logging.INFO)
+    failed			= cpppo.server.network.bench(
+        server_func=tnet.main,
+        server_kwds=tnet_svr_kwds,
+        client_func=tnet_cli, client_count=client_count, 
+        client_kwds=tnet_cli_kwds )
+
     if failed:
         log.warning( "Failure" )
     else:
         log.info( "Succeeded" )
 
     return failed
+
+
+def test_tnet_bench():
+    assert not tnet_bench(), "One or more tnet_banch clients reported failure"
