@@ -28,6 +28,7 @@ __license__                     = "Dual License: GPLv3 (or later) and Commercial
 import errno
 import functools
 import logging
+import multiprocessing
 import os
 import select
 import socket
@@ -132,31 +133,84 @@ def drain( conn, timeout=.1, close=True ):
     return msg
 
 
-class server_thread( threading.Thread ):
-    """A generic server handler Thread.  Supply a handler taking an open socket connection to target=...
+class server_runner( object ):
+    """A generic server handler runner.  Supply a handler taking an open socket connection to target=...
     Assumes at least one or two arg=(conn,[addr,[...]]), and a callable target with an __name__
     attribute.  The 'args' argument is required, and must contain at least the connect socket, and
-    (optional) peer address; all other keyword options (eg. kwargs, ...) are passed along to Thread.
+    (optional) peer address; all other keyword options (eg. kwargs, ...) are passed along to
+    eg. Thread/Process.
 
-    The kwargs keyword argument is passed unmolested to Thread, which in turn breaks it out as
-    keyword arguments to the Threads's target function."""
+    The kwargs keyword argument is passed unmolested to Thread/Process, which in turn breaks it out as
+    keyword arguments to the Threads/Process' target function.
+
+    """
     def __init__( self, **kwds ):
-        super( server_thread, self ).__init__( **kwds )
-        self._name		= kwds['target'].__name__
+        super( server_runner, self ).__init__( **kwds ) # something with a Thread/Process interface, probably...
+        #self._name		= kwds['target'].__name__
+        assert 'args' in kwds and 1 <= len( kwds['args'] ) <= 2, \
+            "Expected target to be supplied args conn: <socket>, addr: ('host',port)"
         self.conn		= kwds['args'][0]
         self.addr	        = kwds['args'][1] if len( kwds['args'] ) > 1 else None
+        log.info( "%s server TID [%5s/%5s] runner target %s, w/ kwds: %r", self.name,
+                  os.getpid(), self.ident, kwds['target'].__name__, kwds )
 
     def run( self ):
-        log.info( "%s server TID [%5d/%5d] starting on %r", self._name,
+        log.info( "%s server TID [%5s/%5s] starting on %r", self.name,
                   os.getpid(), self.ident, self.addr )
         try:
-            super( server_thread, self ).run()
+            return super( server_runner, self ).run()
         except Exception as exc:
-            log.warning( "%s server failure: %s\n%s", self._name,
+            log.warning( "%s server failure: %s\n%s", self.name,
                          exc, ''.join( traceback.format_exc() ))
-        log.info( "%s server TID [%5d/%5d] stopping on %r", self._name,
-                  os.getpid(), self.ident, self.addr )
+        finally:
+            log.info( "%s server TID [%5s/%5s] stopping on %r", self.name,
+                      os.getpid(), self.ident, self.addr )
 
+    def join( self, timeout=None ):
+        """Caller is awaiting completion of this thread; try to shutdown (output) on the socket, which
+        should (eventually) result in EOF on input and termination of the target service method.
+        This procedure allows for a default "clean" shutdown of sockets on server termination.
+
+        If clients are possibly misbehaving (eg. could be hung or the network could be arbitrarily
+        delayed), supply a timeout and perform more aggressive shutdown/cleanup procedures on
+        failure to stop cleanly.
+
+        """
+        try:
+            return super( server_runner, self ).join( timeout=timeout )
+        finally:
+            if self.is_alive():
+                # We must have timed out; server Thread hasn't responded to clean shutdown.  Override to
+                # respond more aggressively.
+                log.warning( "%s server TID [%5s/%5s] hanging on %r", self.name,  
+                          os.getpid(), self.ident, self.addr )
+            else:
+                log.info( "%s server TID [%5s/%5s] complete on %r", self.name,
+                          os.getpid(), self.ident, self.addr )
+
+
+class server_process( server_runner, multiprocessing.Process ):
+    def join( self, timeout=None ):
+        """Caller is awaiting completion of this sub-process """
+        return super( server_process, self ).join( timeout=timeout )
+
+    def start( self, *args, **kwds ):
+        """After we've started the '.run()' in a sub-process to serve the connection, we no longer have
+        need of it here in the parent process.
+
+        """
+        try:
+            return super( server_process, self ).start( *args, **kwds )
+        except Exception as exc:
+            log.warning( "%s server TID[%5s/%5s] failed starting sub-process to serve %r; %s",
+                         os.getpid(), self.ident, self.addr, exc )
+        else:
+            log.info( "%s server TID[%5s/%5s] closing %r; now being served in sub-process",
+                      os.getpid(), self.ident, self.addr )
+            self.conn.close()
+
+
+class server_thread( server_runner, threading.Thread ):
     def join( self, timeout=None ):
         """Caller is awaiting completion of this thread; try to shutdown (output) on the socket, which
         should (eventually) result in EOF on input and termination of the target service method.
@@ -172,32 +226,27 @@ class server_thread( threading.Thread ):
         except:
             pass
         super( server_thread, self ).join( timeout=timeout )
-        if self.is_alive():
-            # We must have timed out; server Thread hasn't responded to clean shutdown.  Override to
-            # respond more aggressively.
-            log.warning( "%s server TID [%5d/%5d] hanging on %r", self._name,
-                         os.getpid(), self.ident, self.addr )
-        else:
-            log.info( "%s server TID [%5d/%5d] complete on %r", self._name,
-                      os.getpid(), self.ident, self.addr )
 
 
-class server_thread_profiling( server_thread ):
-    """Activates profiling on the thread, and dumps profile stats (optionally) to the specified file,
-    and summarizes to sys.stdout.
+class server_profiler( object ):
+    """Activates profiling on the server thread/process, and dumps profile stats (optionally) to the
+    specified file, and summarizes to sys.stdout.
 
     """
     def __init__( self, filename=None, limit=50, **kwds ):
+        """To maintain Python2/3 compatibility, we will allow no positional parameters to __init__
+
+        """
         self.filename		= filename
         self.limit		= limit
-        super( server_thread_profiling, self ).__init__( **kwds )
+        super( server_profiler, self ).__init__( **kwds )
 
     def run( self ):
         import cProfile, pstats
         profiler		= cProfile.Profile()
         profiler.enable()
         try:
-            result		= super( server_thread_profiling, self ).run()
+            result		= super( server_profiler, self ).run()
         finally:
             profiler.disable()
             if self.filename:
@@ -210,6 +259,14 @@ class server_thread_profiling( server_thread ):
             print( "\n\nCUMULATIVE:")
             prof.sort_stats(  'cumulative' ).print_stats( self.limit )
         return result
+
+
+class server_thread_profiling( server_profiler, server_thread ):
+    pass
+
+
+class server_process_profiling( server_profiler, server_process ):
+    pass
 
 
 def server_main( address, target=None, kwargs=None, idle_service=None, thread_factory=server_thread,
@@ -257,7 +314,7 @@ def server_main( address, target=None, kwargs=None, idle_service=None, thread_fa
 
     # Log the server's network i'face/port binding.  This is used by various tests/tools to
     # detect and use the server, so don't remove!
-    log.normal( "%s server PID [%5d] running on %r", name, os.getpid(), address )
+    log.normal( "%s server PID [%5d] running on %r w/ kwds: %r", name, os.getpid(), address, kwds )
 
     # Ensure that any server.control in kwds is a dotdict.  Specifically, we can handle an
     # cpppo.apidict, which responds to getattr by releasing the corresponding setattr.  We will
@@ -265,7 +322,9 @@ def server_main( address, target=None, kwargs=None, idle_service=None, thread_fa
     # done/disable (without releasing the setattr, if an apidict was used!), and attempt to join the
     # server thread(s).  This will (usually) invoke a clean shutdown procedure.  Finally, after all
     # threads have been joined, the .disable/done will be released (via getattr) at top of loop
-    control			= kwargs.get( 'server', {} ).get( 'control', {} ) if kwargs else {}
+    if kwargs is None:
+        kwargs			= {} # Thread can take None; Process requires a dict
+    control			= kwargs.get( 'server', {} ).get( 'control', {} )
     if isinstance( control, dotdict ):
         if 'done' in control or 'disable' in control:
             log.normal( "%s server PID [%5d] responding to external done/disable signal in object %s",
@@ -297,9 +356,12 @@ def server_main( address, target=None, kwargs=None, idle_service=None, thread_fa
             threads[addr]	= thrd
         except Exception as exc:
             # Failed to setup or start service Thread for some reason!  Don't remember
-            log.warning( "Failed to start Thread to service connection %r; %s", addr, exc )
+            log.warning( "Failed to start %s to service connection %r; %s",
+                         thread_factory.__name__, addr, exc )
             conn.close()
-            del thrd
+            if thrd is not None:
+                del thrd
+            raise
 
     # Establish TCP/IP (listen) and/or UDP/IP (I/O) sockets (TCP first, in case someone is waiting to bind)
     if tcp:
