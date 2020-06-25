@@ -93,8 +93,10 @@ draindelay			= 2.0  		# long in case server slow, but immediately upon EOF
 tnet_cli_kwds			= {
     "tests": [
         1,
-        "a",
+        "abcdefghijklmnopqrstuvwxyz",
         str("a"),
+        9999999,
+        None,
     ],
 }
 
@@ -109,11 +111,11 @@ def tnet_cli( number, tests=None ):
         eof			= False
         for t in tests:
             msg			= tnetstrings.dump( t )
-            log.normal( "Tnet Client %3d send: %5d: %s (from data: %s)", number, len( msg ),
-                      cpppo.reprlib.repr( msg ), cpppo.reprlib.repr( t ))
 
             while len( msg ) and not eof:
                 out		= min( len( msg ), random.randrange( *charrange ))
+                log.info( "Tnet Client %3d send: %5d/%5d: %s", number, out, len( msg ),
+                          cpppo.reprlib.repr( msg[:out] ))
                 conn.send( msg[:out] )
                 msg		= msg[out:]
 
@@ -165,7 +167,7 @@ def tnet_cli( number, tests=None ):
 
 
 tnet_svr_kwds			= {
-    "argv": [ "-v" ]
+    "argv": [ "-vv" ]
 }
 
 

@@ -1015,7 +1015,11 @@ def main( argv=None, attribute_class=device.Attribute, idle_service=None, identi
         signal.signal( signal.SIGHUP, logrotate_request )
         idle_service.append( logrotate_perform )
 
+    # Set up logging; also, handle the degenerate case where logging has *already* been set up (and
+    # basicConfig is a NO-OP), by (also) setting the logging level and (optionally) log filename.
     logging.basicConfig( **cpppo.log_cfg )
+    if args.verbose:
+        logging.getLogger().setLevel( cpppo.log_cfg['level'] )
 
     # Load config file(s), if not disabled, into the device.Object class-level 'config_loader'.
     if not args.no_config:

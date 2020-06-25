@@ -110,8 +110,9 @@ def tnet_machine( name="TNET", context="tnet" ):
             tntype		= next( source )
             ours		= self.context( path )
             raw			= ours + '...data.input'
-            src			= ( data[raw].tostring() if sys.version_info[0] < 3
-                                    else data[raw].tobytes() )
+            src			= b'' if raw not in data else (
+                data[raw].tostring() if sys.version_info[0] < 3
+                else data[raw].tobytes() )
 
             if tntype == b','[0]:
                 log.info("%5d bytes  data: %s", len( src ), cpppo.reprlib.repr( src ))
@@ -152,50 +153,66 @@ def tnet_machine( name="TNET", context="tnet" ):
     return cpppo.dfa( name=name, context=context, initial=SIZE, terminal=True )
 
 
-def tnet_from( conn, addr, server=cpppo.dotdict({'done': False}), timeout=1.0, latency=0.25 ):
+def tnet_from( conn, addr,
+               server	= cpppo.dotdict({'done': False}),
+               timeout	= None,
+               latency	= None,
+               ignore	= None,
+               source	= None ):	# Provide a cpppo.chainable, if desire, to receive into and parse from
     """Parse and yield TNET messages from a socket w/in timeout, blocking 'til server.done or EOF
-    between messages.
+    between messages.  If ignore contains symbols, they are ignored between TNET messages (eg. b'\n').
+
+    An absense of a TNET string within 'timeout' will yield None, allowing the user to decide to
+    fail or continue trying for another 'timeout' period.  A 0 timeout will "poll", and a None
+    timeout will simply wait forever (the default).  If desired, a separate 'latency' can be
+    supplied, in order to pop out regularly and check server.done (eg. to allow a server Thread to
+    exit cleanly).
 
     """
-    source			= cpppo.chainable()
+    if source is None:
+        source			= cpppo.chainable()
     with tnet_machine( "tnet_%s" % addr[1] ) as engine:
         eof			= False
         while not ( eof or server.done ):
+            while ignore and source.peek() and source.peek() in ignore:
+                next( source )
             data		= cpppo.dotdict()
-            started		= 0		# When did we start the current TNET string?
+            started		= cpppo.timer()		# When did we start the current attempt at a TNET string?
             for mch,sta in engine.run( source=source, data=data ):
-                duration	= cpppo.timer() - started if started else 0
-                log.debug( "%s: After %7.3fs: %s", engine.name_centered(), duration, sta )
-                if sta is not None:
-                    if not started and source.peek() is not None:
-                        # We've transitioned into a non-terminal state and have data; begun collecting - start timeout count-down!
-                        log.info( "%s: After %7.3fs, started TNET", engine.name_centered(), duration )
-                        started	= cpppo.timer()
+                if sta is not None or source.peek() is not None:
                     continue
-                # Non-transition state; need data: check for more data, enforce timeout.  Waits up
-                # to latency, or remainder of timeout.
-                remains		= min( latency, max( timeout - duration, 0 ))
-                msg		= network.recv( conn, timeout=remains )
-                duration	= cpppo.timer() - started if started else 0
-                if msg is None:
-                    log.info( "%s: After %7.3fs, no data after %7.3fs recv timeout",
+                # Non-transition state, and we need data: check for more data, enforce timeout.  Waits up
+                # to latency, or remainder of timeout -- or forever, if both are None.
+                duration	= cpppo.timer() - started
+                msg		= None
+                while msg is None and not server.done: # Get input, forever or 'til server.done
+                    remains	= latency if timeout is None else min(	# If no timeout, wait for latency (or forever, if None)
+                        timeout if latency is None else latency,	# Or, we know timeout is numeric; get min of any latency
+                        max( timeout - duration, 0 ))			#  ... and remaining unused timeout
+                    log.info( "%s: After %7.3fs, awaiting symbols (after %d processed) w/ %s recv timeout",
+                              engine.name_centered(), duration, source.sent, remains if remains is None else ( "%7.3fs" % remains ))
+                    msg		= network.recv( conn, timeout=remains )
+                    duration	= cpppo.timer() - started
+                    if msg is None and timeout is not None and duration >= timeout:
+                        # No data w/in given timeout expiry!  Inform the consumer, and then try again w/ fresh timeout.
+                        log.info( "%s: After %7.3fs, no TNET message after %7.3fs recv timeout",
                               engine.name_centered(), duration, remains )
-                    # No need to assert for failure here; engine will fail on successive starts w/ no data.
-                    # assert not start or duration < timeout, \
-                    #     "%s: After %7.3fs, timeout exceeded receiving TNET message" % (
-                    #         engine.name_centered(), duration )
-                    log.normal( "%s: After %7.3fs, timeout exceeded receiving TNET message",
-                                 engine.name_centered(), duration )
-                    continue
-                # EOF or data
+                        yield None
+                        started	= cpppo.timer()
+                # Only way to get here without EOF/data, is w/ server.done
+                if server.done:
+                    break
+                assert msg is not None
+                # Got EOF or data
                 eof		= len( msg ) == 0
                 log.info( "%s: After %7.3fs, recv: %5d: %s",
                           engine.name_centered(), duration, len( msg ), 'EOF' if eof else cpppo.reprlib.repr( msg ))
-                source.chain( msg )
                 if eof:
                     break
-            # Terminal state (or EOF)
-            duration		= cpppo.timer() - started if started else 0
+                source.chain( msg )
+
+            # Terminal state, or EOF, or server.done.  Only yield another TNET message if terminal. 
+            duration		= cpppo.timer() - started
             if engine.terminal:
                 log.info( "%s: After %7.3fs, found a TNET: %r", engine.name_centered(), duration, data.tnet.type.input )
                 yield data.tnet.type.input # Could be a 0:~ / null ==> None
@@ -204,8 +221,9 @@ def tnet_from( conn, addr, server=cpppo.dotdict({'done': False}), timeout=1.0, l
                     ', '.join( ['EOF'] if eof else [] + ['done'] if server.done else [] ))
 
 
-def tnet_server_json( conn, addr ):
-    for msg in tnet_from( conn, addr ):
+def tnet_server_json( conn, addr, timeout=None, latency=None, ignore=None ):
+    """Wait forever for TNET messages, and echo the JSON-encoded payload back to the client."""
+    for msg in tnet_from( conn, addr, timeout=timeout, latency=latency, ignore=ignore ):
         res			= json.dumps( msg, indent=4, sort_keys=True )
         conn.send( ( res + "\n\n" ).encode( "utf-8" ))
 
@@ -220,9 +238,13 @@ def main( argv=None ):
                      help="Display logging information." )
     ap.add_argument( '-l', '--log',
                      help="Log file, if desired" )
+    ap.add_argument( '-T', '--timeout', default=None,
+                     help="Optional timeout on receiving TNET string; responds w/ None upon timeout" )
+    ap.add_argument( '-L', '--latency', default=None,
+                     help="Optional latency on checking server.done" )
 
     args			= ap.parse_args( argv )
-
+    
     idle_service		= []
 
     # Set up logging level (-v...) and --log <file>, handling log-file rotation
@@ -241,7 +263,18 @@ def main( argv=None ):
  
     logging.basicConfig( **cpppo.log_cfg )
 
-    return network.server_main( address=address, target=tnet_server_json )
+    timeout			= None if args.timeout is None else float( args.timeout )
+    latency			= None if args.latency is None else float( args.latency )
+    
+    return network.server_main(
+        address	= address,
+        target	= tnet_server_json,
+        kwargs	= dict(
+            timeout	= timeout,
+            latency	= latency,
+            ignore	= b'\n'
+        )
+    )
 
 
 if __name__ == "__main__":
