@@ -75,7 +75,7 @@ def readable( timeout=0, default=None ):
 
 
 @readable( default=None )
-def recv( conn, maxlen=1024 ):
+def recv( conn, maxlen=4*1024 ):
     """Non-blocking recv via. select, accepts optional timeout= keyword parameter.  Return None if no
     data received within timeout (default is immediate timeout).  Otherwise, the data payload; zero
     length data (or socket error) implies EOF.
@@ -90,7 +90,7 @@ def recv( conn, maxlen=1024 ):
 
 
 @readable( default=(None,None) )
-def recvfrom( conn, maxlen=1024 ):
+def recvfrom( conn, maxlen=4*1024 ):
     """Non-blocking recvfrom via. select, accepts optional timeout= keyword parameter.  Return None if
     no data received within timeout (default is immediate timeout).  Otherwise, the data payload;
     zero length data implies EOF.
@@ -151,8 +151,8 @@ class server_runner( object ):
             "Expected target to be supplied args conn: <socket>, addr: ('host',port)"
         self.conn		= kwds['args'][0]
         self.addr	        = kwds['args'][1] if len( kwds['args'] ) > 1 else None
-        log.info( "%s server TID [%5s/%5s] runner target %s, w/ kwds: %r", self.name,
-                  os.getpid(), self.ident, kwds['target'].__name__, kwds )
+        log.info( "%s server TID [%5s/%5s] runner target %s", self.name,
+                  os.getpid(), self.ident, kwds['target'].__name__ )
 
     def run( self ):
         log.info( "%s server TID [%5s/%5s] starting on %r", self.name,
@@ -314,7 +314,7 @@ def server_main( address, target=None, kwargs=None, idle_service=None, thread_fa
 
     # Log the server's network i'face/port binding.  This is used by various tests/tools to
     # detect and use the server, so don't remove!
-    log.normal( "%s server PID [%5d] running on %r w/ kwds: %r", name, os.getpid(), address, kwds )
+    log.normal( "%s server PID [%5d] running on %r", name, os.getpid(), address )
 
     # Ensure that any server.control in kwds is a dotdict.  Specifically, we can handle an
     # cpppo.apidict, which responds to getattr by releasing the corresponding setattr.  We will
@@ -338,8 +338,11 @@ def server_main( address, target=None, kwargs=None, idle_service=None, thread_fa
         control['latency']	= .5
     control['latency']		= float( control['latency'] )
     if 'timeout' not in control:
-        control['timeout']	= 2 * control.latency
+        control['timeout']	= 2 * control['latency']
     control['timeout']		= float( control['timeout'] )
+    log.info( "Serving TCP/IP: {tcp:5}, UDP/IP: {udp:5}, w/ latency: {latency:7.3f}s, timeout: {timeout:7.3f}s {idle}".format(
+            tcp=tcp, udp=udp, latency=control['latency'], timeout=control['timeout'],
+            idle="(w/NO idle service)" if idle_service is None else "(with idle service)" ))
 
     def thread_start( conn, addr ):
         """Start a thread_factory Thread instance to service the given I/O 'conn'.  The peer 'addr' is
@@ -385,16 +388,22 @@ def server_main( address, target=None, kwargs=None, idle_service=None, thread_fa
         thread_start( udp_sock, None )
 
     while not control.disable and not control.done: # and report completion to external API (eg. web)
+        started			= misc.timer()
         try:
             acceptable		= None
             if tcp:
+                log.trace( "TCP/IP: Accepting for   {latency:7.3f}s".format( latency=control['latency'] ))
                 acceptable	= accept( tcp_sock, timeout=control['latency'] )
             else:
+                log.trace( "TCP/IP: Delaying for   {latency:7.3f}s".format( latency=control['latency'] ))
                 time.sleep( control['latency'] ) # No TCP/IP; just pause
+            duration		= misc.timer() - started
             if acceptable:
                 conn,addr	= acceptable
+                log.debug( "TCP/IP: Accepted after {duration:7.3f}s".format( duration=duration ))
                 thread_start( conn, addr )
             elif idle_service is not None:
+                log.debug( "TCP/IP: Idle Svc after {duration:7.3f}s".format( duration=duration ))
                 idle_service()
         except KeyboardInterrupt as exc:
             log.warning( "%s server termination: %r", name, exc )

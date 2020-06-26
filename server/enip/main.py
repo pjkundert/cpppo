@@ -1007,7 +1007,7 @@ def main( argv=None, attribute_class=device.Attribute, idle_service=None, identi
 
     # Chain any provided idle_service function with log rotation; these may (also) consult global
     # signal flags such as logrotate_request, so execute supplied functions before logrotate_perform
-    idle_service		= [ idle_service ] if idle_service else []
+    idle_service		= [ idle_service ] if idle_service is not None else []
     if args.log:
         # Output logging to a file, and handle UNIX-y log file rotation via 'logrotate', which sends
         # signals to indicate that a service's log file has been moved/renamed and it should re-open
@@ -1285,8 +1285,10 @@ def main( argv=None, attribute_class=device.Attribute, idle_service=None, identi
             if disabled:
                 logging.detail( "EtherNet/IP Server enabled" )
                 disabled= False
+            log.debug( "Starting server on {bind}, with {idle_count} idle services".format(
+                    bind=bind, idle_count=len( idle_service )))
             network.server_main( address=bind, address_output=args.address_output, target=enip_srv, kwargs=kwargs,
-                                 idle_service=lambda: map( lambda f: f(), idle_service ),
+                                 idle_service=lambda: list( map( lambda f: f(), idle_service )),
                                  udp=args.udp, tcp=args.tcp, thread_factory=tf, **tf_kwds )
         else:
             if not disabled:

@@ -822,8 +822,8 @@ class state( dict ):
 
             Exception, *:	Unknown failure of state machinery.
         """
-        if log.isEnabledFor( logging.DEBUG ):
-            log.debug( "%s -- terminated %s, w/ data: %r", self.name_centered(),
+        if log.isEnabledFor( logging.TRACE ):
+            log.trace( "%s -- terminated %s, w/ data: %r", self.name_centered(),
                        "normally" if exception is None else repr( exception ), data )
 
     # Traversal of state machine graph

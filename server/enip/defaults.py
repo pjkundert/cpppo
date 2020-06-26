@@ -27,7 +27,9 @@ enip.defaults -- System-wide default (global) values
 """
 __all__				= [ 'latency', 'timeout', 'address',
                                     'route_path_default', 'send_path_default',
-                                    'config_name', 'config_files' ]
+                                    'priority_time_tick', 'timeout_ticks',
+                                    'config_name', 'config_files',
+                                    'forward_open_default' ]
 
 import os
 

@@ -181,8 +181,8 @@ def tnet_from( conn, addr,
             for mch,sta in engine.run( source=source, data=data ):
                 if sta is not None or source.peek() is not None:
                     continue
-                # Non-transition state, and we need data: check for more data, enforce timeout.  Waits up
-                # to latency, or remainder of timeout -- or forever, if both are None.
+                # Non-transition state, and we need more data: check for more data, enforce timeout.
+                # Waits up to latency, or remainder of timeout -- or forever, if both are None.
                 duration	= cpppo.timer() - started
                 msg		= None
                 while msg is None and not server.done: # Get input, forever or 'til server.done
@@ -190,7 +190,8 @@ def tnet_from( conn, addr,
                         timeout if latency is None else latency,	# Or, we know timeout is numeric; get min of any latency
                         max( timeout - duration, 0 ))			#  ... and remaining unused timeout
                     log.info( "%s: After %7.3fs, awaiting symbols (after %d processed) w/ %s recv timeout",
-                              engine.name_centered(), duration, source.sent, remains if remains is None else ( "%7.3fs" % remains ))
+                              engine.name_centered(), duration, source.sent,
+                              remains if remains is None else ( "%7.3fs" % remains ))
                     msg		= network.recv( conn, timeout=remains )
                     duration	= cpppo.timer() - started
                     if msg is None and timeout is not None and duration >= timeout:
@@ -206,7 +207,8 @@ def tnet_from( conn, addr,
                 # Got EOF or data
                 eof		= len( msg ) == 0
                 log.info( "%s: After %7.3fs, recv: %5d: %s",
-                          engine.name_centered(), duration, len( msg ), 'EOF' if eof else cpppo.reprlib.repr( msg ))
+                          engine.name_centered(), duration, len( msg ),
+                          'EOF' if eof else cpppo.reprlib.repr( msg ))
                 if eof:
                     break
                 source.chain( msg )
@@ -214,7 +216,7 @@ def tnet_from( conn, addr,
             # Terminal state, or EOF, or server.done.  Only yield another TNET message if terminal. 
             duration		= cpppo.timer() - started
             if engine.terminal:
-                log.info( "%s: After %7.3fs, found a TNET: %r", engine.name_centered(), duration, data.tnet.type.input )
+                log.debug( "%s: After %7.3fs, found a TNET: %r", engine.name_centered(), duration, data.tnet.type.input )
                 yield data.tnet.type.input # Could be a 0:~ / null ==> None
 
         log.detail( "%s: done w/ %s", engine.name_centered(),
