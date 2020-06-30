@@ -1068,7 +1068,8 @@ def main( argv=None, attribute_class=device.Attribute, idle_service=None, identi
     options.delay		= cpppo.dotdict()
     try:
         options.delay.value	= float( args.delay )
-        log.normal( "Delaying all responses by %r seconds" , options.delay.value )
+        if options.delay.value:
+            log.normal( "Delaying all responses by %r seconds" , options.delay.value )
     except:
         assert '-' in args.delay, \
             "Unrecognized --delay=%r option" % args.delay
@@ -1199,7 +1200,7 @@ def main( argv=None, attribute_class=device.Attribute, idle_service=None, identi
         # Ready to create the tag and its Attribute (and error code to return, if any).  If tag_size
         # is 1, it will be a scalar Attribute.  Since the tag_name may contain '.', we don't want
         # the normal dotdict.__setitem__ resolution to parse it; use plain dict.__setitem__.
-        log.normal( "Creating tag: %-14s%-10s %10s[%4d]", tag_name, '@'+tag_address if tag_address else '',
+        log.normal( "New Tag: %-14s%-10s %10s[%4d]", tag_name, '@'+tag_address if tag_address else '',
                     attribute.parser.__class__.__name__, len( attribute ) )
         tag_entry		= cpppo.dotdict()
         tag_entry.attribute	= attribute	# The Attribute (may be shared by multiple tags)

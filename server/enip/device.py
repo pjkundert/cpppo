@@ -148,6 +148,11 @@ def lookup_reset():
     Object-derived class will retain its .max_instance variable, so future instances will get new
     (higher) Instance IDs, unless you provide an instance_id=... to the constructor.
 
+    WARNING: This is really mostly for testing multiple CIP Object configurations in a single Python
+    interpreter run, and is not recommended for production usage.  It suffers from removing
+    references to Object and Attribute instances that are necessary for internal consistency in the
+    CIP heirarchy, so if the directory is reset, avoid interogating any Object or Attribute from the
+    prior configuration.  See MaxInstance.value, for example.
     """
     global directory
     global symbol
@@ -158,7 +163,7 @@ def lookup_reset():
 def redirect_tag( tag, address ):
     """Establish (or change) a tag, redirecting it to the specified class/instance/attribute address.
     Make sure we stay with only str type tags (mostly for Python2, in case somehow we get a Unicode
-    tag).  Multi-segment symboic tags are expected to be looked up as: symbol["<symbol1>.<symbol2>"]
+    tag).  Multi-segment symbolic tags are expected to be looked up as: symbol["<symbol1>.<symbol2>"]
 
     """
     tag				= str( tag )
@@ -167,6 +172,7 @@ def redirect_tag( tag, address ):
     assert all( k in address     for k in symbol_keys )
     symbol[tag]			= address
     return tuple( address[k] for k in symbol_keys )
+
 
 def resolve_tag( tag ):
     """Return the (class_id, instance_id, attribute_id) tuple corresponding to tag, or None if not specified"""
