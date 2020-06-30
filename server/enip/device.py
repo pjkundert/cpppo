@@ -884,6 +884,11 @@ class Object( object ):
     GA_ALL_REQ			= 0x01
     GA_ALL_RPY			= GA_ALL_REQ | 0x80
 
+    GA_LST_NAM			= "Get Attribute List"
+    GA_LST_CTX			= "get_attribute_list"
+    GA_LST_REQ			= 0x03
+    GA_LST_RPY			= GA_LST_REQ | 0x80
+
     GA_SNG_NAM			= "Get Attribute Single"
     GA_SNG_CTX			= "get_attribute_single"
     GA_SNG_REQ			= 0x0E
@@ -1015,6 +1020,9 @@ class Object( object ):
             if ( data.get( 'service' ) == self.GA_SNG_REQ
                  or self.GA_SNG_CTX in data and data.setdefault( 'service', self.GA_SNG_REQ ) == self.GA_SNG_REQ ):
                 pass
+            elif ( data.get( 'service' ) == self.GA_LST_REQ
+                 or self.GA_LST_CTX in data and data.setdefault( 'service', self.GA_LST_REQ ) == self.GA_LST_REQ ):
+                pass
             elif ( data.get( 'service' ) == self.GA_ALL_REQ
                  or self.GA_ALL_CTX in data and data.setdefault( 'service', self.GA_ALL_REQ ) == self.GA_ALL_REQ ):
                 pass
@@ -1024,14 +1032,15 @@ class Object( object ):
             else:
                 raise RequestUnrecognized( "Unrecognized Service Request" )
 
-            # A recognized Set/Get Attribute[s] {Single/All} request; process the request data
+            # A recognized Set/Get Attribute[s] {Single/List/All} request; process the request data
             # artifact, converting it into a reply.  All of these requests produce/consume a
             # sequence of unsigned bytes.
             data.service       |= 0x80
             result		= b''
             if data.service == self.GA_ALL_RPY:
                 # Get Attributes All.  Collect up the bytes representing the attributes.  Replace
-                # the place-holder .get_attribute_all=True with a real dotdict.
+                # the place-holder .get_attribute_all=True with a real dotdict.  Returns only the
+                # sequentially available attributes.
                 a_id		= 1
                 while str(a_id) in self.attribute:
                     if not ( self.attribute[str(a_id)].mask & Attribute.MASK_GA_ALL ):
@@ -1040,6 +1049,20 @@ class Object( object ):
                 assert len( result ), "No Attributes available for Get Attributes All request"
                 data.get_attributes_all = dotdict()
                 data.get_attributes_all.data = [
+                    b if type( b ) is int else ord( b ) for b in result ]
+            elif data.service == self.GA_LST_RPY:
+                # Get Attribute List.  Collect up the bytes representing the attributes.  Converts a
+                # placehold .get_attribute_list = [<attribute>,...] list of attribute numbers with
+                # real dotdict containing a sequence of .data.
+                for a_id in self.get_attributes_list:
+                    result     += UINT.produce( a_id )
+                    if str(a_id) not in self.attribute:
+                        result += UINT.produce( 0x16 ) # status: Object does not exist
+                    else:
+                        result += UINT.produce( 0x00 ) # status: OK
+                        result += self.attribute[str(aid)].produce()
+                data.get_attribute_list = dotdict()
+                data.get_attribute_list.data= [
                     b if type( b ) is int else ord( b ) for b in result ]
             elif data.service in ( self.GA_SNG_RPY, self.SA_SNG_RPY ):
                 # Get/Set Attribute Single.  Collect up the bytes representing the attribute.
@@ -1099,6 +1122,60 @@ class Object( object ):
 
     @classmethod
     def produce( cls, data ):
+        """
+        From pp60-61 of
+        https://literature.rockwellautomation.com/idc/groups/literature/documents/pm/1756-pm020_-en-p.pdf:
+
+        Of particular note is the fact that the Get_Attribute_List response does *not* return any
+        size data with each attribute returned -- so it is *absolutely required* that the caller
+        know, a-priori, the exact types of each and every attribute requested!  It is also
+        impossible to parse a response to such this request -- unless the parser also knows the
+        layout and types of the target class/instance!
+
+        | Message Field     | Bytes          | Description                                         |
+        |-------------------+----------------+-----------------------------------------------------|
+        | Request Service   | 03             | Get_Attribute_List (Request)                        |
+        | Request Path Size | 02             | Request path is 2 words (4 bytes)                   |
+        | Request Path      | 20 AC 24 01    | Logical Segment class 0x02, instance 1              |
+        | ----------------- | -------------- | --------------------------------------------------- |
+        | Request Data      | 05 00          | Number of attribute IDs that follow (5)              |
+        |                   | -------------- | --------------------------------------------------- |
+        |                   | 01 00          |                                                     |
+        |                   | 02 00          |                                                     |
+        |                   | 03 00          |                                                     |
+        |                   | 04 00          |                                                     |
+        |                   | 0A 00          |                                                     |
+        |                   | -------------- | --------------------------------------------------- |
+        |                   |                |                                                     |
+        | Request Service   | 83             | Get_Attribute_List (Reply)                          |
+        | Reserved          | 00             |                                                     |
+        | General Status    | 00             | Success                                             |
+        | Extended Sts Size | 00             | No extended status                                  |
+        | ----------------- | -------------- | --------------------------------------------------- |
+        | Reply Data        | 05 00          | Number of attribute responses that follow           |
+        |                   | -------------- | --------------------------------------------------- |
+        |                   | 01 00          | Attribute number (1)                                |
+        |                   | 00 00          | Status (success)                                    |
+        |                   | 05 00          | Attribute value (INT)                               |
+        |                   | -------------- | --------------------------------------------------- |
+        |                   | 02 00          | Attribute number (2)                                |
+        |                   | 00 00          | Status (success)                                    |
+        |                   | 01 00          | Attribute value (INT)                               |
+        |                   | -------------- | --------------------------------------------------- |
+        |                   | 03 00          | Attribute number (3)                                |
+        |                   | 00 00          | Status (success)                                    |
+        |                   | 03 B2 80 C5    | Attribute value (DINT)                              |
+        |                   | -------------- | --------------------------------------------------- |
+        |                   | 04 00          | Attribute number (4)                                |
+        |                   | 00 00          | Status (success)                                    |
+        |                   | 03 B2 80 C5    | Attribute value (DINT)                              |
+        |                   | -------------- | --------------------------------------------------- |
+        |                   | 0A 00          | Attribute number (10)                               |
+        |                   | 00 00          | Status (success)                                    |
+        |                   | F8 DE 47 B8    | Attribute value (DINT)                              |
+        |                   | -------------- | --------------------------------------------------- |
+
+        """
         result			= b''
         if cls.GA_ALL_CTX in data and data.setdefault( 'service', cls.GA_ALL_REQ ) == cls.GA_ALL_REQ:
             # Get Attributes All
@@ -1115,12 +1192,20 @@ class Object( object ):
             result	       += typed_data.produce(	data.set_attribute_single,
                                                         tag_type=USINT.tag_type )
         elif data.get( 'service' ) == cls.GA_ALL_RPY:
-            # Get Attributes All Reply
+            # Get Attributes All/List/Single Reply.
             result	       += USINT.produce(	data.service )
             result	       += b'\x00' # reserved
             result	       += status.produce( 	data )
             if data.status == 0x00:
                 result	       += typed_data.produce( 	data.get_attributes_all,
+                                                        tag_type=USINT.tag_type )
+        elif data.get( 'service' ) == cls.GA_SNG_RPY:
+            # Get Attribute List Reply
+            result	       += USINT.produce(	data.service )
+            result	       += b'\x00' # reserved
+            result	       += status.produce( 	data )
+            if data.status == 0x00:
+                result	       += typed_data.produce(	data.get_attribute_list,
                                                         tag_type=USINT.tag_type )
         elif data.get( 'service' ) == cls.GA_SNG_RPY:
             # Get Attribute Single Reply
@@ -1199,6 +1284,49 @@ def __get_attributes_all_reply():
 
 Object.register_service_parser( number=Object.GA_ALL_RPY, name=Object.GA_ALL_NAM + " Reply",
                                 short=Object.GA_ALL_CTX, machine=__get_attributes_all_reply() )
+
+def __get_attribute_list():
+    srvc			= USINT(		 	context='service' )
+    srvc[True]		= path	= EPATH(			context='path')
+    path[None]		= numr	= UINT(		'number',	context=Object.GA_LST_CTX, extension='.number' )
+                                                terminal=True )
+
+    # Prepare a state-machine to parse each UINT into .UINT, and move it onto the .attribute list
+    att_			= UINT(		'attr',		context=Object.GA_LST_CTX, extension='.UINT' )
+    att_[None]			= move_if( 	'attr',		source='.'+Object.GA_LST_CTX+'.UINT',
+                                        destination=Object.GA_LST_CTX+'.attributes', initializer=lambda **kwds: [] )
+    att_[None]			= automata.state( 'attr',
+                                                terminal=True )
+
+    # Parse the number of attributes expected
+    numr[None]		= atts	= automata.dfa(  'attributes',
+                                                 initial=att_,	repeat='.'+Object.GA_LST_CTX+'.number' )
+
+    # Finally, move the scanned list of atributes to .get_attribute_list
+    atts[None]			= move_if(	'done',	source='.'+Object.GA_LST_CTX+'.attributes',
+                                          destination='.'+Object.GA_LST_CTX, initializer=lambda **kwds: [] )
+
+    return srvc
+
+Object.register_service_parser( number=Object.GA_LST_REQ, name=Object.GA_LST_NAM,
+                                short=Object.GA_LST_CTX, machine=__get_attribute_list() )
+
+def __get_attribute_list_reply():
+    """Impossible to parse; the reply doesn't identify the origin path -- which must be known, in
+    order to identify the attributes' types, which are required to be known in order to iterate
+    through the response items...  Just parse it as raw data."""
+    srvc			= USINT(		 	context='service' )
+    srvc[True]	 	= rsvd	= octets_drop(	'reserved',	repeat=1 )
+    rsvd[True]		= stts	= status()
+    stts[True]			= typed_data( 			context=Object.GA_LST_CTX,
+                                                tag_type=UINT.tag_type,
+                                                terminal=True )
+    stts[None]			= octets_noop(	'nodata',
+                                                terminal=True )
+    return srvc
+
+Object.register_service_parser( number=Object.GA_LST_RPY, name=Object.GA_LST_NAM + " Reply",
+                                short=Object.GA_LST_CTX, machine=__get_attribute_list_reply() )
 
 def __get_attribute_single():
     srvc			= USINT(		 	context='service' )
@@ -1279,6 +1407,44 @@ class Identity( Object ):
 	        default=self.config_int(     'Configuration Consistency Value', 0 ))
             self.attribute['10']= Attribute( 'Heartbeat Interval',	USINT,
                 default=self.config_int(     'Heartbeat Interval', 		0 ))
+
+
+class Logical_Segments( Object ):
+    """See:
+    https://literature.rockwellautomation.com/idc/groups/literature/documents/pm/1756-pm020_-en-p.pdf
+    for an exapmple of how to read attributes from this class via Get_Attribute_List.  It is
+    recommended here: http://www.plctalk.net/qanda/showthread.php?t=85521 and on pp59 of 1756-pm020 to:
+
+        For client applications, use the Get_Attribute_List service to periodically retrieve
+        attributes 1, 2, 3, 4 and 10 of class 0xAC in the controller. If the value of these
+        attributes changes between reads, the client application must refresh the:
+        - List of symbols
+        - Association between symbols and templates
+        - Template information.
+
+    No further information on the meaning of the attributes of class 0xAC is available anywhere that
+    I have been able to find.  Here are some values for some of these attributes from a C*Logix PLC:
+    """
+    class_id			= 0xAC
+
+    def __init__( self, name=None, **kwds ):
+        super( Logical_Segments, self ).__init__( name=name, **kwds )
+
+        if self.instance_id == 0:
+            # Extra Class-level Attributes
+            pass
+        else:
+            # Instance Attributes (these example defaults are from a Rockwell Logix PLC)
+            self.attribute['1']	= Attribute( 'Attribute 1', 		INT,
+	        default=self.config_int(     'Attribute 1',			0x0005 ))
+            self.attribute['2']	= Attribute( 'Attribute 2', 		INT,
+	        default=self.config_int(     'Attribute 2',			0x0002 ))
+            self.attribute['3']	= Attribute( 'Attribute 3',		DINT,
+	        default=self.config_int(     'Attribute 3',			0xC580B203 ))
+            self.attribute['4']	= Attribute( 'Attribute 4',	 	DINT,
+	        default=self.config_int(     'Attribute 4',			0xC580B203 ))
+            self.attribute['10']= Attribute( 'Attribute 10', 		DINT,
+	        default=self.config_int(     'Attribute 10',			0xB847DEF8))
 
 
 class TCPIP( Object ):

@@ -40,7 +40,7 @@ import traceback
 from ...dotdict import dotdict
 from ... import automata, misc
 from .device import ( Object, Attribute,
-                      Message_Router, Connection_Manager, Identity, TCPIP,
+                      Message_Router, Connection_Manager, Identity, TCPIP, Logical_Segments,
                       resolve_element, resolve_tag, resolve, redirect_tag, lookup )
 from . import ucmm
 from .parser import ( BOOL, UDINT, DINT, UINT, INT, USINT, SINT, REAL, EPATH, typed_data,
@@ -708,6 +708,11 @@ def setup( **kwds ):
             tcpip		= kwds.get( 'tcpip_class', 		TCPIP )
             if tcpip:
                 tcpip( instance_id=1 )		# Class 0xF5, Instance 1
+
+        if not lookup( 0xAC, 1 ):
+            logsegs		= kwds.get( 'logical_segments',		Logical_Segments )
+            if logsegs:
+                logsegs( instance_id=1 )	# Class 0xAC, Instance 1 -- Logical Segments
 
         if not setup.ucmm:
             setup.ucmm		= kwds.get( 'UCMM_class', 		ucmm.UCMM )()
