@@ -52,7 +52,7 @@ import configparser # Python2 requires 'pip install configparser'
 import cpppo
 from ...dotdict import dotdict
 from ... import automata, misc
-from .parser import ( UDINT, DWORD, INT, UINT, WORD, USINT,
+from .parser import ( UDINT, DINT, DWORD, INT, UINT, WORD, USINT,
                       EPATH, EPATH_padded, SSTRING, STRING, IFACEADDRS,
                       typed_data,
                       octets, octets_encode, octets_noop, octets_drop, move_if,
@@ -1185,6 +1185,13 @@ class Object( object ):
             # Get Attribute Single
             result	       += USINT.produce(	data.service )
             result	       += EPATH.produce(	data.path )
+        elif cls.GA_LST_CTX in data and data.setdefault( 'service', cls.GA_LST_REQ ) == cls.GA_LST_REQ:
+            # Get Attribute List
+            result	       += USINT.produce(	data.service )
+            result	       += EPATH.produce(	data.path )
+            result	       += UINT.produce(    len( data.get_attribute_list ))
+            for a_id in data.get_attribute_list:
+                result	       += UINT.produce( a_id )
         elif cls.SA_SNG_CTX in data and data.setdefault( 'service', cls.SA_SNG_REQ ) == cls.SA_SNG_REQ:
             # Set Attribute Single
             result	       += USINT.produce(	data.service )
@@ -1199,7 +1206,7 @@ class Object( object ):
             if data.status == 0x00:
                 result	       += typed_data.produce( 	data.get_attributes_all,
                                                         tag_type=USINT.tag_type )
-        elif data.get( 'service' ) == cls.GA_SNG_RPY:
+        elif data.get( 'service' ) == cls.GA_LST_RPY:
             # Get Attribute List Reply
             result	       += USINT.produce(	data.service )
             result	       += b'\x00' # reserved
@@ -1289,7 +1296,7 @@ def __get_attribute_list():
     srvc			= USINT(		 	context='service' )
     srvc[True]		= path	= EPATH(			context='path')
     path[None]		= numr	= UINT(		'number',	context=Object.GA_LST_CTX, extension='.number' )
-                                                terminal=True )
+
 
     # Prepare a state-machine to parse each UINT into .UINT, and move it onto the .attribute list
     att_			= UINT(		'attr',		context=Object.GA_LST_CTX, extension='.UINT' )
@@ -1298,14 +1305,15 @@ def __get_attribute_list():
     att_[None]			= automata.state( 'attr',
                                                 terminal=True )
 
-    # Parse the number of attributes expected
-    numr[None]		= atts	= automata.dfa(  'attributes',
+    # Parse the number of attributes expected. TODO: handle 0 attributes?
+    numr[True]		= atts	= automata.dfa(  'attributes',
                                                  initial=att_,	repeat='.'+Object.GA_LST_CTX+'.number' )
-
-    # Finally, move the scanned list of atributes to .get_attribute_list
-    atts[None]			= move_if(	'done',	source='.'+Object.GA_LST_CTX+'.attributes',
-                                          destination='.'+Object.GA_LST_CTX, initializer=lambda **kwds: [] )
-
+    atts[None]		= done	= octets_noop(	'done',
+                                                terminal=True )
+    # Finally, move the scanned list of attributes[:] to .get_attribute_list[:]
+    done.initial[None]		= move_if(	'move',	source='.'+Object.GA_LST_CTX+'.attributes',
+                                                   destination=Object.GA_LST_CTX,
+                                                initializer=lambda **kwds: [] )
     return srvc
 
 Object.register_service_parser( number=Object.GA_LST_REQ, name=Object.GA_LST_NAM,
@@ -1314,7 +1322,8 @@ Object.register_service_parser( number=Object.GA_LST_REQ, name=Object.GA_LST_NAM
 def __get_attribute_list_reply():
     """Impossible to parse; the reply doesn't identify the origin path -- which must be known, in
     order to identify the attributes' types, which are required to be known in order to iterate
-    through the response items...  Just parse it as raw data."""
+    through the response items...  Just parse it as raw data.  So, we'll return the reply as an
+    opaque .data array."""
     srvc			= USINT(		 	context='service' )
     srvc[True]	 	= rsvd	= octets_drop(	'reserved',	repeat=1 )
     rsvd[True]		= stts	= status()
