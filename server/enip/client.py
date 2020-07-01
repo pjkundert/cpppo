@@ -1580,8 +1580,8 @@ class connector( client ):
                     curr	= iss[0]
                     requests   += 1
                     inflight.append( iss )
-                    log.detail( "Issuing   %3d/%3d; curr: %3d - last: %3d == %3d depth",
-                                complete, requests, curr, last, curr - last )
+                    log.detail( "Issuing   %3d/%3d; curr: %3d - last: %3d == %3d depth vs. max %3d",
+                                complete, requests, curr, last, curr - last, depth )
                 except StopIteration:
                     issuer	= None
             if curr - last > depth or not issuer:
@@ -1589,13 +1589,13 @@ class connector( client ):
                     col		= next( harvester )
                     last	= col[0]
                     complete   += 1
-                    log.detail( "Completed %3d/%3d; curr: %3d - last: %3d == %3d depth",
-                                complete, requests, curr, last, curr - last )
+                    log.detail( "Completed %3d/%3d; curr: %3d - last: %3d == %3d depth vs. max %3d",
+                                complete, requests, curr, last, curr - last, depth )
                     yield col
                 except StopIteration:
                     break
-        log.detail( "Pipelined %3d/%3d; curr: %3d - last: %3d == %3d depth",
-                    complete, requests, curr, last, curr - last )
+        log.detail( "Pipelined %3d/%3d; curr: %3d - last: %3d == %3d depth vs. max %3d",
+                    complete, requests, curr, last, curr - last, depth )
         assert complete == requests, \
             "Communication ceased before harvesting all pipeline responses: %3d/%3d" % (
                 complete, requests )
