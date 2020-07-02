@@ -172,7 +172,7 @@ class TYPE( octets_struct ):
         return struct.pack( cls.struct_format, value )
 
 class BOOL( TYPE ):
-    tag_type                    = 0x00c1
+    tag_type                    = 0x00c1 # 193
     struct_format               = 'B'
     struct_calcsize             = struct.calcsize( struct_format )
 
@@ -220,7 +220,7 @@ class DINT( TYPE ):
 
 class REAL( TYPE ):
     """An EtherNet/IP INT; 32-bit float"""
-    tag_type			= 0x00ca
+    tag_type			= 0x00ca # 202
     struct_format		= '<f'
     struct_calcsize		= struct.calcsize( struct_format )
 

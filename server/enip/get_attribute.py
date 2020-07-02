@@ -587,8 +587,15 @@ class proxy( object ):
             user-supplied type (or None) is provided, data-path is None, and the type is passed.
 
             """
-            for t in typ if is_listlike( typ ) else [ typ ]:
+            for t in ( types if is_listlike( types ) else [ types ] ):
                 d		= None 		# No data-path, if user-supplied type
+                if isinstance( t, int ):
+                    # a CIP type number, eg 0x00ca == 202 ==> 'REAL'.  Look for CIP parsers w/ a
+                    # known tag_type and get the CIP type name string.
+                    for t_str,(t_prs,_) in self.CIP_TYPES.items():
+                        if getattr( t_prs, 'tag_type', None ) == t:
+                            t	= t_str
+                            break
                 if isinstance( t, cpppo.type_str_base ):
                     td		= self.CIP_TYPES.get( t.strip().lower() )
                     assert td, "Invalid EtherNet/IP CIP type name %r specified" % ( t, )
@@ -626,10 +633,21 @@ class proxy( object ):
                             repr( rpy ) if log.isEnabledFor( logging.INFO ) else '' )
                 opr,(att,typ,uni) = next( attrtypes )
                 if typ is None or sts not in (0,6) or val in (True,None):
-                    # No type conversion; just return whatever type produced by Read Tag.  Also, if
-                    # failure status (OK if no error, or if just not all data could be returned), we
-                    # can't do any more with this value...  Also, if actually a Write Tag or Set
-                    # Attribute ..., then val True/None indicates success/failure (no data returned).
+                    # No type conversion; just return whatever type produced by Read Tag
+                    # [Fragmented] (always a single CIP type parser).
+                    typ_num	= rpy.get( 'read_tag.type' ) or rpy.get( 'read_frag.type' )
+                    if typ_num:
+                        try:
+                            (typ_prs,_), = types_decode( typ_num )
+                            if typ_prs:
+                                typ = typ_prs
+                        except Exception as exc:
+                            log.info( "Couldn't convert CIP type {typ_num}: {exc}".format( 
+                                    typ_num=typ_num, exc=exc ))
+                    # Also, if failure status (OK if no error, or if just not all
+                    # data could be returned), we can't do any more with this value...  Also, if
+                    # actually a Write Tag or Set Attribute ..., then val True/None indicates
+                    # success/failure (no data returned).
                     yield val,(sts,(att,typ,uni))
                     continue
 
@@ -646,7 +664,7 @@ class proxy( object ):
                 source		= cpppo.peekable( bytes( bytearray( val ))) # Python2/3 compat.
                 res		= []
                 typ_is_list	= is_listlike( typ )
-                typ_dat		= list( types_decode( typ if typ_is_list else [typ] ))
+                typ_dat		= list( types_decode( typ ))
                 for t,d in typ_dat:
                     with t() as machine:
                         while source.peek() is not None: # More data available; keep parsing.

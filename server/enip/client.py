@@ -1941,8 +1941,10 @@ class implicit( connector ):
         """
         if connection is None:
             connection		= self.established.forward_open.O_T_connection_ID
-        if sequence is None:
-            sequence = self.seqs[connection] = self.seqs.get( connection, -1 ) + 1 # 0, 1, ...
+        if sequence is None: # advance sequence, ensuring it remains in valid CIP INT range (0,2^16]
+            sequence		= self.seqs.get( connection, -1 ) + 1 # 0, 1, ...
+            sequence	       %= 2**16
+            self.seqs[connection] = sequence
         return super( implicit, self ).connected_send(
             request, connection=connection, sequence=sequence, **kwds )
 
