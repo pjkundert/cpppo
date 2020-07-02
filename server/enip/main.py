@@ -671,7 +671,7 @@ def enip_srv_udp( conn, name, enip_process, **kwds ):
                         stats['received']+= len( msg )
                         if log.isEnabledFor( logging.DETAIL ):
                             log.detail( "%s recv: %5d: %s", machine.name_centered(),
-                                        len( msg ), cpppo.reprlib.repr( msg ))
+                                        len( msg ), repr( msg ) if log.isEnabledFor( logging.INFO ) else cpppo.reprlib.repr( msg ))
                         source.chain( msg )
 
                 # Terminal state and EtherNet/IP header recognized; process and return response
@@ -694,7 +694,7 @@ def enip_srv_udp( conn, name, enip_process, **kwds ):
                     rpy		= parser.enip_encode( data.response.enip )
                     if log.isEnabledFor( logging.DETAIL ):
                         log.detail( "%s send: %5d: %s", machine.name_centered(),
-                                    len( rpy ), cpppo.reprlib.repr( rpy ))
+                                    len( rpy ), repr( rpy ) if log.isEnabledFor( logging.INFO ) else cpppo.reprlib.repr( rpy ))
                     conn.sendto( rpy, addr )
 
                 log.detail( "Transaction complete after %7.3fs", cpppo.timer() - begun )
@@ -773,7 +773,7 @@ def enip_srv_tcp( conn, addr, name, enip_process, delay=None, **kwds ):
                                 stats['eof']	= stats['eof'] or not len( msg )
                                 if log.isEnabledFor( logging.DETAIL ):
                                     log.detail( "%s recv: %5d: %s", machine.name_centered(),
-                                                len( msg ), cpppo.reprlib.repr( msg ))
+                                                len( msg ), repr( msg ) if log.isEnabledFor( logging.INFO ) else cpppo.reprlib.repr( msg ))
                                 source.chain( msg )
                             else:
                                 # No input.  If we have symbols available, no problem; continue.
@@ -809,7 +809,7 @@ def enip_srv_tcp( conn, addr, name, enip_process, delay=None, **kwds ):
                         rpy	= parser.enip_encode( data.response.enip )
                         if log.isEnabledFor( logging.DETAIL ):
                             log.detail( "%s send: %5d: %s %s", machine.name_centered(),
-                                        len( rpy ), cpppo.reprlib.repr( rpy ),
+                                        len( rpy ), repr( rpy ) if log.isEnabledFor( logging.INFO ) else cpppo.reprlib.repr( rpy ),
                                         ("delay: %r" % delay) if delay else "" )
                         if delay:
                             # A delay (anything with a delay.value attribute) == #[.#] (converible
