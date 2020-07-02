@@ -1054,13 +1054,13 @@ class Object( object ):
                 # Get Attribute List.  Collect up the bytes representing the attributes.  Converts a
                 # placehold .get_attribute_list = [<attribute>,...] list of attribute numbers with
                 # real dotdict containing a sequence of .data.
-                for a_id in self.get_attributes_list:
+                for a_id in data.get_attribute_list:
                     result     += UINT.produce( a_id )
                     if str(a_id) not in self.attribute:
                         result += UINT.produce( 0x16 ) # status: Object does not exist
                     else:
                         result += UINT.produce( 0x00 ) # status: OK
-                        result += self.attribute[str(aid)].produce()
+                        result += self.attribute[str(a_id)].produce()
                 data.get_attribute_list = dotdict()
                 data.get_attribute_list.data= [
                     b if type( b ) is int else ord( b ) for b in result ]
@@ -1448,11 +1448,11 @@ class Logical_Segments( Object ):
 	        default=self.config_int(     'Attribute 1',			0x0005 ))
             self.attribute['2']	= Attribute( 'Attribute 2', 		INT,
 	        default=self.config_int(     'Attribute 2',			0x0002 ))
-            self.attribute['3']	= Attribute( 'Attribute 3',		DINT,
+            self.attribute['3']	= Attribute( 'Attribute 3',		UDINT,
 	        default=self.config_int(     'Attribute 3',			0xC580B203 ))
-            self.attribute['4']	= Attribute( 'Attribute 4',	 	DINT,
+            self.attribute['4']	= Attribute( 'Attribute 4',	 	UDINT,
 	        default=self.config_int(     'Attribute 4',			0xC580B203 ))
-            self.attribute['10']= Attribute( 'Attribute 10', 		DINT,
+            self.attribute['10']= Attribute( 'Attribute 10', 		UDINT,
 	        default=self.config_int(     'Attribute 10',			0xB847DEF8))
 
 
