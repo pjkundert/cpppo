@@ -131,6 +131,7 @@ def test_dotdict_request():
     assert len( d2 ) == 1
     assert len( d2.item ) == 3
 
+
 def test_client_api_simple():
     taglen			= 100 # able to fit request for Attribute into 1 packet
     server_addr		        = ('localhost', 12398)
@@ -228,7 +229,7 @@ def test_client_api_simple():
         server.join( timeout=1.0 )
 
 
-def test_client_api():
+def test_client_api_random():
     """Performance of executing an operation a number of times on a socket connected
     Logix simulator, within the same Python interpreter (ie. all on a single CPU
     thread).

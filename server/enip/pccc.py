@@ -40,6 +40,7 @@ import array
 import cpppo
 from .. import enip
 from .parser import ( USINT, UINT, octets_noop, typed_data, move_if )
+from .device import RequestUnrecognized
 log				= logging.getLogger( "enip.pccc" )
 
 

@@ -662,7 +662,7 @@ def setup_tag( key, val ):
         # OK, either a newly set attribute (which may replace some Attribute set up before a
         # 'lookup_reset'), or replacing an existing Attribute with a new one.  We won't try to
         # compare values or types; just atomically replace the Instance's Attribute w/ the new one.
-        assert 'attribute' in val, "Failed to provide attribute for %r" % tag
+        assert 'attribute' in val, "Failed to provide attribute for %r" % key
         if val['attribute'] is not attribute:
             cls,ins,att		= res
             instance		= lookup( cls, ins )
