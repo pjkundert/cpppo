@@ -109,5 +109,5 @@ with connection as conn:
 
         # Now, wait for spontaneous data
         data,elapsed		= client.await_response( conn, timeout=1 )
-        if data: log.normal( f"Received: {data!r}" )
+        if data: log.normal( "Received: {data!r}".format( data=data ))
 
