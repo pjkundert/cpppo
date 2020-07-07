@@ -660,7 +660,7 @@ class client( object ):
                 self.addr, cpppo.inf if timeout is None else timeout, request )
         sent			= bytes( request )
         if self.addr_connected:
-            self.conn.send( sent )
+            self.conn.sendall( sent ) # ensure full buffer is sent
         else:
             self.conn.sendto( sent, self.addr )
         log.info(

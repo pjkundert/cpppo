@@ -116,7 +116,7 @@ def tnet_cli( number, tests=None ):
                 out		= min( len( msg ), random.randrange( *charrange ))
                 log.info( "Tnet Client %3d send: %5d/%5d: %s", number, out, len( msg ),
                           cpppo.reprlib.repr( msg[:out] ))
-                conn.send( msg[:out] )
+                conn.sendall( msg[:out] )
                 msg		= msg[out:]
 
                 # Await inter-block chardelay if output remains, otherwise await
