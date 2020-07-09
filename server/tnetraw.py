@@ -73,9 +73,10 @@ def tnet_from( conn, addr,
                 assert c in b'0123456789', "Expected TNET size symbol, not {c!r}".format( c=c ) # EOF/timeout
                 length += c
             c		= None
-            while c is None:
+            while not server.done and c is None:
                 c	= recv( 1 )
-                if c is None and timeout and cpppo.timer() - started > timeout:
+                if c is None and timeout is not None and cpppo.timer() - started > timeout:
+                    # No data w/in given timeout expiry!  Inform the consumer, and then try again w/ fresh timeout.
                     yield None
                     started = cpppo.timer()
         if server.done or c == b'': return # done/EOF
@@ -86,7 +87,7 @@ def tnet_from( conn, addr,
         payload,c	= b'',None
         while not server.done and c is None and len( payload ) < length:
             c		= recv( length - len( payload ))
-            if c is None and timeout and cpppo.timer() - started > timeout:
+            if c is None and timeout is not None and cpppo.timer() - started > timeout:
                 yield None
                 started	= cpppo.timer()
                 continue
@@ -99,7 +100,7 @@ def tnet_from( conn, addr,
         c		= None
         while not server.done and c is None:
             c		= recv( 1 )
-            if c is None and timeout and cpppo.timer() - started > timeout:
+            if c is None and timeout is not None and cpppo.timer() - started > timeout:
                 yield None
                 started	= cpppo.timer()
         if server.done or c == b'': return # done/EOF
