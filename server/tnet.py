@@ -21,8 +21,6 @@ try:
 except ImportError:
     pass
 
-import argparse
-
 __author__                      = "Perry Kundert"
 __email__                       = "perry@hardconsulting.com"
 __copyright__                   = "Copyright (c) 2013 Hard Consulting Corporation"
@@ -68,6 +66,7 @@ TYPE     A character indicating what type the DATA is.  Each TYPE is used to
 
 """
 
+import argparse
 import json
 import logging
 import sys
@@ -77,7 +76,7 @@ from   cpppo.server import network
 
 address				= ('', 8008)
 
-log				= logging.getLogger( "tnet.srv" )
+log				= logging.getLogger( "tnet" )
 
 bytes_conf 			= {
     "alphabet":	cpppo.type_bytes_iter,
@@ -226,8 +225,12 @@ def tnet_from( conn, addr,
 def tnet_server_json( conn, addr, timeout=None, latency=None, ignore=None ):
     """Wait forever for TNET messages, and echo the JSON-encoded payload back to the client."""
     for msg in tnet_from( conn, addr, timeout=timeout, latency=latency, ignore=ignore ):
-        res			= json.dumps( msg, indent=4, sort_keys=True )
-        conn.send( ( res + "\n\n" ).encode( "utf-8" ))
+        try:
+            res			= json.dumps( msg, indent=4, sort_keys=True )
+            rpy			= ( res + "\n\n" ).encode( "utf-8" )
+        except TypeError: # eg. raw bytes
+            rpy			= msg
+        conn.sendall( rpy )
 
 
 def main( argv=None ):
@@ -244,7 +247,9 @@ def main( argv=None ):
                      help="Optional timeout on receiving TNET string; responds w/ None upon timeout" )
     ap.add_argument( '-L', '--latency', default=None,
                      help="Optional latency on checking server.done" )
-
+    ap.add_argument( '-a', '--address', default=None,
+                     help="The local interface[:port] to bind to (default: {iface}:{port})".format(
+                         iface=address[0], port=address[1] ))
     args			= ap.parse_args( argv )
     
     idle_service		= []
@@ -267,9 +272,14 @@ def main( argv=None ):
 
     timeout			= None if args.timeout is None else float( args.timeout )
     latency			= None if args.latency is None else float( args.latency )
-    
+
+    bind			= address
+    if args.address:
+        host,port		= cpppo.parse_ip_port( args.address, default=address )
+        bind			= str(host),int(port)
+
     return network.server_main(
-        address	= address,
+        address	= bind,
         target	= tnet_server_json,
         kwargs	= dict(
             timeout	= timeout,
