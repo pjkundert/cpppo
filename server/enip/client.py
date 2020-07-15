@@ -286,13 +286,17 @@ def parse_operations( tags, fragment=False, int_type=None, **kwds ):
         yield opr
 
 
-def enip_replies( response ):
+def enip_replies( response, multiple=False ):
     """Return valid EtherNet/IP response(s), or Falsey (None if nothing, {} if EOF).  Raises Exception
     if invalid response, EnipStatusError if valid but unsuccessful.
 
     Find the replie(s) in the response; could be single or multiple; should match requests!
+    Unfortuantely, it is *impossible* to determine this without *knowing* if the issued request was
+    a Multiple Service Packet; at a higher level (where we collect responses for each issued
+    request), we can determine if the service code matches.
 
     Returns a list of replies on success.
+
     """
     if response is None:	# None response indicates timeout
         return None		# "Response Not Received w/in timeout
@@ -489,9 +493,12 @@ class client( object ):
         """The lifespan of an EtherNet/IP CIP client connection is defined by client.__init__() and client.close()"""
         if getattr( self, 'conn', None ) is not None:
             self.conn.close()
+            self.conn	= None
 
     def __del__( self ):
-        self.close()
+        """Avoid invoking superclass .close, if we've already completed closing"""
+        if getattr( self, 'conn', None ) is not None:
+            self.close()
 
     def __enter__( self ):
         self.frame.__enter__()
@@ -1319,7 +1326,7 @@ class connector( client ):
             elif method == 'read':
                 descr	       += "Read  "
                 if 'offset' not in op:
-                    op['offset']= 0 if fragment else None # Force Read  Tag Fragmented
+                    op['offset']= 0 if fragment else None # Force Read Tag Fragmented
                 req		= self.read( timeout=timeout, send=not multiple, **op )
                 reqest		= 22
                 rpyest		= 4
@@ -1460,7 +1467,7 @@ class connector( client ):
 
             # Find the replies in the response; could be single or multiple; should match requests!
             replies		= enip_replies( response )
-            if not response: # [<replies>], None or {} (EOF), or Exception/ENIPStatusError On EOF or
+            if not replies: # [<replies>], None or {} (EOF), or Exception/ENIPStatusError On EOF or
                 # timeout, cease responding; downstream could decide what to do on lack of matching
                 # response for a previously submitted request; probably should terminate EtherNet/IP
                 # CIP connection, b/c it is not impossible to reliably match future requests with
@@ -1512,13 +1519,18 @@ class connector( client ):
         simultaneously, and then issue multiple requests before starting to harvest the results (see
         pipeline).
 
+        Each response context and service code must match the request; this detects situations where
+        (for example), the C*Logix responds to a Multiple Service Packet request with a general 0x1E
+        error status to the entire Multiple Service Packet request, *not* individual responses; this 
+        mismatch cannot be determined by the collect layer.
+
         """
         for (idx,req_ctx,dsc,op,req),col in zip(issued, self.collect( timeout=timeout )): # must be "lazy" zip!
             assert col, \
                 "Request: %5d (Context: %10r/%10r) No Reply;\nop: %s\nrequest: %s\ncollected: %r via %r" % (
                     idx, req_ctx, None, parser.enip_format( op ), parser.enip_format( req ), col, self )
             (rpy_ctx,rpy,sts,val) = col
-            assert rpy_ctx == req_ctx, \
+            assert rpy_ctx == req_ctx and rpy.service == req.service | 0x80, \
                 "Request: %5d (Context: %10r/%10r) Mismatched;\nop: %s\nrequest: %s\nreply: %s" % (
                     idx, req_ctx, rpy_ctx, parser.enip_format( op ), parser.enip_format( req ), parser.enip_format( rpy ))
             yield idx,dsc,req,rpy,sts,val

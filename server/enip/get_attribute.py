@@ -141,8 +141,8 @@ class proxy( object ):
     an Exception, the caller must signal the enip_proxy to discard the connection, by invoking the
     .close_gateway method.
 
-    The simplest way to ensure that the proxy's gateway is correctly closed, is to use its "context" API, which
-    ensures via's gateway is opened, and that .close_gateway is invoked on Exception:
+    The simplest way to ensure that the proxy's gateway is correctly closed, is to use its "context"
+    API, which ensures via's gateway is opened, and that .close_gateway is invoked on Exception:
     
         via = proxy( 'hostname' )
 
@@ -302,7 +302,7 @@ class proxy( object ):
     def __exit__( self, typ, val, tbk ):
         """If an Exception occurs, ensures that the gateway is closed."""
         if typ is not None:
-            self.close_gateway()
+            self.close_gateway( exc=val )
         return False
 
     def close_gateway( self, exc=None ):
@@ -337,7 +337,7 @@ class proxy( object ):
                         if rsp and rsp.enip.status == 0:
                             self.identity = rsp.enip.CIP.list_identity.CPF.item[0].identity_object
                     except Exception as exc:
-                        self.close_gateway( exc )
+                        self.close_gateway( exc=exc )
                         raise
                 log.normal( "Opened EtherNet/IP CIP gateway %r, in %7.3fs", self, cpppo.timer() - creating )
 
