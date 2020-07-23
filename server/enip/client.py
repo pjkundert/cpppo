@@ -163,7 +163,7 @@ def bool_validate( b ):
 
 CIP_TYPES			= {
     'STRING':	(parser.STRING.tag_type, 0,				str ),
-    'SSTRING':	(parser.SSTRING.tag_type,	 0,				str ),
+    'SSTRING':	(parser.SSTRING.tag_type,0,				str ),
     'BOOL':	(parser.BOOL.tag_type,	parser.BOOL.struct_calcsize,	bool_validate ),
     'REAL': 	(parser.REAL.tag_type,	parser.REAL.struct_calcsize,	float ),
     'DINT':	(parser.DINT.tag_type,	parser.DINT.struct_calcsize,	lambda x: int_validate( x, -2**31, 2**32-1 )), # extra range
@@ -227,16 +227,52 @@ def parse_operations( tags, fragment=False, int_type=None, **kwds ):
             opr['elements']	= cnt
 
         if val:
-            # Default between REAL/INT, by simply checking for '.' in the provided value(s)
+            # Default between REAL/<int_type>, by simply checking for '.' in the provided value(s).
+            # Arrange for a 'caster' yielding something to convert each parsed CSV str to the
+            # correct basic Python type, and (optionally) a 'serial' yielding a CIP type class
+            # that can serialize that datum to bytes.
             if '.' in val:
+                types		= ['REAL']
                 opr['tag_type'],size,cast = CIP_TYPES['REAL']
             else:
-                opr['tag_type'],size,cast = CIP_TYPES[int_type.strip().upper()]
-            # Allow an optional (TYPE)value,value,...
+                types		= [int_type.strip().upper()]
+            opr['tag_type'],size,cast = CIP_TYPES[types[0]]
+            caster		= itertools.repeat( cast )
+            serial		= []
+
+            # But, allow an optional (TYPE)value,value,...; if one type, then also set the .tag_type
             if val.strip().startswith( '(' ) and ')' in val:
-                typ,val		= val.split( ')', 1 ) # Get leading: ['(TYPE', '), ...]
+                typ,val		= val.split( ')', 1 ) # Get leading/trailing: ['(TYPE', '1,2,3,...']
                 _,typ		= typ.split( '(', 1 )
-                opr['tag_type'],size,cast = CIP_TYPES[typ.strip().upper()]
+                types		= list( map( str.strip, typ.split( ',' ))) # TYPE, TYPE, ... ?
+                if len( types ) == 1 or ( len( types ) == 2 and types[1] in ( '...', '+', '*' )):
+                    # (REAL) or (REAL, .../+/*).
+                    types	= types[:-1]
+                    opr['tag_type'],size,cast \
+                                = CIP_TYPES[types[0].strip().upper()]
+                    caster	= itertools.repeat( cast )
+                else:
+                    # Support specifying type sequences eg. : (SINT, REAL, ..., DWORD)value, ...
+                    # However, we must then serialize/deserialize these into <int_type> (eg. SINT),
+                    # evenly.  If (TYPE, TYPE, .../+/*), allow repetition of the last type.
+                    opr['tag_type'],size,_ = CIP_TYPE[int_type.strip().upper]
+                    if types[-1] in ( '...', '+' ):
+                        types	= types[:-1]
+                        casts	= [ CIP_TYPES[t][2] for t in types ]
+                        caster	= itertools.chain( casts, itertools.repeat( casts[-1] ))
+                        seris	= [ getattr( parser, t ) for t in types ]
+                        serial	= itertools.chain( seris, itertools.repeat( seris[-1] ))
+                    elif types[-1] == '*':
+                        types	= types[:-1]
+                        casts	= [ CIP_TYPES[t][2] for t in types ]
+                        caster	= itertools.chain( casts, itertools.repeat( casts[-1] ))
+                        seris	= [ getattr( parser, t ) for t in types ]
+                        serial	= itertools.chain( seris, itertools.repeat( seris[-1] ))
+                        
+
+                    caster	= 
+                    serial	= [ 
+                    
 
             # The provided val is a comma-separated, whitespace-padded single-line list containing
             # integers, reals and quoted strings.  Perfect for using csv.reader to parse...  Not
@@ -248,7 +284,9 @@ def parse_operations( tags, fragment=False, int_type=None, **kwds ):
             except Exception as exc:
                 log.normal( "Invalid sequence of CSV values: %s; %s", val, exc )
                 raise
-            opr['data']		= list( map( cast, val_list ))
+
+            # Now, use the caster sequence to cast each value; may be uniform, or several different types
+            opr['data']		= list( map( c, val_list ) for c in caster )
 
             if 'offset' not in opr and not fragment:
                 # Non-fragment write.  The exact correct number of data elements must be

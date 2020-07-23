@@ -448,7 +448,7 @@ class proxy( object ):
 
             via = proxy( 'hostname' )
             with via:
-                for val,(sts,(att,typ,uni) in via.read_details( [...] ):
+                for val,(sts,(att,typ,uni)) in via.read_details( [...] ):
 
         Read the specified CIP Tags/Attributes in the string or iterable 'attributes', using Read
         Tag [Fragmented] (returning the native type), or Get Attribute Single/All (converting it to
