@@ -43,6 +43,7 @@ import itertools
 import json
 import logging
 import random
+import struct
 import sys
 import threading
 import traceback
@@ -56,7 +57,7 @@ from .parser import ( UDINT, DINT, DWORD, INT, UINT, WORD, USINT,
                       EPATH, EPATH_padded, SSTRING, STRING, IFACEADDRS,
                       typed_data,
                       octets, octets_encode, octets_noop, octets_drop, move_if,
-                      struct, enip_format, status )
+                      enip_format, status )
 
 # Default "dialect" of EtherNet/IP CIP protocol.  If no Message Router object is available (eg. we
 # are a "Client", not a "Controller"), then we need to know the dialect of EtherNet/IP CIP to use.
