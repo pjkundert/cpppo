@@ -24,7 +24,7 @@ __email__                       = "perry@hardconsulting.com"
 __copyright__                   = "Copyright (c) 2013 Hard Consulting Corporation"
 __license__                     = "Dual License: GPLv3 (or later) and Commercial (see LICENSE)"
 
-_all__				= [ 'UCMM']
+__all__				= [ 'UCMM' ]
 
 """enip.ucmm -- Un-Connected Message Manager"""
 
@@ -130,13 +130,13 @@ class UCMM( device.Object ):
         # "<host>":<port>.  However, it is the *follow* route_path element (if any) that routes the
         # request in that destination device.  We'll use a enip.client.connector (to establish and
         # register an EtherNet/IP session) for each target "<host>":<port>, and arrange for a copy
-        # of the request to be sent via <conn>.unconnected_send.  Then, we'll client.await a
+        # of the request to be sent via <conn>.unconnected_send.  Then, we'll client.await_response a
         # response from the socket; a failure to receive a response w'in timeout will result in an
         # error status being returned.
         self.route_conn		= {}
 
 
-    def request( self, data ):
+    def request( self, data, addr=None ):
         """Handles a parsed enip.* request, and converts it into an appropriate response.  For
         connection related requests (Register, Unregister), handle locally.  Return True iff request
         processed and connection should proceed to process further messages.
@@ -147,23 +147,30 @@ class UCMM( device.Object ):
 
         proceed			= True
 
-        assert 'addr' in data, "Connection Manager requires client address"
-
         # Each EtherNet/IP enip.command expects an appropriate encapsulated response
+        assert addr is not None, "Connection Manager requires client address"
+        if not data:
+            # Termination signal. Give the Connection_Manager an opportunity to clean up,
+            # eg. close all Forward Open data associated with the TCP/IP session.
+            CM			= device.lookup( class_id=0x06, instance_id=1 ) # Connection Manager default address
+            CM.request( data, addr=addr ) # just the 2-segment addr, not including any T_O_connection_ID
+            return
+
+        # A non-empty request. Each EtherNet/IP enip.command expects an appropriate encapsulated response
         if 'enip' in data:
             data.enip.pop( 'input', None )
         try:
             if 'enip.CIP.register' in data:
                 # Allocates a new session_handle, and returns the register.protocol_version and
                 # .options_flags unchanged (if supported)
-        
+
                 with self.lock:
-                    session	= random.randint( 0, 2**32 )
+                    session	= random.randint( 0, 2**32-1 )
                     while not session or session in self.__class__.sessions:
-                        session	= random.randint( 0, 2**32 )
-                    self.__class__.sessions[data.addr] = session
+                        session	= random.randint( 0, 2**32-1 )
+                    self.__class__.sessions[addr] = session
                 data.enip.session_handle = session
-                log.detail( "EtherNet/IP (Client %r) Session Established: %r", data.addr, session )
+                log.detail( "EtherNet/IP (Client %r) Session Established: %r", addr, session )
                 data.enip.input	= bytearray( self.parser.produce( data.enip ))
                 data.enip.status= 0x00
 
@@ -171,11 +178,11 @@ class UCMM( device.Object ):
                 # Session being closed.  There is no response for this command; return False
                 # inhibits any EtherNet/IP response from being generated, and closes connection.
                 with self.lock:
-                    session	= self.__class__.sessions.pop( data.addr, None )
-                log.detail( "EtherNet/IP (Client %r) Session Terminated: %r", data.addr, 
+                    session	= self.__class__.sessions.pop( addr, None )
+                log.detail( "EtherNet/IP (Client %r) Session Terminated: %r", addr,
                             session or "(Unknown)" )
                 proceed		= False
-            
+
             elif 'enip.CIP.send_data' in data:
                 # An Unconnected Send (SendRRData) message may be to a local object, eg:
                 # 
@@ -190,7 +197,7 @@ class UCMM( device.Object ):
                 #     "enip.CIP.send_data.CPF.item[1].unconnected_send.service": 1, 
                 #     "enip.CIP.send_data.interface": 0, 
                 #     "enip.CIP.send_data.timeout": 5, 
-                
+
                 # via the Message Router (note the lack of ...unconnected_send.route_path), or
                 # potentially to a remote object, via the backplane or a network link route path:
 
@@ -248,113 +255,122 @@ class UCMM( device.Object ):
 
                 # All Unconnected Requests have a NULL Address in CPF item 0.
                 assert 'enip.CIP.send_data.CPF' in data \
-                    and data.enip.CIP.send_data.CPF.count == 2 \
-                    and data.enip.CIP.send_data.CPF.item[0].length == 0, \
-                    "EtherNet/IP UCMM remote routed requests unimplemented"
-                unc_send	= data.enip.CIP.send_data.CPF.item[1].unconnected_send
-
-                # See what the request's parsed route_path segment(s) contains.  It might not be
-                # there (no route_path at all; no routing encapsulation, etc. MicroLogix simple
-                # request), it may containing a single route_path element(s) (which we will test,
-                # below).  However, if it contains A) at least 1 route_path element, and B) this
-                # element matches one of our self.route entries, then we'll establish/use a
-                # connection to the target EtherNet/IP CIP host, and transmit the request (minus the
-                # matching layer of the route_path) to the target.
-                route_path	= unc_send.get( 'route_path.segment' )
-
-                def find_route():
-                    if self.route and route_path and "port" in route_path[0] and "link" in route_path[0]:
-                        pl	= "{port}/{link}".format( **route_path[0] )
-                        return pl,self.route.get( pl ) # "1/2",None or "1/2",("hostname",44818)
-                    return None,None
-                portlink,target	= find_route()
-                if portlink and target:
-                    # port/link --> target found: Remote request.  Get the request timeout from the
-                    # unconnected_send.priority/timeout_ticks.  As per Vol 1.3-4.4.1.4, the top 4
-                    # bits (reserved, priorty) shall be 0, and the low 4 bits is the tick value N,
-                    # in milliseconds == 2^N.
-                    timeoutms	= ( 1 << unc_send.priority ) * unc_send.timeout_ticks
-                    timeout	= timeoutms / 1000.0
-                    data.enip.status = 0x65
-                    try:
-                        if target not in self.route_conn:
-                            log.normal( "UCMM: port/link %s --> %r; creating route", portlink, target )
-                            self.route_conn[target] \
-                               	= client.connector( host=target[0], port=target[1], timeout=timeout )
-                        with self.route_conn[target] as conn:
-                            # Trim route_path; if empty, send with no route_path (Simple; no routing
-                            # encapsulation).  Otherwise, send with remaining route_path.
-                            sub_rp	= route_path[1:] or []
-                            sub_sp	= unc_send.path.segment if sub_rp else ''
-                            if log.isEnabledFor( logging.DETAIL ):
-                                log.detail( "%r Route %s --> %s Request (RP: %s, SP: %s) %s", self, portlink,
-                                            self.route_conn[target], sub_rp, sub_sp,
-                                            parser.enip_format( unc_send.request ) if log.isEnabledFor( logging.INFO ) else "" )
-                            conn.unconnected_send( request=unc_send.request,
-                                route_path=sub_rp, send_path=sub_sp, timeout=timeout,
-                                sender_context=data.enip.sender_context.input )
-                            rsp,ela	= client.await_response( conn, timeout=timeout )
-                            assert rsp, \
-                                "No response from %s --> %s:%s within %sms timeout" % (
-                                    portlink, target[0], target[1], timeoutms )
-                            assert rsp.enip.status == 0, \
-                                "Error status %s in EtherNet/IP Response from Route %s --> %s" % (
-                                    rsp.enip.status, portlink, self.route_conn[target] )
-                            # Return the unconnected_send response from the client, as our own.
-                            if log.isEnabledFor( logging.DETAIL ):
-                                log.detail( "%r Route %s --> %s Response %s", self, portlink,
-                                            self.route_conn[target],
-                                            parser.enip_format( rsp ) if log.isEnabledFor( logging.INFO ) else "" )
-                            unc_send	= rsp.enip.CIP.send_data.CPF.item[1].unconnected_send
-                    except Exception as exc:
-                        # Failure
-                        log.normal( "UCMM: port/link %s --> %r; closing route due to: %s", portlink, target, exc )
-                        del self.route_conn[target] # will close()
-                        raise
-                    else:
-                        # Successful
-                        data.enip.status = 0
+                    and data.enip.CIP.send_data.CPF.count == 2, \
+                    "EtherNet/IP CIP CPF encapsulation required"
+                if data.enip.CIP.send_data.CPF.item[0].length > 0:
+                    # Connected session; extract connection_data.request.input payload, convert to response
+                    con_id	= data.enip.CIP.send_data.CPF.item[0].connection_ID.connection
+                    con_data	= data.enip.CIP.send_data.CPF.item[1].connection_data
+                    CM		= device.lookup( class_id=0x06, instance_id=1 ) # Connection Manager default address
+                    CM.request( con_data, addr=(addr[0],addr[1],con_id) ) # Converts request to reply
                 else:
-                    # No route_path, or port/link not in self.route.  Local request.
-
-                    # Make sure the route_path matches what we've been configured w/; the supplied
-                    # route_path.segment list must match the configured self.route_path, eg:
-                    # {'link': 0, 'port': 1}.  Thus, if a non-empty route_path is supplied in
-                    # Unconnected Send request, it will not match any differing configured
-                    # route_path.  Also, if we've specified a Falsey (eg. 0, False) UCMM object
-                    # .route_path, we'll only accept requests with an empty route_path. However: any
-                    # "Simple" (non route_path encapsulated) request will be allowed by any device
-                    # (self.route_path configured or not).
-                    if self.route_path is not None: # may be [{"port"}...]}, or 0/False
-                        assert ( not route_path			# Request has no route_path (Simple Request); its to some Object known to this simulator
-                                 or ( not self.route_path	# Our specified route_path is Falsey (Simple Device)
-                                      and route_path is None )	#   and the incoming request had not route_path
-                                 or route_path == self.route_path # Or they match
-                        ),  "Unconnected Send route path %r differs from configured: %r" % (
-                                route_path, self.route_path )
-
-                    # If the standard Connection Manager isn't addressed, that's strange but, OK...
-                    ids		= (0x06, 1) # Connection Manager default address
-                    if 'path' in unc_send:
-                        ids	= device.resolve( unc_send.path )
-                        if ( ids[0] != 0x06 or ids[1] != 1 ):
-                            log.warning( "Unconnected Send targeted Object other than Connection Manager: 0x%04x/%d", ids[0], ids[1] )
-                    CM		= device.lookup( class_id=ids[0], instance_id=ids[1] )
-                    CM.request( unc_send )
+                    # Unconnected session
+                    unc_send	= data.enip.CIP.send_data.CPF.item[1].unconnected_send
                     
-                # After successful processing of the Unconnected Send on the target node, we
-                # eliminate the Unconnected Send wrapper (the unconnected_send.service = 0x52,
-                # route_path, etc, by eliminating the route_path, send_path, priority, etc.), and
-                # replace it with a simple encapsulated raw request.input.  We do that by emptying
-                # out the unconnected_send, except for the bare request.  Basically, all the
-                # Unconnected Send encapsulation and routing is used to deliver the request to the
-                # target Object, and then is discarded and the EtherNet/IP envelope is simply
-                # returned directly to the originator carrying the response payload.
+                    # See what the request's parsed route_path segment(s) contains.  It might not be
+                    # there (no route_path at all; no routing encapsulation, etc. MicroLogix simple
+                    # request), it may containing a single route_path element(s) (which we will test,
+                    # below).  However, if it contains A) at least 1 route_path element, and B) this
+                    # element matches one of our self.route entries, then we'll establish/use a
+                    # connection to the target EtherNet/IP CIP host, and transmit the request (minus the
+                    # matching layer of the route_path) to the target.
+                    route_path	= unc_send.get( 'route_path.segment' )
+
+                    def find_route():
+                        if self.route and route_path and "port" in route_path[0] and "link" in route_path[0]:
+                            pl	= "{port}/{link}".format( **route_path[0] )
+                            return pl,self.route.get( pl ) # "1/2",None or "1/2",("hostname",44818)
+                        return None,None
+                    portlink,target	= find_route()
+                    if portlink and target:
+                        # port/link --> target found: Remote request.  Get the request timeout from the
+                        # unconnected_send.priority/timeout_ticks.  As per Vol 1.3-4.4.1.4, the top 4
+                        # bits (reserved, priorty) shall be 0, and the low 4 bits is the tick value N,
+                        # in milliseconds == 2^N.
+                        timeoutms	= ( 1 << unc_send.priority ) * unc_send.timeout_ticks
+                        timeout		= timeoutms / 1000.0
+                        data.enip.status= 0x65
+                        try:
+                            if target not in self.route_conn:
+                                log.normal( "UCMM: port/link %s --> %r; creating route", portlink, target )
+                                self.route_conn[target] \
+                                        = client.connector( host=target[0], port=target[1], timeout=timeout )
+                            with self.route_conn[target] as conn:
+                                # Trim route_path; if empty, send with no route_path (Simple; no routing
+                                # encapsulation).  Otherwise, send with remaining route_path.
+                                sub_rp	= route_path[1:] or []
+                                sub_sp	= unc_send.path.segment if sub_rp else ''
+                                if log.isEnabledFor( logging.DETAIL ):
+                                    log.detail( "%r Route %s --> %s Request (RP: %s, SP: %s) %s", self, portlink,
+                                                self.route_conn[target], sub_rp, sub_sp,
+                                                parser.enip_format( unc_send.request ) if log.isEnabledFor( logging.INFO ) else "" )
+                                conn.unconnected_send( request=unc_send.request,
+                                    route_path=sub_rp, send_path=sub_sp, timeout=timeout,
+                                    sender_context=data.enip.sender_context.input )
+                                rsp,ela	= client.await_response( conn, timeout=timeout )
+                                assert rsp, \
+                                    "No response from %s --> %s:%s within %sms timeout" % (
+                                        portlink, target[0], target[1], timeoutms )
+                                assert rsp.enip.status == 0, \
+                                    "Error status %s in EtherNet/IP Response from Route %s --> %s" % (
+                                        rsp.enip.status, portlink, self.route_conn[target] )
+                                # Return the unconnected_send response from the client, as our own.
+                                if log.isEnabledFor( logging.DETAIL ):
+                                    log.detail( "%r Route %s --> %s Response %s", self, portlink,
+                                                self.route_conn[target],
+                                                parser.enip_format( rsp ) if log.isEnabledFor( logging.INFO ) else "" )
+                                unc_send= rsp.enip.CIP.send_data.CPF.item[1].unconnected_send
+                        except Exception as exc:
+                            # Failure
+                            log.normal( "UCMM: port/link %s --> %r; closing route due to: %s", portlink, target, exc )
+                            del self.route_conn[target] # will close()
+                            raise
+                        else:
+                            # Successful
+                            data.enip.status = 0
+                    else:
+                        # No route_path, or port/link not in self.route.  Local request.
+
+                        # Make sure the route_path matches what we've been configured w/; the supplied
+                        # route_path.segment list must match the configured self.route_path, eg:
+                        # {'link': 0, 'port': 1}.  Thus, if a non-empty route_path is supplied in
+                        # Unconnected Send request, it will not match any differing configured
+                        # route_path.  Also, if we've specified a Falsey (eg. 0, False) UCMM object
+                        # .route_path, we'll only accept requests with an empty route_path. However: any
+                        # "Simple" (non route_path encapsulated) request will be allowed by any device
+                        # (self.route_path configured or not).
+                        if self.route_path is not None: # may be [{"port"}...]}, or 0/False
+                            assert ( not route_path			# Request has no route_path (Simple Request); its to some Object known to this simulator
+                                     or ( not self.route_path		# Our specified route_path is Falsey (Simple Device)
+                                          and route_path is None )	#   and the incoming request had not route_path
+                                     or route_path == self.route_path # Or they match
+                            ),  "Unconnected Send route path %r differs from configured: %r" % (
+                                    route_path, self.route_path )
+
+                        # If the standard Connection Manager isn't addressed, that's strange but, OK...
+                        ids		= (0x06, 1) # Connection Manager default address
+                        if 'path' in unc_send:
+                            ids	= device.resolve( unc_send.path )
+                            if ( ids[0] != 0x06 or ids[1] != 1 ):
+                                log.warning( "Unconnected Send targeted Object other than Connection Manager: 0x%04x/%d", ids[0], ids[1] )
+                        CM		= device.lookup( class_id=ids[0], instance_id=ids[1] )
+                        CM.request( unc_send, addr=addr )
+
+                    # After successful processing of the Unconnected Send on the target node, we
+                    # eliminate the Unconnected Send wrapper (the unconnected_send.service = 0x52,
+                    # route_path, etc, by eliminating the route_path, send_path, priority, etc.), and
+                    # replace it with a simple encapsulated raw request.input.  We do that by emptying
+                    # out the unconnected_send, except for the bare request.  Basically, all the
+                    # Unconnected Send encapsulation and routing is used to deliver the request to the
+                    # target Object, and then is discarded and the EtherNet/IP envelope is simply
+                    # returned directly to the originator carrying the response payload.
+                    data.enip.CIP.send_data.CPF.item[1].unconnected_send  = dotdict()
+                    data.enip.CIP.send_data.CPF.item[1].unconnected_send.request = unc_send.request
+
+                # Either an implicit "Connected" request (Send RR Data or Send Unit Data), or an
+                # explicit "Unconnected" request (Send RR Data).
                 if log.isEnabledFor( logging.DEBUG ):
                     log.debug( "%s Repackaged: %s", self, parser.enip_format( data ))
-                
-                data.enip.CIP.send_data.CPF.item[1].unconnected_send  = dotdict()
-                data.enip.CIP.send_data.CPF.item[1].unconnected_send.request = unc_send.request
                 
                 # And finally, re-encapsulate the CIP SendRRData, with its (now unwrapped)
                 # Unconnected Send request response payload.
@@ -362,9 +378,10 @@ class UCMM( device.Object ):
                     log.debug( "%s Regenerating: %s", self, parser.enip_format( data ))
                 data.enip.input	= bytearray( self.parser.produce( data.enip ))
             else:
-                # See if we can identify the method to invoke based on the contents of the CIP
-                # request.  The data.enip.CIP better have a single dict key (its probably a
-                # dotdict, derived from dict; we want to get just one layer of keys...).
+                # Some unrecognized data payload: See if we can identify the method to invoke based
+                # on the contents of the CIP request.  The data.enip.CIP better have a single dict
+                # key (its probably a dotdict, derived from dict; we want to get just one layer of
+                # keys...).
                 if log.isEnabledFor( logging.DEBUG ):
                     log.debug( "%s CIP Request: %s", self, parser.enip_format( data ))
                 cip		= data.get( 'enip.CIP' )
@@ -511,4 +528,3 @@ class UCMM( device.Object ):
         data.enip.input		= bytearray( self.parser.produce( data.enip ))
 
         return True
-

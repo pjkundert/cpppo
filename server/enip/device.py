@@ -31,14 +31,19 @@ enip.device	-- support for implementing an EtherNet/IP device Objects and Attrib
 
 """
 __all__				= ['dialect', 'lookup_reset', 'lookup', 'resolve', 'resolve_element',
-                                   'redirect_tag', 'resolve_tag', 
+                                   'redirect_tag', 'resolve_tag',
                                    'parse_int', 'parse_path', 'parse_path_elements', 'parse_path_component',
-                                   'port_link', 'parse_route_path', 
+                                   'port_link', 'parse_route_path', 'parse_connection_path',
                                    'RequestUnrecognized', 'Object', 'Attribute',
                                    'Connection_Manager', 'Message_Router', 'Identity', 'TCPIP']
 
+import ast
+import contextlib
+import itertools
 import json
 import logging
+import random
+import struct
 import sys
 import threading
 import traceback
@@ -48,11 +53,11 @@ import configparser # Python2 requires 'pip install configparser'
 import cpppo
 from ...dotdict import dotdict
 from ... import automata, misc
-from .parser import ( UDINT, DWORD, INT, UINT, WORD, USINT,
+from .parser import ( UDINT, DINT, DWORD, INT, UINT, WORD, USINT,
                       EPATH, EPATH_padded, SSTRING, STRING, IFACEADDRS,
                       typed_data,
                       octets, octets_encode, octets_noop, octets_drop, move_if,
-                      struct, enip_format, status )
+                      enip_format, status )
 
 # Default "dialect" of EtherNet/IP CIP protocol.  If no Message Router object is available (eg. we
 # are a "Client", not a "Controller"), then we need to know the dialect of EtherNet/IP CIP to use.
@@ -144,6 +149,11 @@ def lookup_reset():
     Object-derived class will retain its .max_instance variable, so future instances will get new
     (higher) Instance IDs, unless you provide an instance_id=... to the constructor.
 
+    WARNING: This is really mostly for testing multiple CIP Object configurations in a single Python
+    interpreter run, and is not recommended for production usage.  It suffers from removing
+    references to Object and Attribute instances that are necessary for internal consistency in the
+    CIP heirarchy, so if the directory is reset, avoid interogating any Object or Attribute from the
+    prior configuration.  See MaxInstance.value, for example.
     """
     global directory
     global symbol
@@ -154,12 +164,15 @@ def lookup_reset():
 def redirect_tag( tag, address ):
     """Establish (or change) a tag, redirecting it to the specified class/instance/attribute address.
     Make sure we stay with only str type tags (mostly for Python2, in case somehow we get a Unicode
-    tag)"""
+    tag).  Multi-segment symbolic tags are expected to be looked up as: symbol["<symbol1>.<symbol2>"]
+
+    """
     tag				= str( tag )
     assert isinstance( address, dict )
     assert all( k in symbol_keys for k in address )
     assert all( k in address     for k in symbol_keys )
     symbol[tag]			= address
+    return tuple( address[k] for k in symbol_keys )
 
 
 def resolve_tag( tag ):
@@ -240,7 +253,7 @@ def resolve_element( path ):
         if 'element' in term:
             element.append( term['element'] )
             break
-    return tuple( element ) if element else (0, ) 
+    return tuple( element ) if element else (0, )
 
 def parse_int( x, base=10 ):
     """Try parsing in the target base, but then also try deducing the base (eg. if we are provided with
@@ -297,8 +310,13 @@ def parse_path_elements( path, elm=None, cnt=None ):
     A default <element> 'elm' and/or <count> 'cnt' (if non-None) may be specified.
 
     """
-    if not isinstance( path, cpppo.type_str_base ):
-        # Already better be a list-like path...
+    if isinstance( path, list ) and len( path ) == 1 and isinstance( path[0], cpppo.type_str_base ):
+        # Unpack single-element list containing a string
+        path			= path[0]
+    elif not isinstance( path, cpppo.type_str_base ):
+        # Already better be a list-like CIP path...
+        assert isinstance( path, list ) and all( isinstance( p, dict ) for p in path ), \
+            "parse_path unrecognized: %r" % ( path, )
         return path,None,None
 
     segments			= []
@@ -369,48 +387,119 @@ def port_link( pl ):
 
     """
     if isinstance( pl, cpppo.type_str_base ):
-        try: port,link	= map( str.strip, str( pl ).split( '/', 1 ))
-        except: raise AssertionError( "port/link: must have exactly 2 components, not: %r" % ( pl ))
+        pl			= map( str.strip, str( pl ).split( '/', 1 ))
+    if not isinstance( pl, dict ):
+        # If its not already a dict, it better be an iterable satisfying exactly [<port>, <link>]
+        try:
+            port,link		= pl
+        except:
+            raise AssertionError( "port/link: must have exactly 2 components, not: %r" % ( pl ))
         pl			= { "port": port, "link": link }
     assert isinstance( pl, dict ) and 'port' in pl and 'link' in pl, \
         """port/link: must be dict containing { "port": <int>, "link": <int>/"<ip>" }"""
-    
-    try: pl["port"]		= int( pl["port"] )
-    except: raise AssertionError( "port/link: port must be an integer" )
-    try: pl["link"]		= int( pl["link"] )
-    except: # Not an int; must be an IPv4 address
+
+    try:
+        pl["port"]		= int( pl["port"] )
+    except:
+        raise AssertionError( "port/link: port must be an integer" )
+    assert pl["port"] > 0, \
+        "port/link: port number must be > 0"
+
+    try:
+        pl["link"]		= int( pl["link"] )
+    except: # Not an int; must be an IPv{4,6} address; canonicalize
         try:
-            octs		= pl["link"].split( '.' )
-            assert len( octs ) == 4 and all( 0 <= int( n ) <= 255 for n in octs )
-        except:
-            raise AssertionError( "port/link: link IP addresses must be dotted quad" )
+            pl["link"]		= str( cpppo.ip( pl["link"] ))
+        except Exception as exc:
+            raise AssertionError( "port/link: %r: %s" % ( pl["Link"], exc ))
     return pl
 
 
-def parse_route_path( route_path ):
-    """A route path is None/0/False, or list of port/link segments.  Allows a single port/link
-    element to be specified bare, and will en-list it, eg: "--route_path=1/2"."""
+def parse_route_path( route_path, trailer_parser=None ):
+    """A route path is None/0/False, or list of port/link[/port/link] segments.  Allows a single
+    port/link element to be specified bare, and will en-list it, eg: "--route_path=1/2".
+    
+    Must either result in a Falsey, or a valid sequence of port/link[/port/link...], followed by
+    whatever sequence trailer_parser produces (if supplied).
+
+    """
     if isinstance( route_path, cpppo.type_str_base ):
         try:
             route_path		= json.loads( route_path )
             if route_path and isinstance( route_path, dict ):
-                route_path	= [route_path] # a dict; validate as eg. [{"port":<int>,"link":<int>/"<ip>"}]
-        except:
-            # Handle multiple route_path strings like: "1/0/2/1.2.3.4", by splitting on even '/'
-            pls			= route_path.split( '/' )
-            assert len( pls ) % 2 == 0, "A route_path must have pairs of link/port values"
-            seg			= [ '/'.join( [pls[i], pls[i+1]] ) for i in range( 0, len( pls ), 2 ) ]
-            route_path		= seg
+                # a dict; validate as eg. [{"port":<int>,"link":<int>/"<ip>"}]
+                route_path	= [route_path]
+            assert isinstance( route_path, list ), \
+                "route_path invalid; must resolve to list, not: %r" % ( route_path, )
+        except Exception as exc:
+            # Handle multiple route_path strings like: "1/0/2/1.2.3.4", by splitting on even '/'.
+            # Ceases splitting when port_link fails to recognize a component; the remainder is
+            # re-joined and appended for processing in final stage, below.
+            assert route_path[:1] not in '[{"', \
+                "route_path JSON invalid: %r; %s" % ( route_path, exc, ) # JSON was intended, but was invalid
+            rps			= []
+            pls			= iter( route_path.split( '/' ))
+            pl			= list( itertools.islice( pls, 2 ))
+            while pl:
+                try:
+                    rps.append( port_link( pl ))
+                except Exception as exc:
+                    # Done processing; this wasn't a valid port_link element
+                    break
+                pl		= list( itertools.islice( pls, 2 ))
+            # Done all port_link segments; put any remaining back on the end
+            trailer		= '/'.join( pl + list( pls ))
+            if trailer:
+                rps.append( trailer )
+            log.info( "Converted route_path %r to %r", route_path, rps )
+            route_path		= rps
         else:
             # Was JSON; better be one of the known types
             assert isinstance( route_path, (type(None),bool,int,list)), \
                 "route_path: must be null/0/false/true or a (sequence of) port/link, not: %r" % ( route_path )
-    if route_path: # not a JSON 0/false/null (0/False/None)
-        try:
-            route_path		= [ port_link( pl ) for pl in route_path ]
-        except Exception as exc:
-            raise AssertionError( "route_path: invalid port/link element: %s" % ( exc ))
+    if route_path:
+        # not a JSON 0/false/null (0/False/None); must be a sequence of str/dict port_link elements,
+        # followed optionally by something acceptable to trailer_parser (producing a sequence)
+        rps			= []
+        pls			= iter( route_path )
+        pl			= next( pls, None )
+        while pl:
+            try:
+                rps.append( port_link( pl ))
+            except Exception as exc:
+                break
+            pl			= next( pls, None )
+        trs			= ( [] if pl is None else [ pl ] ) + list( pls )
+        if trs:
+            # All trailer elements are CIP paths
+            assert trailer_parser, "route_path unhandled: %r" % ( trs, )
+            try:
+                pth		= trailer_parser( trs )
+                rps.extend( pth )
+            except Exception as exc:
+                raise AssertionError( "route_path invalid: %s" % ( exc ))
+        log.info( "Converted route_path %r to %r", route_path, rps )
+        route_path		= rps
     return route_path
+
+
+def parse_connection_path( path ):
+    """A Connection Path (eg. for Forward Open) consists of a route path, eg. 2/192.168.0.24/1/0
+    (eg. port 2, link 192.168.0.24, then port 1 (backplane), link 0.  Following may optionally be
+    another '/' + CIP path, eg. "/@2/1" (Connection Manaager), "/@1/1/7" (CIP Identity ProductName
+    SSTRING), or "/TagName[0].SubName").  The only restriction is that a 'symbolic' CIP path may not
+    contain a '/' character.
+
+    The trailing CIP path is identified typically by the presense of a non-[0-9.:] element (ie. not
+    a port/link component); once the parse_route_path and port_link ceases to be able to parse
+    '/'-separated components, then parse_path must successfully consume the remainder.
+
+    The only ambiguity is between IPv6 addresses eg. '2001:db8::1' and Tag names; therefore, we do
+    not support Tag names with ':' symbols in them; if necessary, supply these as JSON-encoded
+    connection paths.
+
+    """
+    return parse_route_path( path, trailer_parser=parse_path )
 
 
 # 
@@ -420,7 +509,7 @@ class Attribute( object ):
     """A simple Attribute just has a default scalar value of 0.  We'll instantiate an instance of the
     supplied enip.TYPE/STRUCT class as the Attribute's .parser property.  This can be used to parse
     incoming data, and produce the current value in bytes form.
-    
+
     The value defaults to a scalar 0, but may be configured as an array by setting default to a list
     of values of the desired array size.
 
@@ -428,7 +517,7 @@ class Attribute( object ):
 
     To interface to other types of data (eg. remote data), supply as 'default' an object that
     supplies the following interface:
-    
+
         o.__len__()			-- DOESN'T EXIST if scalar; returns number of elements if vector (a str is considered scalar)
         o.__repr__()			-- Some representation of the object; a few of its elements, an address
         o.__getitem__(b[:e[:s]])	-- Raise TypeError if scalar; return an item/slice if a vector
@@ -436,7 +525,7 @@ class Attribute( object ):
         o.__int__(), __float__()	-- Scalars should directly implement conversion methods; vectors should return
             				   objects (on [int]) or iterables of objects (on [slice]) convertible to
     					   int/float.  These will be accessed by functions such as struct.pack()
-    
+
     Note that it is impossible to capture assignment to a scalar value; all remote data must be
     vectors, even if they only have a single element.  However, for Attributes whose underlying
     'default' value is a simple scalar type, we'll support simple value assignment (it will replace
@@ -688,12 +777,15 @@ class Object( object ):
 
     """
     max_instance		= 0
-    lock			= threading.Lock()
+
+    # A derived class may specify its own parser and lock (and service, transit, used for logging)
+    # This would be necessary if the same service numbers are used for different services.
     service			= {} # Service number/name mappings
     transit			= {} # Symbol to transition to service parser on
 
     # The parser doesn't add a layer of context; run it with a path= keyword to add a layer
-    parser			= automata.dfa_post( service, initial=automata.state( 'select' ),
+    lock			= threading.Lock()
+    parser			= automata.dfa_post( service, initial=automata.state( 'Obj svc' ),
                                                   terminal=True )
     # No config, by default (use default values).  Allows ${<section>:<key>} interpolation, and
     # comments anywhere via the # symbol (this implies no # allowed in any value, due to the lack of
@@ -709,39 +801,112 @@ class Object( object ):
         interpolation=configparser.ExtendedInterpolation() )
 
     @classmethod
+    def config_section( cls, section ):
+        if section and section in cls.config_loader:
+            log.detail( "[{section}]".format( section=section ))
+            return cls.config_loader[section]
+        log.detail( "[{section}]".format( section='DEFAULT' ))
+        return cls.config_loader['DEFAULT']
+
+    @classmethod
+    def config_override( cls, val, key, default=None, config=None, section=None ):
+        """Use the provided val (or get key's value from config, toggling '_'/' ' so either
+        "Some Thing" or "some_thing" are acceptable config file keys), converting to type of
+        default.
+
+        """
+        if config is None:
+            config		= cls.config_section( section ) # if neither, uses 'DEFAULT'
+        if val is None:
+            key_sp		= key.replace( '_', ' ' )
+            val			= config.get( key_sp, None )
+            if val: log.info( "  {key:<20} == {val!r}".format( key=key_sp, val=val ))
+        if val is None:
+            key_un		= key.replace( ' ', '_' )
+            val			= config.get( key_un, None )
+            if val: log.info( "  {key:<20} == {val!r}".format( key=key_un, val=val ))
+        try:
+            if val is None:
+                val			= default
+                if val: log.info( "  {key:<20} == {val!r:<20} (default)".format( key=key, val=val ))
+            elif isinstance( default, bool) and \
+                 isinstance( val,     cpppo.type_str_base):
+                # Python bools supplied as strings or from config files are a special case, eg. 0 or
+                # "False" ==> False, 1 or "True' ==> True
+                val			= type( default )( ast.literal_eval( val.capitalize() ))
+            elif isinstance( default, (list, dict )) and \
+                 isinstance( val,     cpppo.type_str_base):
+                # Other complex types eg. "[ ... ]" must be obtained by ast.literal_eval.
+                val			= type( default )( ast.literal_eval( val ))
+            elif isinstance( default, (bool, int, float, cpppo.type_str_base)) and \
+                 isinstance( val,     (bool, int, float, cpppo.type_str_base)):
+                # Otherwise, any basic-typed val supplied or loaded from config file will be converted to
+                # type of any basic-typed default supplied.  This allows conversion of values
+                # supplied as valid literals, or from string to numeric types.
+                try:
+                    val		= type( default )( val )			# eg.   123,  abc
+                except ValueError:
+                    if isinstance( val, cppppo.type_str_base ):
+                        val	= type( default )( ast.literal_eval( val ))	# eg. 0x123, "abc"
+                    else:
+                        raise
+            # else leave val as str/None
+            log.detail( "  {key:<20} == {val!r}".format( key=key, val=val ))
+        except Exception as exc:
+            msg			= "Converting {key} from {val!r} failed (default type {typ.__name__}): {exc}".format(
+                key=key, val=val, typ=type( default ), exc=exc )
+            log.warning( "  %s", msg )
+            raise Exception( msg )
+        return val
+
+    @classmethod
     def register_service_parser( cls, number, name, short, machine ):
-        """Registers a parser with the Object.  May be invoked during import; no logging."""
+        """Registers a parser with the Object.  May be invoked during import; no logging.  Allows a single
+        "default" parser w/ number == True to be defined. So, use our parser's .encode() method to
+        process the number, to convert True/None to state.ALL/NON
 
-        assert number not in cls.service and name not in cls.service, \
-            "Duplicate service #%d: %r registered for Object %s" % ( number, name, cls.__name__ )
+        """
+        enc			= cls.parser.encode( number )
+        assert enc not in cls.service, \
+            "Duplicate service #%s: %r number registered for Object %s" % ( number, name, cls.__name__ )
+        assert name not in cls.service, \
+            "Duplicate service #%s: %r name   registered for Object %s" % ( number, name, cls.__name__ )
 
-        cls.service[number]	= name
-        cls.service[name]	= number
-        cls.transit[number]	= chr( number ) if sys.version_info[0] < 3 else number
-        cls.parser.initial[cls.transit[number]] \
+        cls.service[enc]	= name
+        cls.service[name]	= enc
+        cls.transit[enc]	= ( chr( enc )
+                                    if sys.version_info[0] < 3 and enc >= 0
+                                    else enc )
+        cls.parser.initial[cls.transit[enc]] \
 				= automata.dfa( name=short, initial=machine, terminal=True )
 
-    
     GA_ALL_NAM			= "Get Attributes All"
     GA_ALL_CTX			= "get_attributes_all"
     GA_ALL_REQ			= 0x01
     GA_ALL_RPY			= GA_ALL_REQ | 0x80
+
+    GA_LST_NAM			= "Get Attribute List"
+    GA_LST_CTX			= "get_attribute_list"
+    GA_LST_REQ			= 0x03
+    GA_LST_RPY			= GA_LST_REQ | 0x80
+
     GA_SNG_NAM			= "Get Attribute Single"
     GA_SNG_CTX			= "get_attribute_single"
-    GA_SNG_REQ			= 0x0e
+    GA_SNG_REQ			= 0x0E
     GA_SNG_RPY			= GA_SNG_REQ | 0x80
+
     SA_SNG_NAM			= "Set Attribute Single"
     SA_SNG_CTX			= "set_attribute_single"
     SA_SNG_REQ			= 0x10
     SA_SNG_RPY			= SA_SNG_REQ | 0x80
 
+    SV_COD_NAM			= "Service Code"
+    SV_COD_CTX			= "service_code"
+
     @property
     def config( self ):
         if self._config is None:
-            if self.name in self.config_loader:
-                self._config	= self.config_loader[self.name]
-            else:
-                self._config	= self.config_loader['DEFAULT']
+            self._config	= self.config_section( self.name )
         return self._config
 
     @misc.logresult( log=log, log_level=logging.DETAIL )
@@ -763,7 +928,7 @@ class Object( object ):
     @misc.logresult( log=log, log_level=logging.DETAIL )
     def config_json( self, *args, **kwds ):
         return json.loads( self.config_str( *args, **kwds ))
-        
+
     def __init__( self, name=None, instance_id=None ):
         """Create the instance (default to the next available instance_id).  An instance_id of 0 holds the
         "class" attributes/commands.  Any configured values for the Object are available in
@@ -819,11 +984,11 @@ class Object( object ):
 
     def __str__( self ):
         return self.name
-    
+
     def __repr__( self ):
         return "(0x%02x,%3d) %s" % ( self.class_id, self.instance_id, self )
 
-    def request( self, data ):
+    def request( self, data, addr=None ):
         """Handle a request, converting it into a response.  Must be a dotdict data artifact such as is
         produced by the Object's parser.  For example, a request data containing either of the
         following:
@@ -836,7 +1001,12 @@ class Object( object ):
         should run the Get Attribute All service, and return True if the channel should continue.
         In addition, we produce the bytes used by any higher level encapsulation.
 
-        TODO: Validate the request.
+        We can produce a generic CIP Service Code request, with an optional data payload -- but we
+        cannot (of course) execute such a request (we don't know what it is supposed to do).  A
+        derived class could be supplied that knows the semantics of such a service code, and could
+        properly parse and execute it.  But, for the purposes of sending a generic CIP Service Code
+        and its payload (eg. by cpppo.server.enip.client), this implementation is sufficient.
+
         """
         result			= b''
         if log.isEnabledFor( logging.DETAIL ):
@@ -851,6 +1021,9 @@ class Object( object ):
             if ( data.get( 'service' ) == self.GA_SNG_REQ
                  or self.GA_SNG_CTX in data and data.setdefault( 'service', self.GA_SNG_REQ ) == self.GA_SNG_REQ ):
                 pass
+            elif ( data.get( 'service' ) == self.GA_LST_REQ
+                 or self.GA_LST_CTX in data and data.setdefault( 'service', self.GA_LST_REQ ) == self.GA_LST_REQ ):
+                pass
             elif ( data.get( 'service' ) == self.GA_ALL_REQ
                  or self.GA_ALL_CTX in data and data.setdefault( 'service', self.GA_ALL_REQ ) == self.GA_ALL_REQ ):
                 pass
@@ -860,14 +1033,15 @@ class Object( object ):
             else:
                 raise RequestUnrecognized( "Unrecognized Service Request" )
 
-            # A recognized Set/Get Attribute[s] {Single/All} request; process the request data
+            # A recognized Set/Get Attribute[s] {Single/List/All} request; process the request data
             # artifact, converting it into a reply.  All of these requests produce/consume a
             # sequence of unsigned bytes.
             data.service       |= 0x80
             result		= b''
             if data.service == self.GA_ALL_RPY:
                 # Get Attributes All.  Collect up the bytes representing the attributes.  Replace
-                # the place-holder .get_attribute_all=True with a real dotdict.
+                # the place-holder .get_attribute_all=True with a real dotdict.  Returns only the
+                # sequentially available attributes.
                 a_id		= 1
                 while str(a_id) in self.attribute:
                     if not ( self.attribute[str(a_id)].mask & Attribute.MASK_GA_ALL ):
@@ -876,6 +1050,20 @@ class Object( object ):
                 assert len( result ), "No Attributes available for Get Attributes All request"
                 data.get_attributes_all = dotdict()
                 data.get_attributes_all.data = [
+                    b if type( b ) is int else ord( b ) for b in result ]
+            elif data.service == self.GA_LST_RPY:
+                # Get Attribute List.  Collect up the bytes representing the attributes.  Converts a
+                # placehold .get_attribute_list = [<attribute>,...] list of attribute numbers with
+                # real dotdict containing a sequence of .data.
+                for a_id in data.get_attribute_list:
+                    result     += UINT.produce( a_id )
+                    if str(a_id) not in self.attribute:
+                        result += UINT.produce( 0x16 ) # status: Object does not exist
+                    else:
+                        result += UINT.produce( 0x00 ) # status: OK
+                        result += self.attribute[str(a_id)].produce()
+                data.get_attribute_list = dotdict()
+                data.get_attribute_list.data= [
                     b if type( b ) is int else ord( b ) for b in result ]
             elif data.service in ( self.GA_SNG_RPY, self.SA_SNG_RPY ):
                 # Get/Set Attribute Single.  Collect up the bytes representing the attribute.
@@ -926,37 +1114,106 @@ class Object( object ):
 
         # Always produce a response payload; if a failure occurred, will contain an error status.
         # If this fails, we'll raise an exception for higher level encapsulation to handle.
-        log.detail( "%s Response: %s: %s", self, self.service[data.service], enip_format( data ))
+        log.detail( "%s Response: %s: %s", self,
+                    ( self.service[data.service]
+                      if 'service' in data and data.service in self.service
+                      else "(Unknonw)" ), enip_format( data ))
         data.input		= bytearray( self.produce( data ))
         return True # We shouldn't be able to terminate a connection at this level
 
     @classmethod
     def produce( cls, data ):
+        """
+        From pp60-61 of
+        https://literature.rockwellautomation.com/idc/groups/literature/documents/pm/1756-pm020_-en-p.pdf:
+
+        Of particular note is the fact that the Get_Attribute_List response does *not* return any
+        size data with each attribute returned -- so it is *absolutely required* that the caller
+        know, a-priori, the exact types of each and every attribute requested!  It is also
+        impossible to parse a response to such this request -- unless the parser also knows the
+        layout and types of the target class/instance!
+
+        | Message Field     | Bytes          | Description                                         |
+        |-------------------+----------------+-----------------------------------------------------|
+        | Request Service   | 03             | Get_Attribute_List (Request)                        |
+        | Request Path Size | 02             | Request path is 2 words (4 bytes)                   |
+        | Request Path      | 20 AC 24 01    | Logical Segment class 0x02, instance 1              |
+        | ----------------- | -------------- | --------------------------------------------------- |
+        | Request Data      | 05 00          | Number of attribute IDs that follow (5)              |
+        |                   | -------------- | --------------------------------------------------- |
+        |                   | 01 00          |                                                     |
+        |                   | 02 00          |                                                     |
+        |                   | 03 00          |                                                     |
+        |                   | 04 00          |                                                     |
+        |                   | 0A 00          |                                                     |
+        |                   | -------------- | --------------------------------------------------- |
+        |                   |                |                                                     |
+        | Request Service   | 83             | Get_Attribute_List (Reply)                          |
+        | Reserved          | 00             |                                                     |
+        | General Status    | 00             | Success                                             |
+        | Extended Sts Size | 00             | No extended status                                  |
+        | ----------------- | -------------- | --------------------------------------------------- |
+        | Reply Data        | 05 00          | Number of attribute responses that follow           |
+        |                   | -------------- | --------------------------------------------------- |
+        |                   | 01 00          | Attribute number (1)                                |
+        |                   | 00 00          | Status (success)                                    |
+        |                   | 05 00          | Attribute value (INT)                               |
+        |                   | -------------- | --------------------------------------------------- |
+        |                   | 02 00          | Attribute number (2)                                |
+        |                   | 00 00          | Status (success)                                    |
+        |                   | 01 00          | Attribute value (INT)                               |
+        |                   | -------------- | --------------------------------------------------- |
+        |                   | 03 00          | Attribute number (3)                                |
+        |                   | 00 00          | Status (success)                                    |
+        |                   | 03 B2 80 C5    | Attribute value (DINT)                              |
+        |                   | -------------- | --------------------------------------------------- |
+        |                   | 04 00          | Attribute number (4)                                |
+        |                   | 00 00          | Status (success)                                    |
+        |                   | 03 B2 80 C5    | Attribute value (DINT)                              |
+        |                   | -------------- | --------------------------------------------------- |
+        |                   | 0A 00          | Attribute number (10)                               |
+        |                   | 00 00          | Status (success)                                    |
+        |                   | F8 DE 47 B8    | Attribute value (DINT)                              |
+        |                   | -------------- | --------------------------------------------------- |
+
+        """
         result			= b''
-        if ( data.get( 'service' ) == cls.GA_ALL_REQ
-             or cls.GA_ALL_CTX in data and data.setdefault( 'service', cls.GA_ALL_REQ ) == cls.GA_ALL_REQ ):
+        if cls.GA_ALL_CTX in data and data.setdefault( 'service', cls.GA_ALL_REQ ) == cls.GA_ALL_REQ:
             # Get Attributes All
             result	       += USINT.produce(	data.service )
             result	       += EPATH.produce(	data.path )
-        elif ( data.get( 'service' ) == cls.GA_SNG_REQ
-               or cls.GA_SNG_CTX in data and data.setdefault( 'service', cls.GA_SNG_REQ ) == cls.GA_SNG_REQ ):
+        elif cls.GA_SNG_CTX in data and data.setdefault( 'service', cls.GA_SNG_REQ ) == cls.GA_SNG_REQ:
             # Get Attribute Single
             result	       += USINT.produce(	data.service )
             result	       += EPATH.produce(	data.path )
-        elif ( data.get( 'service' ) == cls.SA_SNG_REQ
-               or cls.SA_SNG_CTX in data and data.setdefault( 'service', cls.SA_SNG_REQ ) == cls.SA_SNG_REQ ):
+        elif cls.GA_LST_CTX in data and data.setdefault( 'service', cls.GA_LST_REQ ) == cls.GA_LST_REQ:
+            # Get Attribute List
+            result	       += USINT.produce(	data.service )
+            result	       += EPATH.produce(	data.path )
+            result	       += UINT.produce(    len( data.get_attribute_list ))
+            for a_id in data.get_attribute_list:
+                result	       += UINT.produce( a_id )
+        elif cls.SA_SNG_CTX in data and data.setdefault( 'service', cls.SA_SNG_REQ ) == cls.SA_SNG_REQ:
             # Set Attribute Single
             result	       += USINT.produce(	data.service )
             result	       += EPATH.produce(	data.path )
             result	       += typed_data.produce(	data.set_attribute_single,
                                                         tag_type=USINT.tag_type )
         elif data.get( 'service' ) == cls.GA_ALL_RPY:
-            # Get Attributes All Reply
+            # Get Attributes All/List/Single Reply.
             result	       += USINT.produce(	data.service )
             result	       += b'\x00' # reserved
             result	       += status.produce( 	data )
             if data.status == 0x00:
                 result	       += typed_data.produce( 	data.get_attributes_all,
+                                                        tag_type=USINT.tag_type )
+        elif data.get( 'service' ) == cls.GA_LST_RPY:
+            # Get Attribute List Reply
+            result	       += USINT.produce(	data.service )
+            result	       += b'\x00' # reserved
+            result	       += status.produce( 	data )
+            if data.status == 0x00:
+                result	       += typed_data.produce(	data.get_attribute_list,
                                                         tag_type=USINT.tag_type )
         elif data.get( 'service' ) == cls.GA_SNG_RPY:
             # Get Attribute Single Reply
@@ -971,11 +1228,46 @@ class Object( object ):
             result	       += USINT.produce(	data.service )
             result	       += b'\x00' # reserved
             result	       += status.produce( 	data )
+        elif cls.SV_COD_CTX in data and data.get( 'service' ):
+            # Generic CIP Service Code + EPATH, with possible (typed) data payload supplied.
+            result	       += USINT.produce(	data.service )
+            result	       += EPATH.produce(	data.path )
+            if isinstance( data.service_code, dict ) and 'data' in data.service_code:
+                result	       += typed_data.produce(	data.service_code,
+                                                        tag_type=USINT.tag_type )
+        elif data.get( 'service', 0 ) & 0x80: # Could be absent
+            # Generic CIP Service Code Reply.  May or may not carry a data payload.
+            result	       += USINT.produce(	data.service )
+            result	       += b'\x00' # reserved
+            result	       += status.produce( 	data )
+            if data.status == 0x00 and 'service_code' in data \
+               and isinstance( data.service_code, dict ) and 'data' in data.service_code:
+                result	       += typed_data.produce(	data.service_code,
+                                                        tag_type=USINT.tag_type )
         else:
             raise RequestUnrecognized( "%s doesn't recognize request/reply format: %r" % ( cls.__name__, data ))
         return result
 
 # Register the standard Object parsers
+def __service_code_reply():
+    """Because True/1 hash to the same dict entry, we can't allow a wildcard transition in a state w/ a
+    0x01 transition... So, we'll support being invoked from the None (no input default) transition."""
+    srvc			= USINT(		 	context='service' )
+    srvc[True]	 	= rsvd	= octets_drop(	'reserved',	repeat=1 )
+    srvc[None]			= octets_noop(	'nodata',
+                                                terminal=True )
+    rsvd[True]		= stts	= status()
+    # If any remaining payload, parse it into data.service_code.data as USINTs
+    stts[True]			= typed_data( 			context=Object.SV_COD_CTX,
+                                                tag_type=USINT.tag_type,
+                                                terminal=True )
+    stts[None]			= octets_noop(	'nodata',
+                                                terminal=True )
+    return srvc
+
+Object.register_service_parser( number=True, name=Object.SV_COD_NAM,
+                                short=Object.SV_COD_CTX, machine=__service_code_reply() )
+
 def __get_attributes_all():
     srvc			= USINT(		 	context='service' )
     srvc[True]		= path	= EPATH(			context='path')
@@ -984,7 +1276,7 @@ def __get_attributes_all():
     mark.initial[None]		= move_if( 	'mark',		initializer=True )
     return srvc
 
-Object.register_service_parser( number=Object.GA_ALL_REQ, name=Object.GA_ALL_NAM, 
+Object.register_service_parser( number=Object.GA_ALL_REQ, name=Object.GA_ALL_NAM,
                                 short=Object.GA_ALL_CTX, machine=__get_attributes_all() )
 
 def __get_attributes_all_reply():
@@ -998,8 +1290,53 @@ def __get_attributes_all_reply():
                                                 terminal=True )
     return srvc
 
-Object.register_service_parser( number=Object.GA_ALL_RPY, name=Object.GA_ALL_NAM + " Reply", 
+Object.register_service_parser( number=Object.GA_ALL_RPY, name=Object.GA_ALL_NAM + " Reply",
                                 short=Object.GA_ALL_CTX, machine=__get_attributes_all_reply() )
+
+def __get_attribute_list():
+    srvc			= USINT(		 	context='service' )
+    srvc[True]		= path	= EPATH(			context='path')
+    path[None]		= numr	= UINT(		'number',	context=Object.GA_LST_CTX, extension='.number' )
+
+
+    # Prepare a state-machine to parse each UINT into .UINT, and move it onto the .attribute list
+    att_			= UINT(		'attr',		context=Object.GA_LST_CTX, extension='.UINT' )
+    att_[None]			= move_if( 	'attr',		source='.'+Object.GA_LST_CTX+'.UINT',
+                                        destination=Object.GA_LST_CTX+'.attributes', initializer=lambda **kwds: [] )
+    att_[None]			= automata.state( 'attr',
+                                                terminal=True )
+
+    # Parse the number of attributes expected. TODO: handle 0 attributes?
+    numr[True]		= atts	= automata.dfa(  'attributes',
+                                                 initial=att_,	repeat='.'+Object.GA_LST_CTX+'.number' )
+    atts[None]		= done	= octets_noop(	'done',
+                                                terminal=True )
+    # Finally, move the scanned list of attributes[:] to .get_attribute_list[:]
+    done.initial[None]		= move_if(	'move',	source='.'+Object.GA_LST_CTX+'.attributes',
+                                                   destination=Object.GA_LST_CTX,
+                                                initializer=lambda **kwds: [] )
+    return srvc
+
+Object.register_service_parser( number=Object.GA_LST_REQ, name=Object.GA_LST_NAM,
+                                short=Object.GA_LST_CTX, machine=__get_attribute_list() )
+
+def __get_attribute_list_reply():
+    """Impossible to parse; the reply doesn't identify the origin path -- which must be known, in
+    order to identify the attributes' types, which are required to be known in order to iterate
+    through the response items...  Just parse it as raw data.  So, we'll return the reply as an
+    opaque .data array."""
+    srvc			= USINT(		 	context='service' )
+    srvc[True]	 	= rsvd	= octets_drop(	'reserved',	repeat=1 )
+    rsvd[True]		= stts	= status()
+    stts[True]			= typed_data( 			context=Object.GA_LST_CTX,
+                                                tag_type=UINT.tag_type,
+                                                terminal=True )
+    stts[None]			= octets_noop(	'nodata',
+                                                terminal=True )
+    return srvc
+
+Object.register_service_parser( number=Object.GA_LST_RPY, name=Object.GA_LST_NAM + " Reply",
+                                short=Object.GA_LST_CTX, machine=__get_attribute_list_reply() )
 
 def __get_attribute_single():
     srvc			= USINT(		 	context='service' )
@@ -1009,7 +1346,7 @@ def __get_attribute_single():
     mark.initial[None]		= move_if( 	'mark',		initializer=True )
     return srvc
 
-Object.register_service_parser( number=Object.GA_SNG_REQ, name=Object.GA_SNG_NAM, 
+Object.register_service_parser( number=Object.GA_SNG_REQ, name=Object.GA_SNG_NAM,
                                 short=Object.GA_SNG_CTX, machine=__get_attribute_single() )
 def __get_attribute_single_reply():
     srvc			= USINT(		 	context='service' )
@@ -1022,7 +1359,7 @@ def __get_attribute_single_reply():
                                                 terminal=True )
     return srvc
 
-Object.register_service_parser( number=Object.GA_SNG_RPY, name=Object.GA_SNG_NAM + " Reply", 
+Object.register_service_parser( number=Object.GA_SNG_RPY, name=Object.GA_SNG_NAM + " Reply",
                                 short=Object.GA_SNG_CTX, machine=__get_attribute_single_reply() )
 
 def __set_attribute_single():
@@ -1033,7 +1370,7 @@ def __set_attribute_single():
                                                 terminal=True )
     return srvc
 
-Object.register_service_parser( number=Object.SA_SNG_REQ, name=Object.SA_SNG_NAM, 
+Object.register_service_parser( number=Object.SA_SNG_REQ, name=Object.SA_SNG_NAM,
                                 short=Object.SA_SNG_CTX, machine=__set_attribute_single() )
 
 def __set_attribute_single_reply():
@@ -1045,7 +1382,7 @@ def __set_attribute_single_reply():
     mark.initial[None]		= move_if( 	'mark',		initializer=True )
     return srvc
 
-Object.register_service_parser( number=Object.SA_SNG_RPY, name=Object.SA_SNG_NAM + " Reply", 
+Object.register_service_parser( number=Object.SA_SNG_RPY, name=Object.SA_SNG_NAM + " Reply",
                                 short=Object.SA_SNG_CTX, machine=__set_attribute_single_reply() )
 
 
@@ -1080,6 +1417,44 @@ class Identity( Object ):
 	        default=self.config_int(     'Configuration Consistency Value', 0 ))
             self.attribute['10']= Attribute( 'Heartbeat Interval',	USINT,
                 default=self.config_int(     'Heartbeat Interval', 		0 ))
+
+
+class Logical_Segments( Object ):
+    """See:
+    https://literature.rockwellautomation.com/idc/groups/literature/documents/pm/1756-pm020_-en-p.pdf
+    for an exapmple of how to read attributes from this class via Get_Attribute_List.  It is
+    recommended here: http://www.plctalk.net/qanda/showthread.php?t=85521 and on pp59 of 1756-pm020 to:
+
+        For client applications, use the Get_Attribute_List service to periodically retrieve
+        attributes 1, 2, 3, 4 and 10 of class 0xAC in the controller. If the value of these
+        attributes changes between reads, the client application must refresh the:
+        - List of symbols
+        - Association between symbols and templates
+        - Template information.
+
+    No further information on the meaning of the attributes of class 0xAC is available anywhere that
+    I have been able to find.  Here are some values for some of these attributes from a C*Logix PLC:
+    """
+    class_id			= 0xAC
+
+    def __init__( self, name=None, **kwds ):
+        super( Logical_Segments, self ).__init__( name=name, **kwds )
+
+        if self.instance_id == 0:
+            # Extra Class-level Attributes
+            pass
+        else:
+            # Instance Attributes (these example defaults are from a Rockwell Logix PLC)
+            self.attribute['1']	= Attribute( 'Attribute 1', 		INT,
+	        default=self.config_int(     'Attribute 1',			0x0005 ))
+            self.attribute['2']	= Attribute( 'Attribute 2', 		INT,
+	        default=self.config_int(     'Attribute 2',			0x0002 ))
+            self.attribute['3']	= Attribute( 'Attribute 3',		UDINT,
+	        default=self.config_int(     'Attribute 3',			0xC580B203 ))
+            self.attribute['4']	= Attribute( 'Attribute 4',	 	UDINT,
+	        default=self.config_int(     'Attribute 4',			0xC580B203 ))
+            self.attribute['10']= Attribute( 'Attribute 10', 		UDINT,
+	        default=self.config_int(     'Attribute 10',			0xB847DEF8))
 
 
 class TCPIP( Object ):
@@ -1173,20 +1548,23 @@ class Message_Router( Object ):
 
     MULTIPLE_NAM		= "Multiple Service Packet"
     MULTIPLE_CTX		= "multiple"
-    MULTIPLE_REQ		= 0x0a
+    MULTIPLE_REQ		= 0x0A
     MULTIPLE_RPY		= MULTIPLE_REQ | 0x80
 
     ROUTE_FALSE			= 0	# Return False if invalid route
     ROUTE_RAISE			= 1	# Raise an Exception if invalid route
 
     def route( self, data, fail=ROUTE_FALSE ):
-        """If the request is not for this object, return the target, else None.  On invalid route (no such
-        object found), either raise Exception or return False.  Thus, we're returning a non-truthy
-        value iff not routing to another object, OR if the route was invalid.
+        """If the request has a .path and is not for this object, return the target, else None.  On
+        invalid route (no such object found), either raise Exception or return False.  Thus, we're
+        returning a non-truthy value iff not routing to another object, OR if the route was invalid.
 
         """
+        target			= None
+        if 'path' not in data:
+            return target
         try:
-            path, ids, target	= None, None, None
+            path,ids		= None,None
             path		= data.path
             ids			= resolve( path )
             if ( ids[0] == self.class_id and ids[1] == self.instance_id ):
@@ -1203,7 +1581,7 @@ class Message_Router( Object ):
             raise
         return target
 
-    def request( self, data ):
+    def request( self, data, addr=None ):
         """Any exception should result in a reply being generated with a non-zero status.  Fails with
         Exception on invalid route.
 
@@ -1220,13 +1598,12 @@ class Message_Router( Object ):
         individual requests in the payload.
 
         """
-        if ( data.get( 'service' ) == self.MULTIPLE_REQ
-             or 'multiple' in data and data.setdefault( 'service', self.MULTIPLE_REQ ) == self.MULTIPLE_REQ ):
-            # Multiple Service Packet Request
+        if self.MULTIPLE_CTX in data and data.setdefault( 'service', self.MULTIPLE_REQ ) == self.MULTIPLE_REQ:
+            # Multiple Service Packet Request; '.multiple' required
             pass
         else:
             # Not recognized; more generic command?
-            return super( Message_Router, self ).request( data )
+            return super( Message_Router, self ).request( data, addr=addr )
 
         # It is a Multiple Service Packet request; turn it into a reply.  Any exception processing
         # one of the sub-requests will fail this request; normally, the sub-request should just
@@ -1235,9 +1612,6 @@ class Message_Router( Object ):
         data.service	       |= 0x80
         try:
             data.status		= 0x16			# Object does not exist, if path invalid
-            data.pop( 'status_ext', None )
-            # If no data.path, default to self; If path, None if target is self.  Otherwise, an
-            # invalid path with raise Exception.
             target		= None
             if 'path' in data:
                 target		= self.route( data, fail=self.ROUTE_RAISE )
@@ -1246,17 +1620,24 @@ class Message_Router( Object ):
             if target is None:
                 target		= self
 
-            data.status		= 8			# Service not supported, if anything blows up
-            if log.isEnabledFor( logging.DETAIL ):
-                log.detail( "%s Parsed  on %s: %s", self, target, enip_format( data ))
+            if data.service == self.MULTIPLE_RPY:
+                data.pop( 'status_ext', None )
+                # If no data.path, default to self; If path, None if target is self.  Otherwise, an
+                # invalid path with raise Exception.
 
-            # We have a fully parsed Multiple Service Packet request, including sub-requests
-            # Now, convert each sub-request into a response.
-            for r in data.multiple.request:
+                data.status	= 8			# Service not supported, if anything blows up
                 if log.isEnabledFor( logging.DETAIL ):
-                    log.detail( "%s Process on %s: %s", self, target, enip_format( r ))
-                target.request( r )
-            data.status		= 0x00
+                    log.detail( "%s Parsed  on %s: %s", self, target, enip_format( data ))
+
+                # We have a fully parsed Multiple Service Packet request, including sub-requests
+                # Now, convert each sub-request into a response.
+                for r in data.multiple.request:
+                    if log.isEnabledFor( logging.DETAIL ):
+                        log.detail( "%s Process on %s: %s", self, target, enip_format( r ))
+                    target.request( r, addr=addr )
+                data.status	= 0x00
+            else:
+                raise AssertionError( "Unknown service code %s" % data.service )
 
         except Exception as exc:
             # On Exception, if we haven't specified a more detailed error code, return General
@@ -1267,7 +1648,7 @@ class Message_Router( Object ):
                          ( self.service[data.service]
                            if 'service' in data and data.service in self.service
                            else "(Unknown)"), exc, enip_format( data ),
-                         ( '' if log.getEffectiveLevel() >= logging.NORMAL
+                         ( '' if log.getEffectiveLevel() >= logging.NORMAL # is at/below NORMAL
                            else ''.join( traceback.format_exception( *sys.exc_info() ))))
             assert data.status, \
                 "Implementation error: must specify non-zero .status before raising Exception!"
@@ -1347,8 +1728,7 @@ class Message_Router( Object ):
 
         """
         result			= b''
-        if ( data.get( 'service' ) == cls.MULTIPLE_REQ
-             or 'multiple' in data and data.setdefault( 'service', cls.MULTIPLE_REQ ) == cls.MULTIPLE_REQ ):
+        if cls.MULTIPLE_CTX in data and data.setdefault( 'service', cls.MULTIPLE_REQ ) == cls.MULTIPLE_REQ:
             offsets		= []
             reqdata		= b''
             for r in reversed( data.multiple.request ):
@@ -1363,10 +1743,10 @@ class Message_Router( Object ):
             for o in offsets:
                 result	       += UINT.produce( 	2 + 2 * len( offsets ) + o )
             result	       += reqdata
-        elif data.get( 'service' ) == cls.MULTIPLE_RPY:
+        elif data.get( 'service' ) == cls.MULTIPLE_RPY: # If error status, no '.multiple' required
             # Collect up all (already produced) request results stored in each request[...].input
             result	       += USINT.produce(	data.service )
-            result	       += USINT.produce(	0x00 )	# fill
+            result	       += b'\x00' # reserved
             result	       += status.produce(	data )
             if data.status == 0x00:
                 offsets		= []
@@ -1385,11 +1765,11 @@ class Message_Router( Object ):
         return result
 
 class state_multiple_service( automata.state ):
-    """Find the specified target Object parser via the path specified, defaulting to the Message Router's parser (if any) in
-    play (eg. to parse reply), or the Logix' parser if no path (ie. we're just parsing a reply).
-    This requires that a Message_Router derived class has been instantiated that understands all
-    protocol elements that could be included in the Multiple Service Packet response (if the
-    EtherNet/IP dialect is not Logix)
+    """Find the specified target Object parser via the path specified, defaulting to the Message
+    Router's parser (if any) in play (eg. to parse reply), or the Logix' parser if no path
+    (ie. we're just parsing a reply).  This requires that a Message_Router derived class has been
+    instantiated that understands all protocol elements that could be included in the Multiple
+    Service Packet response (if the EtherNet/IP dialect is not Logix)
 
     """
     def terminate( self, exception, machine, path, data ):
@@ -1462,8 +1842,9 @@ class state_multiple_service( automata.state ):
                 req.input	= reqdata[beg:end]
                 with target.parser as machine:
                     source	= automata.peekable( req.input )
-                    for m,s in machine.run( source=source, data=req ):
-                        pass
+                    with contextlib.closing( machine.run( source=source, data=req )) as engine:
+                        for m,s in engine:
+                            pass
                     assert machine.terminal, \
                         "%s: Failed to parse Multiple Service Packet request %d" % (
                             machine.name_centered(), oi )
@@ -1479,7 +1860,7 @@ class state_multiple_service( automata.state ):
             closure()
         if log.isEnabledFor( logging.DETAIL ):
             log.detail( "%s Parsed: %s", target, enip_format( data ))
-                   
+
 def __multiple():
     """Multiple Service Packet request.  Parses only the header and .number, .offsets[...]; the
     remainder of the payload is the encapsulated requests, each of which must be parsed by the
@@ -1520,7 +1901,7 @@ def __multiple_reply():
     """Multiple Service Packet reply.  We could make use of Message_Router.parser to decode the payload
     contents.  This is, strictly speaking, not correct -- if the original target path specifies
     an object that understands different Services (very likely), our parser may not have the
-    capability to decode. 
+    capability to decode.
 
     Therefore, we look for an indication of that target object to be provided in data.target.  If
     provided, we will use it to decode the payload requests.
@@ -1535,7 +1916,7 @@ def __multiple_reply():
     numr			= UINT(		'number',	context='multiple', extension='.number' )
     schk[None]			= automata.decide( 'ok',	state=numr,
         predicate=lambda path=None, data=None, **kwds: data[path+'.status' if path else 'status'] == 0x00 )
-    
+
     # Prepare a state-machine to parse each UINT into .UINT, and move it onto the .offsets list
     off_			= UINT(		'offset',	context='multiple', extension='.UINT' )
     off_[None]			= move_if( 	'offset',	source='.multiple.UINT',
@@ -1554,7 +1935,7 @@ def __multiple_reply():
     # If target Object can be found, decode the request payload
     reqd[None]			= state_multiple_service( 'requests',
                                              terminal=True )
-   
+
     return srvc
 Message_Router.register_service_parser( number=Message_Router.MULTIPLE_RPY, name=Message_Router.MULTIPLE_NAM + " Reply",
                                         short=Message_Router.MULTIPLE_CTX, machine=__multiple_reply() )
@@ -1586,19 +1967,215 @@ class Connection_Manager( Object ):
     We assume that the Message Router will convert the .request to a Response and fill it its .input
     with the encoded response.
 
+    It also handles process of Forward Open requests.
+
     """
     class_id			= 0x06
 
-    UC_SND_REQ			= 0x52 		# Unconnected Send
-    FW_OPN_REQ			= 0x54		# Forward Open (unimplemented)
-    FW_CLS_REQ			= 0x4E		# Forward Close (unimplemented)
+    # We only understand our own services; don't inherit from CIP Object (nor support
+    # post-processing of Multiple Service Packet closures)
+    service			= {} # Service number/name mappings
+    transit			= {} # Symbol to transition to service parser on
+    lock			= threading.Lock()
+    parser			= automata.dfa( service, initial=automata.state( 'CM svc' ),
+                                                terminal=True )
 
-    def request( self, data ):
-        """
-        Handles an unparsed request.input, parses it and processes the request with the Message Router.
-        
+    # A simple parser that parses only the .service and .path of a request, for routing purposes.
+    srvc			= USINT(	context='service' )
+    srvc[True]			= EPATH(	context='path',
+                                                terminal=True )
+    parser_service_path		= cpppo.dfa( 'target', initial=srvc, terminal=True )
+
+    FWD_OPEN_NAM		= "Forward Open"
+    FWD_OPEN_CTX		= "forward_open"
+    FWD_OPEN_REQ		= 0x54
+    FWD_OPEN_RPY		= FWD_OPEN_REQ | 0x80
+
+    FWD_CLOS_NAM		= "Forward Close"
+    FWD_CLOS_CTX		= "forward_close"
+    FWD_CLOS_REQ		= 0x4E
+    FWD_CLOS_RPY		= FWD_CLOS_REQ | 0x80
+
+    # Keep track of each Originating peer by a unique triplet, to its defined Forward Open data, and
+    # the resultant implicit connection to its ultimate Target (or None, if this is the Target --
+    # there is only 1 more address left in the connection_path)
+    forwards			= {}	# vendor,serial,connection_serial --> <forward_open request>,<implicit connection>|None
+
+    def forward_open( self, data, addr ):
+        """Pretty much only the Connection Manager knows how to handle a Forward Open.  It'll come back to
+        us, for typical Forward Open requests with a path @0x02/1.  The Message_Router will
+        typically process the request, locate the Connection_Manager by its address, and dispatch
+        the forward_open request.
+
+        Dispatch a parsed Forward Open request, converting the 'data' dotdict contents to an
+        appropriate response.  Particularly, ensure that data.status reflects the CIP error status
+        of the request.
+
+        This base class implementation does nothing but report success (returning the appropriate
+        bits of the request, and pick a random T->O Connection ID.
+
+        Subsequent requests coming in on this connection need to be routed to this connection_path.
+
+        TODO: The UCMM or the Connection_Manager needs to handle the establishment of connections to
+        the targets of a route_path (for Unconnected requests) and/or a connection_path (for
+        Connected requests).
 
         """
+        def connection_type( NCP ):
+            return ', '.join( (('%d-Byte' % ( NCP & 0x01FF )),
+                               ('Fixed','Variable')[NCP >> 8 & 0b1],
+                               ('Low Prio.','High Prio.','Scheduled','Urgent' )[NCP >> 10 & 0b11],
+                               ('Null','Multicast','Point-to-Point','Reserved')[NCP >> 13 & 0b11],
+                               ('Exclusive','Redundant')[NCP >> 55 & 0b1]) )
+
+        fo			= data.forward_open
+        fo.O_T_API		= fo.O_T_RPI
+        fo.T_O_API		= fo.T_O_RPI
+
+        # TODO: Only if we're the Target (final hop)! Otherwise, pass thru via implicit connection's Forward Open request/reply.
+        if fo.O_T_NCP >> 13 & 0b11 == 0b10: # Originator -> Target is Point-to-Point: Target picks connection ID
+            fo.O_T_connection_ID=  random.randint( 0, 2**32-1 )
+        if fo.T_O_NCP >> 13 & 0b11 == 0b01: # Target -> Originator is Multicast: Target picks connection ID
+            fo.T_O_connection_ID=  random.randint( 0, 2**32-1 )
+        if log.isEnabledFor( logging.DETAIL ):
+            log.detail( "%s Forward Open from %s:%s O->T: %s, T->O: %s: %s", self, addr[0], addr[1],
+                        connection_type( fo.O_T_NCP ), connection_type( fo.T_O_NCP ),
+                        enip_format( data ) if log.isEnabledFor( logging.INFO )
+                        else ", ".join( " ".join( "%s: %r" % ( k, v ) for k,v in s.items() )
+                                        for s in data.forward_open.connection_path.segment ))
+        # Every Forward Open must present a unique vendor/serial/connection_serial.  If its already
+        # set up, and the exact same Forward Open connection parameters were used (same connection
+        # being re-opened), signal success. However: each Connected session request only comes with
+        # a copy of the O_T_connection_ID, which is *not* generated by the Target! Thus, no
+        # information present in each request is sufficient to uniquely identify the carry-on
+        # connection to use.  The peer (addr,O_T_connection_ID) is sufficiently unique: each
+        # incoming TCP/IP session can carry one or more Forward Open request(s), each of which must
+        # have a unique O_T_connection_ID.  Later, each CIP request must carry a CPF.item[0]
+        # containing the O_T_connection_ID.
+
+        triplet			= fo.O_vendor,fo.O_serial,fo.connection_serial
+        unique			= addr[0],addr[1],fo.O_T_connection_ID # eg ("1.2.3.4",12345,234567)
+        if unique in self.forwards:
+            ufo,uci		= self.forwards[unique]
+            assert all( ufo.getattr( a ) == fo.getattr( a )
+                        for a in ( 'O_T_NCP', 'O_T_RPI', 'T_O_NCP', 'T_O_RPI', 'transport_class_triggers', 'connection_path' )), \
+                "Already have an incompatible Forward Open from device Vendor: %s, Serial: %s, Connection Serial: %s" % triplet
+        else:
+            # TODO: Create an implicit connection w/ remainder of connection_path
+            if fo.connection_path.segment and hasattr( fo.connection_path.segment[0], 'port' ):
+                via,to		= fo.connection_path.segment[0],fo.connection_path.segment[1:]
+                log.detail( "Establishing an implicit connection for %s:%s (O->T ID: %s) via: %r to: %r",
+                            unique[0], unique[1], unique[2], via, to )
+            self.forwards[unique] = fo,None # <forward_open>,<connection>
+
+    def forward_close( self, data, addr ):
+        """Convert the data into a forward_close response; nothing to do. Remove any matching self..forwards
+        entry.  We do not have an O_T_connection_ID, just a connection_serial. Since we store the
+        forwards addr[0],addr[1],O_T_connection_ID to speed lookups while processing Connected
+        requests, we need to iterate all self.forwards 'til we find the one with matching key
+        addr[0],addr[1],* having a matching connection_serial.
+
+        Furthermore, when a connection closes, we want to purge all self.forwards established via
+        that connection. If an empty/None data is provided, purge them all.
+
+        """
+        if log.isEnabledFor( logging.DETAIL ):
+            log.detail( "%s Forward Close: %s", self,
+                        "<all>" if not data
+                        else enip_format( data ) if log.isEnabledFor( logging.INFO )
+                        else", ".join( " ".join( "%s: %r" % ( k, v ) for k,v in s.items() )
+                                        for s in data.forward_close.connection_path.segment ))
+        for k in list( self.forwards.keys() ): # we'll be mutating the dict...
+            if (addr[0],addr[1]) != k[:2]:
+                continue
+            ufo,uci		= self.forwards[k]
+            if not data or data.forward_close.connection_serial == ufo.connection_serial:
+                logging.detail( "Closing Connected Session %s w/ connection_serial == %s", k, ufo.connection_serial )
+                del self.forwards[k]
+
+    def request( self, data, addr=None ):
+        """Handles an unparsed request.input, parses it and processes the request with the Message
+        Router @6/1 (probably). Must parse the .service code and .path to know for certain what the
+        target is. Some encapsulated service requests (eg. Forward Open) actually target the
+        Connection_Manager @2/1.  Each CIP request should always start with the SINT Service Code
+        followed by an EPATH.
+
+        For Connected sessions (w/ an O_T_connection_ID in CFP.items[0]), we don't need to parse an
+        EPATH from the incoming request -- it will have been provided by the Forward Open and
+        available in the self.forwards. This is necessary, for when the target Object doesn't
+        actually parse CIP requests (ie. ones with a service number and EPATH at the start, but some
+        other command format, such as PCCC/DF1).  These kind of Objects can only be accessed by
+        Connected (Forward Open) sessions, which have established the final destination Object.
+
+        Thus, this request method for Connection Manager objects accept an additional, optional 3rd
+        element in the 'addr' keyword parameter: <host>,<port>,<T_O_connection_ID>.  If supplied,
+        then we'll either route the request via the matching "implicit" connection, or get the
+        target local Object's ID from the self.forwards dict.
+
+        """
+        if not data:
+            # Empty requests, indicates the termination of a session. Clean up all matching self.forward
+            self.forward_close( data, addr=addr )
+            return
+
+        if (   self.FWD_OPEN_CTX in data and data.setdefault( 'service', self.FWD_OPEN_REQ ) == self.FWD_OPEN_REQ
+            or self.FWD_CLOS_CTX in data and data.setdefault( 'service', self.FWD_CLOS_REQ ) == self.FWD_CLOS_REQ ):
+            # The only request a Connection Manager handles directly is the Forward Open/Close.
+            try:
+                # Forward Open.  Parsed here (until we get proper "split" parsing for CIP requests,
+                # where service and EPATH is parsed centrally, then remainder of parsering is
+                # dispatched to the correct target Object?)  The Message Router will normally
+                # forward it here to the Connection Manager (where it was addressed) to be handled.
+                data.service   |= 0x80
+                data.status	= 8			# Service not supported, if anything blows up
+                if data.service == self.FWD_OPEN_RPY:
+                    self.forward_open( data, addr=addr )
+                else:
+                    self.forward_close( data, addr=addr )
+                data.status	= 0
+            except Exception as exc:
+                # On Exception, if we haven't specified a more detailed error code, return General
+                # Error.  Remember: 0x06 (Insufficent Packet Space) is a NORMAL response to a successful
+                # Read Tag Fragmented that returns a subset of the requested data.
+                log.normal( "%r Service 0x%02x %s failed with Exception: %s\nRequest: %s\n%s", self,
+                             data.service if 'service' in data else 0,
+                             ( self.service[data.service]
+                               if 'service' in data and data.service in self.service
+                               else "(Unknown)"), exc, enip_format( data ),
+                             ( '' if log.getEffectiveLevel() >= logging.NORMAL # is at/below NORMAL
+                               else ''.join( traceback.format_exception( *sys.exc_info() ))))
+                assert data.status, \
+                  "Implementation error: must specify non-zero .status before raising Exception!"
+
+            # Always produce a response payload; if a failure occurred, will contain an error status
+            if log.isEnabledFor( logging.DETAIL ):
+                log.detail( "%s Response: Service 0x%02x %s %s", self,
+                            data.service if 'service' in data else 0,
+                            ( self.service[data.service]
+                              if 'service' in data and data.service in self.service
+                              else "(Unknown)"), enip_format( data ))
+            data.input		= bytearray( self.produce( data ))
+            return True
+
+        # See if it's a "Connected" request to a remote Target via self.forwards.  If remote, send
+        # the request. If local, get the targetpath from self.forwards.
+        targetpath		= cpppo.dotdict()
+        if addr in self.forwards:
+            ufo,uci		= self.forwards[addr]
+            if uci:
+                # TODO: use connected_send to transmit request, get reply, using T_O_connection_ID in addr[2].
+                assert False, "Remote Connected requests not yet handled"
+                return True
+            # A Connected request to a local Object.
+            targetpath.path	= ufo.connection_path
+            # TODO: No need to discard leading port/link segments, once we're handling remote
+            # Connected requests; only a single CIP Object address will remain.
+            while targetpath.path and hasattr( targetpath.path.segment[0], 'port' ):
+                targetpath.path.segment.pop( 0 )
+
+        # Must be an Unconnected Send (Send RR Data, 0x52) or a Connected Send (Send Unit Data) to a
+        # local Object (now in targetpath.path).
+
         # We don't check for Unconnected Send 0x52, because replies (and some requests) don't
         # include the full wrapper, just the raw command.  This is quite confusing; especially since
         # some of the commands have the same code (eg. Read Tag Fragmented, 0x52).  Of course, their
@@ -1606,25 +2183,37 @@ class Connection_Manager( Object ):
         # .command, and simply copies the encapsulated request.input as the response payload.  We
         # don't encode the response here; it is done by the UCMM.
         assert 'request' in data and 'input' in data.request, \
-            "Unconnected Send message with absent or empty request"
-        if log.isEnabledFor( logging.INFO ):
-            log.info( "%s Request: %s", self, enip_format( data ))
+            "%s message with absent or empty request: %s\nvia: %s" % (
+                "Connected Send" if targetpath  else "Unconnected Send",
+                enip_format( data ), ''.join( traceback.format_stack() ))
 
-        #log.info( "%s Parsing: %s", self, enip_format( data.request ))
-        # Get the Message Router to parse and process the request into a response, producing a
-        # data.request.input encoded response, which we will pass back as our own encoded response.
-        MR			= lookup( class_id=0x02, instance_id=1 )
-        source			= automata.rememberable( data.request.input )
-        try: 
-            with MR.parser as machine:
-                for i,(m,s) in enumerate( machine.run( path='request', source=source, data=data )):
-                    pass
-                    #log.detail( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %s",
-                    #            machine.name_centered(), i, s, source.sent, source.peek(),
-                    #            repr( data ) if log.getEffectiveLevel() < logging.DETAIL else misc.reprlib.repr( data ))
+        # Get the target object (usually a Message Router) to parse and process the request into a
+        # response, producing a data.request.input encoded response, which we will pass back as our
+        # own encoded response. Note that we assume, here, that we are dealing with CIP Requests
+        # (ie. a .service code without bit 0x80 set), thus always followed by an EPATH.
+        try:
+            if not targetpath: # Not required for "Connected" requests; otherwise, parse request EPATH
+                source		= automata.rememberable( data.request.input )
+                with self.parser_service_path as machine:
+                    with contextlib.closing( machine.run( source=source, data=targetpath )) as engine:
+                        for i,(m,s) in enumerate( engine ):
+                            pass
+            if log.isEnabledFor( logging.DETAIL ):
+                log.detail( "%s Routing request to target Object at address %s", self, enip_format( targetpath ))
+            # We have the service and path. Find the target Object (see state_multiple_service.closure)
+            ids			= resolve( targetpath.path )
+            target		= lookup( *ids )
+            assert target, "Unknown CIP Object in request: %s" % ( enip_format( targetpath ))
+            source		= automata.rememberable( data.request.input )
+            with target.parser as machine:
+                with contextlib.closing( machine.run( path='request', source=source, data=data )) as engine:
+                    for i,(m,s) in enumerate( engine ):
+                        pass
+                        #log.detail( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %s",
+                        #            machine.name_centered(), i, s, source.sent, source.peek(),
+                        #            repr( data ) if log.getEffectiveLevel() < logging.DETAIL else misc.reprlib.repr( data ))
 
-            #log.info( "%s Executing: %s", self, enip_format( data.request ))
-            MR.request( data.request )
+            target.request( data.request, addr=addr )
         except:
             # Parsing failure.  We're done.  Suck out some remaining input to give us some context.
             processed		= source.sent
@@ -1639,3 +2228,258 @@ class Connection_Manager( Object ):
         if log.isEnabledFor( logging.INFO ):
             log.info( "%s Response: %s", self, enip_format( data ))
         return True
+
+    @classmethod
+    def produce( cls, data ):
+        result			= b''
+        if cls.FWD_OPEN_CTX in data and data.setdefault( 'service', cls.FWD_OPEN_REQ ) == cls.FWD_OPEN_REQ:
+            result	       += USINT.produce( data.service )
+            result	       += EPATH.produce( data.path )
+            fo			= data.forward_open
+            result	       += USINT.produce( fo.priority_time_tick )
+            result	       += USINT.produce( fo.timeout_ticks )
+            result	       += UDINT.produce( fo.O_T_connection_ID )
+            result	       += UDINT.produce( fo.T_O_connection_ID )
+            result	       += UINT.produce( fo.connection_serial )
+            result	       += UINT.produce( fo.O_vendor )
+            result	       += UDINT.produce( fo.O_serial )
+            result	       += USINT.produce( fo.connection_timeout_multiplier )
+            result	       += b'\x00' * 3 # reserved
+            result	       += UDINT.produce( fo.O_T_RPI )
+            result	       += WORD.produce( fo.O_T_NCP )
+            result	       += UDINT.produce( fo.T_O_RPI )
+            result	       += WORD.produce( fo.T_O_NCP )
+            result	       += USINT.produce( fo.transport_class_triggers )
+            result	       += EPATH.produce( fo.connection_path )
+
+        elif data.get( 'service' ) == cls.FWD_OPEN_RPY:
+            result	       += USINT.produce( data.service )
+            result	       += b'\x00' # reserved
+            result	       += status.produce( data )
+            fo			= data.forward_open
+            if data.status == 0x00:
+                result	       += UDINT.produce( fo.O_T_connection_ID )
+                result	       += UDINT.produce( fo.T_O_connection_ID )
+                result	       += UINT.produce( fo.connection_serial )
+                result	       += UINT.produce( fo.O_vendor )
+                result	       += UDINT.produce( fo.O_serial )
+                result	       += UDINT.produce( fo.O_T_API )
+                result	       += UDINT.produce( fo.T_O_API )
+
+                # The forward_open.application data in the reply is typed data, by default USINT.  It
+                # must be an even number of bytes, so pad it out if not.
+                app			= fo.setdefault( 'application', dotdict() )
+                if 'data' not in app:
+                    app.data	= []
+                if app.data:
+                    # Something has been provided
+                    if 'type' not in app and 'tag_type' not in app:
+                        app.tag_type= USINT.tag_type
+                    app.input	= typed_data.produce( app )
+                    if len( app.input ) % 2:
+                        app.input  += b'\x00'
+                    app.size	= len( app.input ) // 2 # words
+                else:
+                    app.size	= 0
+
+                result	       += USINT.produce( app.size ) # application data size (words)
+                result	       += b'\x00' # pad
+                if app.size:
+                    result     += app.input
+            else:
+                # Failure response; see Vol1_3.15 table 3-5.21
+                result	       += UINT.produce( fo.connection_serial )
+                result	       += UINT.produce( fo.O_vendor )
+                result	       += UDINT.produce( fo.O_serial )
+                if 'remaining_path_size' in fo: # iff "routing type errors"; # words in original route path
+                    result     += USINT.produce( fo.remaining_path_size )
+                    result     += b'\x00' # reserved
+
+        elif cls.FWD_CLOS_CTX in data and data.setdefault( 'service', cls.FWD_CLOS_REQ ) == cls.FWD_CLOS_REQ:
+            result	       += USINT.produce( data.service )
+            result	       += EPATH.produce( data.path )
+            fc			= data.forward_close
+            result	       += USINT.produce( fc.priority_time_tick )
+            result	       += USINT.produce( fc.timeout_ticks )
+            result	       += UINT.produce( fc.connection_serial )
+            result	       += UINT.produce( fc.O_vendor )
+            result	       += UDINT.produce( fc.O_serial )
+            result	       += EPATH_padded.produce( fc.connection_path )
+
+        elif data.get( 'service' ) == cls.FWD_CLOS_RPY:
+            result	       += USINT.produce( data.service )
+            result	       += b'\x00' # reserved
+            result	       += status.produce( data )
+            fc			= data.setdefault( 'forward_close', True )
+            if isinstance( fc, dict ): # May be just a failure status code (ie. == True)
+                result	       += UINT.produce( fc.connection_serial )
+                result	       += UINT.produce( fc.O_vendor )
+                result	       += UDINT.produce( fc.O_serial )
+
+                # The forward_close.application data in the reply is typed data, by default USINT.  It
+                # must be an even number of bytes, so pad it out if not.
+                app		= fc.setdefault( 'application', dotdict() )
+                if 'data' not in app:
+                    app.data	= []
+                if app.data:
+                    # Something has been provided
+                    if 'type' not in app and 'tag_type' not in app:
+                        app.tag_type= USINT.tag_type
+                    app.input	= typed_data.produce( app )
+                    if len( app.input ) % 2:
+                        app.input  += b'\x00'
+                    app.size	= len( app.input ) // 2 # words
+                else:
+                    app.size	= 0
+
+                result	       += USINT.produce( app.size ) # application data size (words)
+                result	       += b'\x00' # pad
+                if app.size:
+                    result	       += app.input
+        else:
+            # Connection Manager only recognizes its own services (not the generic CIP Object's)
+            raise RequestUnrecognized( "%s doesn't recognize request/reply format: %r" % ( cls.__name__, data ))
+        return result
+
+
+def __forward_open():
+    """Handle Forward Open request.
+    """
+    srvc			= USINT(	 	context='service' )
+    srvc[True]		= path	= EPATH(		context='path')
+    path[True]		= prio	= USINT(		context='forward_open', extension='.priority_time_tick' )
+    prio[True]		= timo	= USINT(		context='forward_open', extension='.timeout_ticks' )
+    timo[True]		= otid	= UDINT(		context='forward_open', extension='.O_T_connection_ID' )
+    otid[True]		= toid	= UDINT(		context='forward_open', extension='.T_O_connection_ID' )
+    toid[True]		= cser	= UINT(			context='forward_open', extension='.connection_serial' )
+    cser[True]		= ovnd	= UINT(			context='forward_open', extension='.O_vendor' )
+    ovnd[True]		= oser	= UDINT(		context='forward_open', extension='.O_serial' )
+    oser[True]		= tmul	= USINT(		context='forward_open', extension='.connection_timeout_multiplier' )
+    tmul[True]		= rsvd	= octets_drop(		'pad', repeat=3 )
+    rsvd[True]		= otrpi	= UDINT(		context='forward_open', extension='.O_T_RPI' )
+    otrpi[True]		= otncp	= WORD(			context='forward_open', extension='.O_T_NCP' )
+    otncp[True]		= torpi	= UDINT(		context='forward_open', extension='.T_O_RPI' )
+    torpi[True]		= toncp	= WORD(			context='forward_open', extension='.T_O_NCP' )
+    toncp[True]		= tclt	= USINT( 		context='forward_open', extension='.transport_class_triggers' )
+    # 33 bytes from Path to start of Connection Path Size; Connection Path begins on a Word boundary
+    tclt[True]		= cpth	= EPATH(	 	context='forward_open', extension='.connection_path',
+                                                    terminal=True )
+    return srvc
+
+Connection_Manager.register_service_parser( number=Connection_Manager.FWD_OPEN_REQ, name=Connection_Manager.FWD_OPEN_NAM,
+                                            short=Connection_Manager.FWD_OPEN_CTX, machine=__forward_open() )
+
+def __forward_open_reply():
+    srvc			= USINT(	context='service' )
+    srvc[True]		= rsvd	= octets_drop(	'reserved',	repeat=1 )
+    rsvd[True]		= stts	= status()
+    # A minimal Forward Open reply may be just a success/failure status?  Not supported, but we'll parse...
+    stts[None]		= mark	= octets_noop(	'check',context='forward_open',
+                                                terminal=True )
+    mark.initial[None]		= move_if( 	'mark',		initializer=True )
+
+    # Successful reply, if status is 0x00
+    otid			= UDINT(		context='forward_open', extension='.O_T_connection_ID' )
+    otid[True]		= toid	= UDINT(		context='forward_open', extension='.T_O_connection_ID' )
+    toid[True]		= cser	= UINT(			context='forward_open', extension='.connection_serial' )
+    cser[True]		= ovnd	= UINT(			context='forward_open', extension='.O_vendor' )
+    ovnd[True]		= oser	= UDINT(		context='forward_open', extension='.O_serial' )
+    oser[True]		= otapi	= UDINT(		context='forward_open', extension='.O_T_API' )
+    otapi[True]		= toapi	= UDINT(		context='forward_open', extension='.T_O_API' )
+    toapi[True]		= rsiz	= USINT(		context='forward_open', extension='.application_size' )
+    rsiz[True]		= rsvd	= octets_drop(		'pad', repeat=1 )
+
+    # Parse all segments in a sub-dfa limited by the parsed application.size (in words; double) If
+    # the size is zero, we won't be parsing anything; initialize data to [].  Also moves the parsed
+    # .application_size into application.size.  Triggers only if there is data following the pad.
+    def size_data( path=None, data=None, **kwds ):
+        app			= data[path].setdefault( 'application', {} )
+        app.size		= data[path].pop( 'application_size' )
+        octets			= app.size * 2
+        if not octets:
+            app.data		= []
+        return octets
+
+    rsvd[None]			= cpppo.dfa(    'data',		context='forward_open',
+                                                initial=typed_data(
+                                                    context='application', tag_type=USINT.tag_type,
+                                                    terminal=True ),
+                                                limit=size_data,
+                                                terminal=True )
+    # Choose between Successful reply (otid), or if status is not 0x00, fall through and parse Failure reply
+    stts[True]			= automata.decide( 'ok',	state=otid,
+        predicate=lambda path=None, data=None, **kwds: data[path+'.status' if path else 'status'] == 0x00 )
+    stts[True]		= cser	= UINT(			context='forward_open', extension='.connection_serial' )
+    cser[True]		= ovnd	= UINT(			context='forward_open', extension='.O_vendor' )
+    ovnd[True]		= oser	= UDINT(		context='forward_open', extension='.O_serial' )
+    oser[None]			= octets_noop(	'check',
+                                                terminal=True )
+    
+    # Optionally may include a remaining_path_size
+    oser[True]		= rpth	= USINT(		context='forward_open', extension='.remaining_path_size' )
+    rpth[True]		= rsvd	= octets_drop(	'reserved',	repeat=1,
+    						terminal=True )
+
+    return srvc
+
+Connection_Manager.register_service_parser( number=Connection_Manager.FWD_OPEN_RPY, name=Connection_Manager.FWD_OPEN_NAM + " Reply",
+                                            short=Connection_Manager.FWD_OPEN_CTX, machine=__forward_open_reply() )
+
+
+def __forward_close():
+    """Handle Forward Close request.  Note that the Connection Path Size / Connection Path has a pad byte (vs.
+    Forward Open, which does not).
+    """
+    srvc			= USINT(	 	context='service' )
+    srvc[True]		= path	= EPATH(		context='path')
+    path[True]		= prio	= USINT(		context='forward_close', extension='.priority_time_tick' )
+    prio[True]		= timo	= USINT(		context='forward_close', extension='.timeout_ticks' )
+    timo[True]		= cser	= UINT(			context='forward_close', extension='.connection_serial' )
+    cser[True]		= ovnd	= UINT(			context='forward_close', extension='.O_vendor' )
+    ovnd[True]		= oser	= UDINT(		context='forward_close', extension='.O_serial' )
+    # 10 bytes from Path to start of Connection Path Size; a pad byte is required for Connection Path
+    # to begin on a Word boundary.
+    oser[True]		= cpth	= EPATH_padded(	 	context='forward_close', extension='.connection_path',
+                                                    terminal=True )
+    return srvc
+
+Connection_Manager.register_service_parser( number=Connection_Manager.FWD_CLOS_REQ, name=Connection_Manager.FWD_CLOS_NAM,
+                                            short=Connection_Manager.FWD_CLOS_CTX, machine=__forward_close() )
+
+
+def __forward_close_reply():
+    srvc			= USINT(	context='service' )
+    srvc[True]		= rsvd	= octets_drop(	'reserved',	repeat=1 )
+    rsvd[True]		= stts	= status()
+    # A minimal Forward Close reply may be just a success/failure status?  Yes, we've observed these from C*Logix.
+    stts[None]		= mark	= octets_noop(		context='forward_close',
+                                                terminal=True )
+    mark.initial[None]		= move_if( 	'mark',		initializer=True )
+
+    stts[True]		= cser	= UINT(			context='forward_close', extension='.connection_serial' )
+    cser[True]		= ovnd	= UINT(			context='forward_close', extension='.O_vendor' )
+    ovnd[True]		= oser	= UDINT(		context='forward_close', extension='.O_serial' )
+    oser[True]		= rsiz	= USINT(		context='forward_close', extension='.application_size' )
+    rsiz[True]		= rsvd	= octets_drop(		'pad', repeat=1 )
+
+    # Parse all segments in a sub-dfa limited by the parsed application.size (in words; double) If
+    # the size is zero, we won't be parsing anything; initialize data to [].  Also moves the parsed
+    # .application_size into application.size.  Triggers only if there is data following the pad.
+    def size_data( path=None, data=None, **kwds ):
+        app			= data[path].setdefault( 'application', {} )
+        app.size		= data[path].pop( 'application_size' )
+        octets			= app.size * 2
+        if not octets:
+            app.data		= []
+        return octets
+
+    rsvd[None]			= cpppo.dfa(    'data',		context='forward_close',
+                                                initial=typed_data(
+                                                    context='application', tag_type=USINT.tag_type,
+                                                    terminal=True ),
+                                                limit=size_data,
+                                                terminal=True )
+    return srvc
+
+Connection_Manager.register_service_parser( number=Connection_Manager.FWD_CLOS_RPY, name=Connection_Manager.FWD_CLOS_NAM + " Reply",
+                                            short=Connection_Manager.FWD_CLOS_CTX, machine=__forward_close_reply() )

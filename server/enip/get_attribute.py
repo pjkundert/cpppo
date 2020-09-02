@@ -26,7 +26,7 @@ __email__                       = "perry@hardconsulting.com"
 __copyright__                   = "Copyright (c) 2013 Hard Consulting Corporation"
 __license__                     = "Dual License: GPLv3 (or later) and Commercial (see LICENSE)"
 
-__all__				= ['attribute_operations', 'proxy', 'proxy_simple', 'main']
+__all__				= ['attribute_operations', 'proxy', 'proxy_simple', 'proxy_connected', 'main']
 
 
 """Get Attributes (Single/All) interface from a target EtherNet/IP CIP device.
@@ -103,7 +103,7 @@ def attribute_operations( paths, int_type=None, **kwds ):
         if 'instance' in path_end:
             op['method'] = 'get_attributes_all'
             assert 'data' not in op, "All Attributes cannot be operated on using Set Attribute services"
-        elif 'symbolic' in path_end or 'attribute' in path_end or 'element':
+        elif 'symbolic' in path_end or 'attribute' in path_end or 'element' in path_end:
             op['method'] = 'set_attribute_single' if 'data' in op else 'get_attribute_single'
         else:
             raise AssertionError( "Path invalid for Attribute services: %r", op['path'] )
@@ -141,8 +141,8 @@ class proxy( object ):
     an Exception, the caller must signal the enip_proxy to discard the connection, by invoking the
     .close_gateway method.
 
-    The simplest way to ensure that the proxy's gateway is correctly closed, is to use its "context" API, which
-    ensures via's gateway is opened, and that .close_gateway is invoked on Exception:
+    The simplest way to ensure that the proxy's gateway is correctly closed, is to use its "context"
+    API, which ensures via's gateway is opened, and that .close_gateway is invoked on Exception:
     
         via = proxy( 'hostname' )
 
@@ -257,9 +257,9 @@ class proxy( object ):
             yield tag
     
     def __init__( self, host, port=44818, timeout=None, depth=None, multiple=None,
-                  gateway_class=client.connector, route_path=None, send_path=None,
+                  gateway_class=None, route_path=None, send_path=None,
                   priority_time_tick=None, timeout_ticks=None,
-                  identity_default=None, **gateway_kwds ):
+                  identity_default=None, dialect=None, **gateway_kwds ):
         """Capture the desired I/O parameters for the target CIP Device.
 
         By default, the CIP Device will be identified using a List Identity request each time a CIP
@@ -278,7 +278,7 @@ class proxy( object ):
         self.priority_time_tick	= priority_time_tick
         self.timeout_ticks	= timeout_ticks
         self.gateway_kwds	= gateway_kwds	# Any additional args to gateway
-        self.gateway_class	= gateway_class
+        self.gateway_class	= client.connector if gateway_class is None else gateway_class
         self.gateway		= None
         self.gateway_lock	= threading.Lock()
         if isinstance( identity_default, cpppo.type_str_base ):
@@ -286,9 +286,13 @@ class proxy( object ):
         assert not identity_default or hasattr( identity_default, 'product_name' )
         self.identity_default	= identity_default
         self.identity		= identity_default
+        self.dialect		= dialect
 
     def __str__( self ):
         return "%s at %s" % ( self.identity.product_name if self.identity else None, self.gateway )
+
+    def __repr__( self ):
+        return "<%s via %r>" % ( self.__class__.__name__, self.gateway )
 
     def __enter__( self ):
         """Ensures that the gateway is open."""
@@ -298,7 +302,7 @@ class proxy( object ):
     def __exit__( self, typ, val, tbk ):
         """If an Exception occurs, ensures that the gateway is closed."""
         if typ is not None:
-            self.close_gateway()
+            self.close_gateway( exc=val )
         return False
 
     def close_gateway( self, exc=None ):
@@ -308,7 +312,7 @@ class proxy( object ):
             ( log.warning if exc else log.normal )(
                 "Closed EtherNet/IP CIP gateway %s due to: %s%s",
                 self.gateway, exc or "(unknown)",
-                "" if log.getEffectiveLevel() > logging.INFO
+                "" if log.getEffectiveLevel() > logging.INFO # is below INFO
                 else ''.join( traceback.format_exc() ))
             self.gateway	= None
             self.identity	= self.identity_default
@@ -316,20 +320,26 @@ class proxy( object ):
     def open_gateway( self ):
         """Ensure that the gateway is open, in a Thread-safe fashion.  First Thread in creates the
         gateway_class instance and registers a session, and (if necessary) queries the identity of the
-        device -- all under the protection of the gateway_lock Mutex."""
+        device -- all under the protection of the gateway_lock Mutex.  All gateways must use the 
+        same (globally defined) device.dialect, if they specify one."""
+        blocked			= cpppo.timer()
         with self.gateway_lock:
             if self.gateway is None:
+                creating	= cpppo.timer()
                 self.gateway = self.gateway_class(
-                    host=self.host, port=self.port, timeout=self.timeout, **self.gateway_kwds )
+                    host=self.host, port=self.port, timeout=self.timeout, dialect=self.dialect,
+                    **self.gateway_kwds )
+                log.info( "Creating gateway %r connection, after blocking %7.3fs, in %7.3fs",
+                          self.gateway, creating - blocked, cpppo.timer() - creating )
                 if not self.identity:
                     try:
                         rsp,ela = self.list_identity_details()
                         if rsp and rsp.enip.status == 0:
                             self.identity = rsp.enip.CIP.list_identity.CPF.item[0].identity_object
                     except Exception as exc:
-                        self.close_gateway( exc )
+                        self.close_gateway( exc=exc )
                         raise
-                log.normal( "Opened EtherNet/IP CIP gateway %s", self )
+                log.normal( "Opened EtherNet/IP CIP gateway %r, in %7.3fs", self, cpppo.timer() - creating )
 
     def maintain_gateway( function ):
         """A decorator to open the gateway (if necessary), and discard it on any Exception.  Atomically
@@ -577,8 +587,15 @@ class proxy( object ):
             user-supplied type (or None) is provided, data-path is None, and the type is passed.
 
             """
-            for t in typ if is_listlike( typ ) else [ typ ]:
+            for t in ( types if is_listlike( types ) else [ types ] ):
                 d		= None 		# No data-path, if user-supplied type
+                if isinstance( t, int ):
+                    # a CIP type number, eg 0x00ca == 202 ==> 'REAL'.  Look for CIP parsers w/ a
+                    # known tag_type and get the CIP type name string.
+                    for t_str,(t_prs,_) in self.CIP_TYPES.items():
+                        if getattr( t_prs, 'tag_type', None ) == t:
+                            t	= t_str
+                            break
                 if isinstance( t, cpppo.type_str_base ):
                     td		= self.CIP_TYPES.get( t.strip().lower() )
                     assert td, "Invalid EtherNet/IP CIP type name %r specified" % ( t, )
@@ -601,20 +618,36 @@ class proxy( object ):
         # 
         # assert not self.gateway.frame.lock.locked(), \
         #     "Attempting recursive read on %r" % ( self.gateway.frame, )
-        log.info( "Acquiring gateway connection: %s",
-                      "locked" if self.gateway.frame.lock.locked() else "available" )
+        log.info( "Acquiring gateway %r connection: %s", self.gateway,
+                  "locked" if self.gateway.frame.lock.locked() else "available" )
+        blocked			= cpppo.timer()
         with self.gateway as connection: # waits 'til any Thread's txn. completes
+          polling		= cpppo.timer()
+          try:
+            log.info( "Operating gateway %r connection, after blocking %7.3fs", self.gateway, polling - blocked )
             for i,(idx,dsc,req,rpy,sts,val) in enumerate( connection.operate(
                     ( opr for opr,_ in operations ),
                     depth=self.depth, multiple=self.multiple, timeout=self.timeout )):
-                log.detail( "%3d (pkt %3d) %16s %-12s: %r ", 
-                                i, idx, dsc, sts or "OK", val )
+                log.detail( "%3d (pkt %3d) %16s %-12s: %r %s", 
+                                i, idx, dsc, sts or "OK", val,
+                            repr( rpy ) if log.isEnabledFor( logging.INFO ) else '' )
                 opr,(att,typ,uni) = next( attrtypes )
                 if typ is None or sts not in (0,6) or val in (True,None):
-                    # No type conversion; just return whatever type produced by Read Tag.  Also, if
-                    # failure status (OK if no error, or if just not all data could be returned), we
-                    # can't do any more with this value...  Also, if actually a Write Tag or Set
-                    # Attribute ..., then val True/None indicates success/failure (no data returned).
+                    # No type conversion; just return whatever type produced by Read Tag
+                    # [Fragmented] (always a single CIP type parser).
+                    typ_num	= rpy.get( 'read_tag.type' ) or rpy.get( 'read_frag.type' )
+                    if typ_num:
+                        try:
+                            (typ_prs,_), = types_decode( typ_num )
+                            if typ_prs:
+                                typ = typ_prs
+                        except Exception as exc:
+                            log.info( "Couldn't convert CIP type {typ_num}: {exc}".format( 
+                                    typ_num=typ_num, exc=exc ))
+                    # Also, if failure status (OK if no error, or if just not all
+                    # data could be returned), we can't do any more with this value...  Also, if
+                    # actually a Write Tag or Set Attribute ..., then val True/None indicates
+                    # success/failure (no data returned).
                     yield val,(sts,(att,typ,uni))
                     continue
 
@@ -631,7 +664,7 @@ class proxy( object ):
                 source		= cpppo.peekable( bytes( bytearray( val ))) # Python2/3 compat.
                 res		= []
                 typ_is_list	= is_listlike( typ )
-                typ_dat		= list( types_decode( typ if typ_is_list else [typ] ))
+                typ_dat		= list( types_decode( typ ))
                 for t,d in typ_dat:
                     with t() as machine:
                         while source.peek() is not None: # More data available; keep parsing.
@@ -646,9 +679,12 @@ class proxy( object ):
                             break
                 typ_types	= [t for t,_ in typ_dat] if typ_is_list else typ_dat[0][0]
                 yield res,(sts,(att,typ_types,uni))
+          finally:
+            log.info( "Releasing gateway %r connection, after polling  %7.3fs", self.gateway, cpppo.timer() - polling )
 
     # Supply "Tag = <value>" to perform a write.
     write = read
+
 
 class proxy_simple( proxy ):
     """Monitor/Control a simple non-routing CIP device (eg. an AB MicroLogix, AB PowerFlex AC Drive).
@@ -669,6 +705,36 @@ class proxy_simple( proxy ):
             send_path		= ''
         super( proxy_simple, self ).__init__(
             host=host, route_path=route_path, send_path=send_path, **kwds )
+
+
+class proxy_connected( proxy ):
+    """Use a Forward Open to establish an Implicit "Connected" proxy to a remote EtherNet/IP CIP device
+    via the specified Route Path' connection_path'.
+
+    The normal proxy will set up an Explicit connection to the target C*Logix PLC, and then use the
+    supplied route_path with *each* subsequent request/response, requiring the target PLCs to
+    establish communications along the route, perform the request, and then tear down the route.
+    This class will establish a Connected session with the path, and then issue future requests to
+    the already-connected target CIP device.
+
+    We'll collect a set of appropriate Forward Open parameters for the (default) client.implicit
+    connector from the supplied named configuration.
+
+    Load defaults from configuration file.  If no 'host' supplied, we get from 'Address' in
+    configuration If None, the default connection_path will be the backplane slot 1 Connection
+    Manager (0/1/@2/1)
+
+    """
+    def __init__( self, host, gateway_class=client.implicit,
+                  connection_path=None, configuration=None, # new gateway_kwds (above)
+                  **kwds ):
+        """We use a route_path, send_path and connection_path to create the underlying "Implicit" connection."""
+        super( proxy_connected, self ).__init__(
+            host, gateway_class=gateway_class,
+            connection_path=connection_path, configuration=configuration,
+            **kwds )
+        self.route_path		= False
+        self.send_path		= ''
 
 
 def main( argv=None ):

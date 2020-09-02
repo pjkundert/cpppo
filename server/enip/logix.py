@@ -40,7 +40,7 @@ import traceback
 from ...dotdict import dotdict
 from ... import automata, misc
 from .device import ( Object, Attribute,
-                      Message_Router, Connection_Manager, Identity, TCPIP,
+                      Message_Router, Connection_Manager, Identity, TCPIP, Logical_Segments,
                       resolve_element, resolve_tag, resolve, redirect_tag, lookup )
 from . import ucmm
 from .parser import ( BOOL, UDINT, DINT, UINT, INT, USINT, SINT, REAL, EPATH, typed_data,
@@ -225,7 +225,7 @@ class Logix( Message_Router ):
             "Attribute %s ending element before beginning: %r" % ( attribute, (beg, end) )
         return (beg,end,endactual)
 
-    def request( self, data ):
+    def request( self, data, addr=None ):
         """Any exception should result in a reply being generated with a non-zero status."""
 
         # See if this request is for us; if not, route to the correct Object, and return its result.
@@ -236,7 +236,7 @@ class Logix( Message_Router ):
         if target:
             if log.isEnabledFor( logging.DETAIL ):
                 log.detail( "%s Routing to %s: %s", self, target, enip_format( data ))
-            return target.request( data )
+            return target.request( data, addr=addr )
 
         if log.isEnabledFor( logging.DETAIL ):
             log.detail( "%s Request: %s", self, enip_format( data ))
@@ -262,7 +262,7 @@ class Logix( Message_Router ):
             pass
         else:
             # Not recognized; more generic command?
-            return super( Logix, self ).request( data )
+            return super( Logix, self ).request( data, addr=addr )
 
         # It is a recognized request.  Set the data.status to the appropriate error code, should a
         # failure occur at that location during processing.  We will be returning a reply beyond
@@ -439,18 +439,18 @@ class Logix( Message_Router ):
         elif ( data.get( 'service' ) == cls.WR_TAG_RPY
                or data.get( 'service' ) == cls.WR_FRG_RPY ):
             result	       += USINT.produce(	data.service )
-            result	       += USINT.produce(	0x00 )
+            result	       += b'\x00' # reserved
             result	       += status.produce(	data )
         elif data.get( 'service' ) == cls.RD_TAG_RPY:
             result	       += USINT.produce(	data.service )
-            result	       += USINT.produce(	0x00 )	# fill
+            result	       += b'\x00' # reserved
             result	       += status.produce(	data )
             if data.status in (0x00, 0x06):
                 result	       += UINT.produce(		data.read_tag.type )
                 result	       += typed_data.produce(	data.read_tag )
         elif data.get( 'service' ) == cls.RD_FRG_RPY:
             result	       += USINT.produce(	data.service )
-            result	       += USINT.produce(	0x00 )
+            result	       += b'\x00' # reserved
             result	       += status.produce(	data )
             if data.status in (0x00, 0x06):
                 result	       += UINT.produce(		data.read_frag.type )
@@ -583,6 +583,98 @@ Logix.register_service_parser( number=Logix.WR_FRG_RPY, name=Logix.WR_FRG_NAM + 
 
 
 
+def setup_tag( key, val ):
+    """Find (or create) the Tag with the given key, and assign val.attribute or val.error to it."""
+    res				= resolve_tag( key )
+    new				= not res
+    if new:
+        # A new tag!  Allocate a new attribute ID in the Logix (Message Router) by default,
+        # or at the specified path.  If a path specified, find the Object, creating it if it
+        # doesn't exist.  Then, find the Attribute, ensuring it is consistent if it exists.
+        cls,ins,att		= 0x02,1,None # The (Logix?) Message Router, by default
+        if 'path' in val and val['path']:
+            cls,ins,att	= resolve( val['path'], attribute=True )
+        # See if the tag's Instance exists.  If not, we'll need to create it.  If the Class'
+        # "meta" Instance exists, we'll use it to create the Instance (its always at
+        # Instance 0).  Otherwise, we'll create an Object class with the appropriate
+        # class_id to use.
+        instance		= lookup( cls, ins )
+        if instance is None:
+            # Instance doesn't exist; we'll need to instantiate the right Object Class.
+            class_meta		= lookup( cls )
+            if class_meta:
+                class_type 	= class_meta.__class__
+            else:
+                # Nope, no Class "meta" object.  Create class Object on-the-fly, derived
+                # from our Message Router CIP Object's class.  Thus, these dynamically
+                # created Objects will understand all of the esoteric *Logix (or whatever
+                # Message Router's) services (eg. Read Tag [Fragmented]).
+                class_type	= type( 'Class %5d/0x%04X' % ( cls, cls ),
+                                  ( lookup( 0x02, 0 ).__class__,),
+                                  {'class_id': cls} )
+            instance		= class_type( instance_id=ins )
+            log.normal( "Set Tag %-14s%-10s: %-24s Instance %3d created", key,
+                        "@%s/%s/%s" % ( cls, ins, '?' if att is None else att ), instance, ins )
+
+        # We know that the required Instance of the designated Class now exists.  Now, if
+        # we've been given an tag address, see if the attribute is known; use it, if so (and
+        # compatible w/ the supplied one), or use the supplied Attribute.
+        attribute		= None
+        if att: # not None, must be > 0
+            attribute		= lookup( cls, ins, att )
+            if attribute:
+                # The Attribute is known.  Better be consistent w/ the required one!
+                assert attribute.parser.__class__ is val.attribute.parser.__class__ \
+                    and len( attribute ) == len( val.attribute ), \
+                    "Incompatible Attribute types for tag %r: %s and %s" % (
+                        key, attribute, val.attribute )
+        else:
+            # No required Attribute number assigned.  Find the next available one in the
+            # Class Instance.  Start at the largest Attribute index.  Indices are stored as
+            # str, so use 'natural' ordering so they end up sorted numerically.
+            att			= int( sorted( instance.attribute, key=misc.natural )[-1] ) if instance.attribute else 0
+            att                += 1
+
+        if not attribute:
+            # No Attribute found; either specified path but no Attribute yet at that path,
+            # or no specified path. 
+            attribute		= instance.attribute[str(att)] \
+                                = val.attribute
+        log.normal( "Set Tag %-14s%-10s: %-24s Instance Added: %s",
+                    key, "@%s/%s/%s" % ( cls, ins, att ), instance, 
+                    attribute if log.isEnabledFor( logging.INFO ) else misc.reprlib.repr( attribute ))
+
+        # Finally, set tag 'key' to point to the (now existing) Class, Instance, Attribute
+        redirect_tag( key, {'class': cls, 'instance': ins, 'attribute': att })
+        res			= resolve_tag( key )
+    assert res, "Unable to find Tag %r" % ( key )
+
+    # Attribute (now) exists; find it, and make sure its error code is right.  If no error (or it is
+    # Falsey, ie. 0), then assign any different val.attribute provided (ie. if this Attribute left
+    # over from prior configuraiton), or do nothing if we've already just newly configured it above.
+    attribute			= lookup( *res )
+    assert attribute is not None, "Failed to find existing tag: %r" % key
+    if 'error' in val and val['error']:
+        if attribute.error != val['error']:
+            log.warning( "Set Tag %24: Attribute %s error code changed: 0x%02x", key, attribute, val['error'] )
+            attribute.error	= val['error']
+    else:
+        # OK, either a newly set attribute (which may replace some Attribute set up before a
+        # 'lookup_reset'), or replacing an existing Attribute with a new one.  We won't try to
+        # compare values or types; just atomically replace the Instance's Attribute w/ the new one.
+        assert 'attribute' in val, "Failed to provide attribute for %r" % key
+        if val['attribute'] is not attribute:
+            cls,ins,att		= res
+            instance		= lookup( cls, ins )
+            if not new: # if new (since a reset), we don't really care about the old attribute
+                log.detail( "Set Tag %-14s%-10s: %-24s Instance Replacing:   %s", key, "@%s/%s/%s" % res, instance,
+                            attribute if log.isEnabledFor( logging.INFO ) else misc.reprlib.repr( attribute ))
+            log.normal(     "Set Tag %-14s%-10s: %-24s Instance Replaced w/: %s", key, "@%s/%s/%s" % res, instance,
+                        val['attribute'] if log.isEnabledFor( logging.INFO ) else misc.reprlib.repr( val['attribute'] ))
+            instance.attribute[str(att)] \
+                                = attribute
+
+
 def setup( **kwds ):
     """Create the required CIP device Objects (if they don't exist, and the specified class is not
     None), returning UCMM.  First one in initialize, and don't let anyone else proceed 'til
@@ -617,6 +709,11 @@ def setup( **kwds ):
             if tcpip:
                 tcpip( instance_id=1 )		# Class 0xF5, Instance 1
 
+        if not lookup( 0xAC, 1 ):
+            logsegs		= kwds.get( 'logical_segments',		Logical_Segments )
+            if logsegs:
+                logsegs( instance_id=1 )	# Class 0xAC, Instance 1 -- Logical Segments
+
         if not setup.ucmm:
             setup.ucmm		= kwds.get( 'UCMM_class', 		ucmm.UCMM )()
             if setup.ucmm.route_path:
@@ -629,73 +726,7 @@ def setup( **kwds ):
         # tags[name].path is provided, then we'll try to place the Attribute at that path
         # (eg. {'segment':[{'class':123},...]})
         for key,val in dict.items( kwds.get( 'tags', {} )): # Don't want dotdict depth-first iteration...
-            res			= resolve_tag( key )
-            if not res:
-                # A new tag!  Allocate a new attribute ID in the Logix (Message Router) by default,
-                # or at the specified path.  If a path specified, find the Object, creating it if it
-                # doesn't exist.  Then, find the Attribute, ensuring it is consistent if it exists.
-                cls,ins,att	= 0x02,1,None # The (Logix?) Message Router, by default
-                if 'path' in val and val['path']:
-                    cls,ins,att	= resolve( val['path'], attribute=True )
-                # See if the tag's Instance exists.  If not, we'll need to create it.  If the Class'
-                # "meta" Instance exists, we'll use it to create the Instance (its always at
-                # Instance 0).  Otherwise, we'll create an Object class with the appropriate
-                # class_id to use.
-                instance	= lookup( cls, ins )
-                if instance is None:
-                    # Instance doesn't exist; we'll need to instantiate the right Object Class.
-                    class_meta	= lookup( cls )
-                    if class_meta:
-                        class_type = class_meta.__class__
-                    else:
-                        # Nope, no Class "meta" object.  Create class Object on-the-fly, derived
-                        # from our Message Router CIP Object's class.  Thus, these dynamically
-                        # created Objects will understand all of the esoteric *Logix (or whatever
-                        # Message Router's) services (eg. Read Tag [Fragmented]).
-                        class_type= type( 'Class %5d/0x%04X' % ( cls, cls ),
-                                          ( lookup( 0x02, 0 ).__class__,),
-                                          {'class_id': cls} )
-                    instance	= class_type( instance_id=ins )
-                    log.normal( "%-24s Instance %3d created", instance, ins )
-
-                # We know that the required Instance of the designated Class now exists.  Now, if
-                # we've been given an tag address, see if the attribute is known; use it, if so (and
-                # compatible w/ the supplied one), or use the supplied Attribute.
-                attribute	= None
-                if att: # not None, must be > 0
-                    attribute	= lookup( cls, ins, att )
-                    if attribute:
-                        # The Attribute is known.  Better be consistent w/ the required one!
-                        assert attribute.parser.__class__ is val.attribute.parser.__class__ \
-                            and len( attribute ) == len( val.attribute ), \
-                            "Incompatible Attribute types for tag %r: %s and %s" % (
-                                key, attribute, val.attribute )
-                else:
-                    # No required Attribute number assigned.  Find the next available one in the
-                    # Class Instance.  Start at the largest Attribute index.  Indices are stored as
-                    # str, so use 'natural' ordering so they end up sorted numerically.
-                    att		= int( sorted( instance.attribute, key=misc.natural )[-1] ) if instance.attribute else 0
-                    att	       += 1
-
-                if not attribute:
-                    # No Attribute found; either specified path but no Attribute yet at that path,
-                    # or no specified path. 
-                    attribute	= instance.attribute[str(att)] \
-				= val.attribute
-                log.normal( "%-24s Instance %3d, Attribute %3d added: %s", instance, ins, att, attribute )
-
-                # Finally, set tag 'key' to point to the (now existing) Class, Instance, Attribute
-                redirect_tag( key, {'class': cls, 'instance': ins, 'attribute': att })
-                res		= resolve_tag( key )
-            assert res, "Unable to find tag %r" % ( key )
-
-            # Attribute (now) exists; find it, and make sure its error code is right.
-            if 'error' in val:
-                attribute	= lookup( *res )
-                assert attribute is not None, "Failed to find existing tag: %r" % key
-                if attribute.error != val['error']:
-                    log.warning( "Attribute %s error code changed: 0x%02x", attribute, val['error'] )
-                    attribute.error = val['error']
+            setup_tag( key, val )
 
     return setup.ucmm
 
@@ -766,9 +797,17 @@ def process( addr, data, **kwds ):
         # Find the Connection Manager, and use it to parse the encapsulated EtherNet/IP request.  We
         # pass an additional request.addr, to allow the Connection Manager to identify the
         # connection, in the case where the connection is closed spontaneously (no request, no
-        # request.enip.session_handle).
-        data['request.addr']	= addr	  		# data.request may not exist, or be empty
+        # request.enip.session_handle).  We'll pass this along explicitly to every request( ... ).
 
+        # TODO: remove? Some API users may depend on it... Yes; also, we want to retain the ability
+        # to transport in an empty request, indicating the termination of a session! However, we'll
+        # promote an empty data to contain empty data.request, and (hence) empty data.response.
+        # Only transport data.request.addr if data/data.request is not empty.
+        if 'request' not in data:
+            data.request	= {}
+        if data.request:
+            data.request.addr	= addr
+        
         if 'enip' in data.request:
             # Some requests have no encapsulated CIP payload (eg. empty ListServices requests)
             if 'input' in data.request.enip:
@@ -810,7 +849,7 @@ def process( addr, data, **kwds ):
         # with other response.enip... values (eg. .session_handle for a new Register Session).  The
         # enip.status should normally be 0x00; the encapsulated response will contain appropriate
         # error indications if the encapsulated request failed.
-        proceed			= ucmm.request( data.response )
+        proceed			= ucmm.request( data.response, addr=addr )
         if log.isEnabledFor( logging.DETAIL ):
             log.detail( "EtherNet/IP CIP Response (Client %16s): %s", addr, enip_format( data.response ))
 
@@ -823,5 +862,7 @@ def process( addr, data, **kwds ):
         future			= bytes(bytearray( b for b in source ))
         where			= "at %d total bytes:\n%s\n%s (byte %d)" % (
             processed, repr(memory+future), '-' * (len(repr(memory))-1) + '^', pos )
-        log.error( "EtherNet/IP CIP error %s\n", where )
+        log.error( "EtherNet/IP CIP error %s\n%s", where,
+                   ( '' if log.getEffectiveLevel() >= logging.NORMAL
+                     else ''.join( traceback.format_exception( *sys.exc_info() ))))
         raise

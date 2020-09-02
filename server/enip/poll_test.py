@@ -1,3 +1,4 @@
+#! /usr/bin/env python
 from __future__ import absolute_import, print_function, division, unicode_literals
 try:
     from future_builtins import zip, map # Use Python 3 "lazy" zip, map
@@ -17,12 +18,14 @@ import threading
 import pytest
 
 if __name__ == "__main__":
+    # Ensure we always use *this* cpppo Python module during tests, if we're run by a Python interpreter!
     if __package__ is None:
         __package__	= "cpppo.server.enip"
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))))
+    print( "Set sys.path: {path!r}".format( path=sys.path ))
     from cpppo.automata import log_cfg
+    log_cfg['level']	= logging.NORMAL
     logging.basicConfig( **log_cfg )
-    logging.getLogger().setLevel( logging.NORMAL )
 
 from cpppo.dotdict import dotdict
 from cpppo.misc import timer, near
@@ -31,7 +34,6 @@ from cpppo.server import enip, network
 from cpppo.server.enip import poll
 from cpppo.server.enip.ab import powerflex, powerflex_750_series
 
-
 def start_powerflex_simulator( *options, **kwds ):
     """Start a simple EtherNet/IP CIP simulator (execute this file as __main__), optionally with
     Tag=<type>[<size>] (or other) positional arguments appended to the command-line.  Return the
@@ -39,16 +41,21 @@ def start_powerflex_simulator( *options, **kwds ):
 
         11-11 11:46:16.301     7fff7a619000 network  NORMAL   server_mai enip_srv server PID [ 7573] running on ('', 44818)
 
-    containing a repr of the (<host>,<port>) tuple.  Recover this address using the safe ast.literal_eval.
+    containing a repr of the (<host>,<port>) tuple.  Recover this address using the safe
+    ast.literal_eval.  Use the -A to provide this on stdout, or just -v if stderr is redirected to
+    stdout (the default, w/o a stderr parameter to nonblocking_command)
 
     At least one positional parameter containing a Tag=<type>[<size>] must be provided.
 
+    Note that the output of this file's interpreter is not *unbuffered* (above), so we can receive
+    and parse the 'running on ...'!  We assume that server/network.py flushes stdout when printing
+    the bindings.  We could use #!/usr/bin/env -S python3 -u instead to have all output unbuffered.
+
     """
     command                     = nonblocking_command( [
-        'python',
-        os.path.abspath( __file__ ),
-        '-v',
-    ] + list( options ))
+        sys.executable, os.path.abspath( __file__ ),
+        '-a', ':0', '-A', '-p', '-v', '--no-udp',
+    ] + list( options ), stderr=None, bufsize=0, blocking=None )
 
     # For python 2/3 compatibility (can't mix positional wildcard, keyword parameters in Python 2)
     CMD_WAIT			= kwds.pop( 'CMD_WAIT', 10.0 )
@@ -60,17 +67,18 @@ def start_powerflex_simulator( *options, **kwds ):
     data			= ''
     while address is None and timer() - begun < CMD_WAIT:
         # On Python2, socket will raise IOError/EAGAIN; on Python3 may return None 'til command started.
+        raw			= None
         try:
             raw			= command.stdout.read()
             logging.debug( "Socket received: %r", raw)
             if raw:
-                data  	       += raw.decode( 'utf-8' )
+                data  	       += raw.decode( 'utf-8', 'backslashreplace' )
         except IOError as exc:
-            logging.debug( "Socket blocking...")
+            logging.debug( "Socket blocking...: {exc}".format( exc=exc ))
             assert exc.errno == errno.EAGAIN, "Expected only Non-blocking IOError"
         except Exception as exc:
             logging.warning("Socket read return Exception: %s", exc)
-        if not data:
+        if not raw: # got nothing; wait a bit
             time.sleep( CMD_LATENCY )
         while data.find( '\n' ) >= 0:
             line,data		= data.split( '\n', 1 )
@@ -90,7 +98,7 @@ def simulated_powerflex_gateway():
 
 
 def test_powerflex_simple( simulated_powerflex_gateway ):
-    # logging.getLogger().setLevel( logging.INFO )
+    #logging.getLogger().setLevel( logging.INFO )
     command,address             = simulated_powerflex_gateway
     try:
         assert address, "Unable to detect PowerFlex EtherNet/IP CIP Gateway IP address"
@@ -214,8 +222,7 @@ def test_powerflex_poll_failure():
     withstand gateway failures, and robustly continue polling.
 
     """
-    #logging.getLogger().setLevel( logging.NORMAL )
-
+    #logging.getLogger().setLevel( logging.INFO )
     def null_server( conn, addr, server=None ):
         """Fake up an EtherNet/IP server that just sends a canned EtherNet/IP CIP Register and Identity
         string response, to fake the poll client into sending a poll request into a closed socket.

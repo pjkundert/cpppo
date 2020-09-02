@@ -1,5 +1,3 @@
-#! /usr/bin/env python3
-
 # 
 # Cpppo -- Communication Protocol Python Parser and Originator
 # 
@@ -654,8 +652,8 @@ def enip_srv_udp( conn, name, enip_process, **kwds ):
                             brx		= cpppo.timer()
                             msg,frm	= network.recvfrom( conn, timeout=wait )
                             now		= cpppo.timer()
-                            ( log.detail if msg else log.debug )(
-                                "Transaction receive after %7.3fs (%5s bytes in %7.3f/%7.3fs): %r",
+                            if msg and log.isEnabledFor( logging.DETAIL ):
+                                log.detail( "Transaction receive after %7.3fs (%5s bytes in %7.3f/%7.3fs): %r",
                                         now - begun, len( msg ) if msg is not None else "None",
                                         now - brx, wait, stats_for( frm )[0] )
                             # If we're at a None (can't proceed), and we haven't yet received input,
@@ -671,9 +669,9 @@ def enip_srv_udp( conn, name, enip_process, **kwds ):
                         assert stats and not stats.get( 'eof' ), \
                             "Ignoring UDP request from client %r: %r" % ( addr, msg )
                         stats['received']+= len( msg )
-                        if log.getEffectiveLevel() <= logging.DETAIL:
+                        if log.isEnabledFor( logging.DETAIL ):
                             log.detail( "%s recv: %5d: %s", machine.name_centered(),
-                                        len( msg ), cpppo.reprlib.repr( msg ))
+                                        len( msg ), repr( msg ) if log.isEnabledFor( logging.INFO ) else cpppo.reprlib.repr( msg ))
                         source.chain( msg )
 
                 # Terminal state and EtherNet/IP header recognized; process and return response
@@ -694,9 +692,9 @@ def enip_srv_udp( conn, name, enip_process, **kwds ):
                         assert data.response.enip.status, "If no/empty response payload, expected non-zero EtherNet/IP status"
 
                     rpy		= parser.enip_encode( data.response.enip )
-                    if log.getEffectiveLevel() <= logging.DETAIL:
+                    if log.isEnabledFor( logging.DETAIL ):
                         log.detail( "%s send: %5d: %s", machine.name_centered(),
-                                    len( rpy ), cpppo.reprlib.repr( rpy ))
+                                    len( rpy ), repr( rpy ) if log.isEnabledFor( logging.INFO ) else cpppo.reprlib.repr( rpy ))
                     conn.sendto( rpy, addr )
 
                 log.detail( "Transaction complete after %7.3fs", cpppo.timer() - begun )
@@ -773,9 +771,9 @@ def enip_srv_tcp( conn, addr, name, enip_process, delay=None, **kwds ):
                             if msg is not None:
                                 stats['received']+= len( msg )
                                 stats['eof']	= stats['eof'] or not len( msg )
-                                if log.getEffectiveLevel() <= logging.DETAIL:
+                                if log.isEnabledFor( logging.DETAIL ):
                                     log.detail( "%s recv: %5d: %s", machine.name_centered(),
-                                                len( msg ), cpppo.reprlib.repr( msg ))
+                                                len( msg ), repr( msg ) if log.isEnabledFor( logging.INFO ) else cpppo.reprlib.repr( msg ))
                                 source.chain( msg )
                             else:
                                 # No input.  If we have symbols available, no problem; continue.
@@ -809,9 +807,9 @@ def enip_srv_tcp( conn, addr, name, enip_process, delay=None, **kwds ):
                             assert data.response.enip.status, "If no/empty response payload, expected non-zero EtherNet/IP status"
 
                         rpy	= parser.enip_encode( data.response.enip )
-                        if log.getEffectiveLevel() <= logging.DETAIL:
+                        if log.isEnabledFor( logging.DETAIL ):
                             log.detail( "%s send: %5d: %s %s", machine.name_centered(),
-                                        len( rpy ), cpppo.reprlib.repr( rpy ),
+                                        len( rpy ), repr( rpy ) if log.isEnabledFor( logging.INFO ) else cpppo.reprlib.repr( rpy ),
                                         ("delay: %r" % delay) if delay else "" )
                         if delay:
                             # A delay (anything with a delay.value attribute) == #[.#] (converible
@@ -832,16 +830,17 @@ def enip_srv_tcp( conn, addr, name, enip_process, delay=None, **kwds ):
                                         data.response.enip.status, data.response.enip.status )
                             stats['eof'] = True
                     else:
-                        # Session terminated.  No response, just drop connection.
-                        if log.getEffectiveLevel() <= logging.DETAIL:
+                        # Session terminated cleanly.  No response, just drop connection.
+                        if log.isEnabledFor( logging.DETAIL ):
                             log.detail( "Session ended (client initiated): %s",
                                         parser.enip_format( data ))
                         stats['eof'] = True
                     log.detail( "Transaction complete after %7.3fs (w/ %7.3fs delay)",
                         cpppo.timer() - begun, delayseconds )
                 except:
+                    # Session terminated spontaneously; empty data
                     log.error( "Failed request: %s", parser.enip_format( data ))
-                    enip_process( addr, data=cpppo.dotdict() ) # Terminate.
+                    enip_process( addr, data=cpppo.dotdict() )
                     raise
 
             stats['processed']	= source.sent
@@ -943,6 +942,9 @@ def main( argv=None, attribute_class=device.Attribute, idle_service=None, identi
                      default=( "%s:%d" % defaults.address ),
                      help="EtherNet/IP interface[:port] to bind to (default: %s:%d)" % (
                          defaults.address[0], defaults.address[1] ))
+    ap.add_argument( '-A', '--address-output', action='store_true',
+                     default=False,
+                     help="Output server network binding as '... running on (<interface>, <port>)' to stdout" )
     ap.add_argument( '-u', '--udp', action='store_true',
                      default=True, 
                      help="Enable UDP/IP server (default: True)" )
@@ -1005,7 +1007,7 @@ def main( argv=None, attribute_class=device.Attribute, idle_service=None, identi
 
     # Chain any provided idle_service function with log rotation; these may (also) consult global
     # signal flags such as logrotate_request, so execute supplied functions before logrotate_perform
-    idle_service		= [ idle_service ] if idle_service else []
+    idle_service		= [ idle_service ] if idle_service is not None else []
     if args.log:
         # Output logging to a file, and handle UNIX-y log file rotation via 'logrotate', which sends
         # signals to indicate that a service's log file has been moved/renamed and it should re-open
@@ -1013,7 +1015,11 @@ def main( argv=None, attribute_class=device.Attribute, idle_service=None, identi
         signal.signal( signal.SIGHUP, logrotate_request )
         idle_service.append( logrotate_perform )
 
+    # Set up logging; also, handle the degenerate case where logging has *already* been set up (and
+    # basicConfig is a NO-OP), by (also) setting the logging level and (optionally) log filename.
     logging.basicConfig( **cpppo.log_cfg )
+    if args.verbose:
+        logging.getLogger().setLevel( cpppo.log_cfg['level'] )
 
     # Load config file(s), if not disabled, into the device.Object class-level 'config_loader'.
     if not args.no_config:
@@ -1062,7 +1068,8 @@ def main( argv=None, attribute_class=device.Attribute, idle_service=None, identi
     options.delay		= cpppo.dotdict()
     try:
         options.delay.value	= float( args.delay )
-        log.normal( "Delaying all responses by %r seconds" , options.delay.value )
+        if options.delay.value:
+            log.normal( "Delaying all responses by %r seconds" , options.delay.value )
     except:
         assert '-' in args.delay, \
             "Unrecognized --delay=%r option" % args.delay
@@ -1116,7 +1123,7 @@ def main( argv=None, attribute_class=device.Attribute, idle_service=None, identi
             "SSTRING":	( parser.SSTRING, '' ),
             "STRING":	( parser.STRING, '' ),
         }
-        assert tag_type in typenames, "Invalid tag type; must be one of %r" % list( typenames )
+        assert tag_type in typenames, "Invalid tag type %r; must be one of %r" % ( tag_type, list( typenames ))
         tag_class,tag_default	= typenames[tag_type]
         try:
             tag_size		= int( tag_size )
@@ -1193,7 +1200,7 @@ def main( argv=None, attribute_class=device.Attribute, idle_service=None, identi
         # Ready to create the tag and its Attribute (and error code to return, if any).  If tag_size
         # is 1, it will be a scalar Attribute.  Since the tag_name may contain '.', we don't want
         # the normal dotdict.__setitem__ resolution to parse it; use plain dict.__setitem__.
-        log.normal( "Creating tag: %-14s%-10s %10s[%4d]", tag_name, '@'+tag_address if tag_address else '',
+        log.normal( "New Tag: %-14s%-10s %10s[%4d]", tag_name, '@'+tag_address if tag_address else '',
                     attribute.parser.__class__.__name__, len( attribute ) )
         tag_entry		= cpppo.dotdict()
         tag_entry.attribute	= attribute	# The Attribute (may be shared by multiple tags)
@@ -1259,7 +1266,6 @@ def main( argv=None, attribute_class=device.Attribute, idle_service=None, identi
         webserver.daemon	= True
         webserver.start()
 
-        
     # The EtherNet/IP Simulator.  Pass all the top-level options keys/values as keywords, and pass
     # the entire tags dotdict as a tags=... keyword.  The server_main server.control signals (.done,
     # .disable) are also passed as the server= keyword.  We are using an cpppo.apidict with a long
@@ -1280,8 +1286,10 @@ def main( argv=None, attribute_class=device.Attribute, idle_service=None, identi
             if disabled:
                 logging.detail( "EtherNet/IP Server enabled" )
                 disabled= False
-            network.server_main( address=bind, target=enip_srv, kwargs=kwargs,
-                                 idle_service=lambda: map( lambda f: f(), idle_service ),
+            log.debug( "Starting server on {bind}, with {idle_count} idle services".format(
+                    bind=bind, idle_count=len( idle_service )))
+            network.server_main( address=bind, address_output=args.address_output, target=enip_srv, kwargs=kwargs,
+                                 idle_service=lambda: list( map( lambda f: f(), idle_service )),
                                  udp=args.udp, tcp=args.tcp, thread_factory=tf, **tf_kwds )
         else:
             if not disabled:

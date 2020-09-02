@@ -43,24 +43,26 @@ from ...automata import log_cfg
 from ...misc import timer
 from . import defaults
 
+log				= logging.getLogger( "enip.poll" )
+
 # Default poll params list, used if None supplied to poll; change, if desired
 PARAMS				= [
     'Output Current',
     'Motor Velocity',
 ]
 
-def execute( via, params=None, pass_thru=None ):
+def execute( via, params=None, pass_thru=None, details=False ):
     """Perform a single poll via the supplied enip.get_attribute 'proxy' instance, yielding the
-    parameters and their polled values.
+    parameters and their polled values (or full result details, if True)
 
     By default, we'll look for the parameters in the module's PARAMS list, which must be recognized
     by the supplied via's parameter_substitutions method, if pass_thru is not Truthy (default:
     True).
 
-    Yields tuples of each of the supplied params, with their polled values.
+    Yields tuples of each of the supplied params, each with their polled values/details.
 
     """
-    with contextlib.closing( via.read(
+    with contextlib.closing( ( via.read_details if details else via.read )(
             via.parameter_substitution( params or PARAMS, pass_thru=pass_thru ))) as reader:
         for p,v in zip( params or PARAMS, reader ): # "lazy" zip
             yield p,v
@@ -90,20 +92,20 @@ def loop( via, cycle=None, last_poll=None, **kwds ):
     dt				= init_poll - last_poll
     if dt < cycle:
         # An early poll; maybe just an out-of-cycle refresh...  Don't advance poll cycles
-        logging.info( "Premature poll at %7.3fs into %7.3fs poll cycle", dt, cycle )
+        log.info( "Premature poll at %7.3fs into %7.3fs poll cycle", dt, cycle )
     else:
         # We're into this poll cycle....
         missed			= dt // cycle
         if last_poll:
             if missed > 1:
-                logging.normal( "Missed %3d polls, %7.3fs past %7.3fs poll cycle",
+                log.normal( "Missed %3d polls, %7.3fs past %7.3fs poll cycle",
                                 missed, dt-cycle, cycle )
             last_poll	       += cycle * missed
         else:
             last_poll		= init_poll
 
     # last_poll has been advanced to indicate the start of the poll cycle we're within
-    logging.info( "Polling started   %7.3fs into %7.3fs poll cycle", init_poll - last_poll, cycle )
+    log.info( "Polling started   %7.3fs into %7.3fs poll cycle", init_poll - last_poll, cycle )
 
     # Perform poll.  Whatever code "reifies" the powerflex.read generator must catch exceptions and
     # tell the (failed) powerflex instance to close its gateway.  This prepares the proxy's gateway
@@ -115,7 +117,7 @@ def loop( via, cycle=None, last_poll=None, **kwds ):
 
     done_poll			= timer()
     duration			= done_poll - init_poll
-    logging.info( "Polling finished  %7.3fs into %7.3fs poll cycle, taking %7.3fs (%5.1f TPS)",
+    log.info( "Polling finished  %7.3fs into %7.3fs poll cycle, taking %7.3fs (%5.1f TPS)",
                   done_poll - last_poll, cycle, duration, (1.0/duration) if duration else float('inf'))
 
     # Return this poll cycle time stamp, remaining time 'til next poll cycle (if any), and results
@@ -165,13 +167,16 @@ def run( via, process, failure=None, backoff_min=None, backoff_multiplier=None, 
         except Exception as exc:
             if backoff is None:
                 backoff		= backoff_min
-                logging.normal( "Polling failure: waiting %7.3fs; %s", backoff, exc )
+                log.normal( "Polling failure: waiting %7.3fs; %s", backoff, exc )
             else:
                 backoff		= min( backoff * backoff_multiplier, backoff_max )
-                logging.detail(  "Polling backoff: waiting %7.3fs; %s", backoff, exc )
+                log.detail( "Polling backoff: waiting %7.3fs; %s", backoff, exc )
             dly			= backoff
             if failure is not None:
                 failure( exc )
+            if log.isEnabledFor( logging.INFO ):
+                log.info( "Polling failed due to {exc}{trace}".format(
+                    exc=exc, trace=''.join( traceback.format_stack() ) if log.isEnabledFor( logging.DEBUG ) else '' ))
         beg			= timer()
 
 
@@ -298,10 +303,10 @@ of missed polls.""" )
               params=args.parameter, pass_thru=args.pass_thru, cycle=cycle,
               route_path=route_path, send_path=send_path )
     except (KeyboardInterrupt, SystemExit) as exc:
-        logging.info( "Terminated normally due to %s", exc )
+        log.info( "Terminated normally due to %s", exc )
         return 0
     except Exception as exc:
-        logging.warning( "Terminated with Exception: %s\n%s", exc, traceback.format_exc() )
+        log.warning( "Terminated with Exception: %s\n%s", exc, traceback.format_exc() )
         return 1
 
 
