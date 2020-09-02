@@ -1375,7 +1375,7 @@ class connection_data( cpppo.dfa ):
         sequ[True]	= data	= octets( 	context='request', # repeat='..length', # length - 2, actually: so don't check
                                                 terminal=True )
         data[True]		= data # all remaining data...
-        
+
         super( connection_data, self ).__init__( name=name, initial=sequ, **kwds )
 
     @classmethod

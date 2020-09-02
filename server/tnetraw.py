@@ -138,7 +138,7 @@ def main( argv=None ):
         epilog = "" )
 
     ap.add_argument( '-v', '--verbose', action="count",
-                     default=0, 
+                     default=0,
                      help="Display logging information." )
     ap.add_argument( '-l', '--log',
                      help="Log file, if desired" )
@@ -150,7 +150,7 @@ def main( argv=None ):
                      help="The local interface[:port] to bind to (default: {iface}:{port})".format(
                          iface=address[0], port=address[1] ))
     args			= ap.parse_args( argv )
-    
+
     idle_service		= []
 
     # Set up logging level (-v...) and --log <file>, handling log-file rotation
@@ -161,17 +161,17 @@ def main( argv=None ):
         3: logging.INFO,
         4: logging.DEBUG,
         }
-    cpppo.log_cfg['level']	= ( levelmap[args.verbose] 
+    cpppo.log_cfg['level']	= ( levelmap[args.verbose]
                                     if args.verbose in levelmap
                                     else logging.DEBUG )
     if args.log:
         cpppo.log_cfg['filename']= args.log
- 
+
     logging.basicConfig( **cpppo.log_cfg )
 
     timeout			= None if args.timeout is None else float( args.timeout )
     latency			= None if args.latency is None else float( args.latency )
-    
+
     bind			= address
     if args.address:
         host,port		= cpppo.parse_ip_port( args.address, default=address )
@@ -190,4 +190,3 @@ def main( argv=None ):
 
 if __name__ == "__main__":
     sys.exit( main() )
-        

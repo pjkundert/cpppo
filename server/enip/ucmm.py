@@ -275,7 +275,7 @@ class UCMM( device.Object ):
                     # connection to the target EtherNet/IP CIP host, and transmit the request (minus the
                     # matching layer of the route_path) to the target.
                     route_path	= unc_send.get( 'route_path.segment' )
-                    
+
                     def find_route():
                         if self.route and route_path and "port" in route_path[0] and "link" in route_path[0]:
                             pl	= "{port}/{link}".format( **route_path[0] )
@@ -294,7 +294,7 @@ class UCMM( device.Object ):
                             if target not in self.route_conn:
                                 log.normal( "UCMM: port/link %s --> %r; creating route", portlink, target )
                                 self.route_conn[target] \
-                                   	= client.connector( host=target[0], port=target[1], timeout=timeout )
+                                        = client.connector( host=target[0], port=target[1], timeout=timeout )
                             with self.route_conn[target] as conn:
                                 # Trim route_path; if empty, send with no route_path (Simple; no routing
                                 # encapsulation).  Otherwise, send with remaining route_path.
@@ -330,7 +330,7 @@ class UCMM( device.Object ):
                             data.enip.status = 0
                     else:
                         # No route_path, or port/link not in self.route.  Local request.
-                    
+
                         # Make sure the route_path matches what we've been configured w/; the supplied
                         # route_path.segment list must match the configured self.route_path, eg:
                         # {'link': 0, 'port': 1}.  Thus, if a non-empty route_path is supplied in
@@ -346,7 +346,7 @@ class UCMM( device.Object ):
                                      or route_path == self.route_path # Or they match
                             ),  "Unconnected Send route path %r differs from configured: %r" % (
                                     route_path, self.route_path )
-                    
+
                         # If the standard Connection Manager isn't addressed, that's strange but, OK...
                         ids		= (0x06, 1) # Connection Manager default address
                         if 'path' in unc_send:
@@ -355,7 +355,7 @@ class UCMM( device.Object ):
                                 log.warning( "Unconnected Send targeted Object other than Connection Manager: 0x%04x/%d", ids[0], ids[1] )
                         CM		= device.lookup( class_id=ids[0], instance_id=ids[1] )
                         CM.request( unc_send, addr=addr )
-                    
+
                     # After successful processing of the Unconnected Send on the target node, we
                     # eliminate the Unconnected Send wrapper (the unconnected_send.service = 0x52,
                     # route_path, etc, by eliminating the route_path, send_path, priority, etc.), and
