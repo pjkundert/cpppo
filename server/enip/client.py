@@ -240,7 +240,9 @@ def parse_operations( tags, fragment=False, int_type=None, **kwds ):
             caster		= itertools.repeat( cast )
             serial		= []
 
-            # But, allow an optional (TYPE)value,value,...; if one type, then also set the .tag_type
+            # But, allow an optional (TYPE)value,value,...; if one type, then also set the
+            # .tag_type, if multiple types, we'll need to serialize/deserialize them into one type
+            # -- the provided int_type.  Provide 'serial' sequence of parsers to do this.
             if val.strip().startswith( '(' ) and ')' in val:
                 typ,val		= val.split( ')', 1 ) # Get leading/trailing: ['(TYPE', '1,2,3,...']
                 _,typ		= typ.split( '(', 1 )
