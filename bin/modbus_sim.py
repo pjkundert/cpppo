@@ -140,12 +140,12 @@ def register_decode( txt, default=None ):
     beg = end			= None
     val				= []
     try:
-        beg			= prs.next()
+        beg			= next( prs )
         end			= beg
-        end			= prs.next()
+        end			= next( prs )
         if end == '-':
-            end			= prs.next()		# <beg>-<end>=
-            equ			= prs.next()		#    ... raises StopIteration if no '='
+            end			= next( prs )		# <beg>-<end>=
+            equ			= next( prs )		#    ... raises StopIteration if no '='
         elif end == '=':
             equ			= end			# <beg>=
             end			= beg
@@ -153,9 +153,9 @@ def register_decode( txt, default=None ):
             assert end == '-'			# Unknown range operator
         assert equ == '='
         while True: # Consumes values forever, 'til StopIteration
-            val.append( prs.next() )
+            val.append( next( prs ))
             assert type( val[-1] ) == int
-            assert prs.next() == ','
+            assert next( prs ) == ','
     except StopIteration:
         pass
     except Exception as exc:
