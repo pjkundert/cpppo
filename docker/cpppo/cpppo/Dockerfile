@@ -12,10 +12,10 @@
 #
 #     Manually run any cpppo-based service; a simple simulated Logix controller for example:
 #
-#   $ docker run -p 44818:44818 -d cpppo/cpppo python -m cpppo.server.enip SCADA=dint[1000]
+#   $ docker run -p 44818:44818 -d cpppo/cpppo python3 -m cpppo.server.enip SCADA=dint[1000]
 #
 FROM		cpppo/base
-MAINTAINER	Perry Kundert "perry@hardconsulting.com"
-RUN		apt-get -y install python python-pip			\
+LABEL		maintainer="perry@dominionrnd.com"
+RUN		apt-get -y install python3 python3-pip		\
 		    && apt-get clean			# 2015-01-26
-RUN		pip install cpppo
+RUN		pip3 install cpppo

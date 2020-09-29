@@ -11,10 +11,10 @@
 #
 #   $ docker build -t cpppo/base cpppo/base		# or: 'make update' in ../..
 #
-FROM		stackbrew/debian:jessie
+FROM		debian:buster
 MAINTAINER	Perry Kundert "perry@hardconsulting.com"
 # Redirect http://.../debian to CA mirror, but leave http://security.debian.org/
-RUN		sed -e "s|http://[^[:space:]]*/debian|ftp://ftp.ca.debian.org/debian|" \
+RUN		sed -e "s|http://[^[:space:]]*/debian|http://ftp.ca.debian.org/debian|" \
                     -e "s|main$|main contrib non-free|" -i /etc/apt/sources.list
 ENV		DEBIAN_FRONTEND noninteractive
 RUN		echo 'Dir::Cache { srcpkgcache ""; pkgcache ""; }'	\

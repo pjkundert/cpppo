@@ -11,7 +11,7 @@
 #   $ docker run -p 44818:44818 -d cpppo/scada 		# eg. SCADA=dint[1000] ...
 #
 FROM		cpppo/cpppo
-MAINTAINER	Perry Kundert "perry@hardconsulting.com"
+LABEL		maintainer="perry@dominionrnd.com"
 EXPOSE		44818
-ENTRYPOINT	[ "python", "-m", "cpppo.server.enip" ]
+ENTRYPOINT	[ "python3", "-m", "cpppo.server.enip" ]
 CMD		[ "SCADA=dint[1000]" ]
