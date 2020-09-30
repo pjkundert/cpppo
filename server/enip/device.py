@@ -1988,8 +1988,11 @@ class Connection_Manager( Object ):
 
     FWD_OPEN_NAM		= "Forward Open"
     FWD_OPEN_CTX		= "forward_open"
-    FWD_OPEN_REQ		= 0x54
+    FWD_OPEN_REQ		= 0x54 # == 0x0101_0100 (Small)
     FWD_OPEN_RPY		= FWD_OPEN_REQ | 0x80
+
+    FWD_OPLG_REQ		= 0x5B # == 0x0101_1011 (Large)
+    FWD_OPLG_RPY		= FWD_OPLG_REQ | 0x80
 
     FWD_CLOS_NAM		= "Forward Close"
     FWD_CLOS_CTX		= "forward_close"
@@ -2021,44 +2024,87 @@ class Connection_Manager( Object ):
         Connected requests).
 
         """
-        def connection_type( NCP ):
-            return ', '.join( (('%d-Byte' % ( NCP & 0x01FF )),
-                               ('Fixed','Variable')[NCP >> 8 & 0b1],
-                               ('Low Prio.','High Prio.','Scheduled','Urgent' )[NCP >> 10 & 0b11],
-                               ('Null','Multicast','Point-to-Point','Reserved')[NCP >> 13 & 0b11],
-                               ('Exclusive','Redundant')[NCP >> 55 & 0b1]) )
+        def connection_type( NCP, large=False ):
+            """Distinguishing a Large vs. Small Forward Open connection_type is not possible; the Large
+            request shifts the Connection Parameters left by 16 bits, using the full lower 16 bits
+            for the desired connection size.  Therefore, a Fixed, Low Prio., Null, Exclusive (all
+            zero Connection Parameters) Large connection would have a zero upper 16-bit value -- and
+            we'd mistakenly interpret the low 16 bits as the Connection Parameters + Size of a Small
+            connection.  Thus, we must be informed if the NCP parameters+size are large or not.
+
+            From Vol 1_3 section 3-5.5.1.1, Network Connection Parameters
+
+            The Network Connection Parameters in the Forward_Open shall be provided as a single
+            16-bit word that contains the fields in the following figure:
+
+            Table 3-5.9 Network Connection Parameters for Forward_Open
+            3-5.5.1.1
+            | 15 | 14 | 13 | 12 | 11 | 10 |  9 | 8-0 |
+              ^^   ^^^^^^^   ^^   ^^^^^^^   ^^   ^^^
+              |    |         |    |         |    Connection Size
+              |    |         |    |         Fixed/Variable  
+              |    |         |    Priority
+              |    |         Reserved
+              |    Connection Type
+              Redundant Owner
+
+            The Network Connection Parameters in the Large_Forward_Open shall be provided as a
+            single 32-bit word that contains the fields in the following figure:
+
+            | 31 | 30 | 29 | 28 | 27 | 26 | 25 | 24-16 | 15-0 |
+              ^^   ^^^^^^^   ^^   ^^^^^^^   ^^   ^^^^^   ^^^^
+              |    |         |    |         |    |       Connection Size
+              |    |         |    |         |    Reserved       
+              |    |         |    |         Fixed/Variable  
+              |    |         |    Priority
+              |    |         Reserved
+              |    Connection Type
+              Redundant Owner
+
+            So, Large is just shifted left by 16 bits, and 9 bits are ignored.
+
+            """
+            return ', '.join( (('%d-Byte' % ( NCP & ( 0xFFFF if large else 0x01FF ))),
+                               ('Fixed','Variable')[
+                                   0b01 & NCP >> (  9 + ( 16 if large else 0 ))],
+                               ('Low Prio.','High Prio.','Scheduled','Urgent')[
+                                   0b11 & NCP >> ( 10 + ( 16 if large else 0 ))],
+                               ('Null','Multicast','Point-to-Point','Reserved')[
+                                   0b11 & NCP >> ( 13 + ( 16 if large else 0 ))],
+                               ('Exclusive','Redundant')[
+                                   0b01 & NCP >> ( 15 + ( 16 if large else 0 ))]) )
 
         fo			= data.forward_open
-        fo.O_T_API		= fo.O_T_RPI
-        fo.T_O_API		= fo.T_O_RPI
+        fo.O_T.API		= fo.O_T.RPI
+        fo.T_O.API		= fo.T_O.RPI
 
         # TODO: Only if we're the Target (final hop)! Otherwise, pass thru via implicit connection's Forward Open request/reply.
-        if fo.O_T_NCP >> 13 & 0b11 == 0b10: # Originator -> Target is Point-to-Point: Target picks connection ID
-            fo.O_T_connection_ID=  random.randint( 0, 2**32-1 )
-        if fo.T_O_NCP >> 13 & 0b11 == 0b01: # Target -> Originator is Multicast: Target picks connection ID
-            fo.T_O_connection_ID=  random.randint( 0, 2**32-1 )
+        if fo.O_T.NCP >> 13 & 0b11 == 0b10: # Originator -> Target is Point-to-Point: Target picks connection ID
+            fo.O_T.connection_ID=  random.randint( 0, 2**32-1 )
+        if fo.T_O.NCP >> 13 & 0b11 == 0b01: # Target -> Originator is Multicast: Target picks connection ID
+            fo.T_O.connection_ID=  random.randint( 0, 2**32-1 )
         if log.isEnabledFor( logging.DETAIL ):
             log.detail( "%s Forward Open from %s:%s O->T: %s, T->O: %s: %s", self, addr[0], addr[1],
-                        connection_type( fo.O_T_NCP ), connection_type( fo.T_O_NCP ),
+                        connection_type( fo.O_T.NCP ), connection_type( fo.T_O.NCP ),
                         enip_format( data ) if log.isEnabledFor( logging.INFO )
                         else ", ".join( " ".join( "%s: %r" % ( k, v ) for k,v in s.items() )
                                         for s in data.forward_open.connection_path.segment ))
         # Every Forward Open must present a unique vendor/serial/connection_serial.  If its already
         # set up, and the exact same Forward Open connection parameters were used (same connection
         # being re-opened), signal success. However: each Connected session request only comes with
-        # a copy of the O_T_connection_ID, which is *not* generated by the Target! Thus, no
+        # a copy of the O_T.connection_ID, which is *not* generated by the Target! Thus, no
         # information present in each request is sufficient to uniquely identify the carry-on
-        # connection to use.  The peer (addr,O_T_connection_ID) is sufficiently unique: each
+        # connection to use.  The peer (addr,O_T.connection_ID) is sufficiently unique: each
         # incoming TCP/IP session can carry one or more Forward Open request(s), each of which must
-        # have a unique O_T_connection_ID.  Later, each CIP request must carry a CPF.item[0]
-        # containing the O_T_connection_ID.
+        # have a unique O_T.connection_ID.  Later, each CIP request must carry a CPF.item[0]
+        # containing the O_T.connection_ID.
 
         triplet			= fo.O_vendor,fo.O_serial,fo.connection_serial
-        unique			= addr[0],addr[1],fo.O_T_connection_ID # eg ("1.2.3.4",12345,234567)
+        unique			= addr[0],addr[1],fo.O_T.connection_ID # eg ("1.2.3.4",12345,234567)
         if unique in self.forwards:
             ufo,uci		= self.forwards[unique]
             assert all( ufo.getattr( a ) == fo.getattr( a )
-                        for a in ( 'O_T_NCP', 'O_T_RPI', 'T_O_NCP', 'T_O_RPI', 'transport_class_triggers', 'connection_path' )), \
+                        for a in ( 'O_T.NCP', 'O_T.RPI', 'T_O.NCP', 'T_O.RPI', 'transport_class_triggers', 'connection_path' )), \
                 "Already have an incompatible Forward Open from device Vendor: %s, Serial: %s, Connection Serial: %s" % triplet
         else:
             # TODO: Create an implicit connection w/ remainder of connection_path
@@ -2070,8 +2116,8 @@ class Connection_Manager( Object ):
 
     def forward_close( self, data, addr ):
         """Convert the data into a forward_close response; nothing to do. Remove any matching self..forwards
-        entry.  We do not have an O_T_connection_ID, just a connection_serial. Since we store the
-        forwards addr[0],addr[1],O_T_connection_ID to speed lookups while processing Connected
+        entry.  We do not have an O_T.connection_ID, just a connection_serial. Since we store the
+        forwards addr[0],addr[1],O_T.connection_ID to speed lookups while processing Connected
         requests, we need to iterate all self.forwards 'til we find the one with matching key
         addr[0],addr[1],* having a matching connection_serial.
 
@@ -2100,7 +2146,7 @@ class Connection_Manager( Object ):
         Connection_Manager @2/1.  Each CIP request should always start with the SINT Service Code
         followed by an EPATH.
 
-        For Connected sessions (w/ an O_T_connection_ID in CFP.items[0]), we don't need to parse an
+        For Connected sessions (w/ an O_T.connection_ID in CFP.items[0]), we don't need to parse an
         EPATH from the incoming request -- it will have been provided by the Forward Open and
         available in the self.forwards. This is necessary, for when the target Object doesn't
         actually parse CIP requests (ie. ones with a service number and EPATH at the start, but some
@@ -2238,17 +2284,17 @@ class Connection_Manager( Object ):
             fo			= data.forward_open
             result	       += USINT.produce( fo.priority_time_tick )
             result	       += USINT.produce( fo.timeout_ticks )
-            result	       += UDINT.produce( fo.O_T_connection_ID )
-            result	       += UDINT.produce( fo.T_O_connection_ID )
+            result	       += UDINT.produce( fo.O_T.connection_ID )
+            result	       += UDINT.produce( fo.T_O.connection_ID )
             result	       += UINT.produce( fo.connection_serial )
             result	       += UINT.produce( fo.O_vendor )
             result	       += UDINT.produce( fo.O_serial )
             result	       += USINT.produce( fo.connection_timeout_multiplier )
             result	       += b'\x00' * 3 # reserved
-            result	       += UDINT.produce( fo.O_T_RPI )
-            result	       += WORD.produce( fo.O_T_NCP )
-            result	       += UDINT.produce( fo.T_O_RPI )
-            result	       += WORD.produce( fo.T_O_NCP )
+            result	       += UDINT.produce( fo.O_T.RPI )
+            result	       += WORD.produce( fo.O_T.NCP )
+            result	       += UDINT.produce( fo.T_O.RPI )
+            result	       += WORD.produce( fo.T_O.NCP )
             result	       += USINT.produce( fo.transport_class_triggers )
             result	       += EPATH.produce( fo.connection_path )
 
@@ -2258,13 +2304,13 @@ class Connection_Manager( Object ):
             result	       += status.produce( data )
             fo			= data.forward_open
             if data.status == 0x00:
-                result	       += UDINT.produce( fo.O_T_connection_ID )
-                result	       += UDINT.produce( fo.T_O_connection_ID )
+                result	       += UDINT.produce( fo.O_T.connection_ID )
+                result	       += UDINT.produce( fo.T_O.connection_ID )
                 result	       += UINT.produce( fo.connection_serial )
                 result	       += UINT.produce( fo.O_vendor )
                 result	       += UDINT.produce( fo.O_serial )
-                result	       += UDINT.produce( fo.O_T_API )
-                result	       += UDINT.produce( fo.T_O_API )
+                result	       += UDINT.produce( fo.O_T.API )
+                result	       += UDINT.produce( fo.T_O.API )
 
                 # The forward_open.application data in the reply is typed data, by default USINT.  It
                 # must be an even number of bytes, so pad it out if not.
@@ -2349,17 +2395,17 @@ def __forward_open():
     srvc[True]		= path	= EPATH(		context='path')
     path[True]		= prio	= USINT(		context='forward_open', extension='.priority_time_tick' )
     prio[True]		= timo	= USINT(		context='forward_open', extension='.timeout_ticks' )
-    timo[True]		= otid	= UDINT(		context='forward_open', extension='.O_T_connection_ID' )
-    otid[True]		= toid	= UDINT(		context='forward_open', extension='.T_O_connection_ID' )
+    timo[True]		= otid	= UDINT(		context='forward_open.O_T', extension='.connection_ID' )
+    otid[True]		= toid	= UDINT(		context='forward_open.T_O', extension='.connection_ID' )
     toid[True]		= cser	= UINT(			context='forward_open', extension='.connection_serial' )
     cser[True]		= ovnd	= UINT(			context='forward_open', extension='.O_vendor' )
     ovnd[True]		= oser	= UDINT(		context='forward_open', extension='.O_serial' )
     oser[True]		= tmul	= USINT(		context='forward_open', extension='.connection_timeout_multiplier' )
     tmul[True]		= rsvd	= octets_drop(		'pad', repeat=3 )
-    rsvd[True]		= otrpi	= UDINT(		context='forward_open', extension='.O_T_RPI' )
-    otrpi[True]		= otncp	= WORD(			context='forward_open', extension='.O_T_NCP' )
-    otncp[True]		= torpi	= UDINT(		context='forward_open', extension='.T_O_RPI' )
-    torpi[True]		= toncp	= WORD(			context='forward_open', extension='.T_O_NCP' )
+    rsvd[True]		= otrpi	= UDINT(		context='forward_open.O_T', extension='.RPI' )
+    otrpi[True]		= otncp	= WORD(			context='forward_open.O_T', extension='.NCP' )
+    otncp[True]		= torpi	= UDINT(		context='forward_open.T_O', extension='.RPI' )
+    torpi[True]		= toncp	= WORD(			context='forward_open.T_O', extension='.NCP' )
     toncp[True]		= tclt	= USINT( 		context='forward_open', extension='.transport_class_triggers' )
     # 33 bytes from Path to start of Connection Path Size; Connection Path begins on a Word boundary
     tclt[True]		= cpth	= EPATH(	 	context='forward_open', extension='.connection_path',
@@ -2368,6 +2414,33 @@ def __forward_open():
 
 Connection_Manager.register_service_parser( number=Connection_Manager.FWD_OPEN_REQ, name=Connection_Manager.FWD_OPEN_NAM,
                                             short=Connection_Manager.FWD_OPEN_CTX, machine=__forward_open() )
+
+def __forward_open_large():
+    """Handle Large Forward Open request.
+    """
+    srvc			= USINT(	 	context='service' )
+    srvc[True]		= path	= EPATH(		context='path')
+    path[True]		= prio	= USINT(		context='forward_open', extension='.priority_time_tick' )
+    prio[True]		= timo	= USINT(		context='forward_open', extension='.timeout_ticks' )
+    timo[True]		= otid	= UDINT(		context='forward_open.O_T', extension='.connection_ID' )
+    otid[True]		= toid	= UDINT(		context='forward_open.T_O', extension='.connection_ID' )
+    toid[True]		= cser	= UINT(			context='forward_open', extension='.connection_serial' )
+    cser[True]		= ovnd	= UINT(			context='forward_open', extension='.O_vendor' )
+    ovnd[True]		= oser	= UDINT(		context='forward_open', extension='.O_serial' )
+    oser[True]		= tmul	= USINT(		context='forward_open', extension='.connection_timeout_multiplier' )
+    tmul[True]		= rsvd	= octets_drop(		'pad', repeat=3 )
+    rsvd[True]		= otrpi	= UDINT(		context='forward_open.O_T', extension='.RPI' )
+    otrpi[True]		= otncp	= DWORD(		context='forward_open.O_T', extension='.NCP' )
+    otncp[True]		= torpi	= UDINT(		context='forward_open.T_O', extension='.RPI' )
+    torpi[True]		= toncp	= DWORD(		context='forward_open.T_O', extension='.NCP' )
+    toncp[True]		= tclt	= USINT( 		context='forward_open', extension='.transport_class_triggers' )
+    # 37 bytes from Path to start of Connection Path Size; Connection Path begins on a Word boundary
+    tclt[True]		= cpth	= EPATH(	 	context='forward_open', extension='.connection_path',
+                                                    terminal=True )
+    return srvc
+
+Connection_Manager.register_service_parser( number=Connection_Manager.FWD_OPLG_REQ, name=Connection_Manager.FWD_OPEN_NAM + " Large",
+                                            short=Connection_Manager.FWD_OPEN_CTX, machine=__forward_open_large() )
 
 def __forward_open_reply():
     srvc			= USINT(	context='service' )
@@ -2379,13 +2452,13 @@ def __forward_open_reply():
     mark.initial[None]		= move_if( 	'mark',		initializer=True )
 
     # Successful reply, if status is 0x00
-    otid			= UDINT(		context='forward_open', extension='.O_T_connection_ID' )
-    otid[True]		= toid	= UDINT(		context='forward_open', extension='.T_O_connection_ID' )
+    otid			= UDINT(		context='forward_open.O_T', extension='.connection_ID' )
+    otid[True]		= toid	= UDINT(		context='forward_open.T_O', extension='.connection_ID' )
     toid[True]		= cser	= UINT(			context='forward_open', extension='.connection_serial' )
     cser[True]		= ovnd	= UINT(			context='forward_open', extension='.O_vendor' )
     ovnd[True]		= oser	= UDINT(		context='forward_open', extension='.O_serial' )
-    oser[True]		= otapi	= UDINT(		context='forward_open', extension='.O_T_API' )
-    otapi[True]		= toapi	= UDINT(		context='forward_open', extension='.T_O_API' )
+    oser[True]		= otapi	= UDINT(		context='forward_open.O_T', extension='.API' )
+    otapi[True]		= toapi	= UDINT(		context='forward_open.T_O', extension='.API' )
     toapi[True]		= rsiz	= USINT(		context='forward_open', extension='.application_size' )
     rsiz[True]		= rsvd	= octets_drop(		'pad', repeat=1 )
 
@@ -2423,6 +2496,9 @@ def __forward_open_reply():
     return srvc
 
 Connection_Manager.register_service_parser( number=Connection_Manager.FWD_OPEN_RPY, name=Connection_Manager.FWD_OPEN_NAM + " Reply",
+                                            short=Connection_Manager.FWD_OPEN_CTX, machine=__forward_open_reply() )
+
+Connection_Manager.register_service_parser( number=Connection_Manager.FWD_OPLG_RPY, name=Connection_Manager.FWD_OPEN_NAM + " Large Reply",
                                             short=Connection_Manager.FWD_OPEN_CTX, machine=__forward_open_reply() )
 
 

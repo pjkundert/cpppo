@@ -747,12 +747,14 @@ class client( object ):
         fo			= req.forward_open
         fo.priority_time_tick	= priority_time_tick
         fo.timeout_ticks	= timeout_ticks
-        fo.O_T_RPI		= O_T_RPI
-        fo.O_T_NCP		= O_T_NCP
-        fo.O_T_connection_ID	= O_T_connection_ID
-        fo.T_O_RPI		= T_O_RPI
-        fo.T_O_NCP		= T_O_NCP
-        fo.T_O_connection_ID	= T_O_connection_ID
+        fo.O_T			= {}
+        fo.O_T.RPI		= O_T_RPI
+        fo.O_T.NCP		= O_T_NCP
+        fo.O_T.connection_ID	= O_T_connection_ID
+        fo.T_O			= {}
+        fo.T_O.RPI		= T_O_RPI
+        fo.T_O.NCP		= T_O_NCP
+        fo.T_O.connection_ID	= T_O_connection_ID
         fo.connection_serial	= connection_serial
         fo.O_vendor		= O_vendor
         fo.O_serial		= O_serial
@@ -1952,7 +1954,7 @@ class implicit( connector ):
 
         """
         if connection is None:
-            connection		= self.established.forward_open.O_T_connection_ID
+            connection		= self.established.forward_open.O_T.connection_ID
         if sequence is None: # advance sequence, ensuring it remains in valid CIP INT range (0,2^16]
             sequence		= self.seqs.get( connection, -1 ) + 1 # 0, 1, ...
             sequence	       %= 2**16

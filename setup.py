@@ -27,11 +27,12 @@ if sys.version_info[0:2] < (2,7):
     install_requires.append( "argparse" )
 if sys.version_info[0:2] < (3,0):
     install_requires.append( "configparser" )
+tests_require			= open( os.path.join( here, "requirements-optional.txt" )).readlines()
 
 setup(
     name			= "cpppo",
     version			= __version__,
-    tests_require		= [ "pytest" ],
+    tests_require		= tests_require,
     install_requires		= install_requires,
     packages			= [ 
         "cpppo",
