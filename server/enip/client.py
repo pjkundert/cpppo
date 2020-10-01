@@ -1789,6 +1789,7 @@ class implicit( connector ):
                   configuration=None, priority_time_tick=None, timeout_ticks=None,
                   O_T_connection_ID=None, T_O_connection_ID=None, connection_serial=None,
                   O_vendor=None, O_serial=None, O_T_RPI=None, T_O_RPI=None, O_T_NCP=None, T_O_NCP=None,
+                  connection_size=None, connection_priority=None, connection_variable=None, connection_redundant=None,
                   transport_class_triggers=None, connection_timeout_multiplier=None,
                   route_path=False, send_path='', # typically no 0x52 encapsulation w/ routing for fwd open
                   sender_context=b'', **kwds ):
@@ -1808,7 +1809,8 @@ class implicit( connector ):
             self.__class__.connection_serial += 1
             self.__class__.connection_serial %= 2**16
 
-            # Arrange to get the Forward Open parameters from the config file's 'configuration' section 
+            # Arrange to get the Forward Open parameters from the config file's 'configuration' section, or
+            # from defaults (assumes 'k.r...' keys can be resolved, eg. w/ a dotdict).
             config			= device.Object.config_section( configuration )
             def default_named( val, name ):
                 return device.Object.config_override(

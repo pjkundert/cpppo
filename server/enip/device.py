@@ -53,6 +53,7 @@ import configparser # Python2 requires 'pip install configparser'
 import cpppo
 from ...dotdict import dotdict
 from ... import automata, misc
+from . import defaults
 from .parser import ( UDINT, DINT, DWORD, INT, UINT, WORD, USINT,
                       EPATH, EPATH_padded, SSTRING, STRING, IFACEADDRS,
                       typed_data,
@@ -814,30 +815,40 @@ class Object( object ):
         "Some Thing" or "some_thing" are acceptable config file keys), converting to type of
         default.
 
+        The configparser doesn't support accessing dicts in 'k.r...' form, so we'll split on '.'
+        and attempt to convert the discovered config[k] to a dotdict, and index it by 'r...'.
+
         """
         if config is None:
             config		= cls.config_section( section ) # if neither, uses 'DEFAULT'
+
         if val is None:
-            key_sp		= key.replace( '_', ' ' )
-            val			= config.get( key_sp, None )
-            if val: log.info( "  {key:<20} == {val!r}".format( key=key_sp, val=val ))
-        if val is None:
-            key_un		= key.replace( ' ', '_' )
-            val			= config.get( key_un, None )
-            if val: log.info( "  {key:<20} == {val!r}".format( key=key_un, val=val ))
+            for kr in ( key, key.replace( '_', ' ' ), key.replace( '_', ' ' )):
+                for k,r in ( [kr, ''], kr.split( '.', 1 )):
+                    if r: # a key.key...;
+                        try:
+                            val	= dotdict( config.get( k )).get( r )
+                            log.info( "  {k:>10}{r:<10} == {val!r} (config dict)".format( k=k, r=r, exc=exc ))
+                        except Exception as exc:
+                            log.info( "  {k:>10}{r:<10}: {exc!r}".format( k=k, r=r, exc=exc ))
+                    else:
+                        val	= config.get( k, None )
+                if val is not None:
+                    log.info( "  {k:<20} == {val!r} (config)".format( k=k, val=val ))
+                    break
         try:
             if val is None:
-                val			= default
+                val		= default
                 if val: log.info( "  {key:<20} == {val!r:<20} (default)".format( key=key, val=val ))
             elif isinstance( default, bool) and \
                  isinstance( val,     cpppo.type_str_base):
                 # Python bools supplied as strings or from config files are a special case, eg. 0 or
                 # "False" ==> False, 1 or "True' ==> True
-                val			= type( default )( ast.literal_eval( val.capitalize() ))
+                val		= type( default )( ast.literal_eval( val.capitalize() ))
             elif isinstance( default, (list, dict )) and \
                  isinstance( val,     cpppo.type_str_base):
                 # Other complex types eg. "[ ... ]" must be obtained by ast.literal_eval.
-                val			= type( default )( ast.literal_eval( val ))
+                val		= type( default )( ast.literal_eval( val ))
             elif isinstance( default, (bool, int, float, cpppo.type_str_base)) and \
                  isinstance( val,     (bool, int, float, cpppo.type_str_base)):
                 # Otherwise, any basic-typed val supplied or loaded from config file will be converted to
@@ -2064,15 +2075,16 @@ class Connection_Manager( Object ):
             So, Large is just shifted left by 16 bits, and 9 bits are ignored.
 
             """
-            return ', '.join( (('%d-Byte' % ( NCP & ( 0xFFFF if large else 0x01FF ))),
+            parameters		= defaults.NCP_parameters( NCP, large=large )
+            return ', '.join( (('%d-Byte' % parameters['size']),
                                ('Fixed','Variable')[
-                                   0b01 & NCP >> (  9 + ( 16 if large else 0 ))],
+                                   parameters['variable']],
                                ('Low Prio.','High Prio.','Scheduled','Urgent')[
-                                   0b11 & NCP >> ( 10 + ( 16 if large else 0 ))],
+                                   parameters['priority']],
                                ('Null','Multicast','Point-to-Point','Reserved')[
-                                   0b11 & NCP >> ( 13 + ( 16 if large else 0 ))],
+                                   parameters['type']],
                                ('Exclusive','Redundant')[
-                                   0b01 & NCP >> ( 15 + ( 16 if large else 0 ))]) )
+                                   parameters['redundant']]) )
 
         fo			= data.forward_open
         fo.O_T.API		= fo.O_T.RPI
@@ -2370,10 +2382,10 @@ class Connection_Manager( Object ):
                 if app.data:
                     # Something has been provided
                     if 'type' not in app and 'tag_type' not in app:
-                        app.tag_type= USINT.tag_type
+                        app.tag_type = USINT.tag_type
                     app.input	= typed_data.produce( app )
                     if len( app.input ) % 2:
-                        app.input  += b'\x00'
+                        app.input += b'\x00'
                     app.size	= len( app.input ) // 2 # words
                 else:
                     app.size	= 0
@@ -2381,11 +2393,30 @@ class Connection_Manager( Object ):
                 result	       += USINT.produce( app.size ) # application data size (words)
                 result	       += b'\x00' # pad
                 if app.size:
-                    result	       += app.input
+                    result     += app.input
         else:
             # Connection Manager only recognizes its own services (not the generic CIP Object's)
             raise RequestUnrecognized( "%s doesn't recognize request/reply format: %r" % ( cls.__name__, data ))
         return result
+
+
+class NCP_decode( cpppo.decide ):
+    def __init__( self, name, large=None, source=None, **kwds ):
+        super( NCP_decode, self ).__init__( name=name, **kwds )
+        self.lrg		= large or False
+        self.src		= source # eg. blah.blah.NCP
+
+    def execute( self, truth, machine=None, source=None, path=None, data=None ):
+        target			= super( NCP_decode, self ).execute(
+            truth, machine=machine, source=source, path=path, data=data )
+        if truth:
+            pathsrc		= path + self.src
+            pathdst		= pathsrc + '..'
+            NCP			= data[pathsrc]
+            parameters		= defaults.NCP_parameters( NCP )
+            data[pathdst].update( parameters )
+
+        return target
 
 
 def __forward_open():
@@ -2408,8 +2439,11 @@ def __forward_open():
     torpi[True]		= toncp	= WORD(			context='forward_open.T_O', extension='.NCP' )
     toncp[True]		= tclt	= USINT( 		context='forward_open', extension='.transport_class_triggers' )
     # 33 bytes from Path to start of Connection Path Size; Connection Path begins on a Word boundary
-    tclt[True]		= cpth	= EPATH(	 	context='forward_open', extension='.connection_path',
-                                                    terminal=True )
+    tclt[True]		= cpth	= EPATH(	 	context='forward_open', extension='.connection_path' )
+    cpth[None]		= done	= octets_noop( 'done',
+                                               terminal=True )
+    done.initial[None]		= NCP_decode( 'O_T',	source ='forward_open.O_T.NCP', large=False )
+    done.initial[None]		= NCP_decode( 'T_O',	source= 'forward_open.T_O.NCP', large=False )
     return srvc
 
 Connection_Manager.register_service_parser( number=Connection_Manager.FWD_OPEN_REQ, name=Connection_Manager.FWD_OPEN_NAM,
@@ -2431,12 +2465,17 @@ def __forward_open_large():
     tmul[True]		= rsvd	= octets_drop(		'pad', repeat=3 )
     rsvd[True]		= otrpi	= UDINT(		context='forward_open.O_T', extension='.RPI' )
     otrpi[True]		= otncp	= DWORD(		context='forward_open.O_T', extension='.NCP' )
+    otncp[None]			= NCP_decode( 'O_T',	source= 'forward_open.O_T.NCP', large=True )
     otncp[True]		= torpi	= UDINT(		context='forward_open.T_O', extension='.RPI' )
     torpi[True]		= toncp	= DWORD(		context='forward_open.T_O', extension='.NCP' )
+    toncp[None]			= NCP_decode( 'T_O',	source= 'forward_open.T_O.NCP', large=True )
     toncp[True]		= tclt	= USINT( 		context='forward_open', extension='.transport_class_triggers' )
     # 37 bytes from Path to start of Connection Path Size; Connection Path begins on a Word boundary
-    tclt[True]		= cpth	= EPATH(	 	context='forward_open', extension='.connection_path',
-                                                    terminal=True )
+    tclt[True]		= cpth	= EPATH(	 	context='forward_open', extension='.connection_path' )
+    cpth[None]		= done	= octets_noop( 'done',
+                                               terminal=True )
+    done.initial[None]		= NCP_decode( 'O_T',	source ='forward_open.O_T.NCP', large=True )
+    done.initial[None]		= NCP_decode( 'T_O',	source= 'forward_open.T_O.NCP', large=True )
     return srvc
 
 Connection_Manager.register_service_parser( number=Connection_Manager.FWD_OPLG_REQ, name=Connection_Manager.FWD_OPEN_NAM + " Large",

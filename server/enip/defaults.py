@@ -56,7 +56,7 @@ config_files			= [
 ]
 
 # Forward Open has Connection Path and Path (in addition to the Send RR Data's Route Path and Send Path)
-forward_open_default		= {
+forward_open_default		= cpppo.dotdict({
     'path':			   '@6/1',	# Connection Manager
     'connection_path':	       '1/0/@2/1',	# Backplane slot 0 (CPU), Message Router
     'transport_class_triggers':	     0xa3,	# dir-server, trig-app-object, class-3
@@ -65,8 +65,30 @@ forward_open_default		= {
     'connection_timeout_multiplier':    0,
     'O_serial':		       0x00000001,
     'O_vendor':			   0x1234,
-    'T_O_RPI':		       0x001E8480,	# 2000ms
-    'T_O_NCP':			   0x43F4,	# (!exclusive, p2p, lo-prio, variable size 500)
-    'O_T_RPI':		       0x001E8480,	# 2000ms
-    'O_T_NCP':			   0x43F4,	# (!exclusive, p2p, lo-prio, variable size 500)
-}
+    'T_O': {
+        'RPI':		       0x001E8480,	# 2000ms
+        'NCP':			   0x43F4,	# (!exclusive, p2p, lo-prio, variable size 500)
+        'size':			      500,	# Connection Size
+        'type':				2,      # Null/Multicast/Point-to-Point/Reserved
+        'priority':			0,      # Low Prio./High Prio./Scheduled/Urgent
+        'variable':			1,      # Fixed/Variable
+        'redundant':			0,	# Exclusive/Redundant
+    },
+    'O_T': {
+        'RPI':		       0x001E8480,	# 2000ms
+        'NCP':			   0x43F4,	# (!exclusive, p2p, lo-prio, variable size 500)
+        'size':			      500,	# Connection Size
+        'type':				2,      # Null/Multicast/Point-to-Point/Reserved
+        'priority':			0,      # Low Prio./High Prio./Scheduled/Urgent
+        'variable':			1,      # Fixed/Variable
+        'redundant':			0,	# Exclusive/Redundant
+    }
+})
+
+def NCP_parameters( NCP, large=False ):
+    return dict(
+        size			= NCP & ( NCP & ( 0xFFFF if large else 0x01FF )),
+        variable		= 0b01 & NCP >> (  9 + ( 16 if large else 0 )),
+        priority		= 0b11 & NCP >> ( 10 + ( 16 if large else 0 )),
+        type			= 0b11 & NCP >> ( 13 + ( 16 if large else 0 )),
+        redundant		= 0b01 & NCP >> ( 15 + ( 16 if large else 0 )))
