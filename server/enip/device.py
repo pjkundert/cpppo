@@ -2035,72 +2035,32 @@ class Connection_Manager( Object ):
         Connected requests).
 
         """
-        def connection_type( NCP, large=False ):
-            """Distinguishing a Large vs. Small Forward Open connection_type is not possible; the Large
-            request shifts the Connection Parameters left by 16 bits, using the full lower 16 bits
-            for the desired connection size.  Therefore, a Fixed, Low Prio., Null, Exclusive (all
-            zero Connection Parameters) Large connection would have a zero upper 16-bit value -- and
-            we'd mistakenly interpret the low 16 bits as the Connection Parameters + Size of a Small
-            connection.  Thus, we must be informed if the NCP parameters+size are large or not.
-
-            From Vol 1_3 section 3-5.5.1.1, Network Connection Parameters
-
-            The Network Connection Parameters in the Forward_Open shall be provided as a single
-            16-bit word that contains the fields in the following figure:
-
-            Table 3-5.9 Network Connection Parameters for Forward_Open
-            3-5.5.1.1
-            | 15 | 14 | 13 | 12 | 11 | 10 |  9 | 8-0 |
-              ^^   ^^^^^^^   ^^   ^^^^^^^   ^^   ^^^
-              |    |         |    |         |    Connection Size
-              |    |         |    |         Fixed/Variable  
-              |    |         |    Priority
-              |    |         Reserved
-              |    Connection Type
-              Redundant Owner
-
-            The Network Connection Parameters in the Large_Forward_Open shall be provided as a
-            single 32-bit word that contains the fields in the following figure:
-
-            | 31 | 30 | 29 | 28 | 27 | 26 | 25 | 24-16 | 15-0 |
-              ^^   ^^^^^^^   ^^   ^^^^^^^   ^^   ^^^^^   ^^^^
-              |    |         |    |         |    |       Connection Size
-              |    |         |    |         |    Reserved       
-              |    |         |    |         Fixed/Variable  
-              |    |         |    Priority
-              |    |         Reserved
-              |    Connection Type
-              Redundant Owner
-
-            So, Large is just shifted left by 16 bits, and 9 bits are ignored.
-
-            """
-            parameters		= defaults.NCP_parameters( NCP, large=large )
-            return ', '.join( (('%d-Byte' % parameters['size']),
-                               ('Fixed','Variable')[
-                                   parameters['variable']],
-                               ('Low Prio.','High Prio.','Scheduled','Urgent')[
-                                   parameters['priority']],
-                               ('Null','Multicast','Point-to-Point','Reserved')[
-                                   parameters['type']],
-                               ('Exclusive','Redundant')[
-                                   parameters['redundant']]) )
 
         fo			= data.forward_open
+
+        # Actual Packet Interval will be the same as the Requested Packet Interval
         fo.O_T.API		= fo.O_T.RPI
         fo.T_O.API		= fo.T_O.RPI
 
+        # Decode the supplied Connection parameters.
+        O_T			= defaults.Connection( **fo.O_T )
+        T_O			= defaults.Connection( **fo.T_O )
+
         # TODO: Only if we're the Target (final hop)! Otherwise, pass thru via implicit connection's Forward Open request/reply.
-        if fo.O_T.NCP >> 13 & 0b11 == 0b10: # Originator -> Target is Point-to-Point: Target picks connection ID
-            fo.O_T.connection_ID=  random.randint( 0, 2**32-1 )
-        if fo.T_O.NCP >> 13 & 0b11 == 0b01: # Target -> Originator is Multicast: Target picks connection ID
-            fo.T_O.connection_ID=  random.randint( 0, 2**32-1 )
+        if O_T.decoding.type == O_T.TYPE_P2P: # Originator -> Target is Point-to-Point: Target picks connection ID
+            O_T.other.connection_ID=  random.randint( 0, 2**32-1 )
+        if T_O.decoding.type == T_O.TYPE_MC: # Target -> Originator is Multicast: Target picks connection ID
+            T_O.other.connection_ID=  random.randint( 0, 2**32-1 )
         if log.isEnabledFor( logging.DETAIL ):
             log.detail( "%s Forward Open from %s:%s O->T: %s, T->O: %s: %s", self, addr[0], addr[1],
-                        connection_type( fo.O_T.NCP ), connection_type( fo.T_O.NCP ),
+                        O_T.description, T_O.description,
                         enip_format( data ) if log.isEnabledFor( logging.INFO )
                         else ", ".join( " ".join( "%s: %r" % ( k, v ) for k,v in s.items() )
                                         for s in data.forward_open.connection_path.segment ))
+
+        fo.O_T			= O_T.decoding
+        fo.T_O			= T_O.decoding
+
         # Every Forward Open must present a unique vendor/serial/connection_serial.  If its already
         # set up, and the exact same Forward Open connection parameters were used (same connection
         # being re-opened), signal success. However: each Connected session request only comes with
@@ -2400,21 +2360,19 @@ class Connection_Manager( Object ):
         return result
 
 
-class NCP_decode( cpppo.decide ):
+class Connection_decode( cpppo.decide ):
     def __init__( self, name, large=None, source=None, **kwds ):
-        super( NCP_decode, self ).__init__( name=name, **kwds )
+        super( Connection_decode, self ).__init__( name=name, **kwds )
         self.lrg		= large or False
-        self.src		= source # eg. blah.blah.NCP
+        self.src		= source # eg. forward_open.O_T
 
     def execute( self, truth, machine=None, source=None, path=None, data=None ):
-        target			= super( NCP_decode, self ).execute(
+        target			= super( Connection_decode, self ).execute(
             truth, machine=machine, source=source, path=path, data=data )
         if truth:
             pathsrc		= path + self.src
-            pathdst		= pathsrc + '..'
-            NCP			= data[pathsrc]
-            parameters		= defaults.NCP_parameters( NCP )
-            data[pathdst].update( parameters )
+            parameters		= defaults.Connection( **data[pathsrc] )
+            data[pathsrc]	= parameters.decoding
 
         return target
 
@@ -2442,8 +2400,8 @@ def __forward_open():
     tclt[True]		= cpth	= EPATH(	 	context='forward_open', extension='.connection_path' )
     cpth[None]		= done	= octets_noop( 'done',
                                                terminal=True )
-    done.initial[None]		= NCP_decode( 'O_T',	source ='forward_open.O_T.NCP', large=False )
-    done.initial[None]		= NCP_decode( 'T_O',	source= 'forward_open.T_O.NCP', large=False )
+    done.initial[None]		= Connection_decode( 'O_T', source ='forward_open.O_T', large=False )
+    done.initial[None]		= Connection_decode( 'T_O', source= 'forward_open.T_O', large=False )
     return srvc
 
 Connection_Manager.register_service_parser( number=Connection_Manager.FWD_OPEN_REQ, name=Connection_Manager.FWD_OPEN_NAM,
@@ -2465,17 +2423,15 @@ def __forward_open_large():
     tmul[True]		= rsvd	= octets_drop(		'pad', repeat=3 )
     rsvd[True]		= otrpi	= UDINT(		context='forward_open.O_T', extension='.RPI' )
     otrpi[True]		= otncp	= DWORD(		context='forward_open.O_T', extension='.NCP' )
-    otncp[None]			= NCP_decode( 'O_T',	source= 'forward_open.O_T.NCP', large=True )
     otncp[True]		= torpi	= UDINT(		context='forward_open.T_O', extension='.RPI' )
     torpi[True]		= toncp	= DWORD(		context='forward_open.T_O', extension='.NCP' )
-    toncp[None]			= NCP_decode( 'T_O',	source= 'forward_open.T_O.NCP', large=True )
     toncp[True]		= tclt	= USINT( 		context='forward_open', extension='.transport_class_triggers' )
     # 37 bytes from Path to start of Connection Path Size; Connection Path begins on a Word boundary
     tclt[True]		= cpth	= EPATH(	 	context='forward_open', extension='.connection_path' )
     cpth[None]		= done	= octets_noop( 'done',
                                                terminal=True )
-    done.initial[None]		= NCP_decode( 'O_T',	source ='forward_open.O_T.NCP', large=True )
-    done.initial[None]		= NCP_decode( 'T_O',	source= 'forward_open.T_O.NCP', large=True )
+    done.initial[None]		= Connection_decode( 'O_T', source ='forward_open.O_T', large=True )
+    done.initial[None]		= Connection_decode( 'T_O', source= 'forward_open.T_O', large=True )
     return srvc
 
 Connection_Manager.register_service_parser( number=Connection_Manager.FWD_OPLG_REQ, name=Connection_Manager.FWD_OPEN_NAM + " Large",
