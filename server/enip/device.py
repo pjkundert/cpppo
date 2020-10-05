@@ -824,7 +824,7 @@ class Object( object ):
 
         if val is None:
             for kr in ( key, key.replace( '_', ' ' ), key.replace( '_', ' ' )):
-                for k,r in ( [kr, ''], kr.split( '.', 1 )):
+                for k,r in ( [kr, ''], ) + kr.split( '.', 1 ) if '.' in kr else ():
                     if r: # a key.key...;
                         try:
                             val	= dotdict( config.get( k )).get( r )
@@ -2035,7 +2035,6 @@ class Connection_Manager( Object ):
         Connected requests).
 
         """
-
         fo			= data.forward_open
 
         # Actual Packet Interval will be the same as the Requested Packet Interval
@@ -2048,9 +2047,9 @@ class Connection_Manager( Object ):
 
         # TODO: Only if we're the Target (final hop)! Otherwise, pass thru via implicit connection's Forward Open request/reply.
         if O_T.decoding.type == O_T.TYPE_P2P: # Originator -> Target is Point-to-Point: Target picks connection ID
-            O_T.other.connection_ID=  random.randint( 0, 2**32-1 )
+            O_T.connection_ID	=  random.randint( 0, 2**32-1 )
         if T_O.decoding.type == T_O.TYPE_MC: # Target -> Originator is Multicast: Target picks connection ID
-            T_O.other.connection_ID=  random.randint( 0, 2**32-1 )
+            T_O.connection_ID	=  random.randint( 0, 2**32-1 )
         if log.isEnabledFor( logging.DETAIL ):
             log.detail( "%s Forward Open from %s:%s O->T: %s, T->O: %s: %s", self, addr[0], addr[1],
                         O_T.description, T_O.description,
@@ -2136,7 +2135,7 @@ class Connection_Manager( Object ):
             self.forward_close( data, addr=addr )
             return
 
-        if (   self.FWD_OPEN_CTX in data and data.setdefault( 'service', self.FWD_OPEN_REQ ) == self.FWD_OPEN_REQ
+        if (   self.FWD_OPEN_CTX in data and data.get( 'service' ) in (self.FWD_OPEN_REQ, self.FWD_OPLG_REQ)
             or self.FWD_CLOS_CTX in data and data.setdefault( 'service', self.FWD_CLOS_REQ ) == self.FWD_CLOS_REQ ):
             # The only request a Connection Manager handles directly is the Forward Open/Close.
             try:
@@ -2146,10 +2145,10 @@ class Connection_Manager( Object ):
                 # forward it here to the Connection Manager (where it was addressed) to be handled.
                 data.service   |= 0x80
                 data.status	= 8			# Service not supported, if anything blows up
-                if data.service == self.FWD_OPEN_RPY:
-                    self.forward_open( data, addr=addr )
-                else:
+                if data.service == self.FWD_CLOS_RPY:
                     self.forward_close( data, addr=addr )
+                else:
+                    self.forward_open( data, addr=addr )
                 data.status	= 0
             except Exception as exc:
                 # On Exception, if we haven't specified a more detailed error code, return General
@@ -2250,10 +2249,26 @@ class Connection_Manager( Object ):
     @classmethod
     def produce( cls, data ):
         result			= b''
-        if cls.FWD_OPEN_CTX in data and data.setdefault( 'service', cls.FWD_OPEN_REQ ) == cls.FWD_OPEN_REQ:
+        if cls.FWD_OPEN_CTX in data and data.get( 'service' ) not in (cls.FWD_OPEN_RPY, cls.FWD_OPLG_RPY):
+            fo			= data.forward_open
+            # Must deduce if Small or Large Forward Open is desired.  Both O_T and T_O Connection
+            # parameters must be encoded appropriately.  If the data.service is not defined, and
+            # *either* Connection's NCP decoding.large is True, re-encode both as Large.  Finally,
+            # replace the supplied Connections with the complete Connection.decoding.
+            T_O			= defaults.Connection( **fo.T_O )
+            O_T			= defaults.Connection( **fo.O_T )
+            service		= data.get( 'service' )
+            large		= T_O.large or O_T.large
+            if service is None:
+                data.service	= cls.FWD_OPLG_REQ if large else cls.FWD_OPEN_REQ
+            assert data.service == cls.FWD_OPLG_REQ if large else cls.FWD_OPEN_REQ, \
+                "Forward Open service code incompatible with T_O or O_T connection size"
+            T_O.large = O_T.large = large
+            fo.T_O		= T_O.decoding
+            fo.O_T		= O_T.decoding
+
             result	       += USINT.produce( data.service )
             result	       += EPATH.produce( data.path )
-            fo			= data.forward_open
             result	       += USINT.produce( fo.priority_time_tick )
             result	       += USINT.produce( fo.timeout_ticks )
             result	       += UDINT.produce( fo.O_T.connection_ID )
@@ -2264,13 +2279,13 @@ class Connection_Manager( Object ):
             result	       += USINT.produce( fo.connection_timeout_multiplier )
             result	       += b'\x00' * 3 # reserved
             result	       += UDINT.produce( fo.O_T.RPI )
-            result	       += WORD.produce( fo.O_T.NCP )
+            result	       += DWORD.produce( fo.O_T.NCP ) if fo.O_T.large else WORD.produce( fo.O_T.NCP )
             result	       += UDINT.produce( fo.T_O.RPI )
-            result	       += WORD.produce( fo.T_O.NCP )
+            result	       += DWORD.produce( fo.T_O.NCP ) if fo.T_O.large else WORD.produce( fo.T_O.NCP )
             result	       += USINT.produce( fo.transport_class_triggers )
             result	       += EPATH.produce( fo.connection_path )
 
-        elif data.get( 'service' ) == cls.FWD_OPEN_RPY:
+        elif data.get( 'service' ) in (cls.FWD_OPEN_RPY, cls.FWD_OPLG_RPY):
             result	       += USINT.produce( data.service )
             result	       += b'\x00' # reserved
             result	       += status.produce( data )
@@ -2370,7 +2385,7 @@ class Connection_decode( cpppo.decide ):
         target			= super( Connection_decode, self ).execute(
             truth, machine=machine, source=source, path=path, data=data )
         if truth:
-            pathsrc		= path + self.src
+            pathsrc		= path + '.' + self.src
             parameters		= defaults.Connection( **data[pathsrc] )
             data[pathsrc]	= parameters.decoding
 
