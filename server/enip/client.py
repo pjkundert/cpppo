@@ -781,7 +781,7 @@ class client( object ):
             cpppo.dotdict( d ) for d in device.parse_connection_path( connection_path )
         ]}
         if send:
-            self.req_send(
+            self.unconnected_send(
                 request=req, route_path=route_path, send_path=send_path, timeout=timeout,
                 sender_context=sender_context )
         return req
