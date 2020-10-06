@@ -105,7 +105,7 @@ def loop( via, cycle=None, last_poll=None, **kwds ):
             last_poll		= init_poll
 
     # last_poll has been advanced to indicate the start of the poll cycle we're within
-    log.info( "Polling started   %7.3fs into %7.3fs poll cycle", init_poll - last_poll, cycle )
+    log.detail( "Polling started   %7.3fs into %7.3fs poll cycle", init_poll - last_poll, cycle )
 
     # Perform poll.  Whatever code "reifies" the powerflex.read generator must catch exceptions and
     # tell the (failed) powerflex instance to close its gateway.  This prepares the proxy's gateway
@@ -114,11 +114,12 @@ def loop( via, cycle=None, last_poll=None, **kwds ):
         with contextlib.closing( execute( via, **kwds )) as executor:
             # PyPy compatibility; avoid deferred destruction of generators
             results		= list( executor )
+    count			= len( results )
 
     done_poll			= timer()
     duration			= done_poll - init_poll
-    log.info( "Polling finished  %7.3fs into %7.3fs poll cycle, taking %7.3fs (%5.1f TPS)",
-                  done_poll - last_poll, cycle, duration, (1.0/duration) if duration else float('inf'))
+    log.normal( "Polling finished  %7.3fs into %7.3fs poll cycle, polled %5d taking %7.3fs (%5.1f TPS)",
+                  done_poll - last_poll, cycle, count, duration, (count/duration) if duration else float('inf'))
 
     # Return this poll cycle time stamp, remaining time 'til next poll cycle (if any), and results
     return last_poll,max( 0, last_poll+cycle-done_poll ),results

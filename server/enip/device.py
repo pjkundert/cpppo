@@ -824,7 +824,7 @@ class Object( object ):
 
         if val is None:
             for kr in ( key, key.replace( '_', ' ' ), key.replace( '_', ' ' )):
-                for k,r in ( [kr, ''], ) + kr.split( '.', 1 ) if '.' in kr else ():
+                for k,r in ( [kr, ''], ) + ( kr.split( '.', 1 ) if '.' in kr else () ):
                     if r: # a key.key...;
                         try:
                             val	= dotdict( config.get( k )).get( r )
