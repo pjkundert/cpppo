@@ -27,6 +27,7 @@ if sys.version_info[0:2] < (2,7):
     install_requires.append( "argparse" )
 if sys.version_info[0:2] < (3,0):
     install_requires.append( "configparser" )
+    install_requires.append( "ipaddress" )
 tests_require			= open( os.path.join( here, "requirements-optional.txt" )).readlines()
 
 setup(
