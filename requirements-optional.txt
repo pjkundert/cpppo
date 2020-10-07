@@ -1,6 +1,7 @@
-web.py>=0.37
+minimalmodbus
+pylogix
 pymodbus>=1.2.0
+pytest
 pytz>=2014.7
 tzlocal>=1.1.1
-pytest
-minimalmodbus
+web.py>=0.37

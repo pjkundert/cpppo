@@ -34,10 +34,10 @@ param				= 'Motor Velocity = (REAL)%s' % ( velocity )
 try:
     via				= device( host=host )
     with via: # establish gateway, detects Exception (closing gateway)
-	val,			= via.write(
-	    via.parameter_substitution( param ), checking=True )
+        val,			= via.write(
+            via.parameter_substitution( param ), checking=True )
     print( "%s: %-32s == %s" % ( time.ctime(), param, val ))
 except Exception as exc:
     logging.detail( "Exception writing Parameter %s: %s, %s",
-	param, exc, traceback.format_exc() )
+                    param, exc, traceback.format_exc() )
     sys.exit( 1 )

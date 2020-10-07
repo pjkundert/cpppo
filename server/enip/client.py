@@ -727,9 +727,7 @@ class client( object ):
     # CIP Send...Data Requests; may be deferred (eg. for Multiple Service Packet)
     def forward_open( self, path, connection_path,
                       priority_time_tick, timeout_ticks,
-                      O_serial, O_vendor,
-                      O_T_RPI, O_T_NCP, O_T_connection_ID,
-                      T_O_RPI, T_O_NCP, T_O_connection_ID, connection_serial,
+                      O_T, T_O, O_serial, O_vendor, connection_serial,
                       transport_class_triggers, connection_timeout_multiplier,
                       timeout=None, send=True,
                       route_path=False, send_path='', sender_context=b'',
@@ -747,12 +745,8 @@ class client( object ):
         fo			= req.forward_open
         fo.priority_time_tick	= priority_time_tick
         fo.timeout_ticks	= timeout_ticks
-        fo.O_T_RPI		= O_T_RPI
-        fo.O_T_NCP		= O_T_NCP
-        fo.O_T_connection_ID	= O_T_connection_ID
-        fo.T_O_RPI		= T_O_RPI
-        fo.T_O_NCP		= T_O_NCP
-        fo.T_O_connection_ID	= T_O_connection_ID
+        fo.O_T			= defaults.Connection( **( O_T or {} )).decoding
+        fo.T_O			= defaults.Connection( **( T_O or {} )).decoding
         fo.connection_serial	= connection_serial
         fo.O_vendor		= O_vendor
         fo.O_serial		= O_serial
@@ -787,7 +781,7 @@ class client( object ):
             cpppo.dotdict( d ) for d in device.parse_connection_path( connection_path )
         ]}
         if send:
-            self.req_send(
+            self.unconnected_send(
                 request=req, route_path=route_path, send_path=send_path, timeout=timeout,
                 sender_context=sender_context )
         return req
@@ -1771,22 +1765,21 @@ class implicit( connector ):
 
     While we typically issue a single Forward Open request on a connection, there is no reason that
     multiple Forward Open requests cannot be issued on a single EtherNet/IP session.  We'll track
-    the O_T_connection_ID on each forward open, and create a sequence number for each Forward Open
+    the O_T.connection_ID on each forward open, and create a sequence number for each Forward Open
     session, which subsequent calls to .connected_send( ..., connection=#, ... ) will use (it is
-    expected that the O_T_connection_ID's for the desired supplied to identify the desired
+    expected that the O_T.connection_ID's for the desired supplied to identify the desired
     connection).
 
-    A global sequence of connection_serial (used, by default, also as O_T_connection_ID is
+    A global sequence of connection_serial (used, by default, also as O_T.connection_ID is
     maintained.  This is unnecessarily strict, and there is nothing preventing independent Implicit
-    connections from using the same O_T_connection_ID on different Forward Open sessions.
+    connections from using the same O_T.connection_ID on different Forward Open sessions.
     Therefore, the connection-->sequence dict is maintained on a per-instance basis.
 
     """
     connection_serial		= random.randint( 0, 2**16-1 )
     def __init__( self, host, port=None, timeout=None, connection_path=None, path=None, 
                   configuration=None, priority_time_tick=None, timeout_ticks=None,
-                  O_T_connection_ID=None, T_O_connection_ID=None, connection_serial=None,
-                  O_vendor=None, O_serial=None, O_T_RPI=None, T_O_RPI=None, O_T_NCP=None, T_O_NCP=None,
+                  O_T=None, T_O=None, O_vendor=None, O_serial=None, connection_serial=None,
                   transport_class_triggers=None, connection_timeout_multiplier=None,
                   route_path=False, send_path='', # typically no 0x52 encapsulation w/ routing for fwd open
                   sender_context=b'', **kwds ):
@@ -1806,7 +1799,10 @@ class implicit( connector ):
             self.__class__.connection_serial += 1
             self.__class__.connection_serial %= 2**16
 
-            # Arrange to get the Forward Open parameters from the config file's 'configuration' section 
+            # Arrange to get the Forward Open parameters from the config file's 'configuration'
+            # section, or from defaults.  The O_T/T_O Connection parameters must be obtained as a
+            # package, as they must be internally consistent (ie. can't obtain some from config and
+            # some from defaults)
             config			= device.Object.config_section( configuration )
             def default_named( val, name ):
                 return device.Object.config_override(
@@ -1817,22 +1813,26 @@ class implicit( connector ):
             timeout_ticks	= default_named( timeout_ticks,		'timeout_ticks' )
             O_serial		= default_named( O_serial,		'O_serial' )
             O_vendor		= default_named( O_vendor,		'O_vendor' )
-            T_O_RPI		= default_named( T_O_RPI,		'T_O_RPI' )
-            T_O_NCP		= default_named( T_O_NCP,		'T_O_NCP' )
-            O_T_RPI		= default_named( O_T_RPI,		'O_T_RPI' )
-            O_T_NCP		= default_named( O_T_NCP,		'O_T_NCP' )
+            T_O			= default_named( T_O,			'T_O' )
+            O_T			= default_named( O_T,			'O_T' )
             transport_class_triggers \
                                 = default_named( transport_class_triggers,'transport_class_triggers' )
             connection_timeout_multiplier \
                                 = default_named( connection_timeout_multiplier, 'connection_timeout_multiplier' )
 
+            # Deduce Connection parameters, and whether or not we need a Large or Small Forward Open
+            T_O			= defaults.Connection( **( T_O or {} ))
+            O_T			= defaults.Connection( **( O_T or {} ))
+            large		= O_T.large or T_O.large
+            T_O.large = O_T.large = large
+
             # Default the connection ID and serial to the same incrementing number
             if connection_serial is None:
                 connection_serial = self.connection_serial
-            if O_T_connection_ID is None:
-                O_T_connection_ID = self.connection_serial
-            if T_O_connection_ID is None:
-                T_O_connection_ID = 2**32-1 # set by Target; doesn't matter
+            if O_T.connection_ID is None:
+                O_T.connection_ID = self.connection_serial
+            if T_O.connection_ID is None:
+                T_O.connection_ID = 2**32-1 # set by Target; doesn't matter
 
             with self:
                 # The forward_open( timeout=... ) applies to the socket send only
@@ -1844,13 +1844,9 @@ class implicit( connector ):
                     timeout_ticks	= timeout_ticks,
                     O_serial		= O_serial,
                     O_vendor		= O_vendor,
-                    O_T_RPI		= O_T_RPI,
-                    O_T_NCP		= O_T_NCP,
-                    O_T_connection_ID	= O_T_connection_ID,
-                    T_O_RPI		= T_O_RPI,
-                    T_O_NCP		= T_O_NCP,
-                    T_O_connection_ID	= T_O_connection_ID,
                     connection_serial	= connection_serial,
+                    O_T			= O_T.decoding,
+                    T_O			= T_O.decoding,
                     transport_class_triggers = transport_class_triggers,
                     connection_timeout_multiplier = connection_timeout_multiplier,
                     timeout		= None if timeout is None else max( 0, timeout - elapsed_req ),
@@ -1952,7 +1948,7 @@ class implicit( connector ):
 
         """
         if connection is None:
-            connection		= self.established.forward_open.O_T_connection_ID
+            connection		= self.established.forward_open.O_T.connection_ID
         if sequence is None: # advance sequence, ensuring it remains in valid CIP INT range (0,2^16]
             sequence		= self.seqs.get( connection, -1 ) + 1 # 0, 1, ...
             sequence	       %= 2**16
@@ -2096,9 +2092,11 @@ which is required to carry this Send/Route Path data. """ )
     ap.add_argument( '-P', '--profile', action='store_true',
                      default=False, 
                      help="Activate profiling (default: False)" )
+    ap.add_argument( '-c', '--connected', action='store_true',
+                     default=False,
+                     help="Establish a Connected (Implicit) Session (uses configured/default parameters")
     ap.add_argument( 'tags', nargs="*",
                      help="Tags to read/write (- to read from stdin), eg: SCADA[1], SCADA[2-10]+4=(DINT)3,4,5" )
-
     args			= ap.parse_args( argv )
 
     # Set up logging level (-v...) and --log <file>
@@ -2151,11 +2149,15 @@ which is required to carry this Send/Route Path data. """ )
         import StringIO
         profiler		= profile.Profile()
 
-    # Register and EtherNet/IP CIP connection to a Controller
+    # Register and EtherNet/IP CIP connection to a Controller; default to Explicit, but support Implicit
     begun			= cpppo.timer()
     failures			= 0
-    with connector( host=addr[0], port=addr[1], timeout=timeout, profiler=profiler,
-                    udp=args.udp, broadcast=args.broadcast ) as connection:
+    connector_cls		= connector
+    connector_kwds		= {}
+    if args.connected:
+        connector_cls		= implicit
+    with connector_cls( host=addr[0], port=addr[1], timeout=timeout, profiler=profiler,
+                        udp=args.udp, broadcast=args.broadcast, **connector_kwds ) as connection:
         elapsed			= cpppo.timer() - begun
         log.detail( "Client Register Rcvd %7.3f/%7.3fs" % ( elapsed, timeout ))
 

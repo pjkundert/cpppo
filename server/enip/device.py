@@ -53,6 +53,7 @@ import configparser # Python2 requires 'pip install configparser'
 import cpppo
 from ...dotdict import dotdict
 from ... import automata, misc
+from . import defaults
 from .parser import ( UDINT, DINT, DWORD, INT, UINT, WORD, USINT,
                       EPATH, EPATH_padded, SSTRING, STRING, IFACEADDRS,
                       typed_data,
@@ -814,30 +815,40 @@ class Object( object ):
         "Some Thing" or "some_thing" are acceptable config file keys), converting to type of
         default.
 
+        The configparser doesn't support accessing dicts in 'k.r...' form, so we'll split on '.'
+        and attempt to convert the discovered config[k] to a dotdict, and index it by 'r...'.
+
         """
         if config is None:
             config		= cls.config_section( section ) # if neither, uses 'DEFAULT'
+
         if val is None:
-            key_sp		= key.replace( '_', ' ' )
-            val			= config.get( key_sp, None )
-            if val: log.info( "  {key:<20} == {val!r}".format( key=key_sp, val=val ))
-        if val is None:
-            key_un		= key.replace( ' ', '_' )
-            val			= config.get( key_un, None )
-            if val: log.info( "  {key:<20} == {val!r}".format( key=key_un, val=val ))
+            for kr in ( key, key.replace( '_', ' ' ), key.replace( '_', ' ' )):
+                for k,r in ( [kr, ''], ) + ( kr.split( '.', 1 ) if '.' in kr else () ):
+                    if r: # a key.key...;
+                        try:
+                            val	= dotdict( config.get( k )).get( r )
+                            log.info( "  {k:>10}{r:<10} == {val!r} (config dict)".format( k=k, r=r, exc=exc ))
+                        except Exception as exc:
+                            log.info( "  {k:>10}{r:<10}: {exc!r}".format( k=k, r=r, exc=exc ))
+                    else:
+                        val	= config.get( k, None )
+                if val is not None:
+                    log.info( "  {k:<20} == {val!r} (config)".format( k=k, val=val ))
+                    break
         try:
             if val is None:
-                val			= default
+                val		= default
                 if val: log.info( "  {key:<20} == {val!r:<20} (default)".format( key=key, val=val ))
             elif isinstance( default, bool) and \
                  isinstance( val,     cpppo.type_str_base):
                 # Python bools supplied as strings or from config files are a special case, eg. 0 or
                 # "False" ==> False, 1 or "True' ==> True
-                val			= type( default )( ast.literal_eval( val.capitalize() ))
+                val		= type( default )( ast.literal_eval( val.capitalize() ))
             elif isinstance( default, (list, dict )) and \
                  isinstance( val,     cpppo.type_str_base):
                 # Other complex types eg. "[ ... ]" must be obtained by ast.literal_eval.
-                val			= type( default )( ast.literal_eval( val ))
+                val		= type( default )( ast.literal_eval( val ))
             elif isinstance( default, (bool, int, float, cpppo.type_str_base)) and \
                  isinstance( val,     (bool, int, float, cpppo.type_str_base)):
                 # Otherwise, any basic-typed val supplied or loaded from config file will be converted to
@@ -1988,8 +1999,11 @@ class Connection_Manager( Object ):
 
     FWD_OPEN_NAM		= "Forward Open"
     FWD_OPEN_CTX		= "forward_open"
-    FWD_OPEN_REQ		= 0x54
+    FWD_OPEN_REQ		= 0x54 # == 0x0101_0100 (Small)
     FWD_OPEN_RPY		= FWD_OPEN_REQ | 0x80
+
+    FWD_OPLG_REQ		= 0x5B # == 0x0101_1011 (Large)
+    FWD_OPLG_RPY		= FWD_OPLG_REQ | 0x80
 
     FWD_CLOS_NAM		= "Forward Close"
     FWD_CLOS_CTX		= "forward_close"
@@ -2021,44 +2035,47 @@ class Connection_Manager( Object ):
         Connected requests).
 
         """
-        def connection_type( NCP ):
-            return ', '.join( (('%d-Byte' % ( NCP & 0x01FF )),
-                               ('Fixed','Variable')[NCP >> 8 & 0b1],
-                               ('Low Prio.','High Prio.','Scheduled','Urgent' )[NCP >> 10 & 0b11],
-                               ('Null','Multicast','Point-to-Point','Reserved')[NCP >> 13 & 0b11],
-                               ('Exclusive','Redundant')[NCP >> 55 & 0b1]) )
-
         fo			= data.forward_open
-        fo.O_T_API		= fo.O_T_RPI
-        fo.T_O_API		= fo.T_O_RPI
+
+        # Actual Packet Interval will be the same as the Requested Packet Interval
+        fo.O_T.API		= fo.O_T.RPI
+        fo.T_O.API		= fo.T_O.RPI
+
+        # Decode the supplied Connection parameters.
+        O_T			= defaults.Connection( **fo.O_T )
+        T_O			= defaults.Connection( **fo.T_O )
 
         # TODO: Only if we're the Target (final hop)! Otherwise, pass thru via implicit connection's Forward Open request/reply.
-        if fo.O_T_NCP >> 13 & 0b11 == 0b10: # Originator -> Target is Point-to-Point: Target picks connection ID
-            fo.O_T_connection_ID=  random.randint( 0, 2**32-1 )
-        if fo.T_O_NCP >> 13 & 0b11 == 0b01: # Target -> Originator is Multicast: Target picks connection ID
-            fo.T_O_connection_ID=  random.randint( 0, 2**32-1 )
+        if O_T.decoding.type == O_T.TYPE_P2P: # Originator -> Target is Point-to-Point: Target picks connection ID
+            O_T.connection_ID	=  random.randint( 0, 2**32-1 )
+        if T_O.decoding.type == T_O.TYPE_MC: # Target -> Originator is Multicast: Target picks connection ID
+            T_O.connection_ID	=  random.randint( 0, 2**32-1 )
         if log.isEnabledFor( logging.DETAIL ):
             log.detail( "%s Forward Open from %s:%s O->T: %s, T->O: %s: %s", self, addr[0], addr[1],
-                        connection_type( fo.O_T_NCP ), connection_type( fo.T_O_NCP ),
+                        O_T.description, T_O.description,
                         enip_format( data ) if log.isEnabledFor( logging.INFO )
                         else ", ".join( " ".join( "%s: %r" % ( k, v ) for k,v in s.items() )
                                         for s in data.forward_open.connection_path.segment ))
+
+        fo.O_T			= O_T.decoding
+        fo.T_O			= T_O.decoding
+
         # Every Forward Open must present a unique vendor/serial/connection_serial.  If its already
         # set up, and the exact same Forward Open connection parameters were used (same connection
         # being re-opened), signal success. However: each Connected session request only comes with
-        # a copy of the O_T_connection_ID, which is *not* generated by the Target! Thus, no
+        # a copy of the O_T.connection_ID, which is *not* generated by the Target! Thus, no
         # information present in each request is sufficient to uniquely identify the carry-on
-        # connection to use.  The peer (addr,O_T_connection_ID) is sufficiently unique: each
+        # connection to use.  The peer (addr,O_T.connection_ID) is sufficiently unique: each
         # incoming TCP/IP session can carry one or more Forward Open request(s), each of which must
-        # have a unique O_T_connection_ID.  Later, each CIP request must carry a CPF.item[0]
-        # containing the O_T_connection_ID.
+        # have a unique O_T.connection_ID.  Later, each CIP request must carry a CPF.item[0]
+        # containing the O_T.connection_ID.
 
         triplet			= fo.O_vendor,fo.O_serial,fo.connection_serial
-        unique			= addr[0],addr[1],fo.O_T_connection_ID # eg ("1.2.3.4",12345,234567)
+        unique			= addr[0],addr[1],fo.O_T.connection_ID # eg ("1.2.3.4",12345,234567)
         if unique in self.forwards:
             ufo,uci		= self.forwards[unique]
             assert all( ufo.getattr( a ) == fo.getattr( a )
-                        for a in ( 'O_T_NCP', 'O_T_RPI', 'T_O_NCP', 'T_O_RPI', 'transport_class_triggers', 'connection_path' )), \
+                        for a in ( 'O_T.NCP', 'O_T.RPI', 'T_O.NCP', 'T_O.RPI', 'transport_class_triggers', 'connection_path' )), \
                 "Already have an incompatible Forward Open from device Vendor: %s, Serial: %s, Connection Serial: %s" % triplet
         else:
             # TODO: Create an implicit connection w/ remainder of connection_path
@@ -2070,8 +2087,8 @@ class Connection_Manager( Object ):
 
     def forward_close( self, data, addr ):
         """Convert the data into a forward_close response; nothing to do. Remove any matching self..forwards
-        entry.  We do not have an O_T_connection_ID, just a connection_serial. Since we store the
-        forwards addr[0],addr[1],O_T_connection_ID to speed lookups while processing Connected
+        entry.  We do not have an O_T.connection_ID, just a connection_serial. Since we store the
+        forwards addr[0],addr[1],O_T.connection_ID to speed lookups while processing Connected
         requests, we need to iterate all self.forwards 'til we find the one with matching key
         addr[0],addr[1],* having a matching connection_serial.
 
@@ -2100,7 +2117,7 @@ class Connection_Manager( Object ):
         Connection_Manager @2/1.  Each CIP request should always start with the SINT Service Code
         followed by an EPATH.
 
-        For Connected sessions (w/ an O_T_connection_ID in CFP.items[0]), we don't need to parse an
+        For Connected sessions (w/ an O_T.connection_ID in CFP.items[0]), we don't need to parse an
         EPATH from the incoming request -- it will have been provided by the Forward Open and
         available in the self.forwards. This is necessary, for when the target Object doesn't
         actually parse CIP requests (ie. ones with a service number and EPATH at the start, but some
@@ -2118,7 +2135,7 @@ class Connection_Manager( Object ):
             self.forward_close( data, addr=addr )
             return
 
-        if (   self.FWD_OPEN_CTX in data and data.setdefault( 'service', self.FWD_OPEN_REQ ) == self.FWD_OPEN_REQ
+        if (   self.FWD_OPEN_CTX in data and data.get( 'service' ) in (self.FWD_OPEN_REQ, self.FWD_OPLG_REQ)
             or self.FWD_CLOS_CTX in data and data.setdefault( 'service', self.FWD_CLOS_REQ ) == self.FWD_CLOS_REQ ):
             # The only request a Connection Manager handles directly is the Forward Open/Close.
             try:
@@ -2128,10 +2145,10 @@ class Connection_Manager( Object ):
                 # forward it here to the Connection Manager (where it was addressed) to be handled.
                 data.service   |= 0x80
                 data.status	= 8			# Service not supported, if anything blows up
-                if data.service == self.FWD_OPEN_RPY:
-                    self.forward_open( data, addr=addr )
-                else:
+                if data.service == self.FWD_CLOS_RPY:
                     self.forward_close( data, addr=addr )
+                else:
+                    self.forward_open( data, addr=addr )
                 data.status	= 0
             except Exception as exc:
                 # On Exception, if we haven't specified a more detailed error code, return General
@@ -2232,39 +2249,55 @@ class Connection_Manager( Object ):
     @classmethod
     def produce( cls, data ):
         result			= b''
-        if cls.FWD_OPEN_CTX in data and data.setdefault( 'service', cls.FWD_OPEN_REQ ) == cls.FWD_OPEN_REQ:
+        if cls.FWD_OPEN_CTX in data and data.get( 'service' ) not in (cls.FWD_OPEN_RPY, cls.FWD_OPLG_RPY):
+            fo			= data.forward_open
+            # Must deduce if Small or Large Forward Open is desired.  Both O_T and T_O Connection
+            # parameters must be encoded appropriately.  If the data.service is not defined, and
+            # *either* Connection's NCP decoding.large is True, re-encode both as Large.  Finally,
+            # replace the supplied Connections with the complete Connection.decoding.
+            T_O			= defaults.Connection( **fo.T_O )
+            O_T			= defaults.Connection( **fo.O_T )
+            service		= data.get( 'service' )
+            large		= T_O.large or O_T.large
+            if service is None:
+                data.service	= cls.FWD_OPLG_REQ if large else cls.FWD_OPEN_REQ
+            assert data.service == cls.FWD_OPLG_REQ if large else cls.FWD_OPEN_REQ, \
+                "Forward Open service code incompatible with T_O or O_T connection size"
+            T_O.large = O_T.large = large
+            fo.T_O		= T_O.decoding
+            fo.O_T		= O_T.decoding
+
             result	       += USINT.produce( data.service )
             result	       += EPATH.produce( data.path )
-            fo			= data.forward_open
             result	       += USINT.produce( fo.priority_time_tick )
             result	       += USINT.produce( fo.timeout_ticks )
-            result	       += UDINT.produce( fo.O_T_connection_ID )
-            result	       += UDINT.produce( fo.T_O_connection_ID )
+            result	       += UDINT.produce( fo.O_T.connection_ID )
+            result	       += UDINT.produce( fo.T_O.connection_ID )
             result	       += UINT.produce( fo.connection_serial )
             result	       += UINT.produce( fo.O_vendor )
             result	       += UDINT.produce( fo.O_serial )
             result	       += USINT.produce( fo.connection_timeout_multiplier )
             result	       += b'\x00' * 3 # reserved
-            result	       += UDINT.produce( fo.O_T_RPI )
-            result	       += WORD.produce( fo.O_T_NCP )
-            result	       += UDINT.produce( fo.T_O_RPI )
-            result	       += WORD.produce( fo.T_O_NCP )
+            result	       += UDINT.produce( fo.O_T.RPI )
+            result	       += DWORD.produce( fo.O_T.NCP ) if fo.O_T.large else WORD.produce( fo.O_T.NCP )
+            result	       += UDINT.produce( fo.T_O.RPI )
+            result	       += DWORD.produce( fo.T_O.NCP ) if fo.T_O.large else WORD.produce( fo.T_O.NCP )
             result	       += USINT.produce( fo.transport_class_triggers )
             result	       += EPATH.produce( fo.connection_path )
 
-        elif data.get( 'service' ) == cls.FWD_OPEN_RPY:
+        elif data.get( 'service' ) in (cls.FWD_OPEN_RPY, cls.FWD_OPLG_RPY):
             result	       += USINT.produce( data.service )
             result	       += b'\x00' # reserved
             result	       += status.produce( data )
             fo			= data.forward_open
             if data.status == 0x00:
-                result	       += UDINT.produce( fo.O_T_connection_ID )
-                result	       += UDINT.produce( fo.T_O_connection_ID )
+                result	       += UDINT.produce( fo.O_T.connection_ID )
+                result	       += UDINT.produce( fo.T_O.connection_ID )
                 result	       += UINT.produce( fo.connection_serial )
                 result	       += UINT.produce( fo.O_vendor )
                 result	       += UDINT.produce( fo.O_serial )
-                result	       += UDINT.produce( fo.O_T_API )
-                result	       += UDINT.produce( fo.T_O_API )
+                result	       += UDINT.produce( fo.O_T.API )
+                result	       += UDINT.produce( fo.T_O.API )
 
                 # The forward_open.application data in the reply is typed data, by default USINT.  It
                 # must be an even number of bytes, so pad it out if not.
@@ -2324,10 +2357,10 @@ class Connection_Manager( Object ):
                 if app.data:
                     # Something has been provided
                     if 'type' not in app and 'tag_type' not in app:
-                        app.tag_type= USINT.tag_type
+                        app.tag_type = USINT.tag_type
                     app.input	= typed_data.produce( app )
                     if len( app.input ) % 2:
-                        app.input  += b'\x00'
+                        app.input += b'\x00'
                     app.size	= len( app.input ) // 2 # words
                 else:
                     app.size	= 0
@@ -2335,11 +2368,28 @@ class Connection_Manager( Object ):
                 result	       += USINT.produce( app.size ) # application data size (words)
                 result	       += b'\x00' # pad
                 if app.size:
-                    result	       += app.input
+                    result     += app.input
         else:
             # Connection Manager only recognizes its own services (not the generic CIP Object's)
             raise RequestUnrecognized( "%s doesn't recognize request/reply format: %r" % ( cls.__name__, data ))
         return result
+
+
+class Connection_decode( cpppo.decide ):
+    def __init__( self, name, large=None, source=None, **kwds ):
+        super( Connection_decode, self ).__init__( name=name, **kwds )
+        self.lrg		= large or False
+        self.src		= source # eg. forward_open.O_T
+
+    def execute( self, truth, machine=None, source=None, path=None, data=None ):
+        target			= super( Connection_decode, self ).execute(
+            truth, machine=machine, source=source, path=path, data=data )
+        if truth:
+            pathsrc		= path + '.' + self.src
+            parameters		= defaults.Connection( **data[pathsrc] )
+            data[pathsrc]	= parameters.decoding
+
+        return target
 
 
 def __forward_open():
@@ -2349,25 +2399,58 @@ def __forward_open():
     srvc[True]		= path	= EPATH(		context='path')
     path[True]		= prio	= USINT(		context='forward_open', extension='.priority_time_tick' )
     prio[True]		= timo	= USINT(		context='forward_open', extension='.timeout_ticks' )
-    timo[True]		= otid	= UDINT(		context='forward_open', extension='.O_T_connection_ID' )
-    otid[True]		= toid	= UDINT(		context='forward_open', extension='.T_O_connection_ID' )
+    timo[True]		= otid	= UDINT(		context='forward_open.O_T', extension='.connection_ID' )
+    otid[True]		= toid	= UDINT(		context='forward_open.T_O', extension='.connection_ID' )
     toid[True]		= cser	= UINT(			context='forward_open', extension='.connection_serial' )
     cser[True]		= ovnd	= UINT(			context='forward_open', extension='.O_vendor' )
     ovnd[True]		= oser	= UDINT(		context='forward_open', extension='.O_serial' )
     oser[True]		= tmul	= USINT(		context='forward_open', extension='.connection_timeout_multiplier' )
     tmul[True]		= rsvd	= octets_drop(		'pad', repeat=3 )
-    rsvd[True]		= otrpi	= UDINT(		context='forward_open', extension='.O_T_RPI' )
-    otrpi[True]		= otncp	= WORD(			context='forward_open', extension='.O_T_NCP' )
-    otncp[True]		= torpi	= UDINT(		context='forward_open', extension='.T_O_RPI' )
-    torpi[True]		= toncp	= WORD(			context='forward_open', extension='.T_O_NCP' )
+    rsvd[True]		= otrpi	= UDINT(		context='forward_open.O_T', extension='.RPI' )
+    otrpi[True]		= otncp	= WORD(			context='forward_open.O_T', extension='.NCP' )
+    otncp[True]		= torpi	= UDINT(		context='forward_open.T_O', extension='.RPI' )
+    torpi[True]		= toncp	= WORD(			context='forward_open.T_O', extension='.NCP' )
     toncp[True]		= tclt	= USINT( 		context='forward_open', extension='.transport_class_triggers' )
     # 33 bytes from Path to start of Connection Path Size; Connection Path begins on a Word boundary
-    tclt[True]		= cpth	= EPATH(	 	context='forward_open', extension='.connection_path',
-                                                    terminal=True )
+    tclt[True]		= cpth	= EPATH(	 	context='forward_open', extension='.connection_path' )
+    cpth[None]		= done	= octets_noop( 'done',
+                                               terminal=True )
+    done.initial[None]		= Connection_decode( 'O_T', source ='forward_open.O_T', large=False )
+    done.initial[None]		= Connection_decode( 'T_O', source= 'forward_open.T_O', large=False )
     return srvc
 
 Connection_Manager.register_service_parser( number=Connection_Manager.FWD_OPEN_REQ, name=Connection_Manager.FWD_OPEN_NAM,
                                             short=Connection_Manager.FWD_OPEN_CTX, machine=__forward_open() )
+
+def __forward_open_large():
+    """Handle Large Forward Open request.
+    """
+    srvc			= USINT(	 	context='service' )
+    srvc[True]		= path	= EPATH(		context='path')
+    path[True]		= prio	= USINT(		context='forward_open', extension='.priority_time_tick' )
+    prio[True]		= timo	= USINT(		context='forward_open', extension='.timeout_ticks' )
+    timo[True]		= otid	= UDINT(		context='forward_open.O_T', extension='.connection_ID' )
+    otid[True]		= toid	= UDINT(		context='forward_open.T_O', extension='.connection_ID' )
+    toid[True]		= cser	= UINT(			context='forward_open', extension='.connection_serial' )
+    cser[True]		= ovnd	= UINT(			context='forward_open', extension='.O_vendor' )
+    ovnd[True]		= oser	= UDINT(		context='forward_open', extension='.O_serial' )
+    oser[True]		= tmul	= USINT(		context='forward_open', extension='.connection_timeout_multiplier' )
+    tmul[True]		= rsvd	= octets_drop(		'pad', repeat=3 )
+    rsvd[True]		= otrpi	= UDINT(		context='forward_open.O_T', extension='.RPI' )
+    otrpi[True]		= otncp	= DWORD(		context='forward_open.O_T', extension='.NCP' )
+    otncp[True]		= torpi	= UDINT(		context='forward_open.T_O', extension='.RPI' )
+    torpi[True]		= toncp	= DWORD(		context='forward_open.T_O', extension='.NCP' )
+    toncp[True]		= tclt	= USINT( 		context='forward_open', extension='.transport_class_triggers' )
+    # 37 bytes from Path to start of Connection Path Size; Connection Path begins on a Word boundary
+    tclt[True]		= cpth	= EPATH(	 	context='forward_open', extension='.connection_path' )
+    cpth[None]		= done	= octets_noop( 'done',
+                                               terminal=True )
+    done.initial[None]		= Connection_decode( 'O_T', source ='forward_open.O_T', large=True )
+    done.initial[None]		= Connection_decode( 'T_O', source= 'forward_open.T_O', large=True )
+    return srvc
+
+Connection_Manager.register_service_parser( number=Connection_Manager.FWD_OPLG_REQ, name=Connection_Manager.FWD_OPEN_NAM + " Large",
+                                            short=Connection_Manager.FWD_OPEN_CTX, machine=__forward_open_large() )
 
 def __forward_open_reply():
     srvc			= USINT(	context='service' )
@@ -2379,13 +2462,13 @@ def __forward_open_reply():
     mark.initial[None]		= move_if( 	'mark',		initializer=True )
 
     # Successful reply, if status is 0x00
-    otid			= UDINT(		context='forward_open', extension='.O_T_connection_ID' )
-    otid[True]		= toid	= UDINT(		context='forward_open', extension='.T_O_connection_ID' )
+    otid			= UDINT(		context='forward_open.O_T', extension='.connection_ID' )
+    otid[True]		= toid	= UDINT(		context='forward_open.T_O', extension='.connection_ID' )
     toid[True]		= cser	= UINT(			context='forward_open', extension='.connection_serial' )
     cser[True]		= ovnd	= UINT(			context='forward_open', extension='.O_vendor' )
     ovnd[True]		= oser	= UDINT(		context='forward_open', extension='.O_serial' )
-    oser[True]		= otapi	= UDINT(		context='forward_open', extension='.O_T_API' )
-    otapi[True]		= toapi	= UDINT(		context='forward_open', extension='.T_O_API' )
+    oser[True]		= otapi	= UDINT(		context='forward_open.O_T', extension='.API' )
+    otapi[True]		= toapi	= UDINT(		context='forward_open.T_O', extension='.API' )
     toapi[True]		= rsiz	= USINT(		context='forward_open', extension='.application_size' )
     rsiz[True]		= rsvd	= octets_drop(		'pad', repeat=1 )
 
@@ -2423,6 +2506,9 @@ def __forward_open_reply():
     return srvc
 
 Connection_Manager.register_service_parser( number=Connection_Manager.FWD_OPEN_RPY, name=Connection_Manager.FWD_OPEN_NAM + " Reply",
+                                            short=Connection_Manager.FWD_OPEN_CTX, machine=__forward_open_reply() )
+
+Connection_Manager.register_service_parser( number=Connection_Manager.FWD_OPLG_RPY, name=Connection_Manager.FWD_OPEN_NAM + " Large Reply",
                                             short=Connection_Manager.FWD_OPEN_CTX, machine=__forward_open_reply() )
 
 

@@ -71,6 +71,23 @@ path_ext_input			= '.input'	# default destination input
 type_unicode_encoder		= lambda s: ( b for b in s.encode( 'utf-8' ))
 type_str_encoder		= None if sys.version_info[0] < 3 else type_unicode_encoder
 
+# 
+# is_...
+# 
+#     Methods for identifying certain types of Python objects
+# 
+def is_iterator( thing ):
+    """Detects if 'thing' is already an iterator/generator."""
+    return hasattr( thing, '__next__' if sys.version_info[0] < 3 else 'next' )
+
+
+def is_listlike( thing ):
+    """Something like a list or tuple; indexable, but not a string or a class (some may have
+    __getitem__, eg. cpppo.state, based on a dict).
+
+    """
+    return not isinstance( thing, (type_str_base,type) ) and hasattr( thing, '__getitem__' )
+
 #
 # peekable/peeking
 # chainable/chaining

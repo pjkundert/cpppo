@@ -19,7 +19,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python-version: [2.7, 3.5, 3.6, 3.7, 3.8]
+        python-version: [2.7, 3.5, 3.6, 3.7, 3.8, 3.x, pypy2, pypy3]
 
     steps:
     - uses: actions/checkout@v2
@@ -32,9 +32,10 @@ jobs:
         python -m pip install --upgrade pip
         pip install wheel
         if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
-        pip install flake8 pytest pytz tzlocal
+        pip install flake8 pytest pytz tzlocal pymodbus pylogix
         pip install 'argparse; python_version < "2.7"'
         pip install 'configparser; python_version < "3.0"'
+        pip install 'ipaddress; python_version < "3.0"'
     - name: Lint with flake8
       run: |
         make analyze || true

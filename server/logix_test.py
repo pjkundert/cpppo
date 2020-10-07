@@ -4,10 +4,17 @@ from __future__ import division
 
 import logging
 import os
+import pytest
 import sys
 import threading
 import time
 
+has_pylogix			= False
+try:
+    import pylogix
+    has_pylogix			= True
+except Exception:
+    pass
 
 # for @profile, kernprof.py -v -l enip_test.py
 #from line_profiler import LineProfiler
@@ -674,7 +681,7 @@ rss_004_request 		= bytes(bytearray([
     0x00, 0x00                                      #/* .. */
 ]))
 
-def test_logix_remote( count=50 ):
+def test_logix_remote_cpppo( count=100 ):
     """Performance of executing an operation a number of times on a socket connected
     Logix simulator, within the same Python interpreter (ie. all on a single CPU
     thread).
@@ -703,11 +710,11 @@ def test_logix_remote( count=50 ):
         'kwargs':		kwargs
     }
 
-    log.normal( "test_logix_remote w/ server.control in object %s", id( kwargs['server']['control'] ))
-    # This is sort of "inside-out".  This thread will run logix_remote, which will signal the
+    log.normal( "test_logix_remote_cpppo w/ server.control in object %s", id( kwargs['server']['control'] ))
+    # This is sort of "inside-out".  This thread will run logix_remote_cpppo, which will signal the
     # enip.main (via the kwargs.server...) to shut down.  However, to do line-based performance
     # measurement, we need to be running enip.main in the "Main" thread...
-    logixthread			= threading.Thread( target=logix_remote, kwargs=logixthread_kwargs )
+    logixthread			= threading.Thread( target=logix_remote_cpppo, kwargs=logixthread_kwargs )
     logixthread.daemon		= True
     logixthread.start()
 
@@ -715,7 +722,8 @@ def test_logix_remote( count=50 ):
 
     logixthread.join()
 
-def logix_remote( count, svraddr, kwargs ):
+
+def logix_remote_cpppo( count, svraddr, kwargs ):
   try:
     time.sleep(.25) # Wait for server to be established
     # Confirm that a known Register encodes as expected
@@ -764,7 +772,7 @@ def logix_remote( count, svraddr, kwargs ):
             cli.read( path=[{'symbolic': 'SCADA'}, {'element': 12}],
                       elements=201, offset=2, timeout=timeout )
             data,elapsed	= client.await_response( cli, timeout=timeout )
-            log.normal( "Client ReadFrg. Rcvd %7.3f/%7.3fs: %r", elapsed, timeout, data )
+            log.detail( "Client ReadFrg. Rcvd %7.3f/%7.3fs: %r", elapsed, timeout, data )
 
     duration			= cpppo.timer() - start
     log.warning( "Client ReadFrg. Average %7.3f TPS (%7.3fs ea)." % ( count / duration, duration / count ))
@@ -773,6 +781,83 @@ def logix_remote( count, svraddr, kwargs ):
   finally:
     kwargs['server']['control'].done= True # Signal the server to terminate
 
+
+@pytest.mark.skipif( not has_pylogix, reason="Needs pylogix" )
+def test_logix_remote_pylogix( count=100 ):
+    """Performance of pylogix executing an operation a number of times on a socket connected
+    Logix simulator, within the same Python interpreter (ie. all on a single CPU
+    thread).  Only connects on the standard port.
+
+    """
+    #logging.getLogger().setLevel( logging.NORMAL )
+    enip.lookup_reset() # Flush out any existing CIP Objects for a fresh start
+    svraddr		        = ('localhost', 44818)
+    kwargs			= {
+        'argv': [
+            #'-v',
+            #'--log',		'/tmp/pylogix.log',
+            #'--profile',	'/tmp/plogix.prof',
+            '--address',	'%s:%d' % svraddr,
+            'SCADA=INT[1000]'
+        ],
+        'server': {
+            'control': cpppo.apidict( enip.timeout, { 
+                'done': False
+            } ),
+        },
+    }
+    logixthread_kwargs		= {
+        'count':		count,
+        'svraddr':		svraddr,
+        'kwargs':		kwargs
+    }
+
+    log.normal( "test_logix_remote_pylogix w/ server.control in object %s", id( kwargs['server']['control'] ))
+    # This is sort of "inside-out".  This thread will run logix_remote, which will signal the
+    # enip.main (via the kwargs.server...) to shut down.  However, to do line-based performance
+    # measurement, we need to be running enip.main in the "Main" thread...
+    logixthread			= threading.Thread( target=logix_remote_pylogix, kwargs=logixthread_kwargs )
+    logixthread.daemon		= True
+    logixthread.start()
+
+    enip.main( **kwargs )
+
+    logixthread.join()
+
+
+def logix_remote_pylogix( count, svraddr, kwargs ):
+  try:
+    time.sleep(.25) # Wait for server to be established
+
+    # Try to Register a real session, followed by commands
+    timeout			= 5
+
+    with pylogix.PLC() as comm:
+        comm.SocketTimeout	= timeout
+        comm.IPAddress		= enip.address[0]
+        comm.ConnectionSize	= 4000
+
+        # CIP Register, Forward Open
+        start			= cpppo.timer()
+        conn			= comm.conn.connect()
+        #assert not conn[0], "Failed to connect via pylogix"
+        elapsed			= cpppo.timer() - start
+        log.normal( "Client Register Rcvd %7.3f/%7.3fs: %r", elapsed, timeout, conn )
+
+        # count x Logix Read Tag [Fragmented] 201-element reads, starting at element 12
+        start			= cpppo.timer()
+        for _ in range( count ):
+            reply		= comm.Read( 'SCADA[12]', 201 )
+            elapsed		= cpppo.timer() - start
+            data		= reply.Value
+            log.detail( "Client ReadFrg. Rcvd %7.3f/%7.3fs: %r", elapsed, timeout, data )
+
+        duration		= cpppo.timer() - start
+        log.warning( "Client ReadFrg. Average %7.3f TPS (%7.3fs ea)." % ( count / duration, duration / count ))
+
+    log.normal( "Signal shutdown w/ server.control in object %s", id( kwargs['server']['control'] ))
+  finally:
+    kwargs['server']['control'].done= True # Signal the server to terminate
 
 
 if __name__ == "__main__":
