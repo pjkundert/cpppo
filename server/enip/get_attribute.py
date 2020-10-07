@@ -111,23 +111,6 @@ def attribute_operations( paths, int_type=None, **kwds ):
 
 
 # 
-# get_attribute.is_...
-# 
-#     Methods for identifying certain types of Python objects
-# 
-def is_iterator( thing ):
-    """Detects if 'thing' is already an iterator/generator."""
-    return hasattr( thing, '__next__' if sys.version_info[0] < 3 else 'next' )
-
-
-def is_listlike( thing ):
-    """Something like a list or tuple; indexable, but not a string or a class (some may have
-    __getitem__, eg. cpppo.state, based on a dict).
-
-    """
-    return not isinstance( thing, (cpppo.type_str_base,type) ) and hasattr( thing, '__getitem__' )
-
-# 
 # get_attribute.proxy		-- for devices that can "route" CIP requests
 # get_attribute.proxy_simple	-- for simple end-devices (eg. sensors, actuators)
 # 
@@ -403,7 +386,7 @@ class proxy( object ):
         log.detail( "Validating request: %r", req )
         if isinstance( req, cpppo.type_str_base ):
             return True
-        if is_listlike( req ) and 2 <= len( req ) <= 3:
+        if cpppo.is_listlike( req ) and 2 <= len( req ) <= 3:
             try:
                 add,typ,_	= req
             except ValueError:
@@ -411,7 +394,7 @@ class proxy( object ):
             if isinstance( add, cpppo.type_str_base ):
                 if isinstance( typ, (cpppo.type_str_base, type) ):
                     return True
-                if is_listlike( typ ):
+                if cpppo.is_listlike( typ ):
                     if all( isinstance( t, (cpppo.type_str_base, type) ) for t in typ ):
                         return True
         return False
@@ -552,7 +535,7 @@ class proxy( object ):
                 try:
                     # The attribute description is either a plain Tag, an (address, type), or an
                     # (address, type, description)
-                    if is_listlike( a ):
+                    if cpppo.is_listlike( a ):
                         att,typ,uni = a if len( a ) == 3 else a+(None,)
                     else:
                         att,typ,uni = a,None,None
@@ -570,7 +553,7 @@ class proxy( object ):
                 # provided) to estimate data sizes for Multiple Service Packets.  For
                 # write_tag.../set_attribute..., the data has specified its data type, if not the
                 # default (INT for write_tag, SINT for set_attribute).
-                if typ is not None and not is_listlike( typ ) and 'tag_type' not in opp:
+                if typ is not None and not cpppo.is_listlike( typ ) and 'tag_type' not in opp:
                     t		= typ
                     if isinstance( typ, cpppo.type_str_base ):
                         td	= self.CIP_TYPES.get( t.strip().lower() )
@@ -587,7 +570,7 @@ class proxy( object ):
             user-supplied type (or None) is provided, data-path is None, and the type is passed.
 
             """
-            for t in ( types if is_listlike( types ) else [ types ] ):
+            for t in ( types if cpppo.is_listlike( types ) else [ types ] ):
                 d		= None 		# No data-path, if user-supplied type
                 if isinstance( t, int ):
                     # a CIP type number, eg 0x00ca == 202 ==> 'REAL'.  Look for CIP parsers w/ a
@@ -663,7 +646,7 @@ class proxy( object ):
                 # user-defined type is supplied, of course we'll just return the full result.
                 source		= cpppo.peekable( bytes( bytearray( val ))) # Python2/3 compat.
                 res		= []
-                typ_is_list	= is_listlike( typ )
+                typ_is_list	= cpppo.is_listlike( typ )
                 typ_dat		= list( types_decode( typ ))
                 for t,d in typ_dat:
                     with t() as machine:

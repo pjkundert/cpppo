@@ -17,6 +17,13 @@ import traceback
 
 is_pypy				= platform.python_implementation() == "PyPy"
 
+has_pylogix			= False
+try:
+    import pylogix
+    has_pylogix			= True
+except Exception:
+    pass
+
 # for @profile, kernprof.py -v -l enip_test.py
 #from line_profiler import LineProfiler
 
@@ -3231,6 +3238,61 @@ def enip_bench_logix():
 def test_enip_bench_logix():
     assert not enip_bench_logix(), "One or more enip_bench_logix clients reported failure"
 
+
+def enip_cli_pylogix( number, tests=None ):
+    """Use pylogix to access the server, using Large Forward Open session (if pull request for
+    PLC.ConnectionSize merged).
+
+    """
+
+    tags			= [
+        'SCADA',
+        'SCADA[9]',
+        [
+            'SCADA[0]', 'SCADA[1]', 'SCADA[2]', 'SCADA[3]', 'SCADA[4]', 'SCADA[5]',
+        ],
+    ]
+    with pylogix.PLC() as comm:
+        comm.IPAddress		= enip.address[0]
+        comm.ConnectionSize	= 4000
+        results			= [
+            comm.Read( t )
+            for t in tags
+        ]
+
+    assert len( results ) == len( tags )
+
+    def testval( tags, results, indent=0 ):
+        for t,v in zip( tags, results ):
+            if cpppo.is_listlike( t ) or cpppo.is_iterator( t ):
+                testval( t, v, indent + 4 )
+                continue
+            log.detail( "{}{t!r:<20} == {v!r}".format( ' ' * indent, t=t, v=v ))
+            assert v.Status == 'Success'
+
+    testval( tags, results )
+
+
+def enip_bench_pylogix():
+    failed			= cpppo.server.network.bench( server_func=enip.main,
+                                                              server_kwds=enip_svr_kwds_logix,
+                                                              client_func=enip_cli_pylogix,
+                                                              client_kwds=enip_cli_kwds_logix,
+                                                              client_count=client_count,
+                                                                client_max=client_max)
+    if failed:
+        log.warning( "Failure" )
+    else:
+        log.info( "Succeeded" )
+
+    return failed
+
+
+@pytest.mark.skipif( not has_pylogix, reason="Needs pylogix" )
+def test_enip_bench_pylogix():
+    assert not enip_bench_pylogix(), "One or more enip_bench_pylogix clients reported failure"
+    
+    
 if __name__ == "__main__":
     '''
     # Profile using line_profiler, and kernprof.py -v -l enip_test.py
