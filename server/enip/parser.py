@@ -173,7 +173,7 @@ class TYPE( octets_struct ):
 
 class BOOL( TYPE ):
     tag_type                    = 0x00c1 # 193
-    struct_format               = 'B'
+    struct_format               = '<H'
     struct_calcsize             = struct.calcsize( struct_format )
 
 class USINT( TYPE ):
