@@ -521,7 +521,6 @@ def __read_frag_reply():
         predicate=lambda path=None, data=None, **kwds: data[path+'.status' if path else 'status'] in (0x00, 0x06) )
     schk[None]			= move_if(	'mark',		initializer=True,
                                                 destination='read_frag' )
-
     return srvc
 Logix.register_service_parser( number=Logix.RD_FRG_RPY, name=Logix.RD_FRG_NAM + " Reply",
                                short=Logix.RD_FRG_CTX, machine=__read_frag_reply() )
