@@ -13,9 +13,10 @@ python:
 # command to install dependencies
 install:
   - pip install -r requirements.txt
-  - pip install pytest pytz tzlocal
+  - pip install pytest pytz tzlocal pymodbus pylogix
   - pip install 'argparse; python_version < "2.7"'
   - pip install 'configparser; python_version < "3.0"'
+  - pip install 'ipaddress; python_version < "3.0"'
 
 # command to run tests.
 script:
