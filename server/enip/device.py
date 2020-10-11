@@ -828,7 +828,7 @@ class Object( object ):
                     if r: # a key.key...;
                         try:
                             val	= dotdict( config.get( k )).get( r )
-                            log.info( "  {k:>10}{r:<10} == {val!r} (config dict)".format( k=k, r=r, exc=exc ))
+                            log.info( "  {k:>10}{r:<10} == {val!r} (config dict)".format( k=k, r=r, val=val ))
                         except Exception as exc:
                             log.info( "  {k:>10}{r:<10}: {exc!r}".format( k=k, r=r, exc=exc ))
                     else:
@@ -857,7 +857,7 @@ class Object( object ):
                 try:
                     val		= type( default )( val )			# eg.   123,  abc
                 except ValueError:
-                    if isinstance( val, cppppo.type_str_base ):
+                    if isinstance( val, cpppo.type_str_base ):
                         val	= type( default )( ast.literal_eval( val ))	# eg. 0x123, "abc"
                     else:
                         raise

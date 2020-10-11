@@ -536,6 +536,19 @@ rtg_001_reply			= bytes(bytearray([
     0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00, 0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
     0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00, 0x00,0x00,0x00,0x00,0x00,0x00
 ]))
+
+wtg_001_request			= bytes(bytearray([
+  # 0x02, 0x00, 0x00, 0x00, 0x45, 0x00, 0x00, 0x73, 0x00, 0x00, 0x40, 0x00, 0x40, 0x06, 0x00, 0x00,  # ....E..s..@.@...
+  # 0x7f, 0x00, 0x00, 0x01, 0x7f, 0x00, 0x00, 0x01, 0xd1, 0x55, 0xaf, 0x12, 0xda, 0x64, 0xfb, 0xa8,  # .........U...d..
+  # 0x91, 0x4f, 0x50, 0xd7, 0x80, 0x18, 0x18, 0xe8, 0xfe, 0x67, 0x00, 0x00, 0x01, 0x01, 0x08, 0x0a,  # .OP......g......
+  # 0x3b, 0x90, 0x9d, 0x4a, 0x3b, 0x90, 0x9d, 0x4a, 
+                                                    0x70, 0x00, 0x27, 0x00, 0x01, 0x85, 0x02, 0x14,  # ;..J;..Jp.'.....
+    0x00, 0x00, 0x00, 0x00, 0x6e, 0x6f, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  # ....no..........
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0x00, 0xa1, 0x00, 0x04, 0x00, 0x02, 0x8f, 0x97, 0x01,  # ................
+    0xb1, 0x00, 0x13, 0x00, 0x02, 0x00, 0x4d, 0x05, 0x91, 0x07, 0x49, 0x54, 0x45, 0x53, 0x54, 0x4f,  # ......M...ITESTO
+    0x50, 0x00, 0xc1, 0x00, 0x01, 0x00, 0x01,                                                        # P......
+]))
+
 eip_tests			= [
             ( b'', {} ),        # test that parsers handle/reject empty/EOF
             ( rss_004_request,	{ 'enip.command': 0x0065, 'enip.length': 4 }),
@@ -557,6 +570,7 @@ eip_tests			= [
             ( rfg_002_request,	{} ),
             ( rfg_002_reply,	{} ),
             ( rtg_001_reply,	{} ),
+            ( wtg_001_request,	{} ),
 ]
 
 def test_enip_header():
@@ -1252,6 +1266,55 @@ CPF_tests			= [
             "CPF": {},
         }
     ), (
+        gal_2_rpy,
+        {
+            "CPF.count": 2,
+            "CPF.item[0].type_id": 0,
+            "CPF.item[0].length": 0,
+            "CPF.item[1].type_id": 178,
+            "CPF.item[1].length": 39,
+            "CPF.item[1].unconnected_send.request.service": 129,
+            "CPF.item[1].unconnected_send.request.status": 0,
+            "CPF.item[1].unconnected_send.request.status_ext.size": 0,
+            "CPF.item[1].unconnected_send.request.get_attributes_all.data": [
+                1,
+                0,
+                14,
+                0,
+                54,
+                0,
+                20,
+                11,
+                96,
+                49,
+                26,
+                6,
+                108,
+                0,
+                20,
+                49,
+                55,
+                53,
+                54,
+                45,
+                76,
+                54,
+                49,
+                47,
+                66,
+                32,
+                76,
+                79,
+                71,
+                73,
+                88,
+                53,
+                53,
+                54,
+                49
+            ]
+        }
+    ), (
         cpf_type_0x0001,
         {
             "CPF.count": 1, 
@@ -1586,6 +1649,32 @@ CIP_tests			= [
             ( 
                 # An empty request (usually indicates termination of session)
                 b'', enip.Message_Router, {}
+            ), (
+                wtg_001_request, logix.Logix,
+                {
+                    "enip.command": 112,
+                    "enip.length": 39,
+                    "enip.session_handle": 335709441,
+                    "enip.status": 0,
+                    "enip.options": 0,
+                    "enip.CIP.send_data.interface": 0,
+                    "enip.CIP.send_data.timeout": 0,
+                    "enip.CIP.send_data.CPF.count": 2,
+                    "enip.CIP.send_data.CPF.item[0].type_id": 161,
+                    "enip.CIP.send_data.CPF.item[0].length": 4,
+                    "enip.CIP.send_data.CPF.item[0].connection_ID.connection": 26709762,
+                    "enip.CIP.send_data.CPF.item[1].type_id": 177,
+                    "enip.CIP.send_data.CPF.item[1].length": 19,
+                    "enip.CIP.send_data.CPF.item[1].connection_data.sequence": 2,
+                    "enip.CIP.send_data.CPF.item[1].connection_data.request.service": 77,
+                    "enip.CIP.send_data.CPF.item[1].connection_data.request.path.size": 5,
+                    "enip.CIP.send_data.CPF.item[1].connection_data.request.path.segment[0].symbolic": "ITESTOP",
+                    "enip.CIP.send_data.CPF.item[1].connection_data.request.write_tag.type": 193,
+                    "enip.CIP.send_data.CPF.item[1].connection_data.request.write_tag.elements": 1,
+                    "enip.CIP.send_data.CPF.item[1].connection_data.request.write_tag.data": [
+                        True
+                    ]
+                }
             ), (
                 snd_u01_req, pccc.PCCC_ANC_120e,
                 {
