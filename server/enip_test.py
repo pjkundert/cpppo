@@ -546,7 +546,33 @@ wtg_001_request			= bytes(bytearray([
     0x00, 0x00, 0x00, 0x00, 0x6e, 0x6f, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  # ....no..........
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0x00, 0xa1, 0x00, 0x04, 0x00, 0x02, 0x8f, 0x97, 0x01,  # ................
     0xb1, 0x00, 0x13, 0x00, 0x02, 0x00, 0x4d, 0x05, 0x91, 0x07, 0x49, 0x54, 0x45, 0x53, 0x54, 0x4f,  # ......M...ITESTO
-    0x50, 0x00, 0xc1, 0x00, 0x01, 0x00, 0x01,                                                        # P......
+    0x50, 0x00, 0xc1, 0x00, 0x01, 0x00, 0xFF,                                                        # P......
+]))
+
+# A Multiple Service Packet payload w/ a 0x1E Status Code "Embedded service error".  Indicates that
+# the payload was returned, but it contained at least one service carrying a non-zero status code!
+msp_001_reply			= bytes(bytearray([
+  # 0x02, 0x00, 0x00, 0x00, 0x45, 0x00, 0x01, 0x36, 0x00, 0x00, 0x40, 0x00, 0x40, 0x06, 0x00, 0x00,  # ....E..6..@.@...
+  # 0x7f, 0x00, 0x00, 0x01, 0x7f, 0x00, 0x00, 0x01, 0xaf, 0x12, 0xfd, 0x4e, 0xa5, 0xad, 0x69, 0x87,  # ...........N..i.
+  # 0x9a, 0xb1, 0x23, 0xd6, 0x80, 0x18, 0x18, 0xc3, 0xff, 0x2a, 0x00, 0x00, 0x01, 0x01, 0x08, 0x0a,  # ..#......*......
+  # 0x3b, 0xd3, 0xe0, 0xe8, 0x3b, 0xd3, 0xe0, 0x54, 
+                                                    0x70, 0x00, 0xea, 0x00, 0x01, 0x87, 0x02, 0x12,  # ;...;..Tp.......
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  # ................
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0x00, 0xa1, 0x00, 0x04, 0x00, 0x8e, 0xe5, 0x00, 0x00,  # ................
+    0xb1, 0x00, 0xd6, 0x00, 0x0a, 0x00, 0x8a, 0x00, 0x1e, 0x00, 0x12, 0x00, 0x26, 0x00, 0x2d, 0x00,  # ............&.-.
+    0x34, 0x00, 0x3e, 0x00, 0x48, 0x00, 0x52, 0x00, 0x5c, 0x00, 0x66, 0x00, 0x70, 0x00, 0x7a, 0x00,  # 4.>.H.R.\.f.p.z.
+    0x84, 0x00, 0x8e, 0x00, 0x98, 0x00, 0xa2, 0x00, 0xac, 0x00, 0xb6, 0x00, 0xc0, 0x00, 0xca, 0x00,  # ................
+    0xcc, 0x00, 0x00, 0x00, 0xc1, 0x00, 0x00, 0xcc, 0x00, 0x00, 0x00, 0xc1, 0x00, 0xff, 0xcc, 0x00,  # ................
+    0x00, 0x00, 0xca, 0x00, 0x00, 0x00, 0xe6, 0x43, 0xcc, 0x00, 0x00, 0x00, 0xca, 0x00, 0x00, 0x00,  # .......C........
+    0x07, 0x44, 0xcc, 0x00, 0x00, 0x00, 0xca, 0x00, 0x00, 0x80, 0x14, 0x44, 0xcc, 0x00, 0x00, 0x00,  # .D.........D....
+    0xca, 0x00, 0x00, 0x00, 0x22, 0x44, 0xcc, 0x00, 0x00, 0x00, 0xca, 0x00, 0x00, 0x80, 0x2f, 0x44,  # ...."D......../D
+    0xcc, 0x00, 0x00, 0x00, 0xca, 0x00, 0x00, 0x00, 0x3d, 0x44, 0xcc, 0x00, 0x00, 0x00, 0xca, 0x00,  # ........=D......
+    0x00, 0x80, 0x4a, 0x44, 0xcc, 0x00, 0x00, 0x00, 0xca, 0x00, 0x00, 0x00, 0x58, 0x44, 0xcc, 0x00,  # ..JD........XD..
+    0x00, 0x00, 0xca, 0x00, 0x00, 0x80, 0x65, 0x44, 0xcc, 0x00, 0x00, 0x00, 0xca, 0x00, 0x00, 0x00,  # ......eD........
+    0x73, 0x44, 0xcc, 0x00, 0x00, 0x00, 0xca, 0x00, 0x00, 0x40, 0x80, 0x44, 0xcc, 0x00, 0x00, 0x00,  # sD.......@.D....
+    0xca, 0x00, 0xcd, 0xac, 0x87, 0x44, 0xcc, 0x00, 0x00, 0x00, 0xca, 0x00, 0x00, 0xc0, 0x8d, 0x44,  # .....D.........D
+    0xcc, 0x00, 0x00, 0x00, 0xca, 0x00, 0x00, 0x00, 0xa2, 0x44, 0xcc, 0x00, 0x00, 0x00, 0xca, 0x00,  # .........D......
+    0x00, 0xc0, 0xa8, 0x44, 0xcc, 0x00, 0x04, 0x01, 0x00, 0x00,                                      # ...D......
 ]))
 
 eip_tests			= [
@@ -571,6 +597,7 @@ eip_tests			= [
             ( rfg_002_reply,	{} ),
             ( rtg_001_reply,	{} ),
             ( wtg_001_request,	{} ),
+            ( msp_001_reply,	{} ),
 ]
 
 def test_enip_header():
@@ -1649,6 +1676,174 @@ CIP_tests			= [
             ( 
                 # An empty request (usually indicates termination of session)
                 b'', enip.Message_Router, {}
+            ), (
+                msp_001_reply, logix.Logix,
+                {
+                    "enip.command": 112,
+                    "enip.length": 234,
+                    "enip.session_handle": 302155521,
+                    "enip.status": 0,
+                    "enip.options": 0,
+                    "enip.CIP.send_data.interface": 0,
+                    "enip.CIP.send_data.timeout": 0,
+                    "enip.CIP.send_data.CPF.count": 2,
+                    "enip.CIP.send_data.CPF.item[0].type_id": 161,
+                    "enip.CIP.send_data.CPF.item[0].length": 4,
+                    "enip.CIP.send_data.CPF.item[0].connection_ID.connection": 58766,
+                    "enip.CIP.send_data.CPF.item[1].type_id": 177,
+                    "enip.CIP.send_data.CPF.item[1].length": 214,
+                    "enip.CIP.send_data.CPF.item[1].connection_data.sequence": 10,
+                    "enip.CIP.send_data.CPF.item[1].connection_data.request.service": 138,
+                    "enip.CIP.send_data.CPF.item[1].connection_data.request.status": 30,
+                    "enip.CIP.send_data.CPF.item[1].connection_data.request.status_ext.size": 0,
+                    "enip.CIP.send_data.CPF.item[1].connection_data.request.multiple.number": 18,
+                    "enip.CIP.send_data.CPF.item[1].connection_data.request.multiple.offsets": [
+                        38,
+                        45,
+                        52,
+                        62,
+                        72,
+                        82,
+                        92,
+                        102,
+                        112,
+                        122,
+                        132,
+                        142,
+                        152,
+                        162,
+                        172,
+                        182,
+                        192,
+                        202
+                    ],
+                    "enip.CIP.send_data.CPF.item[1].connection_data.request.multiple.request[0].service": 204,
+                    "enip.CIP.send_data.CPF.item[1].connection_data.request.multiple.request[0].status": 0,
+                    "enip.CIP.send_data.CPF.item[1].connection_data.request.multiple.request[0].status_ext.size": 0,
+                    "enip.CIP.send_data.CPF.item[1].connection_data.request.multiple.request[0].read_tag.type": 193,
+                    "enip.CIP.send_data.CPF.item[1].connection_data.request.multiple.request[0].read_tag.data": [
+                        False
+                    ],
+                    "enip.CIP.send_data.CPF.item[1].connection_data.request.multiple.request[1].service": 204,
+                    "enip.CIP.send_data.CPF.item[1].connection_data.request.multiple.request[1].status": 0,
+                    "enip.CIP.send_data.CPF.item[1].connection_data.request.multiple.request[1].status_ext.size": 0,
+                    "enip.CIP.send_data.CPF.item[1].connection_data.request.multiple.request[1].read_tag.type": 193,
+                    "enip.CIP.send_data.CPF.item[1].connection_data.request.multiple.request[1].read_tag.data": [
+                        True
+                    ],
+                    "enip.CIP.send_data.CPF.item[1].connection_data.request.multiple.request[2].service": 204,
+                    "enip.CIP.send_data.CPF.item[1].connection_data.request.multiple.request[2].status": 0,
+                    "enip.CIP.send_data.CPF.item[1].connection_data.request.multiple.request[2].status_ext.size": 0,
+                    "enip.CIP.send_data.CPF.item[1].connection_data.request.multiple.request[2].read_tag.type": 202,
+                    "enip.CIP.send_data.CPF.item[1].connection_data.request.multiple.request[2].read_tag.data": [
+                        460.0
+                    ],
+                    "enip.CIP.send_data.CPF.item[1].connection_data.request.multiple.request[3].service": 204,
+                    "enip.CIP.send_data.CPF.item[1].connection_data.request.multiple.request[3].status": 0,
+                    "enip.CIP.send_data.CPF.item[1].connection_data.request.multiple.request[3].status_ext.size": 0,
+                    "enip.CIP.send_data.CPF.item[1].connection_data.request.multiple.request[3].read_tag.type": 202,
+                    "enip.CIP.send_data.CPF.item[1].connection_data.request.multiple.request[3].read_tag.data": [
+                        540.0
+                    ],
+                    "enip.CIP.send_data.CPF.item[1].connection_data.request.multiple.request[4].service": 204,
+                    "enip.CIP.send_data.CPF.item[1].connection_data.request.multiple.request[4].status": 0,
+                    "enip.CIP.send_data.CPF.item[1].connection_data.request.multiple.request[4].status_ext.size": 0,
+                    "enip.CIP.send_data.CPF.item[1].connection_data.request.multiple.request[4].read_tag.type": 202,
+                    "enip.CIP.send_data.CPF.item[1].connection_data.request.multiple.request[4].read_tag.data": [
+                        594.0
+                    ],
+                    "enip.CIP.send_data.CPF.item[1].connection_data.request.multiple.request[5].service": 204,
+                    "enip.CIP.send_data.CPF.item[1].connection_data.request.multiple.request[5].status": 0,
+                    "enip.CIP.send_data.CPF.item[1].connection_data.request.multiple.request[5].status_ext.size": 0,
+                    "enip.CIP.send_data.CPF.item[1].connection_data.request.multiple.request[5].read_tag.type": 202,
+                    "enip.CIP.send_data.CPF.item[1].connection_data.request.multiple.request[5].read_tag.data": [
+                        648.0
+                    ],
+                    "enip.CIP.send_data.CPF.item[1].connection_data.request.multiple.request[6].service": 204,
+                    "enip.CIP.send_data.CPF.item[1].connection_data.request.multiple.request[6].status": 0,
+                    "enip.CIP.send_data.CPF.item[1].connection_data.request.multiple.request[6].status_ext.size": 0,
+                    "enip.CIP.send_data.CPF.item[1].connection_data.request.multiple.request[6].read_tag.type": 202,
+                    "enip.CIP.send_data.CPF.item[1].connection_data.request.multiple.request[6].read_tag.data": [
+                        702.0
+                    ],
+                    "enip.CIP.send_data.CPF.item[1].connection_data.request.multiple.request[7].service": 204,
+                    "enip.CIP.send_data.CPF.item[1].connection_data.request.multiple.request[7].status": 0,
+                    "enip.CIP.send_data.CPF.item[1].connection_data.request.multiple.request[7].status_ext.size": 0,
+                    "enip.CIP.send_data.CPF.item[1].connection_data.request.multiple.request[7].read_tag.type": 202,
+                    "enip.CIP.send_data.CPF.item[1].connection_data.request.multiple.request[7].read_tag.data": [
+                        756.0
+                    ],
+                    "enip.CIP.send_data.CPF.item[1].connection_data.request.multiple.request[8].service": 204,
+                    "enip.CIP.send_data.CPF.item[1].connection_data.request.multiple.request[8].status": 0,
+                    "enip.CIP.send_data.CPF.item[1].connection_data.request.multiple.request[8].status_ext.size": 0,
+                    "enip.CIP.send_data.CPF.item[1].connection_data.request.multiple.request[8].read_tag.type": 202,
+                    "enip.CIP.send_data.CPF.item[1].connection_data.request.multiple.request[8].read_tag.data": [
+                        810.0
+                    ],
+                    "enip.CIP.send_data.CPF.item[1].connection_data.request.multiple.request[9].service": 204,
+                    "enip.CIP.send_data.CPF.item[1].connection_data.request.multiple.request[9].status": 0,
+                    "enip.CIP.send_data.CPF.item[1].connection_data.request.multiple.request[9].status_ext.size": 0,
+                    "enip.CIP.send_data.CPF.item[1].connection_data.request.multiple.request[9].read_tag.type": 202,
+                    "enip.CIP.send_data.CPF.item[1].connection_data.request.multiple.request[9].read_tag.data": [
+                        864.0
+                    ],
+                    "enip.CIP.send_data.CPF.item[1].connection_data.request.multiple.request[10].service": 204,
+                    "enip.CIP.send_data.CPF.item[1].connection_data.request.multiple.request[10].status": 0,
+                    "enip.CIP.send_data.CPF.item[1].connection_data.request.multiple.request[10].status_ext.size": 0,
+                    "enip.CIP.send_data.CPF.item[1].connection_data.request.multiple.request[10].read_tag.type": 202,
+                    "enip.CIP.send_data.CPF.item[1].connection_data.request.multiple.request[10].read_tag.data": [
+                        918.0
+                    ],
+                    "enip.CIP.send_data.CPF.item[1].connection_data.request.multiple.request[11].service": 204,
+                    "enip.CIP.send_data.CPF.item[1].connection_data.request.multiple.request[11].status": 0,
+                    "enip.CIP.send_data.CPF.item[1].connection_data.request.multiple.request[11].status_ext.size": 0,
+                    "enip.CIP.send_data.CPF.item[1].connection_data.request.multiple.request[11].read_tag.type": 202,
+                    "enip.CIP.send_data.CPF.item[1].connection_data.request.multiple.request[11].read_tag.data": [
+                        972.0
+                    ],
+                    "enip.CIP.send_data.CPF.item[1].connection_data.request.multiple.request[12].service": 204,
+                    "enip.CIP.send_data.CPF.item[1].connection_data.request.multiple.request[12].status": 0,
+                    "enip.CIP.send_data.CPF.item[1].connection_data.request.multiple.request[12].status_ext.size": 0,
+                    "enip.CIP.send_data.CPF.item[1].connection_data.request.multiple.request[12].read_tag.type": 202,
+                    "enip.CIP.send_data.CPF.item[1].connection_data.request.multiple.request[12].read_tag.data": [
+                        1026.0
+                    ],
+                    "enip.CIP.send_data.CPF.item[1].connection_data.request.multiple.request[13].service": 204,
+                    "enip.CIP.send_data.CPF.item[1].connection_data.request.multiple.request[13].status": 0,
+                    "enip.CIP.send_data.CPF.item[1].connection_data.request.multiple.request[13].status_ext.size": 0,
+                    "enip.CIP.send_data.CPF.item[1].connection_data.request.multiple.request[13].read_tag.type": 202,
+                    "enip.CIP.send_data.CPF.item[1].connection_data.request.multiple.request[13].read_tag.data": [
+                        1085.4000244140625
+                    ],
+                    "enip.CIP.send_data.CPF.item[1].connection_data.request.multiple.request[14].service": 204,
+                    "enip.CIP.send_data.CPF.item[1].connection_data.request.multiple.request[14].status": 0,
+                    "enip.CIP.send_data.CPF.item[1].connection_data.request.multiple.request[14].status_ext.size": 0,
+                    "enip.CIP.send_data.CPF.item[1].connection_data.request.multiple.request[14].read_tag.type": 202,
+                    "enip.CIP.send_data.CPF.item[1].connection_data.request.multiple.request[14].read_tag.data": [
+                        1134.0
+                    ],
+                    "enip.CIP.send_data.CPF.item[1].connection_data.request.multiple.request[15].service": 204,
+                    "enip.CIP.send_data.CPF.item[1].connection_data.request.multiple.request[15].status": 0,
+                    "enip.CIP.send_data.CPF.item[1].connection_data.request.multiple.request[15].status_ext.size": 0,
+                    "enip.CIP.send_data.CPF.item[1].connection_data.request.multiple.request[15].read_tag.type": 202,
+                    "enip.CIP.send_data.CPF.item[1].connection_data.request.multiple.request[15].read_tag.data": [
+                        1296.0
+                    ],
+                    "enip.CIP.send_data.CPF.item[1].connection_data.request.multiple.request[16].service": 204,
+                    "enip.CIP.send_data.CPF.item[1].connection_data.request.multiple.request[16].status": 0,
+                    "enip.CIP.send_data.CPF.item[1].connection_data.request.multiple.request[16].status_ext.size": 0,
+                    "enip.CIP.send_data.CPF.item[1].connection_data.request.multiple.request[16].read_tag.type": 202,
+                    "enip.CIP.send_data.CPF.item[1].connection_data.request.multiple.request[16].read_tag.data": [
+                        1350.0
+                    ],
+                    "enip.CIP.send_data.CPF.item[1].connection_data.request.multiple.request[17].service": 204,
+                    "enip.CIP.send_data.CPF.item[1].connection_data.request.multiple.request[17].status": 4,
+                    "enip.CIP.send_data.CPF.item[1].connection_data.request.multiple.request[17].status_ext.size": 1,
+                    "enip.CIP.send_data.CPF.item[1].connection_data.request.multiple.request[17].status_ext.data": [
+                        0
+                    ],
+                    "enip.CIP.send_data.CPF.item[1].connection_data.request.multiple.request[17].read_tag": True
+                }
             ), (
                 wtg_001_request, logix.Logix,
                 {
