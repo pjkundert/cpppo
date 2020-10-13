@@ -1736,7 +1736,6 @@ class Message_Router( Object ):
         |                   | CC 00 00 00    | Read Tag Service Reply, Status: Success             |
         |                   | C4 00          | DINT Tag Type Value                                 |
         |                   | DC 01 00 00    | Value: 0x000001DC (476 decimal)                     |
-
         """
         result			= b''
         if cls.MULTIPLE_CTX in data and data.setdefault( 'service', cls.MULTIPLE_REQ ) == cls.MULTIPLE_REQ:
@@ -1759,17 +1758,17 @@ class Message_Router( Object ):
             result	       += USINT.produce(	data.service )
             result	       += b'\x00' # reserved
             result	       += status.produce(	data )
-            if data.status == 0x00:
+            if data.status in (0x00, 0x1E):
                 offsets		= []
                 rpydata		= b''
                 for r in reversed( data.multiple.request ):
-                    rpy		= octets_encode( r.input ) # bytearray --> bytes
+                    rpy		= octets_encode( r.input ) if 'input' in r else cls.produce( r )
                     offsets	= [ 0 ] + [ o + len( rpy ) for o in offsets ]
                     rpydata	= rpy + rpydata
-                result	       += UINT.produce(		len( offsets ))
+                result         += UINT.produce(		len( offsets ))
                 for o in offsets:
-                    result     += UINT.produce( 	2 + 2 * len( offsets ) + o )
-                result	       += rpydata
+                    result     += UINT.produce(	       2 + 2 * len( offsets ) + o )
+                result         += rpydata
         else:
             result		= super( Message_Router, cls ).produce( data )
 
@@ -1923,10 +1922,11 @@ def __multiple_reply():
     rsvd[True]		= stts	= status()
     stts[None]		= schk	= octets_noop(	'check',
                                                 terminal=True )
-    # Next comes the number of replies encapsulated; only if general reply status is 0/ok
+    # Next comes the number of replies encapsulated; only if general reply status is 0x00/Success or
+    # 0x1E/Embedded service error.
     numr			= UINT(		'number',	context='multiple', extension='.number' )
     schk[None]			= automata.decide( 'ok',	state=numr,
-        predicate=lambda path=None, data=None, **kwds: data[path+'.status' if path else 'status'] == 0x00 )
+        predicate=lambda path=None, data=None, **kwds: data[path+'.status' if path else 'status'] in (0x00, 0x1E) )
 
     # Prepare a state-machine to parse each UINT into .UINT, and move it onto the .offsets list
     off_			= UINT(		'offset',	context='multiple', extension='.UINT' )
@@ -1946,7 +1946,6 @@ def __multiple_reply():
     # If target Object can be found, decode the request payload
     reqd[None]			= state_multiple_service( 'requests',
                                              terminal=True )
-
     return srvc
 Message_Router.register_service_parser( number=Message_Router.MULTIPLE_RPY, name=Message_Router.MULTIPLE_NAM + " Reply",
                                         short=Message_Router.MULTIPLE_CTX, machine=__multiple_reply() )

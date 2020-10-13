@@ -176,6 +176,12 @@ class BOOL( TYPE ):
     struct_format               = '?'
     struct_calcsize             = struct.calcsize( struct_format )
 
+    @classmethod
+    def produce( cls, value ):
+        """Historically, a 0xFF has been used to represent an EtherNet/IP CIP BOOL Truthy value."""
+        encoding		= super( BOOL, cls ).produce( value )
+        return encoding if encoding == b'\x00' else b'\xff'
+
 class USINT( TYPE ):
     """An EtherNet/IP USINT; 8-bit unsigned integer"""
     tag_type			= 0x00c6
