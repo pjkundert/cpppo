@@ -67,8 +67,8 @@ forward_open_default		= cpppo.dotdict({
     'O_vendor':			   0x1234,
     'T_O': {
         'RPI':		       0x001E8480,	# 2000ms
-       #'NCP':			   0x43F4,	# (!exclusive, p2p, lo-prio, variable size 500)
-        'size':			      500,	# Connection Size
+       #'NCP':			   0x43FE,	# (!exclusive, p2p, lo-prio, variable size 510)
+        'size':			      510,	# Connection Size
         'type':				2,      # Null/Multicast/Point-to-Point/Reserved
         'priority':			0,      # Low Prio./High Prio./Scheduled/Urgent
         'variable':			1,      # Fixed/Variable
@@ -76,8 +76,8 @@ forward_open_default		= cpppo.dotdict({
     },
     'O_T': {
         'RPI':		       0x001E8480,	# 2000ms
-       #'NCP':			   0x43F4,	# (!exclusive, p2p, lo-prio, variable size 500)
-        'size':			      500,	# Connection Size
+       #'NCP':			   0x43FE,	# (!exclusive, p2p, lo-prio, variable size 510)
+        'size':			      510,	# Connection Size
         'type':				2,      # Null/Multicast/Point-to-Point/Reserved
         'priority':			0,      # Low Prio./High Prio./Scheduled/Urgent
         'variable':			1,      # Fixed/Variable
@@ -163,16 +163,12 @@ class Connection( object ):
             # Either no NCP provided, *or* the connection parameters are fully specified
             self._NCP		= (
                 (
-                      (( variable  or 1 ) <<  9 )
-                    + (( priority  or 0 ) << 10 )
-                    + (( type      or 2 ) << 13 )
-                    + (( redundant or 0 ) << 15 )
+                      (( 1 if variable  is None else variable  ) <<  9 )
+                    + (( 0 if priority  is None else priority  ) << 10 )
+                    + (( 2 if type      is None else type      ) << 13 )
+                    + (( 0 if redundant is None else redundant ) << 15 )
                 ) << ( 16 if self._large else 0 )
-            ) + ( size or ( 4000 if self._large else 500 ))
-            if NCP is not None:
-                assert NCP == self._NCP, \
-                    "Supplied NCP: {NCP!r} doesn't match one deduced: {self._NCP} from supplied parameters".format(
-                        self=self, NCP=NCP )
+            ) + ( size or ( 4000 if self._large else 510 ))
         else:
             # No NCP provided, and/or some parameters not specified
             self._NCP		= NCP

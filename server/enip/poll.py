@@ -175,9 +175,9 @@ def run( via, process, failure=None, backoff_min=None, backoff_multiplier=None, 
             dly			= backoff
             if failure is not None:
                 failure( exc )
-            if log.isEnabledFor( logging.INFO ):
-                log.info( "Polling failed due to {exc}{trace}".format(
-                    exc=exc, trace=''.join( traceback.format_stack() ) if log.isEnabledFor( logging.DEBUG ) else '' ))
+            if log.isEnabledFor( logging.DETAIL ):
+                log.detail( "Polling failed due to {exc}".format(
+                    exc=''.join( traceback.format_exc() ) if log.isEnabledFor( logging.INFO ) else exc ))
         beg			= timer()
 
 
