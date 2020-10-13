@@ -1820,11 +1820,15 @@ class implicit( connector ):
             connection_timeout_multiplier \
                                 = default_named( connection_timeout_multiplier, 'connection_timeout_multiplier' )
 
+            # The RPI isn't strictly a connection parameter, but it's included in the same bundle;
+            # get any configured/default values.
+            T_O.RPI		= default_named( T_O.get( 'RPI' ),	'T_O.RPI' )
+            O_T.RPI		= default_named( O_T.get( 'RPI' ),	'O_T.RPI' )
+
             # Deduce Connection parameters, and whether or not we need a Large or Small Forward Open
             T_O			= defaults.Connection( **( T_O or {} ))
             O_T			= defaults.Connection( **( O_T or {} ))
-            large		= O_T.large or T_O.large
-            T_O.large = O_T.large = large
+            T_O.large = O_T.large = O_T.large or T_O.large
 
             # Default the connection ID and serial to the same incrementing number
             if connection_serial is None:
