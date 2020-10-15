@@ -57,54 +57,55 @@ def tnet_from( conn, addr,
     assert source is None, \
         "Unsupported source: {source!r}".format( source=source )
     while not server.done:
-        started		= cpppo.timer()
+        started			= cpppo.timer()
 
         def recv( maxlen ):
-            duration	= cpppo.timer() - started
-            remains	= None if timeout is None else max( 0, timeout - duration )
-            remains	= latency if timeout is None else min(	# If no timeout, wait for latency (or forever, if None)
+            now			= cpppo.timer()
+            duration		= now - started
+            remains		= latency if timeout is None else min(	# If no timeout, wait for latency (or forever, if None)
                 timeout if latency is None else latency,	# Or, we know timeout is numeric; get min of any latency
                 max( timeout - duration, 0 ))			#  ... and remaining unused timeout
-            data	= network.recv( conn, maxlen=maxlen, timeout=remains ) # None (timeout) / b'' (EOF) / b'...'
-            #log.warning( "recv: {data!r}".format( data=data ))
+            data		= network.recv( conn, maxlen=maxlen, timeout=remains ) # None (timeout) / b'' (EOF) / b'...'
+            #log.warning( "recv: (after {dur:7.3f}/{rem:7.3f}s): {data!r}".format( dur=cpppo.timer() - now, rem=remains, data=data ))
             return data
 
-        length,c	= b'',b'0' # remember: b'' is trivially considered as "in" b'...'
+        length,c		= b'',b'0' # remember: b'' is trivially considered as "in" b'...'
         while not server.done and c and c in b'01234567889' or ( ignore and c in ignore ):
             if not ignore or c not in ignore:
                 assert c in b'0123456789', "Expected TNET size symbol, not {c!r}".format( c=c ) # EOF/timeout
-                length += c
-            c		= None
+                length         += c
+            c			= None
             while not server.done and c is None:
-                c	= recv( 1 )
+                c		= recv( 1 )
                 if c is None and timeout is not None and cpppo.timer() - started > timeout:
                     # No data w/in given timeout expiry!  Inform the consumer, and then try again w/ fresh timeout.
                     yield None
                     started = cpppo.timer()
         if server.done or not c: return # None/b'' ==> done/EOF
         assert c == b':', "Expected TNET <size> separator ':', not {c!r}".format( c=c )
-        length		= int( length )
+        length			= int( length )
 
-        # Harvest the desired payload length.
-        payload,c	= b'',None
+        # Harvest the desired payload length, 'til timeout or completion.
+        payload,c		= b'',None
         while not server.done and c is None and len( payload ) < length:
-            c		= recv( length - len( payload ))
+            c			= recv( length - len( payload ))
             if c is None and timeout is not None and cpppo.timer() - started > timeout:
                 yield None
-                started	= cpppo.timer()
+                started		= cpppo.timer()
                 continue
-            payload    += c
+            payload            += c
+            c			= None
         if server.done or c == b'': return # done/EOF
         assert len( payload ) == length, \
             "Expected TNET {length}-byte payload; got {actual_length}-byte {actual}".format(
                 length=length, actual_length=len( payload ), actual=cpppo.reprlib.repr( payload ))
 
-        c		= None
+        c			= None
         while not server.done and c is None:
-            c		= recv( 1 )
+            c			= recv( 1 )
             if c is None and timeout is not None and cpppo.timer() - started > timeout:
                 yield None
-                started	= cpppo.timer()
+                started		= cpppo.timer()
         if server.done or c == b'': return # done/EOF
         if c == b'$':
             yield payload.decode( 'utf-8' )
