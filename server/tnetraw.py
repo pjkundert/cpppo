@@ -65,10 +65,12 @@ def tnet_from( conn, addr,
             remains	= latency if timeout is None else min(	# If no timeout, wait for latency (or forever, if None)
                 timeout if latency is None else latency,	# Or, we know timeout is numeric; get min of any latency
                 max( timeout - duration, 0 ))			#  ... and remaining unused timeout
-            return network.recv( conn, maxlen=maxlen, timeout=remains )
+            data	= network.recv( conn, maxlen=maxlen, timeout=remains ) # None (timeout) / b'' (EOF) / b'...'
+            #log.warning( "recv: {data!r}".format( data=data ))
+            return data
 
-        length,c	= b'',b'0'
-        while not server.done and c in b'01234567889' or ( ignore and c in ignore ):
+        length,c	= b'',b'0' # remember: b'' is trivially considered as "in" b'...'
+        while not server.done and c and c in b'01234567889' or ( ignore and c in ignore ):
             if not ignore or c not in ignore:
                 assert c in b'0123456789', "Expected TNET size symbol, not {c!r}".format( c=c ) # EOF/timeout
                 length += c
@@ -79,7 +81,7 @@ def tnet_from( conn, addr,
                     # No data w/in given timeout expiry!  Inform the consumer, and then try again w/ fresh timeout.
                     yield None
                     started = cpppo.timer()
-        if server.done or c == b'': return # done/EOF
+        if server.done or not c: return # None/b'' ==> done/EOF
         assert c == b':', "Expected TNET <size> separator ':', not {c!r}".format( c=c )
         length		= int( length )
 
