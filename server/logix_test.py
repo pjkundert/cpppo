@@ -143,13 +143,18 @@ def test_logix_multiple():
     Obj_a4 = Obj.attribute['4']	= enip.device.Attribute( 'number',      enip.parser.REAL, default=0.0)
 
     # Set up a symbolic tag referencing the Logix Object's Attribute
-    enip.device.symbol['parts']	= {'class': Obj.class_id, 'instance': Obj.instance_id, 'attribute':1 }
-    enip.device.symbol['ControlWord'] \
-				= {'class': Obj.class_id, 'instance': Obj.instance_id, 'attribute':2 }
-    enip.device.symbol['SCADA_40001'] \
-				= {'class': Obj.class_id, 'instance': Obj.instance_id, 'attribute':3 }
-    enip.device.symbol['number'] \
-				= {'class': Obj.class_id, 'instance': Obj.instance_id, 'attribute':4 }
+    enip.device.redirect_tag( 'parts', {
+        'class': Obj.class_id, 'instance': Obj.instance_id, 'attribute':1
+    })
+    enip.device.redirect_tag( 'ControlWord', {
+        'class': Obj.class_id, 'instance': Obj.instance_id, 'attribute':2
+    })
+    enip.device.redirect_tag('SCADA_40001', {
+	'class': Obj.class_id, 'instance': Obj.instance_id, 'attribute':3
+    })
+    enip.device.redirect_tag( 'number', {
+	'class': Obj.class_id, 'instance': Obj.instance_id, 'attribute':4
+    })
 
 
     assert len( Obj_a1 ) == size
@@ -627,7 +632,9 @@ def logix_performance( repeat=1000 ):
     assert len( Obj_a1 ) == size
 
     # Set up a symbolic tag referencing the Logix Object's Attribute
-    enip.device.symbol['SCADA']	= {'class': Obj.class_id, 'instance': Obj.instance_id, 'attribute':1 }
+    enip.device.redirect_tag( 'SCADA', {
+        'class': Obj.class_id, 'instance': Obj.instance_id, 'attribute':1
+    })
 
     # Lets get it to parse a request, resulting in a 200 element response:
     #     'service': 			0x52,

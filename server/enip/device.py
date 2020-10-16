@@ -167,18 +167,18 @@ def redirect_tag( tag, address ):
     Make sure we stay with only str type tags (mostly for Python2, in case somehow we get a Unicode
     tag).  Multi-segment symbolic tags are expected to be looked up as: symbol["<symbol1>.<symbol2>"]
 
+    All Tag lookups are case-insensitive, so are stored lower-case.
     """
-    tag				= str( tag )
     assert isinstance( address, dict )
     assert all( k in symbol_keys for k in address )
     assert all( k in address     for k in symbol_keys )
-    symbol[tag]			= address
+    symbol[str( tag ).lower()]	= address
     return tuple( address[k] for k in symbol_keys )
 
 
 def resolve_tag( tag ):
     """Return the (class_id, instance_id, attribute_id) tuple corresponding to tag, or None if not specified"""
-    address			= symbol.get( str( tag ), None )
+    address			= symbol.get( str( tag ).lower(), None )
     if address:
         return tuple( address[k] for k in symbol_keys )
     return None
@@ -205,7 +205,7 @@ def resolve( path, attribute=False ):
         if ( result['class'] is not None and result['instance'] is not None
              and ( not attribute or result['attribute'] is not None )):
             break # All desired terms specified; done! (ie. ignore 'element')
-        working		= dict( term )
+        working			= dict( term )
         while working:
             # Each term is something like {'class':5}, {'instance':1}, or (from symbol table):
             # {'class':5,'instance':1}.  Pull each key (eg. 'class') from working into result,
@@ -216,17 +216,17 @@ def resolve( path, attribute=False ):
                     assert result[key] is None, \
                         "Failed to override %r==%r with %r from path segment %r in path %r" % (
                             key, result[key], working[key], term, path['segment'] )
-                    result[key] = working.pop( key ) # single 'class'/'instance'/'attribute' seg.
+                    result[key]	= working.pop( key ) # single 'class'/'instance'/'attribute' seg.
             if working:
                 assert 'symbolic' in working, \
                     ( "Unrecognized symbolic name %r found in path %r" % ( tag, path['segment'] )
                       if tag
                       else "Invalid term %r found in path %r" % ( working, path['segment'] ))
-                tag    += ( '.' if tag else '' ) + str( working['symbolic'] )
-                working = None
-                if tag in symbol:
-                    working = dict( symbol[tag] )
-                    tag	= ''
+                tag	       += ( '.' if tag else '' ) + str( working['symbolic'] )
+                working		= None
+                if tag.lower() in symbol:
+                    working	= dict( symbol[tag.lower()] )
+                    tag		= ''
 
     # Any tag not recognized will remain after all resolution complete
     assert not tag, \
@@ -237,7 +237,7 @@ def resolve( path, attribute=False ):
         "Failed to resolve required Class (%r), Instance (%r) %s Attribute(%r) from path: %r" % (
             result['class'], result['instance'], "and the" if attribute else "but not",
             result['attribute'], path['segment'] )
-    result		= result['class'], result['instance'], result['attribute'] if attribute else None
+    result			= result['class'], result['instance'], result['attribute'] if attribute else None
     log.detail( "Class %5d/0x%04x, Instance %3d, Attribute %5r <== %r",
                 result[0], result[0], result[1], result[2], path['segment'] )
 

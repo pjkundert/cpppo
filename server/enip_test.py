@@ -3146,13 +3146,17 @@ def test_enip_CIP( repeat=1 ):
 
 
 def test_enip_device_symbolic():
-    enip.device.symbol['SCADA'] = {'class':0x401, 'instance':1, 'attribute':2}
-    path={'segment':[{'symbolic':'SCADA'}, {'element':4}]}
+    enip.device.redirect_tag( 'SCADA', {'class':0x401, 'instance':1, 'attribute':2} )
+    path			= {
+        'segment':[{'symbolic':'SCADA'}, {'element':4}]
+    }
     assert enip.device.resolve( path, attribute=True ) == (0x401,1,2)
     assert enip.device.resolve( path ) == (0x401,1,None)
 
-    enip.device.symbol['Tag.Subtag'] = {'class':0x401, 'instance':1, 'attribute':3}
-    path={'segment':[{'symbolic':'Tag'}, {'symbolic':'Subtag'}, {'element':4}]}
+    enip.device.redirect_tag( 'Tag.Subtag', {'class':0x401, 'instance':1, 'attribute':3} )
+    path			= {
+        'segment':[{'symbolic':'Tag'}, {'symbolic':'Subtag'}, {'element':4}]
+    }
     assert enip.device.resolve( path, attribute=True ) == (0x401,1,3)
 
     try:
@@ -3235,7 +3239,7 @@ def test_enip_device():
     assert enip.device.lookup( *enip.device.resolve( {'segment':[{'class':class_num}, {'instance':1}]} )) is O
     assert enip.device.lookup( *enip.device.resolve( {'segment':[{'class':class_num}, {'instance':2}]} )) is O2
 
-    enip.device.symbol['BOO'] = {'class': class_num, 'instance': 1}
+    enip.device.redirect_tag( 'BOO', {'class': class_num, 'instance': 1, 'attribute': 2 } )
 
     path			= {'segment':[{'symbolic':'BOO', 'length':3}, {'attribute':2}, {'element':4}]}
     assert enip.device.lookup( *enip.device.resolve( path )) is O
@@ -3264,7 +3268,7 @@ def test_enip_logix():
     assert len( Obj_a1 ) == 100
 
     # Set up a symbolic tag referencing the Logix Object's Attribute
-    enip.device.symbol['SCADA']	= {'class': Obj.class_id, 'instance': Obj.instance_id, 'attribute':1 }
+    enip.device.redirect_tag( 'SCADA', {'class': Obj.class_id, 'instance': Obj.instance_id, 'attribute':1 } )
 
     # Lets get it to parse a request:
     #     'service': 			0x52,
