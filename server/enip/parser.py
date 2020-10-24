@@ -224,10 +224,28 @@ class DINT( TYPE ):
     struct_format		= '<i'
     struct_calcsize		= struct.calcsize( struct_format )
 
+class ULINT( TYPE ):
+    """An EtherNet/IP LINT; 64-bit unsigned integer"""
+    tag_type			= 0x00c9
+    struct_format		= '<Q'
+    struct_calcsize		= struct.calcsize( struct_format )
+
+class LINT( TYPE ):
+    """An EtherNet/IP LINT; 64-bit signed integer"""
+    tag_type			= 0x00c5
+    struct_format		= '<q'
+    struct_calcsize		= struct.calcsize( struct_format )
+
 class REAL( TYPE ):
-    """An EtherNet/IP INT; 32-bit float"""
-    tag_type			= 0x00ca # 202
+    """An EtherNet/IP REAL; 32-bit float"""
+    tag_type			= 0x00ca
     struct_format		= '<f'
+    struct_calcsize		= struct.calcsize( struct_format )
+
+class LREAL( TYPE ):
+    """An EtherNet/IP LREAL; 64-bit float"""
+    tag_type			= 0x00cb
+    struct_format		= '<d'
     struct_calcsize		= struct.calcsize( struct_format )
 
 # Some network byte-order types that are occasionally used in parsing
@@ -1798,12 +1816,32 @@ class typed_data( cpppo.dfa ):
                                            destination='.data',	initializer=lambda **kwds: [],
                                                 state=u32d )
 
+        i64d			= octets_noop(	'end64bit',
+                                                terminal=True )
+        i64d[True]	= i64p	= LINT()
+        i64p[None]		= move_if( 	'mov64bit',	source='.LINT',
+                                           destination='.data',	initializer=lambda **kwds: [],
+                                                state=i64d )
+
+        u64d			= octets_noop(	'end64bitu',
+                                                terminal=True )
+        u64d[True]	= u64p	= ULINT()
+        u64p[None]		= move_if( 	'mov64bitu',	source='.ULINT',
+                                           destination='.data',	initializer=lambda **kwds: [],
+                                                state=u64d )
+
         fltd			= octets_noop(	'endfloat',
                                                 terminal=True )
         fltd[True]	= fltp	= REAL()
         fltp[None]		= move_if( 	'movfloat',	source='.REAL', 
                                            destination='.data',	initializer=lambda **kwds: [],
                                                 state=fltd )
+        dltd			= octets_noop(	'enddouble',
+                                                terminal=True )
+        dltd[True]	= dltp	= LREAL()
+        dltp[None]		= move_if( 	'movdouble',	source='.LREAL',
+                                           destination='.data',	initializer=lambda **kwds: [],
+                                                state=dltd )
         # Since a parsed "[S]STRING": { "string": "abc", "length": 3 } is multiple layers deep, and we
         # want to completely eliminate the target container in preparation for the next loop, we'll
         # need to move it up one layer, and then into the final target.
@@ -1846,9 +1884,18 @@ class typed_data( cpppo.dfa ):
         slct[None]		= cpppo.decide(	'UDINT',state=u32d,
             predicate=lambda path=None, data=None, **kwds: \
                 UDINT.tag_type == ( data[path+tag_type] if isinstance( tag_type, cpppo.type_str_base ) else tag_type ))
+        slct[None]		= cpppo.decide(	'LINT',	state=i64d,
+            predicate=lambda path=None, data=None, **kwds: \
+                LINT.tag_type == ( data[path+tag_type] if isinstance( tag_type, cpppo.type_str_base ) else tag_type ))
+        slct[None]		= cpppo.decide(	'ULINT',state=u64d,
+            predicate=lambda path=None, data=None, **kwds: \
+                ULINT.tag_type == ( data[path+tag_type] if isinstance( tag_type, cpppo.type_str_base ) else tag_type ))
         slct[None]		= cpppo.decide(	'REAL',	state=fltd,
             predicate=lambda path=None, data=None, **kwds: \
                 REAL.tag_type == ( data[path+tag_type] if isinstance( tag_type, cpppo.type_str_base ) else tag_type ))
+        slct[None]		= cpppo.decide(	'LREAL', state=dltd,
+            predicate=lambda path=None, data=None, **kwds: \
+                LREAL.tag_type == ( data[path+tag_type] if isinstance( tag_type, cpppo.type_str_base ) else tag_type ))
         slct[None]		= cpppo.decide(	'SSTRING', state=sstd,
             predicate=lambda path=None, data=None, **kwds: \
                 SSTRING.tag_type == ( data[path+tag_type] if isinstance( tag_type, cpppo.type_str_base ) else tag_type ))

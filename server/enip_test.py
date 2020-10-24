@@ -12,6 +12,7 @@ import platform
 import pytest
 import random
 import socket
+import struct
 import sys
 import traceback
 
@@ -263,6 +264,41 @@ def test_enip_TYPES_numeric():
         assert i == 32
     assert len( data.typed_data.data ) == 4
     assert data.typed_data.data == [0.0]*4
+
+    # 1 x LREAL
+    pkt				= struct.pack( '<d', 1.23 )
+    data			= cpppo.dotdict()
+    source			= cpppo.chainable( pkt )
+    with enip.typed_data( tag_type=enip.LREAL.tag_type, terminal=True ) as machine:
+        for i,(m,s) in enumerate( machine.run( source=source, data=data )):
+            log.info( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r", m.name_centered(),
+                      i, s, source.sent, source.peek(), data )
+        assert i == 15
+    assert len( data.typed_data.data ) == 1
+    assert data.typed_data.data == [1.23]
+
+    # 1 x LINT/ULINT
+    pkt				= struct.pack( '<q', -1234567890123456789 )
+    data			= cpppo.dotdict()
+    source			= cpppo.chainable( pkt )
+    with enip.typed_data( tag_type=enip.LINT.tag_type, terminal=True ) as machine:
+        for i,(m,s) in enumerate( machine.run( source=source, data=data )):
+            log.info( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r", m.name_centered(),
+                      i, s, source.sent, source.peek(), data )
+        assert i == 15
+    assert len( data.typed_data.data ) == 1
+    assert data.typed_data.data == [-1234567890123456789]
+
+    pkt				= b'\x00\x00\x00\x00\x00\x00\x00\x80'
+    data			= cpppo.dotdict()
+    source			= cpppo.chainable( pkt )
+    with enip.typed_data( tag_type=enip.ULINT.tag_type, terminal=True ) as machine:
+        for i,(m,s) in enumerate( machine.run( source=source, data=data )):
+            log.info( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r", m.name_centered(),
+                      i, s, source.sent, source.peek(), data )
+        assert i == 15
+    assert len( data.typed_data.data ) == 1
+    assert data.typed_data.data == [2**63]
 
 
 # pkt4
