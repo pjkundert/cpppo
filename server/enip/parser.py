@@ -143,10 +143,7 @@ class words( words_base, cpppo.state ):
 # 
 # USINT		-- Parse an 8-bit EtherNet/IP unsigned int 
 # USINT.produce	--   and convert a value back to a 8-bit EtherNet/IP unsigned int
-# INT		-- Parse a 16-bit EtherNet/IP   signed int 
-# UINT		-- Parse a 16-bit EtherNet/IP unsigned int 
-# DINT		-- Parse a 32-bit EtherNet/IP   signed int 
-# UDINT		-- Parse a 32-bit EtherNet/IP unsigned int 
+# ...
 # 
 #     You must provide either a name or a context; if you provide neither, then both default to the
 # name of the class.  An instance of any of these types "is" a parser state machine, and has a
@@ -172,9 +169,28 @@ class TYPE( octets_struct ):
         return struct.pack( cls.struct_format, value )
 
 class BOOL( TYPE ):
+    """An EtherNet/IP BOOL; 8-bit boolean
+
+    Surprisingly, the struct '?' format does *not* work as you might expect.  the value b'\x00'
+    converts to False reliably.  However, only b'\x01' converts to True reliably; any other value
+    may or may not result in True, depending on the version of Python being used!  Python 2.7/3.9
+    return False for eg. b'\x02', while Pypy 3.6.9 return True.
+
+    Therefore, we will convert octets to unsigned integer via 'B', and then post-process to bool.
+    """
     tag_type                    = 0x00c1 # 193
-    struct_format               = '?'
+    struct_format               = 'B' # do not use '?'!
     struct_calcsize             = struct.calcsize( struct_format )
+
+    def terminate( self, exception, machine=None, path=None, data=None ):
+        super( BOOL, self ).terminate( exception=exception, machine=machine, path=path, data=data )
+        if exception is not None:
+            return
+        ours			= self.context( path=path )
+        if cpppo.is_listlike( data[ours] ):
+            data[ours]		= list( map( bool, data[ours] ))
+        else:
+            data[ours]		= bool( data[ours] )
 
     @classmethod
     def produce( cls, value ):

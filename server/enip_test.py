@@ -301,6 +301,41 @@ def test_enip_TYPES_numeric():
     assert data.typed_data.data == [2**63]
 
 
+def test_enip_TYPES_bool():
+    """Disappointingly, the struct '?' format in Python2 """
+    pkt				= b'\x00\x01\x02\x04\x08\x10\x20\x40\x80\xff\x00'
+    pkt_truths			= [ False, True, True, True, True, True, True, True, True, True, False ]
+    data			= cpppo.dotdict()
+    source			= cpppo.chainable( pkt )
+    with enip.BOOL() as machine:
+        for i,(m,s) in enumerate( machine.run( source=source, data=data )):
+            log.info( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r", m.name_centered(),
+                      i, s, source.sent, source.peek(), data )
+        assert i == 0
+    assert data.BOOL == False
+
+    data			= cpppo.dotdict()
+    with enip.BOOL() as machine:
+        for i,(m,s) in enumerate( machine.run( source=source, data=data )):
+            log.info( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r", m.name_centered(),
+                      i, s, source.sent, source.peek(), data )
+        assert i == 0
+    assert data.BOOL == True
+
+    data			= cpppo.dotdict()
+    source			= cpppo.chainable( pkt )
+    with enip.typed_data( tag_type=enip.BOOL.tag_type, terminal=True ) as machine:
+        for i,(m,s) in enumerate( machine.run( source=source, data=data )):
+            log.info( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r", m.name_centered(),
+                      i, s, source.sent, source.peek(), data )
+        assert i == 48
+    assert data.typed_data.data == pkt_truths
+
+    pkt_produced		= b'\x00\xff\xff\xff\xff\xff\xff\xff\xff\x00'
+    enip.typed_data.produce( {'data': pkt_truths}, tag_type=enip.BOOL.tag_type ) == pkt_produced
+
+    
+
 # pkt4
 # "4","0.000863000","192.168.222.128","10.220.104.180","ENIP","82","Register Session (Req)"
 rss_004_request 		= bytes(bytearray([
