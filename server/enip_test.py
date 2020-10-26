@@ -6,6 +6,7 @@ except ImportError:
 
 import array
 import codecs
+import contextlib
 import logging
 import os
 import platform
@@ -15,8 +16,6 @@ import socket
 import struct
 import sys
 import traceback
-
-is_pypy				= platform.python_implementation() == "PyPy"
 
 has_pylogix			= False
 try:
@@ -695,30 +694,25 @@ def test_enip_header():
                 assert data[k] == v, ( "data[%r] == %r\n"
                                        "expected:   %r" % ( k, data[k], v ))
 
-@pytest.mark.skipif( is_pypy, reason="Not yet supported under PyPy" )
+
 def test_enip_machine():
-    ENIP			= enip.enip_machine( context='enip' )
     for pkt,tst in eip_tests:
         # Parse the headers and encapsulated command data
         data			= cpppo.dotdict()
         source			= cpppo.chainable( pkt )
-        with ENIP as machine:
-            engine		= machine.run( source=source, data=data )
-            try:
+        with enip.enip_machine( context='enip' ) as machine:
+            with contextlib.closing( machine.run( source=source, data=data )) as engine:
                 for i,(m,s) in enumerate( engine ):
                     log.info( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r",
                               machine.name_centered(), i, s, source.sent, source.peek(), data )
                     if s is None and source.peek() is None:
                         break # simulate detection of EOF
-            finally:
-                engine.close()
-                del engine
             if not pkt:
                 assert i == 2		# enip_machine / enip_header reports state
             else:
                 pass 			# varies...
         assert source.peek() is None
-   
+
         log.normal( "EtherNet/IP Request: %s", enip.enip_format( data ))
         try:
             for k,v in tst.items():
