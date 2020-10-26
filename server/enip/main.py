@@ -1117,9 +1117,15 @@ def main( argv=None, attribute_class=device.Attribute, idle_service=None, identi
         typenames		= {
             "BOOL":	( parser.BOOL,	0 ),
             "INT":	( parser.INT,	0 ),
+            "UINT":	( parser.UINT,	0 ),
+            "LINT":	( parser.LINT,	0 ),
+            "ULINT":	( parser.ULINT,	0 ),
             "DINT":	( parser.DINT,	0 ),
+            "UDINT":	( parser.UDINT,	0 ),
             "SINT":	( parser.SINT,	0 ),
+            "USINT":	( parser.USINT,	0 ),
             "REAL":	( parser.REAL,  0.0 ),
+            "LREAL":	( parser.LREAL,  0.0 ),
             "SSTRING":	( parser.SSTRING, '' ),
             "STRING":	( parser.STRING, '' ),
         }

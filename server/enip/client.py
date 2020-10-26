@@ -137,7 +137,7 @@ def parse_context( sender_context ):
 # client.CIP_TYPES
 # 
 #     The supported CIP data types, and their CIP 'tag_type' values, byte sizes and validators.  We
-# are generous with the "signed" types (eg. SINT, INT, DINT), and we actually allow the full
+# are generous with the "signed" types (eg. SINT, INT, DINT, LINT), and we actually allow the full
 # unsigned range, plus the negative range.  There is little risk to doing this, as all provided
 # values will fit legitimately into the data type without loss.  It does however, make acceptance of
 # automatically generated data easier, as we don't need to really know if the data is signed or
@@ -167,6 +167,9 @@ CIP_TYPES			= {
     'SSTRING':	(parser.SSTRING.tag_type, 0,				str ),
     'BOOL':	(parser.BOOL.tag_type,	parser.BOOL.struct_calcsize,	bool_validate ),
     'REAL': 	(parser.REAL.tag_type,	parser.REAL.struct_calcsize,	float ),
+    'LREAL': 	(parser.LREAL.tag_type,	parser.LREAL.struct_calcsize,	float ),
+    'LINT':	(parser.LINT.tag_type,	parser.LINT.struct_calcsize,	lambda x: int_validate( x, -2**63, 2**64-1 )), # extra range
+    'ULINT':	(parser.ULINT.tag_type,	parser.ULINT.struct_calcsize,	lambda x: int_validate( x,  0,     2**64-1 )),
     'DINT':	(parser.DINT.tag_type,	parser.DINT.struct_calcsize,	lambda x: int_validate( x, -2**31, 2**32-1 )), # extra range
     'UDINT':	(parser.UDINT.tag_type,	parser.UDINT.struct_calcsize,	lambda x: int_validate( x,  0,     2**32-1 )),
     'INT':	(parser.INT.tag_type,	parser.INT.struct_calcsize,	lambda x: int_validate( x, -2**15, 2**16-1 )), # extra range

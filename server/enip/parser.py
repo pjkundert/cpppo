@@ -225,7 +225,7 @@ class DINT( TYPE ):
     struct_calcsize		= struct.calcsize( struct_format )
 
 class ULINT( TYPE ):
-    """An EtherNet/IP LINT; 64-bit unsigned integer"""
+    """An EtherNet/IP ULINT; 64-bit unsigned integer"""
     tag_type			= 0x00c9
     struct_format		= '<Q'
     struct_calcsize		= struct.calcsize( struct_format )
@@ -1738,6 +1738,7 @@ class typed_data( cpppo.dfa ):
     INT		yes		= 0x00c3	# 2 bytes
     DINT	yes		= 0x00c4	# 4 bytes
     REAL	yes		= 0x00ca	# 4 bytes
+    LREAL	yes		= 0x00cb	# 8 bytes
     USINT	yes		= 0x00c6	# 1 byte
     UINT	yes		= 0x00c7	# 2 bytes
     WORD			= 0x00d2	# 2 byte (16-bit boolean array)
@@ -1756,7 +1757,10 @@ class typed_data( cpppo.dfa ):
         UINT.tag_type:		UINT,
         DINT.tag_type:		DINT,
         UDINT.tag_type:		UDINT,
+        LINT.tag_type:		LINT,
+        ULINT.tag_type:		ULINT,
         REAL.tag_type:		REAL,
+        LREAL.tag_type:		LREAL,
         SSTRING.tag_type:	SSTRING,
         STRING.tag_type:	STRING,
     }

@@ -158,16 +158,19 @@ class proxy( object ):
 
     """
     CIP_TYPES			= {
-        "real":		( parser.REAL,	"REAL" ),		# <name>: (<class>, <data-path> )
-        "sint":		( parser.SINT,	"SINT" ),
-        "usint":	( parser.USINT,	"USINT" ),
-        "int":		( parser.INT,	"INT" ),
-        "uint":		( parser.UINT,	"UINT" ),
-        "dint":		( parser.DINT,	"DINT" ),
-        "udint":	( parser.UDINT,	"UDINT" ),
-        "bool":		( parser.BOOL,	"BOOL" ),
-        "word":		( parser.WORD,	"WORD" ),
-        "dword":	( parser.DWORD,	"DWORD" ),
+        "real":		( parser.REAL,		"REAL" ),		# <name>: (<class>, <data-path> )
+        "lreal":	( parser.LREAL,		"LREAL" ),
+        "sint":		( parser.SINT,		"SINT" ),
+        "usint":	( parser.USINT,		"USINT" ),
+        "int":		( parser.INT,		"INT" ),
+        "uint":		( parser.UINT,		"UINT" ),
+        "dint":		( parser.DINT,		"DINT" ),
+        "udint":	( parser.UDINT,		"UDINT" ),
+        "lint":		( parser.LINT,		"LINT" ),
+        "ulint":	( parser.ULINT,		"ULINT" ),
+        "bool":		( parser.BOOL,		"BOOL" ),
+        "word":		( parser.WORD,		"WORD" ),
+        "dword":	( parser.DWORD,		"DWORD" ),
         "ipaddr":	( parser.IPADDR,	"IPADDR" ),		# a network-order UDINT as a dotted-quad
         "string":	( parser.STRING,	"STRING.string" ),
         "sstring":	( parser.SSTRING,	"SSTRING.string" ),
