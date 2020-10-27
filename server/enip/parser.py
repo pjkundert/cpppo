@@ -292,8 +292,8 @@ class REAL_network( TYPE ):
 
 class STRUCT( cpppo.dfa, cpppo.state ):
     """An EtherNet/IP STRUCT; By default, a 2-byte UINT .structure_tag, followed by arbitrarily encoded
-    USINT .data.  We'll generally use this as a base class for types requiring custom parser state
-    machinery and produce methods; the default will be an unparsed raw CIP STRUCT w/ a
+    USINT into .data.  We'll generally use this as a base class for types requiring custom parser
+    state machinery and produce methods; the default will be an unparsed raw CIP STRUCT w/ a
     .structure_tag value.
 
     """
@@ -307,7 +307,7 @@ class STRUCT( cpppo.dfa, cpppo.state ):
                                                 terminal=True )
             u_8d[True]	= u_8p	= USINT()
             u_8p[None]		= move_if( 	'mov_8bitu',	source='.USINT', 
-                                           destination='.data',	initializer=lambda **kwds: [],
+                                           destination='.data',initializer=lambda **kwds: [],
                                                 state=u_8d )
             initial		= strt
 
@@ -640,7 +640,13 @@ class move_if( cpppo.decide ):
     """If the predicate is True (the default), then move (either append or assign) data[path+source]
     to data[path+destination], assigning init to it first if the target doesn't yet exist.  Then,
     proceed to the target state.  If no source is provided, only the initialization (if not None)
-    occurs.  The destination defaults to the plain path context."""
+    occurs.  The destination defaults to the plain path context.
+
+    If the destination ends in a relative path signifier '.', then the original basename is
+    appended.  This allows us to move named things around into relative locations while retaining
+    their original names.
+
+    """
     def __init__( self, name, source=None, destination=None, initializer=None, **kwds ):
         super( move_if, self ).__init__( name=name, **kwds )
         self.src		= source
@@ -662,14 +668,15 @@ class move_if( cpppo.decide ):
                 finally:
                     log.debug( "%s -- init. data[%r] to %r in data: %s", self, pathdst, ini, data )
             if self.src is not None:
-                pathsrc		= path + self.src
+                pathsrc		= path + ( self.src or '' )
                 # assert pathsrc in data, \
                 #     "Could not find %r to move to %r in %r" % ( pathsrc, pathdst, data )
                 try:
                     src		= data.pop( pathsrc )
-                except:
-                    raise AssertionError( "Could not find %r to move to %r in %r" % ( pathsrc, pathdst, data ))
-                dst		= data[pathdst]
+                except Exception as exc:
+                    raise AssertionError( "Could not find %r to move to %r in %r: %s" % (
+                        pathsrc, pathdst, data, exc ))
+                dst		= data.get( pathdst ) # May be None, if no self.ini...
                 if hasattr( dst, 'append' ):
                     # We're supposed to append to an existing destination list-like thing...
                     log.debug( "%s -- append data[%r] == %r to data[%r]", self, pathsrc, src, pathdst )
@@ -678,6 +685,15 @@ class move_if( cpppo.decide ):
                     # We're supposed to replace an existing destination object
                     log.debug( "%s -- assign data[%r] == %r to data[%r]", self, pathsrc, src, pathdst )
                     data[pathdst] = src
+                # Finally, clean up any (now) empty parent dicts...
+                parent		= pathsrc
+                while True:
+                    parent	= '.'.join( parent.split( '.' )[:-1] )
+                    if parent and parent in data and not data[parent]:
+                        log.debug( "%s -- remove data[%r] (now empty)", self, parent )
+                        data.pop( parent )
+                        continue
+                    break
 
         return target
 
@@ -1911,13 +1927,15 @@ class typed_data( cpppo.dfa ):
                                            destination='.data',	initializer=lambda **kwds: [],
                                                 state=sttd )
 
-        # STRUCT data is prefixed by a UINT structure_tag, then raw data.  In theory, there could
-        # be a .structure_tag followed by no data (eg. if you do a Read Tag Fragmented with an
-        # offset to exactly the end of the structure.)  So, parse the UINT .structure_tag, and then
-        # go parse USINT data (which will accept empty data).
-        strt			= UINT(				context='structure_tag' )
-        strt[None]		= u_8d
-
+        # STRUCT data is prefixed by a UINT structure_tag, then raw data.  In theory, there could be
+        # a .structure_tag followed by no data (eg. if you do a Read Tag Fragmented with an offset
+        # to exactly the end of the structure.)  Move the parse { 'STRUCT': { 'data': [],
+        # 'structure_tag': }} up onto the target name eg. 'typed_data'.
+        strt			= STRUCT( terminal=True )
+        strt[None]		= move_if( 	'mov_struct',	source='.STRUCT.structure_tag',
+                                                destination='.structure_tag' )
+        strt[None]		= move_if( 	'mov_struct',	source='.STRUCT.data',
+                                                destination='.data' )
 
         slct[None]		= cpppo.decide(	'BOOL',	state=u_1d,
             predicate=lambda path=None, data=None, **kwds: \

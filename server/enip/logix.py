@@ -535,7 +535,7 @@ def __read_frag_reply():
     rsvd[True]		= stts	= status()
     stts[None]		= schk	= octets_noop(	'check',
                                                 terminal=True )
-    # If UINT data type == 0x02A0 (STRUCTURE), then the data is prefixed by its structure_handle in the next 2 bytes.
+    # If UINT data type == 0x02A0 (STRUCT), then the data is prefixed by its structure_handle in the next 2 bytes.
     # The typed_data parser will recognize this is a STRUCTURE, and parse the .structure_handle and the .data
     dtyp			= UINT( 	'type',   	context='read_frag',  extension='.type' )
     dtyp[True]			= typed_data( 	'data',   	context='read_frag',

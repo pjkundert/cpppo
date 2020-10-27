@@ -339,11 +339,21 @@ def test_enip_TYPES_STRUCT():
     data			= cpppo.dotdict()
     source			= cpppo.chainable( pkt )
 
+    with enip.STRUCT() as machine:
+        for i,(m,s) in enumerate( machine.run( source=source, data=data )):
+            log.info( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r", m.name_centered(),
+                      i, s, source.sent, source.peek(), data )
+        assert i == 21
+    assert data.STRUCT.structure_tag == 0x8899
+    assert data.STRUCT.data == [ 2, 0, 3, 0 ]
+
+    data			= cpppo.dotdict()
+    source			= cpppo.chainable( pkt )
     with enip.typed_data( tag_type=enip.STRUCT.tag_type, terminal=True ) as machine:
         for i,(m,s) in enumerate( machine.run( source=source, data=data )):
             log.info( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r", m.name_centered(),
                       i, s, source.sent, source.peek(), data )
-        assert i == 23
+        assert i == 25
     assert data.typed_data.structure_tag == 0x8899
     assert len( data.typed_data.data ) == 4
     assert data.typed_data.data == [ 2, 0, 3, 0 ]
