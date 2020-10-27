@@ -646,6 +646,8 @@ class move_if( cpppo.decide ):
     appended.  This allows us to move named things around into relative locations while retaining
     their original names.
 
+    If desired, you can disable the 'tidy' step at the end which eliminates empty src dicts, if you're
+    using multi-step move_if actions, and need to retain intermediate empty dicts.
     """
     def __init__( self, name, source=None, destination=None, initializer=None, **kwds ):
         super( move_if, self ).__init__( name=name, **kwds )
@@ -656,44 +658,42 @@ class move_if( cpppo.decide ):
     def execute( self, truth, machine=None, source=None, path=None, data=None ):
         target			= super( move_if, self ).execute(
             truth, machine=machine, source=source, path=path, data=data )
-        if truth:
-            pathdst		= path + self.dst
-            if self.ini is not None and pathdst not in data:
-                ini		= ( self.ini
+        if not truth:
+            return target
+
+        pathsrc			= path + ( self.src or '' )
+        pathdst			= path + self.dst
+        #log.normal( "%s -- moving data[%r] to data[%r], in %r", self, pathsrc, pathdst, data )
+        if self.ini is not None and pathdst not in data:
+            ini			= ( self.ini
                                     if not hasattr( self.ini, '__call__' )
                                     else self.ini(
                                             machine=machine, source=source, path=path, data=data ))
-                try:
-                    data[pathdst]= ini
-                finally:
-                    log.debug( "%s -- init. data[%r] to %r in data: %s", self, pathdst, ini, data )
-            if self.src is not None:
-                pathsrc		= path + ( self.src or '' )
-                # assert pathsrc in data, \
-                #     "Could not find %r to move to %r in %r" % ( pathsrc, pathdst, data )
-                try:
-                    src		= data.pop( pathsrc )
-                except Exception as exc:
-                    raise AssertionError( "Could not find %r to move to %r in %r: %s" % (
-                        pathsrc, pathdst, data, exc ))
-                dst		= data.get( pathdst ) # May be None, if no self.ini...
-                if hasattr( dst, 'append' ):
-                    # We're supposed to append to an existing destination list-like thing...
-                    log.debug( "%s -- append data[%r] == %r to data[%r]", self, pathsrc, src, pathdst )
-                    dst.append( src )
-                else:
-                    # We're supposed to replace an existing destination object
-                    log.debug( "%s -- assign data[%r] == %r to data[%r]", self, pathsrc, src, pathdst )
-                    data[pathdst] = src
-                # Finally, clean up any (now) empty parent dicts...
-                parent		= pathsrc
-                while True:
-                    parent	= '.'.join( parent.split( '.' )[:-1] )
-                    if parent and parent in data and not data[parent]:
-                        log.debug( "%s -- remove data[%r] (now empty)", self, parent )
-                        data.pop( parent )
-                        continue
-                    break
+            assert pathdst, \
+                "%s -- cannot assign from {pathsrc!r} to {pathdst!r} = {ini!r} in {data!r}".format(
+                    pathsrc=pathsrc, pathdst=pathdst, ini=ini, data=data )
+            try:
+                data[pathdst]	= ini
+            finally:
+                log.debug( "%s -- init. data[%r] to %r in data: %s", self, pathdst, ini, data )
+        if self.src is not None:
+            assert pathsrc, \
+                "%s -- cannot assign from {pathsrc!r} to {pathdst!r} = {ini!r} in {data!r}".format(
+                    pathsrc=pathsrc, pathdst=pathdst, ini=ini, data=data )
+            try:
+                src		= data.pop( pathsrc )
+            except Exception as exc:
+                raise AssertionError( "Could not find %r to move to %r in %r: %s" % (
+                    pathsrc, pathdst, data, exc ))
+            dst			= data.get( pathdst ) # May be None, if no self.ini...
+            if hasattr( dst, 'append' ):
+                # We're supposed to append to an existing destination list-like thing...
+                log.debug( "%s -- append data[%r] == %r to data[%r]", self, pathsrc, src, pathdst )
+                dst.append( src )
+            else:
+                # We're supposed to replace an existing destination object
+                log.debug( "%s -- assign data[%r] == %r to data[%r]", self, pathsrc, src, pathdst )
+                data[pathdst]	= src
 
         return target
 
@@ -1914,8 +1914,8 @@ class typed_data( cpppo.dfa ):
         sstd[True]	= sstp	= SSTRING()
         sstp[None]		= move_if( 	'movsstrings',	source='.SSTRING.string',
                                                 destination='.SSTRING' )
-        sstp[None]		= move_if( 	'movsstring',	source='.SSTRING', 
-                                           destination='.data',	initializer=lambda **kwds: [],
+        sstp[None]		= move_if(      'movsstring',   source='.SSTRING',
+                                           destination='.data', initializer=lambda **kwds: [],
                                                 state=sstd )
 
         sttd			= octets_noop(	'end_string',
@@ -1923,18 +1923,20 @@ class typed_data( cpppo.dfa ):
         sttd[True]	= sttp	= STRING()
         sttp[None]		= move_if( 	'mov_strings',	source='.STRING.string',
                                                 destination='.STRING' )
-        sttp[None]		= move_if( 	'mov_string',	source='.STRING', 
-                                           destination='.data',	initializer=lambda **kwds: [],
+        sttp[None]		= move_if(      'mov_string',   source='.STRING',
+                                           destination='.data', initializer=lambda **kwds: [],
                                                 state=sttd )
 
         # STRUCT data is prefixed by a UINT structure_tag, then raw data.  In theory, there could be
         # a .structure_tag followed by no data (eg. if you do a Read Tag Fragmented with an offset
         # to exactly the end of the structure.)  Move the parse { 'STRUCT': { 'data': [],
-        # 'structure_tag': }} up onto the target name eg. 'typed_data'.
+        # 'structure_tag': }} up onto the target name eg. 'typed_data' (tidy empty dicts as we go).
         strt			= STRUCT( terminal=True )
         strt[None]		= move_if( 	'mov_struct',	source='.STRUCT.structure_tag',
                                                 destination='.structure_tag' )
         strt[None]		= move_if( 	'mov_struct',	source='.STRUCT.data',
+                                                destination='.STRUCT' )
+        strt[None]		= move_if( 	'mov_struct',	source='.STRUCT',
                                                 destination='.data' )
 
         slct[None]		= cpppo.decide(	'BOOL',	state=u_1d,

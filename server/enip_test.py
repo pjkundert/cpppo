@@ -670,10 +670,10 @@ msp_001_reply			= bytes(bytearray([
 ]))
 
 rfg_gg0_req			= bytes(bytearray([
-    0x70, 0x00, 0x26, 0x00, 0x4e, 0xff, 0x02, 0x16,    0x00, 0x00, 0x00, 0x00, 0x5f, 0x70, 0x79, 0x63,
-    0x6f, 0x6d, 0x6d, 0x5f, 0x00, 0x00, 0x00, 0x00,    0x00, 0x00, 0x00, 0x00, 0x0a, 0x00, 0x02, 0x00,
-    0xa1, 0x00, 0x04, 0x00, 0x01, 0xa5, 0x8a, 0x01,    0xb1, 0x00, 0x12, 0x00, 0x13, 0x00, 0x52, 0x04,
-    0x20, 0x6b, 0x25, 0x00, 0x08, 0x00, 0x28, 0x00,    0x68, 0x01, 0x00, 0x00, 0x00, 0x00,
+    0x70, 0x00, 0x26, 0x00, 0x4e, 0xff, 0x02, 0x16, 0x00, 0x00, 0x00, 0x00, 0x5f, 0x70, 0x79, 0x63,
+    0x6f, 0x6d, 0x6d, 0x5f, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0a, 0x00, 0x02, 0x00,
+    0xa1, 0x00, 0x04, 0x00, 0x01, 0xa5, 0x8a, 0x01, 0xb1, 0x00, 0x12, 0x00, 0x13, 0x00, 0x52, 0x04,
+    0x20, 0x6b, 0x25, 0x00, 0x08, 0x00, 0x28, 0x00, 0x68, 0x01, 0x00, 0x00, 0x00, 0x00,
 ]))
 
 rfg_gg0_rpy			= bytes(bytearray([
@@ -1805,12 +1805,36 @@ snd_u01_rpy		= bytes(bytearray([
       0x20, 0x20, 0x56, 0x00, 0x91, 0x24, 0x05, 0x44,
       0x20, 0xfc
 ]))
- 
+
 CIP_tests			= [
             ( 
                 # An empty request (usually indicates termination of session)
                 b'', enip.Message_Router, {}
-
+            ), (
+                rfg_gg0_req, logix.Logix,
+                {
+                    "enip.session_handle": 369295182,
+                    "enip.sender_context.input": array.array(cpppo.type_bytes_array_symbol, b'_pycomm_'),
+                    "enip.options": 0,
+                    "enip.length": 38,
+                    "enip.command": 112,
+                    "enip.CIP.send_data.timeout": 10,
+                    "enip.CIP.send_data.interface": 0,
+                    "enip.CIP.send_data.CPF.item[1].type_id": 177,
+                    "enip.CIP.send_data.CPF.item[1].length": 18,
+                    "enip.CIP.send_data.CPF.item[1].connection_data.sequence": 19,
+                    "enip.CIP.send_data.CPF.item[1].connection_data.request.service": 82,
+                    "enip.CIP.send_data.CPF.item[1].connection_data.request.read_frag.offset": 0,
+                    "enip.CIP.send_data.CPF.item[1].connection_data.request.read_frag.elements": 360,
+                    "enip.CIP.send_data.CPF.item[1].connection_data.request.path.size": 4,
+                    "enip.CIP.send_data.CPF.item[1].connection_data.request.path.segment[2].element": 0,
+                    "enip.CIP.send_data.CPF.item[1].connection_data.request.path.segment[1].instance": 8,
+                    "enip.CIP.send_data.CPF.item[1].connection_data.request.path.segment[0].class": 107,
+                    "enip.CIP.send_data.CPF.item[0].type_id": 161,
+                    "enip.CIP.send_data.CPF.item[0].length": 4,
+                    "enip.CIP.send_data.CPF.item[0].connection_ID.connection": 25863425,
+                    "enip.CIP.send_data.CPF.count": 2,
+                }
             ), (
                 rfg_gg0_rpy, logix.Logix,
                 {
@@ -2323,43 +2347,6 @@ CIP_tests			= [
                         32,
                         65
                     ]
-                }
-            ),
-]
-'''
-            ( 
-                # An empty request (usually indicates termination of session)
-                b'', enip.Message_Router, {}
-            ), (
-                rfg_gg0_req, logix.Logix,
-                {
-                    "enip.session_handle": 369295182,
-                    "enip.sender_context.input": array.array(cpppo.type_bytes_array_symbol, b'_pycomm_'),
-                    "enip.options": 0,
-                    "enip.length": 38,
-                    "enip.command": 112,
-                    "enip.CIP.send_data.timeout": 10,
-                    "enip.CIP.send_data.interface": 0,
-                    "enip.CIP.send_data.CPF.item[1].type_id": 177,
-                    "enip.CIP.send_data.CPF.item[1].length": 18,
-                    "enip.CIP.send_data.CPF.item[1].connection_data.sequence": 19,
-                    "enip.CIP.send_data.CPF.item[1].connection_data.request.service": 82,
-                    "enip.CIP.send_data.CPF.item[1].connection_data.request.read_frag.offset": 0,
-                    "enip.CIP.send_data.CPF.item[1].connection_data.request.read_frag.elements": 360,
-                    "enip.CIP.send_data.CPF.item[1].connection_data.request.path.size": 4,
-                    "enip.CIP.send_data.CPF.item[1].connection_data.request.path.segment[2].element": 0,
-                    "enip.CIP.send_data.CPF.item[1].connection_data.request.path.segment[1].instance": 8,
-                    "enip.CIP.send_data.CPF.item[1].connection_data.request.path.segment[0].class": 107,
-                    "enip.CIP.send_data.CPF.item[0].type_id": 161,
-                    "enip.CIP.send_data.CPF.item[0].length": 4,
-                    "enip.CIP.send_data.CPF.item[0].connection_ID.connection": 25863425,
-                    "enip.CIP.send_data.CPF.count": 2,
-                }
-            ), (
-                rfg_gg0_rpy, logix.Logix,
-                {
-                    "enip.session_handle": 369295182,
-                    "enip.length": 38,
                 }
             ), (
                 msp_001_reply, logix.Logix,
@@ -3551,7 +3538,7 @@ CIP_tests			= [
                       "enip.CIP.send_data.CPF.item[1].unconnected_send.request.status_ext.data": [ 256 ], 
                       "enip.CIP.send_data.CPF.item[1].unconnected_send.request.forward_close": True, 
                   }
-              ),            (
+              ), (
                gal_m01_request, logix.Logix,
                {
                    "enip.command": 112,
@@ -3719,7 +3706,7 @@ CIP_tests			= [
                }
            )
 ]
-'''  
+
 
 def test_enip_CIP( repeat=1 ):
     """Most of CIP parsing run-time overhead is spent inside 'run'.
