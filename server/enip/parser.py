@@ -149,7 +149,7 @@ class words( words_base, cpppo.state ):
 # name of the class.  An instance of any of these types "is" a parser state machine, and has a
 # produce method that will re-produce the bytes stream from a (previously parsed) structure.  All
 # the simple data types are derived from TYPE, and simply drive from cpppo.state_struct to directly
-# parse the data value into the provided context.
+# parse the data value into the provided context (using the python struct module).
 # 
 #     More complex data types are derived from STRUCT, are derived from cpppo.dfa, and require a
 # state machine to be constructed to parse the data.
@@ -291,7 +291,34 @@ class REAL_network( TYPE ):
     struct_calcsize		= struct.calcsize( struct_format )
 
 class STRUCT( cpppo.dfa, cpppo.state ):
-    pass
+    """An EtherNet/IP STRUCT; By default, a 2-byte UINT .structure_tag, followed by arbitrarily encoded
+    USINT .data.  We'll generally use this as a base class for types requiring custom parser state
+    machinery and produce methods; the default will be an unparsed raw CIP STRUCT w/ a
+    .structure_tag value.
+
+    """
+    tag_type			= 0x02a0
+
+    def __init__( self, name=None, initial=None, **kwds ):
+        name			= name or kwds.setdefault( 'context', self.__class__.__name__ )
+        if initial is None:
+            strt		= UINT(				context='structure_tag' )
+            strt[None]	= u_8d	= octets_noop(	'end_8bitu',
+                                                terminal=True )
+            u_8d[True]	= u_8p	= USINT()
+            u_8p[None]		= move_if( 	'mov_8bitu',	source='.USINT', 
+                                           destination='.data',	initializer=lambda **kwds: [],
+                                                state=u_8d )
+            initial		= strt
+
+        super( STRUCT, self ).__init__( name=name, initial=initial, **kwds )
+
+    @classmethod
+    def produce( cls, value ):
+        result			= b''
+        result		       += UINT.produce( value.structure_tag )
+        result		       += b''.join( USINT.produce( v ) for v in value.data )
+        return result
 
 
 class SSTRING( STRUCT ):
@@ -1763,7 +1790,7 @@ class typed_data( cpppo.dfa ):
     LINT			= 0x00c5	# 8 byte
     SSTRING	yes		= 0x00da	# 1 byte length + <length> data
     STRING	yes		= 0x00d0	# 2 byte length + <length> data (rounded up to 2 bytes)
-
+    STRUCT	yes		= 0x02a0	# 2 byte structure_tag + USINT data
     """
     TYPES_SUPPORTED		= {
         BOOL.tag_type:  	BOOL,
@@ -1779,6 +1806,7 @@ class typed_data( cpppo.dfa ):
         LREAL.tag_type:		LREAL,
         SSTRING.tag_type:	SSTRING,
         STRING.tag_type:	STRING,
+        STRUCT.tag_type:	STRUCT,
     }
 
     def __init__( self, name=None, tag_type=None, **kwds ):
@@ -1883,6 +1911,14 @@ class typed_data( cpppo.dfa ):
                                            destination='.data',	initializer=lambda **kwds: [],
                                                 state=sttd )
 
+        # STRUCT data is prefixed by a UINT structure_tag, then raw data.  In theory, there could
+        # be a .structure_tag followed by no data (eg. if you do a Read Tag Fragmented with an
+        # offset to exactly the end of the structure.)  So, parse the UINT .structure_tag, and then
+        # go parse USINT data (which will accept empty data).
+        strt			= UINT(				context='structure_tag' )
+        strt[None]		= u_8d
+
+
         slct[None]		= cpppo.decide(	'BOOL',	state=u_1d,
             predicate=lambda path=None, data=None, **kwds: \
                 BOOL.tag_type == ( data[path+tag_type] if isinstance( tag_type, cpppo.type_str_base ) else tag_type ))
@@ -1898,6 +1934,7 @@ class typed_data( cpppo.dfa ):
         slct[None]		= cpppo.decide(	'UINT',	state=u16d,
             predicate=lambda path=None, data=None, **kwds: \
                 UINT.tag_type == ( data[path+tag_type] if isinstance( tag_type, cpppo.type_str_base ) else tag_type ))
+
         slct[None]		= cpppo.decide(	'DINT',	state=i32d,
             predicate=lambda path=None, data=None, **kwds: \
                 DINT.tag_type == ( data[path+tag_type] if isinstance( tag_type, cpppo.type_str_base ) else tag_type ))
@@ -1922,7 +1959,10 @@ class typed_data( cpppo.dfa ):
         slct[None]		= cpppo.decide(	'STRING', state=sttd,
             predicate=lambda path=None, data=None, **kwds: \
                 STRING.tag_type == ( data[path+tag_type] if isinstance( tag_type, cpppo.type_str_base ) else tag_type ))
-        
+        slct[None]		= cpppo.decide(	'STRUCT', state=strt,
+            predicate=lambda path=None, data=None, **kwds: \
+                STRUCT.tag_type == ( data[path+tag_type] if isinstance( tag_type, cpppo.type_str_base ) else tag_type ))
+
         super( typed_data, self ).__init__( name=name, initial=slct, **kwds )
 
     @classmethod
@@ -1933,6 +1973,8 @@ class typed_data( cpppo.dfa ):
             tag_type		= data.get( 'type' ) or data.get( 'tag_type' )
         assert 'data' in data and hasattr( data.get( 'data' ), '__iter__' ) and tag_type in cls.TYPES_SUPPORTED, \
             "Unknown (or no) typed data found for tag_type %r: %r" % ( tag_type, data )
+        if tag_type == STRUCT.tag_type:
+            return STRUCT.produce( data )
         producer		= cls.TYPES_SUPPORTED[tag_type].produce
         return b''.join( producer( v ) for v in data.get( 'data' ))
 

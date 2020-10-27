@@ -43,7 +43,7 @@ from .device import ( Object, Attribute,
                       Message_Router, Connection_Manager, Identity, TCPIP, Logical_Segments,
                       resolve_element, resolve_tag, resolve, redirect_tag, lookup )
 from . import ucmm
-from .parser import ( BOOL, UDINT, DINT, UINT, INT, USINT, SINT, REAL, EPATH, typed_data,
+from .parser import ( BOOL, ULINT, LINT, UDINT, DINT, UINT, INT, USINT, SINT, LREAL, REAL, EPATH, typed_data,
                       move_if, octets_drop, octets_noop, enip_format, status )
 
 log				= logging.getLogger( "enip.lgx" )
@@ -317,20 +317,44 @@ class Logix( Message_Router ):
                 data.status_ext= {'size': 1, 'data':[0x2107]}
                 allowed_tag_types = {
                     BOOL.tag_type:      (BOOL.tag_type,),
+                    LREAL.tag_type:	(BOOL.tag_type,
+                                         SINT.tag_type, USINT.tag_type,
+                                          INT.tag_type,  UINT.tag_type,
+                                         DINT.tag_type, UDINT.tag_type,
+                                         REAL.tag_type, LREAL.tag_type),
                     REAL.tag_type:	(BOOL.tag_type,
                                          SINT.tag_type, USINT.tag_type,
                                           INT.tag_type,  UINT.tag_type,
                                          DINT.tag_type, UDINT.tag_type,
                                          REAL.tag_type),
+                    LINT.tag_type:	(BOOL.tag_type,
+                                         SINT.tag_type, USINT.tag_type,
+                                          INT.tag_type,  UINT.tag_type,
+                                         DINT.tag_type, UDINT.tag_type,
+                                         LINT.tag_type, ULINT.tag_type),
+                    ULINT.tag_type:	(BOOL.tag_type,
+                                         USINT.tag_type,
+                                         UINT.tag_type,
+                                         UDINT.tag_type,
+                                         ULINT.tag_type),
                     DINT.tag_type:	(BOOL.tag_type,
                                          SINT.tag_type, USINT.tag_type,
                                           INT.tag_type,  UINT.tag_type,
                                          DINT.tag_type, UDINT.tag_type),
+                    UDINT.tag_type:	(BOOL.tag_type,
+                                         USINT.tag_type,
+                                         UINT.tag_type,
+                                         UDINT.tag_type),
                     INT.tag_type:	(BOOL.tag_type,
                                          SINT.tag_type, USINT.tag_type,
                                          INT.tag_type,   UINT.tag_type),
+                    UINT.tag_type:	(BOOL.tag_type,
+                                         USINT.tag_type,
+                                         UINT.tag_type),
                     SINT.tag_type:	(BOOL.tag_type,
                                          SINT.tag_type, USINT.tag_type),
+                    USINT.tag_type:	(BOOL.tag_type,
+                                         USINT.tag_type),
                 }
                 assert data[context].type in allowed_tag_types.get(
                     attribute.parser.tag_type, (attribute.parser.tag_type,) ), \
@@ -511,11 +535,13 @@ def __read_frag_reply():
     rsvd[True]		= stts	= status()
     stts[None]		= schk	= octets_noop(	'check',
                                                 terminal=True )
-
+    # If UINT data type == 0x02A0 (STRUCTURE), then the data is prefixed by its structure_handle in the next 2 bytes.
+    # The typed_data parser will recognize this is a STRUCTURE, and parse the .structure_handle and the .data
     dtyp			= UINT( 	'type',   	context='read_frag',  extension='.type' )
     dtyp[True]			= typed_data( 	'data',   	context='read_frag',
                                         tag_type='.type',
                                         terminal=True )
+
     # For status 0x00 (Success) and 0x06 (Not all data returned), type/data follows.
     schk[None]			= automata.decide( 'ok',	state=dtyp,
         predicate=lambda path=None, data=None, **kwds: data[path+'.status' if path else 'status'] in (0x00, 0x06) )
