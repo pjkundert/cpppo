@@ -573,7 +573,7 @@ def hexdump( src, offset=0, length=16, sep='.', quote='|' ):
 
 def hexdecode( enc, offset=0, sep=':' ):
     """Decode hex octets "ab:cd:ef:01..." (starting at off bytes in) into b"\xab\xcd\xef\x01..." """
-    return bytes.fromhex( ''.join( enc.split( sep )))[offset:]
+    return bytes(bytearray.fromhex( ''.join( enc.split( sep ))))[offset:]
 
 
 def hexloader( dump, offset=0, fill=False, skip=False ):
@@ -608,8 +608,8 @@ def hexloader( dump, offset=0, fill=False, skip=False ):
             assert skip, \
                 "Failed to match a hex dump on row: {row!r}".format( row=row )
             continue
-        addr			= int( match['address'], 16 )
-        data			= hexdecode( match['values'], sep=' ' )
+        addr			= int( match.group( 'address' ), 16 )
+        data			= hexdecode( match.group( 'values' ), sep=' ' )
 
         if addr > offset:
             # row address is beyond current offset; fill, or skip offset ahead
