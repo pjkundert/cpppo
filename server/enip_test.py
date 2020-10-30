@@ -655,12 +655,20 @@ wtg_001_request			= bytes(bytearray([
 
 # Make this one a Write Tag w/ a STRUCT handle
 wtg_002_request			= bytes(bytearray([
-
                                                     0x70, 0x00, 0x29, 0x00, 0x01, 0x85, 0x02, 0x14,  # ;..J;..Jp.'.....
     0x00, 0x00, 0x00, 0x00, 0x6e, 0x6f, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  # ....no..........
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0x00, 0xa1, 0x00, 0x04, 0x00, 0x02, 0x8f, 0x97, 0x01,  # ................
     0xb1, 0x00, 0x15, 0x00, 0x02, 0x00, 0x4d, 0x05, 0x91, 0x07, 0x53, 0x54, 0x45, 0x53, 0x54, 0x4f,  # ......M...ITESTO
     0x50, 0x00, 0xa0, 0x02, 0x99, 0x88, 0x01, 0x00, 0xFF,                                                        # P......
+]))
+
+# Make this one a Write Tag Fragmented w/ a STRUCT handle and an offset
+wfg_003_request			= bytes(bytearray([
+                                                    0x70, 0x00, 0x2D, 0x00, 0x01, 0x85, 0x02, 0x14,  # ;..J;..Jp.'.....
+    0x00, 0x00, 0x00, 0x00, 0x6e, 0x6f, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  # ....no..........
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0x00, 0xa1, 0x00, 0x04, 0x00, 0x02, 0x8f, 0x97, 0x01,  # ................
+    0xb1, 0x00, 0x19, 0x00, 0x02, 0x00, 0x53, 0x05, 0x91, 0x07, 0x53, 0x54, 0x45, 0x53, 0x54, 0x4f,  # ......M...ITESTO
+    0x50, 0x00, 0xa0, 0x02, 0x99, 0x88, 0x01, 0x00, 0x02, 0x00, 0x00, 0x00, 0xFF,                    # P......
 ]))
 
 # A Multiple Service Packet payload w/ a 0x1E Status Code "Embedded service error".  Indicates that
@@ -754,6 +762,8 @@ eip_tests			= [
             ( rfg_002_reply,	{} ),
             ( rtg_001_reply,	{} ),
             ( wtg_001_request,	{} ),
+            ( wtg_002_request,	{} ),
+            ( wfg_003_request,	{} ),
             ( msp_001_reply,	{} ),
             ( rfg_gg0_req,	{} ),
             ( rfg_gg0_rpy,	{} ),
@@ -2592,6 +2602,32 @@ CIP_tests			= [
                     "enip.CIP.send_data.CPF.item[1].connection_data.request.write_tag.data": [
                         0xff,
                     ]
+                }
+            ), (
+                'wfg_003_request', logix.Logix,
+                {
+                    "enip.command": 112,
+                    "enip.length": 45,
+                    "enip.session_handle": 335709441,
+                    "enip.status": 0,
+                    "enip.options": 0,
+                    "enip.CIP.send_data.interface": 0,
+                    "enip.CIP.send_data.timeout": 0,
+                    "enip.CIP.send_data.CPF.count": 2,
+                    "enip.CIP.send_data.CPF.item[0].type_id": 161,
+                    "enip.CIP.send_data.CPF.item[0].length": 4,
+                    "enip.CIP.send_data.CPF.item[0].connection_ID.connection": 26709762,
+                    "enip.CIP.send_data.CPF.item[1].type_id": 177,
+                    "enip.CIP.send_data.CPF.item[1].length": 25,
+                    "enip.CIP.send_data.CPF.item[1].connection_data.sequence": 2,
+                    "enip.CIP.send_data.CPF.item[1].connection_data.request.service": 83,
+                    "enip.CIP.send_data.CPF.item[1].connection_data.request.path.size": 5,
+                    "enip.CIP.send_data.CPF.item[1].connection_data.request.path.segment[0].symbolic": "STESTOP",
+                    "enip.CIP.send_data.CPF.item[1].connection_data.request.write_frag.type": 672,
+                    "enip.CIP.send_data.CPF.item[1].connection_data.request.write_frag.structure_tag": 34969,
+                    "enip.CIP.send_data.CPF.item[1].connection_data.request.write_frag.elements": 1,
+                    "enip.CIP.send_data.CPF.item[1].connection_data.request.write_frag.offset": 2,
+                    "enip.CIP.send_data.CPF.item[1].connection_data.request.write_frag.data": [ 0xff, ]
                 }
             ), (
                 'snd_u01_req', pccc.PCCC_ANC_120e,
