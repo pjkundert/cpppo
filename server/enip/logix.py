@@ -43,7 +43,8 @@ from .device import ( Object, Attribute,
                       Message_Router, Connection_Manager, Identity, TCPIP, Logical_Segments,
                       resolve_element, resolve_tag, resolve, redirect_tag, lookup )
 from . import ucmm
-from .parser import ( BOOL, ULINT, LINT, UDINT, DINT, UINT, INT, USINT, SINT, LREAL, REAL, EPATH, typed_data,
+from .parser import ( BOOL, ULINT, LINT, UDINT, DINT, UINT, INT, USINT, SINT, STRUCT,
+                      LREAL, REAL, EPATH, typed_data,
                       move_if, octets_drop, octets_noop, enip_format, status )
 
 log				= logging.getLogger( "enip.lgx" )
@@ -305,9 +306,12 @@ class Logix( Message_Router ):
                     attribute.parser.__class__.__name__, self.service[data.service] )
 
             if data.service in (self.RD_TAG_RPY, self.RD_FRG_RPY):
-                # Read Tag [Fragmented] Reply.  Fill in .data and .type 
+                # Read Tag [Fragmented] Reply.  Fill in .data and .type/.structure_tag
                 context		= 'read_frag' if data.service == self.RD_FRG_RPY else 'read_tag'
-                data[context].type= attribute.parser.tag_type
+                data[context].type = attribute.parser.tag_type
+                if attribute.parser.tag_type == STRUCT.tag_type:
+                    data[context].structure_tag \
+                                = attribute.parser.structure_tag
             elif data.service in (self.WR_TAG_RPY, self.WR_FRG_RPY):
                 # Write Tag [Fragmented] Reply.  We'll allow data payloads of more restricted signed
                 # types into Attributes of a more spacious signed type (eg. writing SINT values into
@@ -485,7 +489,7 @@ class Logix( Message_Router ):
 
 
 def __read_tag():
-    # Read Tag Service
+    """Read Tag Service"""
     srvc			= USINT(	 	  	context='service' )
     srvc[True]		= path	= EPATH(			context='path' )
     path[True]			= UINT(		'elements', 	context='read_tag',   extension='.elements',
@@ -495,7 +499,7 @@ Logix.register_service_parser( number=Logix.RD_TAG_REQ, name=Logix.RD_TAG_NAM,
                                short=Logix.RD_TAG_CTX, machine=__read_tag() )
 
 def __read_tag_reply():
-    # Read Tag Service (reply).  Remainder of symbols are typed data.
+    """Read Tag Service (reply).  Remainder of symbols are typed data."""
     srvc			= USINT(		 	context='service' )
     srvc[True]		= rsvd	= octets_drop(	'reserved',	repeat=1 )
     rsvd[True]		= stts	= status()
@@ -516,7 +520,7 @@ Logix.register_service_parser( number=Logix.RD_TAG_RPY, name=Logix.RD_TAG_NAM + 
                                short=Logix.RD_TAG_CTX, machine=__read_tag_reply() )
 
 def __read_frag():
-    # Read Tag Fragmented Service
+    """Read Tag Fragmented Service"""
     srvc			= USINT(			context='service' )
     srvc[True]	= path		= EPATH(			context='path' )
     path[True]	= elem		= UINT(		'elements',	context='read_frag',  extension='.elements' )
@@ -527,16 +531,19 @@ Logix.register_service_parser( number=Logix.RD_FRG_REQ, name=Logix.RD_FRG_NAM,
                                short=Logix.RD_FRG_CTX, machine=__read_frag() )
 
 def __read_frag_reply():
-    # Read Tag Fragmented Service (reply).  Remainder of symbols are typed data.
-    # If no data returned (hence no 'read_frag' sub-dotdict), create one using a
-    # move_if initializer.
+    """Read Tag Fragmented Service (reply).  Remainder of symbols are typed data.  If no data returned
+    (hence no 'read_frag' sub-dotdict), create one using a move_if initializer.
+
+    If UINT data type == 0x02A0 (STRUCT), then the data is prefixed by its structure_handle in the
+    next 2 bytes.  The typed_data parser will recognize this is a STRUCT type, and parse the
+    .structure_handle and the .data
+
+    """
     srvc			= USINT(			context='service' )
     srvc[True]	 	= rsvd	= octets_drop(	'reserved',	repeat=1 )
     rsvd[True]		= stts	= status()
     stts[None]		= schk	= octets_noop(	'check',
                                                 terminal=True )
-    # If UINT data type == 0x02A0 (STRUCT), then the data is prefixed by its structure_handle in the next 2 bytes.
-    # The typed_data parser will recognize this is a STRUCTURE, and parse the .structure_handle and the .data
     dtyp			= UINT( 	'type',   	context='read_frag',  extension='.type' )
     dtyp[True]			= typed_data( 	'data',   	context='read_frag',
                                         tag_type='.type',
@@ -552,50 +559,72 @@ Logix.register_service_parser( number=Logix.RD_FRG_RPY, name=Logix.RD_FRG_NAM + 
                                short=Logix.RD_FRG_CTX, machine=__read_frag_reply() )
 
 def __write_tag():
-    # Write Tag Service
+    """Write Tag Service.  If .type is STRUCT.tag_type, we'll also read the structure_tag."""
+    context			= 'write_tag'
     srvc			= USINT(		  	context='service' )
     srvc[True]		= path	= EPATH(			context='path' )
-    path[True]		= dtyp	= UINT(		'type',   	context='write_tag', extension='.type' )
-    dtyp[True]		= delm	= UINT(		'elements', 	context='write_tag', extension='.elements' )
-    delm[True]			= typed_data( 	'data',		context='write_tag' ,
-                                        tag_type='.type',
+    path[True]		= dtyp	= UINT(		'type',   	context=context, extension='.type' )
+
+    # We have to decide (below) whether to insert parsing the .structure_tag, before elements
+    delm			= UINT(		'elements', 	context=context, extension='.elements' )
+    delm[True]			= typed_data( 	'data',		context=context,
+                                        tag_type='.type', structure_tag='.structure_tag',
                                         terminal=True )
+    # After parsing .type, see if it's a STRUCT.tag_type, and get the .structure_tag before element count.
+    # If its not a STRUCT.tag_type, head straight over to parse element count; otherwise, fall thru
+    # to parse STRUCT ..
+    dtyp[None]			= automata.decide( 'nonstruct',	state=delm,
+                                        predicate=lambda path=None, data=None, **kwds: \
+                                            STRUCT.tag_type != data['.'.join((path, context, 'type' ))])
+    dtyp[None]		= strt	= STRUCT(	limit=2,    	context=context )
+    strt[None]			= delm
     return srvc
 Logix.register_service_parser( number=Logix.WR_TAG_REQ, name=Logix.WR_TAG_NAM,
                                short=Logix.WR_TAG_CTX, machine=__write_tag() )
 
 def __write_tag_reply():
-    # Write Tag Service (reply).  In order to ensure we have a '.write_tag'
-    # attribute in the the reply dotdict, use a move_if w/ no source or
-    # destination, just an initializer; it'll initialize an attribute at the
-    # mark's context ('write_tag') to True.
+    """Write Tag Service (reply).  In order to ensure we have a '.write_tag' attribute in the the reply
+    dotdict, use a move_if w/ no source or destination, just an initializer; it'll initialize an
+    attribute at the mark's context ('write_tag') to True.
+
+    """
     srvc			= USINT(		  	context='service' )
     srvc[True]		= rsvd	= octets_drop(	'reserved',	repeat=1 )
     rsvd[True]		= stts	= status()
     stts[None]		= mark	= octets_noop(			context='write_tag',
                                                 terminal=True )
     mark.initial[None]		= move_if( 	'mark',		initializer=True )
-
     return srvc
 Logix.register_service_parser( number=Logix.WR_TAG_RPY, name=Logix.WR_TAG_NAM + " Reply",
                                short=Logix.WR_TAG_CTX, machine=__write_tag_reply() )
 
 def __write_frag():
-    # Write Tag Fragmented Service
+    """Write Tag Fragmented Service"""
+    context			= 'write_frag'
     srvc			= USINT(		  	context='service' )
     srvc[True]		= path	= EPATH(			context='path' )
-    path[True]		= dtyp	= UINT(		'type',     	context='write_frag', extension='.type' )
-    dtyp[True]		= delm	= UINT(		'elements', 	context='write_frag', extension='.elements' )
-    delm[True]		= doff	= UDINT( 	'offset',   	context='write_frag', extension='.offset' )
-    doff[True]			= typed_data( 	'data',  	context='write_frag',
-                                        tag_type='.type',
+    path[True]		= dtyp	= UINT(		'type',     	context=context, extension='.type' )
+
+    # We have to decide (below) whether to insert parsing the .structure_tag, before elements
+    delm			= UINT(		'elements', 	context=context, extension='.elements' )
+    delm[True]		= doff	= UDINT( 	'offset',   	context=context, extension='.offset' )
+    doff[True]			= typed_data( 	'data',  	context=context,
+                                        tag_type='.type', structure_tag='.structure_tag',
                                         terminal=True )
+    # After parsing .type, see if it's a STRUCT.tag_type, and get the .structure_tag before element count.
+    # If its not a STRUCT.tag_type, head straight over to parse element count; otherwise, fall thru
+    # to parse STRUCT ..
+    dtyp[None]			= automata.decide( 'nonstruct',	state=delm,
+                                        predicate=lambda path=None, data=None, **kwds: \
+                                            STRUCT.tag_type != data['.'.join((path, context, 'type' ))])
+    dtyp[None]		= strt	= STRUCT(	limit=2,    	context=context )
+    strt[None]			= delm
     return srvc
 Logix.register_service_parser( number=Logix.WR_FRG_REQ, name=Logix.WR_FRG_NAM,
                                short=Logix.WR_FRG_CTX, machine=__write_frag() )
 
 def __write_frag_reply():
-    # Write Tag Fragmented Service (reply)
+    """Write Tag Fragmented Service (reply)"""
     srvc			= USINT(			context='service' )
     srvc[True]		= rsvd	= octets_drop(	'reserved',	repeat=1 )
     rsvd[True]		= stts	= status()

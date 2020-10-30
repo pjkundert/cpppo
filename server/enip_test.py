@@ -338,7 +338,6 @@ def test_enip_TYPES_STRUCT():
     pkt				= b'\x99\x88\x02\x00\x03\x00'
     data			= cpppo.dotdict()
     source			= cpppo.chainable( pkt )
-
     with enip.STRUCT() as machine:
         for i,(m,s) in enumerate( machine.run( source=source, data=data )):
             log.info( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r", m.name_centered(),
@@ -346,6 +345,16 @@ def test_enip_TYPES_STRUCT():
         assert i == 21
     assert data.STRUCT.structure_tag == 0x8899
     assert data.STRUCT.data == [ 2, 0, 3, 0 ]
+
+    # Only parse the .structure_tag
+    data			= cpppo.dotdict()
+    source			= cpppo.chainable( pkt )
+    with enip.STRUCT( limit=2 ) as machine:
+        for i,(m,s) in enumerate( machine.run( source=source, data=data )):
+            log.info( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r", m.name_centered(),
+                      i, s, source.sent, source.peek(), data )
+        assert i == 4
+    assert data.STRUCT == dict( structure_tag = 0x8899 )
 
     data			= cpppo.dotdict()
     source			= cpppo.chainable( pkt )
@@ -357,6 +366,7 @@ def test_enip_TYPES_STRUCT():
     assert data.typed_data.structure_tag == 0x8899
     assert len( data.typed_data.data ) == 4
     assert data.typed_data.data == [ 2, 0, 3, 0 ]
+
 
 
 # pkt4
@@ -641,6 +651,16 @@ wtg_001_request			= bytes(bytearray([
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0x00, 0xa1, 0x00, 0x04, 0x00, 0x02, 0x8f, 0x97, 0x01,  # ................
     0xb1, 0x00, 0x13, 0x00, 0x02, 0x00, 0x4d, 0x05, 0x91, 0x07, 0x49, 0x54, 0x45, 0x53, 0x54, 0x4f,  # ......M...ITESTO
     0x50, 0x00, 0xc1, 0x00, 0x01, 0x00, 0xFF,                                                        # P......
+]))
+
+# Make this one a Write Tag w/ a STRUCT handle
+wtg_002_request			= bytes(bytearray([
+
+                                                    0x70, 0x00, 0x29, 0x00, 0x01, 0x85, 0x02, 0x14,  # ;..J;..Jp.'.....
+    0x00, 0x00, 0x00, 0x00, 0x6e, 0x6f, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  # ....no..........
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0x00, 0xa1, 0x00, 0x04, 0x00, 0x02, 0x8f, 0x97, 0x01,  # ................
+    0xb1, 0x00, 0x15, 0x00, 0x02, 0x00, 0x4d, 0x05, 0x91, 0x07, 0x53, 0x54, 0x45, 0x53, 0x54, 0x4f,  # ......M...ITESTO
+    0x50, 0x00, 0xa0, 0x02, 0x99, 0x88, 0x01, 0x00, 0xFF,                                                        # P......
 ]))
 
 # A Multiple Service Packet payload w/ a 0x1E Status Code "Embedded service error".  Indicates that
@@ -1806,12 +1826,16 @@ snd_u01_rpy		= bytes(bytearray([
       0x20, 0xfc
 ]))
 
+lst_svc1_req		= b'\x04\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00Funstuff\x00\x00\x00\x00'
+lst_svc2_req		= b'\x04\x00\x19\x00\xdc\xa5\xeaN\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\x01\x13\x00\x01\x00 \x00Communications\x00'
+empty_req		= b''
+
 CIP_tests			= [
             ( 
                 # An empty request (usually indicates termination of session)
-                b'', enip.Message_Router, {}
+                'empty_req', enip.Message_Router, {}
             ), (
-                rfg_gg0_req, logix.Logix,
+                'rfg_gg0_req', logix.Logix,
                 {
                     "enip.session_handle": 369295182,
                     "enip.sender_context.input": array.array(cpppo.type_bytes_array_symbol, b'_pycomm_'),
@@ -1836,7 +1860,7 @@ CIP_tests			= [
                     "enip.CIP.send_data.CPF.count": 2,
                 }
             ), (
-                rfg_gg0_rpy, logix.Logix,
+                'rfg_gg0_rpy', logix.Logix,
                 {
                     "enip.command": 112,
                     "enip.length": 518,
@@ -2349,7 +2373,7 @@ CIP_tests			= [
                     ]
                 }
             ), (
-                msp_001_reply, logix.Logix,
+                'msp_001_reply', logix.Logix,
                 {
                     "enip.command": 112,
                     "enip.length": 234,
@@ -2517,7 +2541,7 @@ CIP_tests			= [
                     "enip.CIP.send_data.CPF.item[1].connection_data.request.multiple.request[17].read_tag": True
                 }
             ), (
-                wtg_001_request, logix.Logix,
+                'wtg_001_request', logix.Logix,
                 {
                     "enip.command": 112,
                     "enip.length": 39,
@@ -2543,7 +2567,34 @@ CIP_tests			= [
                     ]
                 }
             ), (
-                snd_u01_req, pccc.PCCC_ANC_120e,
+                'wtg_002_request', logix.Logix,
+                {
+                    "enip.command": 112,
+                    "enip.length": 41,
+                    "enip.session_handle": 335709441,
+                    "enip.status": 0,
+                    "enip.options": 0,
+                    "enip.CIP.send_data.interface": 0,
+                    "enip.CIP.send_data.timeout": 0,
+                    "enip.CIP.send_data.CPF.count": 2,
+                    "enip.CIP.send_data.CPF.item[0].type_id": 161,
+                    "enip.CIP.send_data.CPF.item[0].length": 4,
+                    "enip.CIP.send_data.CPF.item[0].connection_ID.connection": 26709762,
+                    "enip.CIP.send_data.CPF.item[1].type_id": 177,
+                    "enip.CIP.send_data.CPF.item[1].length": 21,
+                    "enip.CIP.send_data.CPF.item[1].connection_data.sequence": 2,
+                    "enip.CIP.send_data.CPF.item[1].connection_data.request.service": 77,
+                    "enip.CIP.send_data.CPF.item[1].connection_data.request.path.size": 5,
+                    "enip.CIP.send_data.CPF.item[1].connection_data.request.path.segment[0].symbolic": "STESTOP",
+                    "enip.CIP.send_data.CPF.item[1].connection_data.request.write_tag.type": 672,
+                    "enip.CIP.send_data.CPF.item[1].connection_data.request.write_tag.structure_tag": 34969,
+                    "enip.CIP.send_data.CPF.item[1].connection_data.request.write_tag.elements": 1,
+                    "enip.CIP.send_data.CPF.item[1].connection_data.request.write_tag.data": [
+                        0xff,
+                    ]
+                }
+            ), (
+                'snd_u01_req', pccc.PCCC_ANC_120e,
                 {
                     "enip.status": 0,
                     "enip.session_handle": 1,
@@ -2569,9 +2620,8 @@ CIP_tests			= [
                     "enip.CIP.send_data.CPF.item[0].connection_ID.connection": 2381185046,
                     "enip.CIP.send_data.CPF.count": 2,
                 }
-            ),
-            (
-                snd_u01_rpy, pccc.PCCC_ANC_120e,
+            ), (
+                'snd_u01_rpy', pccc.PCCC_ANC_120e,
                 {
                     "enip.status": 0,
                     "enip.session_handle": 1,
@@ -2623,7 +2673,7 @@ CIP_tests			= [
                     "enip.CIP.send_data.CPF.count": 2,
                 }
             ), (
-                leg_0x1_reply, enip.Message_Router, 
+                'leg_0x1_reply', enip.Message_Router, 
                 {
                     "enip.command": 0x0001,
                     "enip.length": 42,
@@ -2641,7 +2691,7 @@ CIP_tests			= [
                     "enip.CIP.legacy.CPF.item[0].legacy_CPF_0x0001.ip_address": "192.168.5.253"
                 }
             ), (
-                listident_1_req, enip.Message_Router, 
+                'listident_1_req', enip.Message_Router, 
                 {
                     "enip.command": 99,
                     "enip.length": 0,
@@ -2651,7 +2701,7 @@ CIP_tests			= [
                     "enip.CIP.list_identity.CPF": {}, 
                 }
             ), (
-                listident_1_rpy, enip.Message_Router, 
+                'listident_1_rpy', enip.Message_Router, 
                 {
                     "enip.command": 99,
                     "enip.length": 72,
@@ -2678,7 +2728,7 @@ CIP_tests			= [
             # We can handle the bad CPF framing, but won't re-generate the original message (of course)
             # 
             # ), (
-            #     listident_1_rpy_bad_CPF_framing, enip.Message_Router, 
+            #     'listident_1_rpy_bad_CPF_framing', enip.Message_Router, 
             #     {
             #         "enip.command": 99,
             #         "enip.length": 72,
@@ -2701,7 +2751,7 @@ CIP_tests			= [
             #         "enip.CIP.list_identity.CPF.item[0].identity_object.product_revision": 267, 
             #     }
             ), (
-                listident_2_rpy, enip.Message_Router, 
+                'listident_2_rpy', enip.Message_Router, 
                 {
                     "enip.command": 99,
                     "enip.length": 69,
@@ -2725,7 +2775,7 @@ CIP_tests			= [
                     "enip.CIP.list_identity.CPF.item[0].identity_object.product_revision": 2843, 
                 }
             ), (
-                listident_3_rpy, enip.Message_Router, 
+                'listident_3_rpy', enip.Message_Router, 
                 {
                     "enip.command": 99,
                     "enip.length": 72,
@@ -2749,7 +2799,7 @@ CIP_tests			= [
                     "enip.CIP.list_identity.CPF.item[0].identity_object.product_revision": 2843, 
                 }
             ), (
-                gas_m01_request, enip.Message_Router, 
+                'gas_m01_request', enip.Message_Router, 
                 {
                     "enip.status": 0, 
                     "enip.session_handle": 2, 
@@ -2793,7 +2843,7 @@ CIP_tests			= [
                     "enip.options": 0
                 }
             ), (
-                gas_m01_reply, enip.Message_Router, 
+                'gas_m01_reply', enip.Message_Router, 
                 {
                     "enip.status": 0, 
                     "enip.session_handle": 2, 
@@ -2812,7 +2862,7 @@ CIP_tests			= [
                     "enip.options": 0
                 }
             ), (
-                gas_001_request, enip.Message_Router, 
+                'gas_001_request', enip.Message_Router, 
                 {
                     "enip.status": 0, 
                     "enip.session_handle": 2, 
@@ -2834,7 +2884,7 @@ CIP_tests			= [
                     "enip.options": 0,
                 }
             ), (
-                gas_001_reply, enip.Message_Router, 
+                'gas_001_reply', enip.Message_Router, 
                 {
                     "enip.status": 0, 
                     "enip.session_handle": 2, 
@@ -2860,7 +2910,7 @@ CIP_tests			= [
                 }
             ), (
                 # ListServices also has a CIP payload (may be empty)
-                b'\x04\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00Funstuff\x00\x00\x00\x00', enip.Message_Router,
+                'lst_svc1_req', enip.Message_Router,
                 {
                     "enip.command": 4,
                     "enip.length": 0,
@@ -2870,7 +2920,7 @@ CIP_tests			= [
                     "enip.CIP.list_services.CPF": {}, 
                 }
             ), (
-                b'\x04\x00\x19\x00\xdc\xa5\xeaN\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\x01\x13\x00\x01\x00 \x00Communications\x00', enip.Message_Router, 
+                'lst_svc2_req', enip.Message_Router, 
                {
                    "enip.status": 0, 
                    "enip.session_handle": 1324000732, 
@@ -2885,7 +2935,7 @@ CIP_tests			= [
                    "enip.options": 0
                 }
             ), (
-                rss_004_request, enip.Message_Router, 
+                'rss_004_request', enip.Message_Router, 
                 { 
                     "enip.CIP.register.options": 0, 
                     "enip.CIP.register.protocol_version": 1, 
@@ -2896,7 +2946,7 @@ CIP_tests			= [
                     "enip.status": 0
                 }
             ), (
-                gaa_008_request, enip.Message_Router, 
+                'gaa_008_request', enip.Message_Router, 
                 {
                     "enip.CIP.send_data.CPF.count": 2, 
                     "enip.CIP.send_data.CPF.item[0].length": 0, 
@@ -2917,7 +2967,7 @@ CIP_tests			= [
                     "enip.status": 0,
                 }
             ), (
-                gaa_008_reply, enip.Message_Router, 
+                'gaa_008_reply', enip.Message_Router, 
                 {
                     "enip.CIP.send_data.CPF.count": 2, 
                     "enip.CIP.send_data.CPF.item[0].length": 0, 
@@ -2938,7 +2988,7 @@ CIP_tests			= [
                     "enip.status": 0,
                 }
             ), ( 
-                gaa_011_request, enip.Message_Router, 
+                'gaa_011_request', enip.Message_Router, 
                 {
                     "enip.CIP.send_data.CPF.count": 2, 
                     "enip.CIP.send_data.CPF.item[0].length": 0, 
@@ -2966,7 +3016,7 @@ CIP_tests			= [
                     "enip.status": 0
                 }
             ), ( 
-                gaa_011_reply, enip.Message_Router, 
+                'gaa_011_reply', enip.Message_Router, 
                 {
                     "enip.CIP.send_data.CPF.count": 2, 
                     "enip.CIP.send_data.CPF.item[0].length": 0, 
@@ -2989,7 +3039,7 @@ CIP_tests			= [
                     "enip.status": 0
                 }
             ), (
-                unk_014_request, logix.Logix,
+                'unk_014_request', logix.Logix,
                 {
                     "enip.CIP.send_data.CPF.count": 2, 
                     "enip.CIP.send_data.CPF.item[0].length": 0,
@@ -3017,7 +3067,7 @@ CIP_tests			= [
                     "enip.status": 0,
                 }
             ), (
-                unk_014_reply, logix.Logix,
+                'unk_014_reply', logix.Logix,
                 {
                     "enip.CIP.send_data.CPF.count": 2, 
                     "enip.CIP.send_data.CPF.item[0].length": 0, 
@@ -3043,20 +3093,20 @@ CIP_tests			= [
                     "enip.status": 0
                 }
           ), (
-              unk_017_request, logix.Logix, 
+              'unk_017_request', logix.Logix, 
               {
                   "enip.CIP.send_data.CPF.item[1].unconnected_send.request.read_frag.elements": 20, 
                   "enip.CIP.send_data.CPF.item[1].unconnected_send.request.read_frag.offset": 2, 
               }
           ), (
-                unk_017_reply, logix.Logix,
-                {
-                    "enip.CIP.send_data.CPF.count": 2, 
-                    "enip.CIP.send_data.CPF.item[0].length": 0, 
-                    "enip.CIP.send_data.CPF.item[0].type_id": 0, 
-                    "enip.CIP.send_data.CPF.item[1].length": 44, 
-                    "enip.CIP.send_data.CPF.item[1].type_id": 178, 
-                    #"enip.CIP.send_data.CPF.item[1].unconnected_send.request.input": "array('c', '\\xd2\\x00\\x00\\x00\\xc3\\x00L\\x10\\x08\\x00\\x03\\x00\\x02\\x00\\x02\\x00\\x02\\x00\\x0e\\x00\\x00\\x00\\x00\\x00\\xe6B\\x07\\x00\\xc8@\\xc8@\\x00\\x00\\xe4\\x00\\x00\\x00d\\x00\\xb2\\x02\\xc8@')", 
+              'unk_017_reply', logix.Logix,
+              {
+                  "enip.CIP.send_data.CPF.count": 2, 
+                  "enip.CIP.send_data.CPF.item[0].length": 0, 
+                  "enip.CIP.send_data.CPF.item[0].type_id": 0, 
+                  "enip.CIP.send_data.CPF.item[1].length": 44, 
+                  "enip.CIP.send_data.CPF.item[1].type_id": 178, 
+                  #"enip.CIP.send_data.CPF.item[1].unconnected_send.request.input": "array('c', '\\xd2\\x00\\x00\\x00\\xc3\\x00L\\x10\\x08\\x00\\x03\\x00\\x02\\x00\\x02\\x00\\x02\\x00\\x0e\\x00\\x00\\x00\\x00\\x00\\xe6B\\x07\\x00\\xc8@\\xc8@\\x00\\x00\\xe4\\x00\\x00\\x00d\\x00\\xb2\\x02\\xc8@')", 
                     "enip.CIP.send_data.CPF.item[1].unconnected_send.request.read_frag.data": [
                         4172, 
                         8, 
@@ -3078,22 +3128,22 @@ CIP_tests			= [
                         690, 
                         16584
                     ], 
-                    "enip.CIP.send_data.CPF.item[1].unconnected_send.request.read_frag.type": 195, 
-                    "enip.CIP.send_data.CPF.item[1].unconnected_send.request.service": 210, 
-                    "enip.CIP.send_data.CPF.item[1].unconnected_send.request.status": 0, 
-                    "enip.CIP.send_data.CPF.item[1].unconnected_send.request.status_ext.size": 0, 
-                    "enip.CIP.send_data.interface": 0, 
-                    "enip.CIP.send_data.timeout": 5, 
-                    "enip.command": 111, 
-                    #"enip.input": "array('c', '\\x00\\x00\\x00\\x00\\x05\\x00\\x02\\x00\\x00\\x00\\x00\\x00\\xb2\\x00,\\x00\\xd2\\x00\\x00\\x00\\xc3\\x00L\\x10\\x08\\x00\\x03\\x00\\x02\\x00\\x02\\x00\\x02\\x00\\x0e\\x00\\x00\\x00\\x00\\x00\\xe6B\\x07\\x00\\xc8@\\xc8@\\x00\\x00\\xe4\\x00\\x00\\x00d\\x00\\xb2\\x02\\xc8@')", 
+                  "enip.CIP.send_data.CPF.item[1].unconnected_send.request.read_frag.type": 195, 
+                  "enip.CIP.send_data.CPF.item[1].unconnected_send.request.service": 210, 
+                  "enip.CIP.send_data.CPF.item[1].unconnected_send.request.status": 0, 
+                  "enip.CIP.send_data.CPF.item[1].unconnected_send.request.status_ext.size": 0, 
+                  "enip.CIP.send_data.interface": 0, 
+                  "enip.CIP.send_data.timeout": 5, 
+                  "enip.command": 111, 
+                  #"enip.input": "array('c', '\\x00\\x00\\x00\\x00\\x05\\x00\\x02\\x00\\x00\\x00\\x00\\x00\\xb2\\x00,\\x00\\xd2\\x00\\x00\\x00\\xc3\\x00L\\x10\\x08\\x00\\x03\\x00\\x02\\x00\\x02\\x00\\x02\\x00\\x0e\\x00\\x00\\x00\\x00\\x00\\xe6B\\x07\\x00\\xc8@\\xc8@\\x00\\x00\\xe4\\x00\\x00\\x00d\\x00\\xb2\\x02\\xc8@')", 
                     "enip.length": 60, 
-                    "enip.options": 0, 
-                    #"enip.sender_context.input": "array('c', '\\x04\\x00\\x00\\x00\\x00\\x00\\x00\\x00')", 
+                  "enip.options": 0, 
+                  #"enip.sender_context.input": "array('c', '\\x04\\x00\\x00\\x00\\x00\\x00\\x00\\x00')", 
                     "enip.session_handle": 285351425, 
-                    "enip.status": 0
-                }
+                  "enip.status": 0
+              }
             ), ( 
-              unk_020_request, logix.Logix,
+              'unk_020_request', logix.Logix,
               {
                   "enip.CIP.send_data.CPF.count": 2, 
                   "enip.CIP.send_data.CPF.item[0].length": 0, 
@@ -3124,7 +3174,7 @@ CIP_tests			= [
                   "enip.status": 0,
               }
             ), (
-                unk_020_reply, logix.Logix, 
+                'unk_020_reply', logix.Logix, 
                 {
                     "enip.CIP.send_data.CPF.count": 2, 
                     "enip.CIP.send_data.CPF.item[0].length": 0, 
@@ -3147,7 +3197,7 @@ CIP_tests			= [
                     "enip.status": 0
                 }
           ), (
-                unk_023_request, logix.Logix,
+                'unk_023_request', logix.Logix,
                 {
                     "enip.CIP.send_data.CPF.count": 2, 
                     "enip.CIP.send_data.CPF.item[0].length": 0, 
@@ -3179,7 +3229,7 @@ CIP_tests			= [
                     "enip.status": 0
                 }
           ), (
-            rtg_001_reply, logix.Logix,
+            'rtg_001_reply', logix.Logix,
             {
                 "enip.session_handle": 4126743718,
                 "enip.command": 111,
@@ -3200,7 +3250,7 @@ CIP_tests			= [
                 "enip.CIP.send_data.timeout": 0,
             }
           ), (
-              fwd_o01_request, enip.Connection_Manager,
+              'fwd_o01_request', enip.Connection_Manager,
               {
                   "enip.CIP.send_data.CPF.count": 2,
                   "enip.CIP.send_data.CPF.item[0].length": 0,
@@ -3243,7 +3293,7 @@ CIP_tests			= [
                   "enip.session_handle": 851973,
               }
           ), (
-              fwd_o01_reply, enip.Connection_Manager,
+              'fwd_o01_reply', enip.Connection_Manager,
               {
                   "enip.CIP.send_data.CPF.count": 2,
                   "enip.CIP.send_data.CPF.item[0].length": 0,
@@ -3270,7 +3320,7 @@ CIP_tests			= [
                   "enip.status": 0,
               }
           ), (
-              fwd_o02_request_bad, enip.Connection_Manager,
+              'fwd_o02_request_bad', enip.Connection_Manager,
               {
                   "enip.CIP.send_data.CPF.count": 2,
                   "enip.CIP.send_data.CPF.item[0].length": 0,
@@ -3318,7 +3368,7 @@ CIP_tests			= [
                   "enip.status": 0,
               }
             ), (
-                fwd_c01_request, enip.Connection_Manager,
+                'fwd_c01_request', enip.Connection_Manager,
                 {
                     "enip.command": 111,
                     "enip.length": 40,
@@ -3347,7 +3397,7 @@ CIP_tests			= [
                     "enip.CIP.send_data.CPF.item[1].unconnected_send.request.forward_close.connection_path.segment[2].instance": 1
                 }
             ), (
-                fwd_o02_request, enip.Connection_Manager,
+                'fwd_o02_request', enip.Connection_Manager,
                 {
                     "enip.status": 0,
                     "enip.session_handle": 1,
@@ -3396,7 +3446,7 @@ CIP_tests			= [
                     "enip.CIP.send_data.CPF.count": 2,
                 }
             ), (
-                fwd_o02_reply, enip.Connection_Manager,
+                'fwd_o02_reply', enip.Connection_Manager,
                 {
                     "enip.status": 0,
                     "enip.session_handle": 1,
@@ -3423,7 +3473,7 @@ CIP_tests			= [
                     "enip.CIP.send_data.CPF.count": 2,
                 }
             ), (
-                fwd_f01_request_bad, enip.Connection_Manager,
+                'fwd_f01_request_bad', enip.Connection_Manager,
                 {
                     "enip.status": 0, 
                     "enip.session_handle": 352477696, 
@@ -3471,7 +3521,7 @@ CIP_tests			= [
                     "enip.options": 0
                 }
               ), (
-                  fwd_f01_reply, enip.Connection_Manager,
+                  'fwd_f01_reply', enip.Connection_Manager,
                   {
                       "enip.status": 0,
                       "enip.options": 0,
@@ -3495,7 +3545,7 @@ CIP_tests			= [
                       "enip.CIP.send_data.timeout": 8, 
                   }
               ), (
-                  fwd_f01_reply_no_remain, enip.Connection_Manager,
+                  'fwd_f01_reply_no_remain', enip.Connection_Manager,
                   {
                       "enip.status": 0,
                       "enip.options": 0,
@@ -3518,7 +3568,7 @@ CIP_tests			= [
                       "enip.CIP.send_data.timeout": 8, 
                   }
               ), (
-                  fwd_clo_reply_just_sts, enip.Connection_Manager,
+                  'fwd_clo_reply_just_sts', enip.Connection_Manager,
                   {
                       "enip.status": 0,
                       "enip.options": 0,
@@ -3539,7 +3589,7 @@ CIP_tests			= [
                       "enip.CIP.send_data.CPF.item[1].unconnected_send.request.forward_close": True, 
                   }
               ), (
-               gal_m01_request, logix.Logix,
+               'gal_m01_request', logix.Logix,
                {
                    "enip.command": 112,
                    "enip.length": 492,
@@ -3715,7 +3765,9 @@ def test_enip_CIP( repeat=1 ):
     enip.lookup_reset() # Flush out any existing CIP Objects for a fresh start
     ENIP			= enip.enip_machine( context='enip' )
     CIP				= enip.CIP()
-    for pkt,cls,tst in client.recycle( CIP_tests, times=repeat ):
+    for pkt_name,cls,tst in client.recycle( CIP_tests, times=repeat ):
+        log.warning( "CIP test: {pkt_name}".format( pkt_name=pkt_name ))
+        pkt			= globals()[pkt_name]
         assert type( cls ) is type
         # Parse just the CIP portion following the EtherNet/IP encapsulation header
         data			= cpppo.dotdict()

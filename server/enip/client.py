@@ -911,6 +911,15 @@ class client( object ):
         elements is specified, get it from the path (if it is unparsed, eg Tag[0-9] or
         @0x04/5/connection=100)
 
+        The Read Tag [Fragmented] response carries a data type; this may be a simple CIP type
+        (eg. DINT == 0x00c4), or it may indicate a C*Logix STRUCT == 0x02a0 + a UINT structure_tag).
+
+        We cannot parse these complex STRUCT types until we get the complete return value, since an
+        individual Read Tag [Fragmented] may return partial data -- and probably not fill STRUCT
+        records.  So, we do not bother to transmit tag_type data describing the STRUCT, as it cannot
+        be used 'til the full response has been collected, possibly over several Read Tag
+        [Fragmented] calls.  Thus, all STRUCT responses are returned as raw USINT data.
+
         """
         req			= cpppo.dotdict()
         seg,elm,cnt		= device.parse_path_elements( path )

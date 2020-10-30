@@ -296,11 +296,17 @@ class STRUCT( cpppo.dfa, cpppo.state ):
     state machinery and produce methods; the default will be an unparsed raw CIP STRUCT w/ a
     .structure_tag value.
 
+    To parse just the .structure_tag, establish the STRUCT parser w/ limit=2.
+
+    If a structure_tag is supplied (as either a string or numeric value), then we assume it has
+    already been parsed and only the raw data is parsed.
+
     """
     tag_type			= 0x02a0
 
-    def __init__( self, name=None, initial=None, **kwds ):
+    def __init__( self, name=None, initial=None, structure_tag=None, **kwds ):
         name			= name or kwds.setdefault( 'context', self.__class__.__name__ )
+
         if initial is None:
             strt		= UINT(				context='structure_tag' )
             strt[None]	= u_8d	= octets_noop(	'end_8bitu',
@@ -309,7 +315,7 @@ class STRUCT( cpppo.dfa, cpppo.state ):
             u_8p[None]		= move_if( 	'mov_8bitu',	source='.USINT', 
                                            destination='.data',initializer=lambda **kwds: [],
                                                 state=u_8d )
-            initial		= strt
+            initial		= strt if structure_tag is None else u_8d
 
         super( STRUCT, self ).__init__( name=name, initial=initial, **kwds )
 
@@ -663,7 +669,7 @@ class move_if( cpppo.decide ):
 
         pathsrc			= path + ( self.src or '' )
         pathdst			= path + self.dst
-        #log.normal( "%s -- moving data[%r] to data[%r], in %r", self, pathsrc, pathdst, data )
+        log.normal( "%s -- moving data[%r] to data[%r], in %r", self, pathsrc, pathdst, data )
         if self.ini is not None and pathdst not in data:
             ini			= ( self.ini
                                     if not hasattr( self.ini, '__call__' )
@@ -683,7 +689,7 @@ class move_if( cpppo.decide ):
             try:
                 src		= data.pop( pathsrc )
             except Exception as exc:
-                raise AssertionError( "Could not find %r to move to %r in %r: %s" % (
+                raise AssertionError( "Could not find %r to move to %r in %r: %r" % (
                     pathsrc, pathdst, data, exc ))
             dst			= data.get( pathdst ) # May be None, if no self.ini...
             if hasattr( dst, 'append' ):
@@ -1807,6 +1813,9 @@ class typed_data( cpppo.dfa ):
     SSTRING	yes		= 0x00da	# 1 byte length + <length> data
     STRING	yes		= 0x00d0	# 2 byte length + <length> data (rounded up to 2 bytes)
     STRUCT	yes		= 0x02a0	# 2 byte structure_tag + USINT data
+
+    If a STRUCT is indicated by tag_type, then a structure_tag is required.  If not supplied as a
+    numeric or string, it will be parsed into .structure_tag.
     """
     TYPES_SUPPORTED		= {
         BOOL.tag_type:  	BOOL,
@@ -1825,9 +1834,13 @@ class typed_data( cpppo.dfa ):
         STRUCT.tag_type:	STRUCT,
     }
 
-    def __init__( self, name=None, tag_type=None, **kwds ):
+    def __init__( self, name=None, tag_type=None, structure_tag=None, **kwds ):
         name 			= name or kwds.setdefault( 'context', self.__class__.__name__ )
-        assert tag_type, "Must specify a numeric (or relative path to) the CIP data type; found: %r" % tag_type
+        assert tag_type and isinstance( tag_type, (int,cpppo.type_str_base)), \
+            "Must specify a numeric (or relative path to) the CIP data type; found: %r" % tag_type
+        if structure_tag:
+            assert structure_tag and isinstance( structure_tag, (int,cpppo.type_str_base)), \
+                "Must specify a numeric (or relative path to) the STRUCT handle; found: %r" % structure_tag
 
         slct			= octets_noop(	'sel_type' )
         
@@ -1931,8 +1944,14 @@ class typed_data( cpppo.dfa ):
         # a .structure_tag followed by no data (eg. if you do a Read Tag Fragmented with an offset
         # to exactly the end of the structure.)  Move the parse { 'STRUCT': { 'data': [],
         # 'structure_tag': }} up onto the target name eg. 'typed_data' (tidy empty dicts as we go).
-        strt			= STRUCT( terminal=True )
-        strt[None]		= move_if( 	'mov_struct',	source='.STRUCT.structure_tag',
+        # 
+        # If the structure_tag has been supplied as either a string (data lookup, relative to path),
+        # or a numeric value, we'll parse it with STRUCT (and move it into place, here) Otherwise,
+        # just data the STRUCT.data will be parsed.
+        strt			= STRUCT( structure_tag=structure_tag,
+                                          terminal=True )
+        if structure_tag is None:
+            strt[None]		= move_if( 	'mov_struct',	source='.STRUCT.structure_tag',
                                                 destination='.structure_tag' )
         strt[None]		= move_if( 	'mov_struct',	source='.STRUCT.data',
                                                 destination='.STRUCT' )
