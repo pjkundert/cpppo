@@ -761,6 +761,7 @@ def setup( **kwds ):
     If a tags dict (or dotdict) is supplied, its key: { 'attribute': <Attribute>, 'error': <int> }
     items are used to initialize the given Tag names.
 
+    Since Tags could change between calls, we will always check (don't short-circuit...)
     """
     with setup.lock:
         if not lookup( 0x01, 1 ):

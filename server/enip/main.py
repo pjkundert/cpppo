@@ -902,7 +902,8 @@ def logrotate_perform():
 # 
 # main		-- Run the EtherNet/IP Controller Simulation
 # 
-def main( argv=None, attribute_class=device.Attribute, idle_service=None, identity_class=None,
+def main( argv=None, attribute_class=device.Attribute, attribute_kwds=None,
+          idle_service=None, identity_class=None,
           UCMM_class=None, message_router_class=None, connection_manager_class=None, **kwds ):
     """Pass the desired argv (excluding the program name in sys.arg[0]; typically pass argv=None, which
     is equivalent to argv=sys.argv[1:], the default for argparse.  Requires at least one tag to be
@@ -986,7 +987,7 @@ def main( argv=None, attribute_class=device.Attribute, idle_service=None, identi
                      help="Output profiling data to a file (default: None)" )
     ap.add_argument( '-D', '--defined-tags',
                      default=None,
-                     help="A file containing JSON description of STRUCTs, and associated Tags (default: None)" )
+                     help="A file containing JSON description of UDT STRUCTs, and associated Tags (default: None)" )
     ap.add_argument( 'tags', nargs="*",
                      help="Any tags, their type (default: INT), and number (default: 1), eg: tag=INT[1000]")
 
@@ -1134,7 +1135,8 @@ def main( argv=None, attribute_class=device.Attribute, idle_service=None, identi
             "SSTRING":	( parser.SSTRING, '' ),
             "STRING":	( parser.STRING, '' ),
         }
-        assert tag_type in typenames, "Invalid tag type %r; must be one of %r" % ( tag_type, list( typenames ))
+        assert tag_type in typenames, \
+            "Invalid tag type %r; must be one of %r" % ( tag_type, list( typenames ))
         tag_class,tag_default	= typenames[tag_type]
         try:
             tag_size		= int( tag_size )
@@ -1192,21 +1194,14 @@ def main( argv=None, attribute_class=device.Attribute, idle_service=None, identi
             '''
         if not attribute:
             # No Attribute found
-            attribute		= ( Attribute_print if args.print else attribute_class )(
-                tag_name, tag_class, default=( tag_default if tag_size == 1 else [tag_default] * tag_size ))
-            '''
-            if tag_address:
-                # We're doing the Tag --> cls/ins/att assignment, and it didn't exist.  Place it in
-                # the Instance.
-                instance.attribute[str(att)] \
-				= attribute
-            '''
-        '''
-        if tag_address:
-            # A Tag@1/2/3 address was specified, and we have an Instance (perhaps just freshly
-            # created), and (now) have an Attribute.  Point this tag at this address.
-            device.redirect_tag( tag_name, {'class': cls, 'instance': ins, 'attribute': att })
-        '''
+            attr_cls		= Attribute_print if args.print else attribute_class
+            attr_kwds		= dict(
+                name	= tag_name,
+                type_cls= tag_class,
+                default	= tag_default if tag_size == 1 else [tag_default] * tag_size
+            )
+            attr_kwds.update( attribute_kwds ) # caller may have provided name, type_cls, default, ...
+            attribute		= attr_cls( **attr_kwds )
 
         # Ready to create the tag and its Attribute (and error code to return, if any).  If tag_size
         # is 1, it will be a scalar Attribute.  Since the tag_name may contain '.', we don't want
