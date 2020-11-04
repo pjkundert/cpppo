@@ -2056,11 +2056,11 @@ which is required to carry this Send/Route Path data. """ )
     ap.add_argument( '-b', '--broadcast', action='store_true',
                      default=False, 
                      help="Allow multiple peers, and use of broadcast address (default: False)" )
-    ap.add_argument( '--no-print', action='store_false', dest='print',
-                     help="Disable printing of summary of operations to stdout" )
     ap.add_argument( '-p', '--print', action='store_true',
                      default=False, # inconsistent default from get_attribute.py, for historical reasons
                      help="Print a summary of operations to stdout (default: False)" )
+    ap.add_argument( '--no-print', action='store_false', dest='print',
+                     help="Disable printing of summary of operations to stdout" )
     ap.add_argument( '-l', '--log',
                      help="Log file, if desired" )
     ap.add_argument( '-t', '--timeout',

@@ -752,11 +752,11 @@ which is required to carry this Send/Route Path data. """ )
                      default=( "%s:%d" % defaults.address ),
                      help="EtherNet/IP interface[:port] to connect to (default: %s:%d)" % (
                          defaults.address[0], defaults.address[1] ))
+    ap.add_argument( '--print', action='store_true',
+                     default=True, # inconsistent default vs. client.py, for historical reasons
+                     help="Printing a summary of operations to stdout (default: True)" )
     ap.add_argument( '--no-print', action='store_false', dest='print',
                      help="Disable printing of summary of operations to stdout" )
-    ap.add_argument( '--print', action='store_true',
-                     default=True, # inconsistent default from client.py, for historical reasons
-                     help="Printing a summary of operations to stdout (default: True)" )
     ap.add_argument( '-m', '--multiple', action='store_true',
                      help="Use Multiple Service Packet request targeting ~500 bytes (default: False)" )
     ap.add_argument( '-d', '--depth',

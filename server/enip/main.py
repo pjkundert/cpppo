@@ -34,7 +34,7 @@ USAGE
 
 """
 
-__all__				= ['main']
+__all__				= ['main', 'options', 'connections', 'tags', 'svr_ctl']
 
 import argparse
 import contextlib
@@ -296,7 +296,7 @@ def api_request( group, match, command, value,
         "until":	misc.timer(),	# time (default, unless we return alarms)
         }
 
-    logging.debug( "Searching for %s/%s, since: %s (%s)",
+    log.debug( "Searching for %s/%s, since: %s (%s)",
             group, match, since, 
             None if since is None else time.ctime( since ))
 
@@ -351,7 +351,7 @@ def api_request( group, match, command, value,
                 except Exception as exc:
                     result["success"]	= False
                     result["message"]	= "%s.%s.%s=%r failed: %s" % ( grp, mch, command, value, exc )
-                    logging.warning( "%s.%s.%s=%s failed: %s\n%s" % ( grp, mch, command, value, exc,
+                    log.warning( "%s.%s.%s=%s failed: %s\n%s" % ( grp, mch, command, value, exc,
                                                                        traceback.format_exc() ))
 
             # Get all of target's attributes (except _*) advertised by its dir() results
@@ -894,7 +894,7 @@ def logrotate_perform():
     global logrotate_signalled
     if logrotate_signalled:
         logrotate_signalled	= False
-        logging.warning( "Rotating log files due to signal" )
+        log.warning( "Rotating log files due to signal" )
         for hdlr in logging.root.handlers:
             if isinstance( hdlr, logging.FileHandler ):
                 hdlr.close()
@@ -958,11 +958,11 @@ def main( argv=None, attribute_class=device.Attribute, attribute_kwds=None,
                      help="Enable TCP/IP server (default: True)" )
     ap.add_argument( '-T', '--no-tcp', dest="tcp", action='store_false',
                      help="Disable TCP/IP server" )
-    ap.add_argument( '--no-print', action='store_false', dest='print',
-                     help="Disable printing of summary of operations to stdout" )
     ap.add_argument( '-p', '--print', action='store_true',
                      default=False,
                      help="Print a summary of operations to stdout (default: False)" )
+    ap.add_argument( '--no-print', action='store_false', dest='print',
+                     help="Disable printing of summary of operations to stdout" )
     ap.add_argument( '-l', '--log',
                      help="Log file, if desired" )
     ap.add_argument( '-w', '--web',
@@ -985,7 +985,7 @@ def main( argv=None, attribute_class=device.Attribute, attribute_kwds=None,
     ap.add_argument( '-P', '--profile',
                      default=None,
                      help="Output profiling data to a file (default: None)" )
-    ap.add_argument( '-D', '--defined-tags',
+    ap.add_argument( '-D', '--defined-tags', # TODO: support decoding UDT STRUCTs
                      default=None,
                      help="A file containing JSON description of UDT STRUCTs, and associated Tags (default: None)" )
     ap.add_argument( 'tags', nargs="*",
@@ -1030,7 +1030,7 @@ def main( argv=None, attribute_class=device.Attribute, attribute_kwds=None,
     # Load config file(s), if not disabled, into the device.Object class-level 'config_loader'.
     if not args.no_config:
         loaded			= device.Object.config_loader.read( defaults.config_files + ( args.config or [] ) )
-        logging.normal( "Loaded config files: %r", loaded )
+        log.normal( "Loaded config files: %r", loaded )
 
     # Pull out a 'server.control...' supplied in the keywords, and make certain it's a
     # cpppo.apidict.  We'll use this to transmit control signals to the server thread.  Set the
@@ -1102,7 +1102,7 @@ def main( argv=None, attribute_class=device.Attribute, attribute_kwds=None,
 
         def __setitem__( self, key, value ):
             super( Attribute_print, self ).__setitem__( key, value )
-            print( "%20s[%5s-%-5s] <= %s" % (
+            print( "%20s[%5s-%-5s] <= %s " % (
                 self.name, 
                 key.indices( len( self ))[0]   if isinstance( key, slice ) else key,
                 key.indices( len( self ))[1]-1 if isinstance( key, slice ) else key,
@@ -1179,28 +1179,17 @@ def main( argv=None, attribute_class=device.Attribute, attribute_kwds=None,
                         "Incompatible Attribute types for tags %r and %r" % ( tn, tag_name )
                     attribute	= te.attribute
                     break
-            '''
-            instance		= device.lookup( cls, ins )
-            if not instance:
-                # Create an Object-derived class w/ the appropriate class_id.  Find the existing
-                # meta-class for this class number, and use it's class; otherwise, whip one up
-                class_ins_0	= device.lookup( cls, 0 )
-                if class_ins_0:
-                    class_type	= class_ins_0.__class__
-                else:
-                    class_type	= type( 'Class 0x%04X' % cls, (device.Object,), {'class_id': cls} )
-                instance	= class_type( instance_id=ins )
-            attribute		= device.lookup( cls, ins, att )
-            '''
         if not attribute:
-            # No Attribute found
+            # No Attribute found.  Create an instance w/ the deduced name, type_cls, allowing
+            # overriding keyword values from the supplied attribute_kwds.
             attr_cls		= Attribute_print if args.print else attribute_class
             attr_kwds		= dict(
                 name	= tag_name,
                 type_cls= tag_class,
                 default	= tag_default if tag_size == 1 else [tag_default] * tag_size
             )
-            attr_kwds.update( attribute_kwds ) # caller may have provided name, type_cls, default, ...
+            if attribute_kwds: # caller may have provided name, type_cls, default, ...
+                attr_kwds.update( attribute_kwds )
             attribute		= attr_cls( **attr_kwds )
 
         # Ready to create the tag and its Attribute (and error code to return, if any).  If tag_size
@@ -1267,7 +1256,7 @@ def main( argv=None, attribute_class=device.Attribute, attribute_kwds=None,
 
     if args.web:
         assert 'web' in sys.modules, "Failed to import web API module; --web option not available.  Run 'pip install web.py'"
-        logging.normal( "EtherNet/IP Simulator Web API Server: %r" % ( http, ))
+        log.normal( "EtherNet/IP Simulator Web API Server: %r" % ( http, ))
         webserver		= threading.Thread( target=web_api, kwargs={'http': http} )
         webserver.daemon	= True
         webserver.start()
@@ -1277,7 +1266,7 @@ def main( argv=None, attribute_class=device.Attribute, attribute_kwds=None,
     # .disable) are also passed as the server= keyword.  We are using an cpppo.apidict with a long
     # timeout; this will block the web API for several seconds to allow all threads to respond to
     # the signals delivered via the web API.
-    logging.normal( "EtherNet/IP Simulator: %r" % ( bind, ))
+    log.normal( "EtherNet/IP Simulator: %r" % ( bind, ))
     kwargs			= dict( options, latency=defaults.latency, size=args.size, tags=tags, server=srv_ctl )
 
     tf				= network.server_thread
@@ -1290,7 +1279,7 @@ def main( argv=None, attribute_class=device.Attribute, attribute_kwds=None,
     while not srv_ctl.control.done:
         if not srv_ctl.control.disable:
             if disabled:
-                logging.detail( "EtherNet/IP Server enabled" )
+                log.detail( "EtherNet/IP Server enabled" )
                 disabled= False
             log.debug( "Starting server on {bind}, with {idle_count} idle services".format(
                     bind=bind, idle_count=len( idle_service )))
@@ -1299,7 +1288,7 @@ def main( argv=None, attribute_class=device.Attribute, attribute_kwds=None,
                                  udp=args.udp, tcp=args.tcp, thread_factory=tf, **tf_kwds )
         else:
             if not disabled:
-                logging.detail( "EtherNet/IP Server disabled" )
+                log.detail( "EtherNet/IP Server disabled" )
                 disabled= True
             time.sleep( defaults.latency )            # Still disabled; wait a bit
 

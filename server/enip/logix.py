@@ -819,7 +819,7 @@ def process( addr, data, **kwds ):
     exception when a fatal protocol processing error occurs, and the session should be terminated
     forcefully.
 
-    When a connection is closed, a final invocation with 
+    When a connection is closed, a final invocation with empty data will terminate the connection.
 
     This roughly corresponds to the CIP Connection "client" object functionality.  We parse the raw
     EtherNet/IP encapsulation to get something like this Register request, in data.request:
