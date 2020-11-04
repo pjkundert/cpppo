@@ -27,6 +27,7 @@ if __name__ == "__main__":
 from ...dotdict import dotdict, apidict
 from ... import misc, tools
 from .. import enip, network
+from ..enip.main import main as enip_main
 
 log				= logging.getLogger( "cli.test" )
 
@@ -149,7 +150,7 @@ def test_client_api_simple():
             }),
         },
     })
-    server_func			= enip.main
+    server_func			= enip_main
 
     Process			= threading.Thread # multiprocessing.Process
     server			= Process( target=server_func, kwargs=server_kwds )
@@ -397,7 +398,7 @@ def test_client_api_random():
         ] )( n )
 
     
-    failed			= network.bench( server_func	= enip.main,
+    failed			= network.bench( server_func	= enip_main,
                                                  server_kwds	= svrkwds,
                                                  client_func	= clitest,
                                                  client_count	= clicount,

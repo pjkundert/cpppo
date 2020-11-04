@@ -38,13 +38,14 @@ import threading
 import traceback
 
 from ...dotdict import dotdict
-from ... import automata, misc
+from ...automata import ( decide, rememberable )
+from ... import misc
 from .device import ( Object, Attribute,
                       Message_Router, Connection_Manager, Identity, TCPIP, Logical_Segments,
                       resolve_element, resolve_tag, resolve, redirect_tag, lookup )
 from . import ucmm
 from .parser import ( BOOL, ULINT, LINT, UDINT, DINT, UINT, INT, USINT, SINT, STRUCT,
-                      LREAL, REAL, EPATH, typed_data,
+                      LREAL, REAL, EPATH, typed_data, octets_encode,
                       move_if, octets_drop, octets_noop, enip_format, status )
 
 log				= logging.getLogger( "enip.lgx" )
@@ -394,7 +395,7 @@ class Logix( Message_Router ):
                     # representation
                     input		= b''
                     for r in recs:
-                        input	       += bytes( r.data.input )
+                        input	       += octets_encode( r.data.input )
                     recs		= dict( input=input )
                 data[context].data	= recs
                 log.detail( "%s Reading %3d elements %3d-%3d from %s: %r",
@@ -531,7 +532,7 @@ def __read_tag_reply():
                                         tag_type='.type',
                                         terminal=True )
     # For status 0x00 (Success) and 0x06 (Not all data returned), type/data follows.
-    schk[None]			= automata.decide( 'ok',	state=dtyp,
+    schk[None]			= decide(	'ok',	state=dtyp,
         predicate=lambda path=None, data=None, **kwds: data[path+'.status' if path else 'status'] in (0x00, 0x06) )
     schk[None]			= move_if(	'mark',		initializer=True,
                                                 destination='read_tag' )
@@ -570,7 +571,7 @@ def __read_frag_reply():
                                         terminal=True )
 
     # For status 0x00 (Success) and 0x06 (Not all data returned), type/data follows.
-    schk[None]			= automata.decide( 'ok',	state=dtyp,
+    schk[None]			= decide(	'ok',	state=dtyp,
         predicate=lambda path=None, data=None, **kwds: data[path+'.status' if path else 'status'] in (0x00, 0x06) )
     schk[None]			= move_if(	'mark',		initializer=True,
                                                 destination='read_frag' )
@@ -593,7 +594,7 @@ def __write_tag():
     # After parsing .type, see if it's a STRUCT.tag_type, and get the .structure_tag before element count.
     # If its not a STRUCT.tag_type, head straight over to parse element count; otherwise, fall thru
     # to parse STRUCT ..
-    dtyp[None]			= automata.decide( 'nonstruct',	state=delm,
+    dtyp[None]			= decide(	'nonstruct',	state=delm,
                                         predicate=lambda path=None, data=None, **kwds: \
                                             STRUCT.tag_type != data['.'.join((path, context, 'type' ))])
     dtyp[None]		= strt	= STRUCT(	limit=2,    	context=context )
@@ -634,7 +635,7 @@ def __write_frag():
     # After parsing .type, see if it's a STRUCT.tag_type, and get the .structure_tag before element count.
     # If its not a STRUCT.tag_type, head straight over to parse element count; otherwise, fall thru
     # to parse STRUCT ..
-    dtyp[None]			= automata.decide( 'nonstruct',	state=delm,
+    dtyp[None]			= decide(	'nonstruct',	state=delm,
                                         predicate=lambda path=None, data=None, **kwds: \
                                             STRUCT.tag_type != data['.'.join((path, context, 'type' ))])
     dtyp[None]		= strt	= STRUCT(	limit=2,    	context=context )
@@ -866,7 +867,7 @@ def process( addr, data, **kwds ):
     """
     ucmm			= setup( **kwds )
 
-    source			= automata.rememberable()
+    source			= rememberable()
     try:
         # Find the Connection Manager, and use it to parse the encapsulated EtherNet/IP request.  We
         # pass an additional request.addr, to allow the Connection Manager to identify the

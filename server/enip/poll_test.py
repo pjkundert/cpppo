@@ -31,7 +31,8 @@ from cpppo.dotdict import dotdict
 from cpppo.misc import timer, near
 from cpppo.modbus_test import nonblocking_command
 from cpppo.server import enip, network
-from cpppo.server.enip import poll
+from cpppo.server.enip import poll, ucmm
+from cpppo.server.enip.main import main as enip_main
 from cpppo.server.enip.ab import powerflex, powerflex_750_series
 
 def start_powerflex_simulator( *options, **kwds ):
@@ -331,7 +332,7 @@ def test_powerflex_poll_failure():
 # python poll_test.py -- AB PowerFlex simulator for testing
 # 
 
-class UCMM_no_route_path( enip.UCMM ):
+class UCMM_no_route_path( ucmm.UCMM ):
     """The PowerFlex/20-COMM-E UnConnected Messages Manager allows no route_path"""
     route_path			= False
 
@@ -410,7 +411,7 @@ def main( **kwds ):
     DPI_Parameters( name="DPI_Parameters", instance_id=DPI_Parameters.SPEED_UNITS )
 
     # Establish Identity and TCPIP objects w/ some custom data for the test, from a config file
-    return enip.main( argv=sys.argv[1:], UCMM_class=UCMM_no_route_path )
+    return enip_main( argv=sys.argv[1:], UCMM_class=UCMM_no_route_path )
 
 
 if __name__ == "__main__":

@@ -27,6 +27,8 @@ from cpppo.misc import timer, near, hexdump
 from cpppo.modbus_test import nonblocking_command
 from cpppo.server import enip
 from cpppo.server.enip import client
+from cpppo.server.enip.main import main as enip_main
+
 
 from cpppo.server.enip.hart import HART, proxy_hart # Class, proxy
 
@@ -682,7 +684,7 @@ def main( **kwds ):
         HART( name="HART Channel %d" % i, instance_id=i + 1 )
 
     # Establish Identity and TCPIP objects w/ some custom data for the test, from a config file
-    return enip.main( argv=sys.argv[1:] )
+    return enip_main( argv=sys.argv[1:] )
 
 
 if __name__ == "__main__":

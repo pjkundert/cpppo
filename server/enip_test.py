@@ -40,6 +40,7 @@ import cpppo
 from   cpppo.misc import hexdump
 from   cpppo.server import network, enip
 from   cpppo.server.enip import parser, device, logix, client, pccc
+from   cpppo.server.enip.main import main as enip_main
 
 log				= logging.getLogger( "enip" )
 
@@ -3761,7 +3762,7 @@ enip_svr_kwds_basic		= {
 }
 
 def enip_bench_basic():
-    failed			= cpppo.server.network.bench( server_func=enip.main,
+    failed			= cpppo.server.network.bench( server_func=enip_main,
                                                               server_kwds=enip_svr_kwds_basic,
                                                               client_func=enip_cli,
                                                               client_kwds=enip_cli_kwds_basic,
@@ -3831,7 +3832,7 @@ enip_svr_kwds_logix 		= {
 
 
 def enip_bench_logix():
-    failed			= cpppo.server.network.bench( server_func=enip.main,
+    failed			= cpppo.server.network.bench( server_func=enip_main,
                                                               server_kwds=enip_svr_kwds_logix,
                                                               client_func=enip_cli,
                                                               client_kwds=enip_cli_kwds_logix,
@@ -3883,7 +3884,7 @@ def enip_cli_pylogix( number, tests=None ):
 
 
 def enip_bench_pylogix():
-    failed			= cpppo.server.network.bench( server_func=enip.main,
+    failed			= cpppo.server.network.bench( server_func=enip_main,
                                                               server_kwds=enip_svr_kwds_logix,
                                                               client_func=enip_cli_pylogix,
                                                               client_kwds=enip_cli_kwds_logix,

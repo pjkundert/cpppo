@@ -30,6 +30,7 @@ if __name__ == "__main__":
 import cpppo
 from   cpppo.server import enip
 from   cpppo.server.enip import logix, client
+from   cpppo.server.enip.main import main as enip_main
 
 log				= logging.getLogger( "enip.lgx" )
 
@@ -719,13 +720,13 @@ def test_logix_remote_cpppo( count=100 ):
 
     log.normal( "test_logix_remote_cpppo w/ server.control in object %s", id( kwargs['server']['control'] ))
     # This is sort of "inside-out".  This thread will run logix_remote_cpppo, which will signal the
-    # enip.main (via the kwargs.server...) to shut down.  However, to do line-based performance
+    # enip_main (via the kwargs.server...) to shut down.  However, to do line-based performance
     # measurement, we need to be running enip.main in the "Main" thread...
     logixthread			= threading.Thread( target=logix_remote_cpppo, kwargs=logixthread_kwargs )
     logixthread.daemon		= True
     logixthread.start()
 
-    enip.main( **kwargs )
+    enip_main( **kwargs )
 
     logixthread.join()
 
@@ -821,13 +822,13 @@ def test_logix_remote_pylogix( count=100 ):
 
     log.normal( "test_logix_remote_pylogix w/ server.control in object %s", id( kwargs['server']['control'] ))
     # This is sort of "inside-out".  This thread will run logix_remote, which will signal the
-    # enip.main (via the kwargs.server...) to shut down.  However, to do line-based performance
+    # enip_main (via the kwargs.server...) to shut down.  However, to do line-based performance
     # measurement, we need to be running enip.main in the "Main" thread...
     logixthread			= threading.Thread( target=logix_remote_pylogix, kwargs=logixthread_kwargs )
     logixthread.daemon		= True
     logixthread.start()
 
-    enip.main( **kwargs )
+    enip_main( **kwargs )
 
     logixthread.join()
 

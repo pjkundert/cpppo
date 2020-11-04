@@ -55,9 +55,12 @@ except ImportError:
 
 import configparser # Python2 requires 'pip install configparser'
 
-import cpppo
 from ...dotdict import dotdict
-from ... import automata, misc
+from ...automata import ( type_str_base,
+                          peekable, rememberable,
+                          decide,
+                          dfa, dfa_post, state )
+from ... import misc
 from . import defaults
 from .parser import ( UDINT, DINT, DWORD, INT, UINT, WORD, USINT,
                       EPATH, EPATH_padded, SSTRING, STRING, IFACEADDRS,
@@ -103,7 +106,7 @@ def lookup( class_id, instance_id=0, attribute_id=None ):
     exception			= None
     try:
         key			= class_id
-        if not isinstance( class_id, automata.type_str_base ):
+        if not isinstance( class_id, type_str_base ):
             assert type( class_id ) is int
             key			= __directory_path(
                 class_id=class_id, instance_id=instance_id, attribute_id=attribute_id )
@@ -316,10 +319,10 @@ def parse_path_elements( path, elm=None, cnt=None ):
     A default <element> 'elm' and/or <count> 'cnt' (if non-None) may be specified.
 
     """
-    if isinstance( path, list ) and len( path ) == 1 and isinstance( path[0], cpppo.type_str_base ):
+    if isinstance( path, list ) and len( path ) == 1 and isinstance( path[0], type_str_base ):
         # Unpack single-element list containing a string
         path			= path[0]
-    elif not isinstance( path, cpppo.type_str_base ):
+    elif not isinstance( path, type_str_base ):
         # Already better be a list-like CIP path...
         assert isinstance( path, list ) and all( isinstance( p, dict ) for p in path ), \
             "parse_path unrecognized: %r" % ( path, )
@@ -392,7 +395,7 @@ def port_link( pl ):
     not valid port/link types.  This result could be one element of a route_path list.
 
     """
-    if isinstance( pl, cpppo.type_str_base ):
+    if isinstance( pl, type_str_base ):
         pl			= map( str.strip, str( pl ).split( '/', 1 ))
     if not isinstance( pl, dict ):
         # If its not already a dict, it better be an iterable satisfying exactly [<port>, <link>]
@@ -415,7 +418,7 @@ def port_link( pl ):
         pl["link"]		= int( pl["link"] )
     except: # Not an int; must be an IPv{4,6} address; canonicalize
         try:
-            pl["link"]		= str( cpppo.ip( pl["link"] ))
+            pl["link"]		= str( misc.ip( pl["link"] ))
         except Exception as exc:
             raise AssertionError( "port/link: %r: %s" % ( pl["Link"], exc ))
     return pl
@@ -429,7 +432,7 @@ def parse_route_path( route_path, trailer_parser=None ):
     whatever sequence trailer_parser produces (if supplied).
 
     """
-    if isinstance( route_path, cpppo.type_str_base ):
+    if isinstance( route_path, type_str_base ):
         try:
             route_path		= json.loads( route_path )
             if route_path and isinstance( route_path, dict ):
@@ -547,7 +550,7 @@ class Attribute( object ):
     def __init__( self, name, type_cls, default=0, error=0x00, mask=0 ):
         self.name		= name
         self.default	       	= default
-        self.scalar		= isinstance( default, automata.type_str_base ) or not hasattr( default, '__len__' )
+        self.scalar		= isinstance( default, type_str_base ) or not hasattr( default, '__len__' )
         self.parser		= type_cls()
         self.error		= error		# If an error code is desired on access
         self.mask		= mask		# May be hidden from Get Attribute(s) All/Single
@@ -563,7 +566,7 @@ class Attribute( object ):
     def __str__( self ):
         return "%-24s %10s%s == %s" % (
             self.name, self.parser.__class__.__name__,
-            ( ("[%4d]" % len( self )) if not self.scalar else ( " x-4d" % len( self )) ), reprlib.repr( self.value ))
+            ( ("[%4d]" % len( self )) if not self.scalar else ( " x%-4d" % len( self )) ), reprlib.repr( self.value ))
     __repr__ 			= __str__
 
     def __len__( self ):
@@ -792,7 +795,7 @@ class Object( object ):
 
     # The parser doesn't add a layer of context; run it with a path= keyword to add a layer
     lock			= threading.Lock()
-    parser			= automata.dfa_post( service, initial=automata.state( 'Obj svc' ),
+    parser			= dfa_post( service, initial=state( 'Obj svc' ),
                                                   terminal=True )
     # No config, by default (use default values).  Allows ${<section>:<key>} interpolation, and
     # comments anywhere via the # symbol (this implies no # allowed in any value, due to the lack of
@@ -847,23 +850,23 @@ class Object( object ):
                 val		= default
                 if val: log.info( "  {key:<20} == {val!r:<20} (default)".format( key=key, val=val ))
             elif isinstance( default, bool) and \
-                 isinstance( val,     cpppo.type_str_base):
+                 isinstance( val,     type_str_base):
                 # Python bools supplied as strings or from config files are a special case, eg. 0 or
                 # "False" ==> False, 1 or "True' ==> True
                 val		= type( default )( ast.literal_eval( val.capitalize() ))
             elif isinstance( default, (list, dict )) and \
-                 isinstance( val,     cpppo.type_str_base):
+                 isinstance( val,     type_str_base):
                 # Other complex types eg. "[ ... ]" must be obtained by ast.literal_eval.
                 val		= type( default )( ast.literal_eval( val ))
-            elif isinstance( default, (bool, int, float, cpppo.type_str_base)) and \
-                 isinstance( val,     (bool, int, float, cpppo.type_str_base)):
+            elif isinstance( default, (bool, int, float, type_str_base)) and \
+                 isinstance( val,     (bool, int, float, type_str_base)):
                 # Otherwise, any basic-typed val supplied or loaded from config file will be converted to
                 # type of any basic-typed default supplied.  This allows conversion of values
                 # supplied as valid literals, or from string to numeric types.
                 try:
                     val		= type( default )( val )			# eg.   123,  abc
                 except ValueError:
-                    if isinstance( val, cpppo.type_str_base ):
+                    if isinstance( val, type_str_base ):
                         val	= type( default )( ast.literal_eval( val ))	# eg. 0x123, "abc"
                     else:
                         raise
@@ -895,7 +898,7 @@ class Object( object ):
                                     if sys.version_info[0] < 3 and enc >= 0
                                     else enc )
         cls.parser.initial[cls.transit[enc]] \
-				= automata.dfa( name=short, initial=machine, terminal=True )
+				= dfa( name=short, initial=machine, terminal=True )
 
     GA_ALL_NAM			= "Get Attributes All"
     GA_ALL_CTX			= "get_attributes_all"
@@ -1320,11 +1323,11 @@ def __get_attribute_list():
     att_			= UINT(		'attr',		context=Object.GA_LST_CTX, extension='.UINT' )
     att_[None]			= move_if( 	'attr',		source='.'+Object.GA_LST_CTX+'.UINT',
                                         destination=Object.GA_LST_CTX+'.attributes', initializer=lambda **kwds: [] )
-    att_[None]			= automata.state( 'attr',
+    att_[None]			= state(	'attr',
                                                 terminal=True )
 
     # Parse the number of attributes expected. TODO: handle 0 attributes?
-    numr[True]		= atts	= automata.dfa(  'attributes',
+    numr[True]		= atts	= dfa(		'attributes',
                                                  initial=att_,	repeat='.'+Object.GA_LST_CTX+'.number' )
     atts[None]		= done	= octets_noop(	'done',
                                                 terminal=True )
@@ -1780,7 +1783,7 @@ class Message_Router( Object ):
 
         return result
 
-class state_multiple_service( automata.state ):
+class state_multiple_service( state ):
     """Find the specified target Object parser via the path specified, defaulting to the Message
     Router's parser (if any) in play (eg. to parse reply), or the Logix' parser if no path
     (ie. we're just parsing a reply).  This requires that a Message_Router derived class has been
@@ -1857,7 +1860,7 @@ class state_multiple_service( automata.state ):
                 req		= dotdict()
                 req.input	= reqdata[beg:end]
                 with target.parser as machine:
-                    source	= automata.peekable( req.input )
+                    source	= peekable( req.input )
                     with contextlib.closing( machine.run( source=source, data=req )) as engine:
                         for m,s in engine:
                             pass
@@ -1896,11 +1899,11 @@ def __multiple():
     off_			= UINT(		'offset',	context='multiple', extension='.UINT' )
     off_[None]			= move_if( 	'offset',	source='.multiple.UINT',
                                         destination='.multiple.offsets', initializer=lambda **kwds: [] )
-    off_[None]			= automata.state( 	'offset',
+    off_[None]			= state( 	'offset',
                                                 terminal=True )
 
     # Parse each of the .offset__ --> .offsets[...] values in a sub-dfa, repeating .number times
-    numr[None]		= offs	= automata.dfa(    'offsets',
+    numr[None]		= offs	= dfa(		'offsets',
                                                 initial=off_,	repeat='.multiple.number' )
     # And finally, absorb all remaining data as the request data.
     offs[None]		= reqd	= octets(	'requests',	context='multiple',
@@ -1931,17 +1934,17 @@ def __multiple_reply():
     # Next comes the number of replies encapsulated; only if general reply status is 0x00/Success or
     # 0x1E/Embedded service error.
     numr			= UINT(		'number',	context='multiple', extension='.number' )
-    schk[None]			= automata.decide( 'ok',	state=numr,
+    schk[None]			= decide(	'ok',	state=numr,
         predicate=lambda path=None, data=None, **kwds: data[path+'.status' if path else 'status'] in (0x00, 0x1E) )
 
     # Prepare a state-machine to parse each UINT into .UINT, and move it onto the .offsets list
     off_			= UINT(		'offset',	context='multiple', extension='.UINT' )
     off_[None]			= move_if( 	'offset',	source='.multiple.UINT',
                                         destination='.multiple.offsets', initializer=lambda **kwds: [] )
-    off_[None]			= automata.state( 	'offset',
+    off_[None]			= state( 	'offset',
                                              terminal=True )
     # Parse each of the .offset__ --> .offsets[...] values in a sub-dfa, repeating .number times
-    numr[None]		= offs	= automata.dfa(    'offsets',
+    numr[None]		= offs	= dfa(		'offsets',
                                              initial=off_,	repeat='.multiple.number' )
     # And finally, absorb all remaining data as the request data.
     offs[None]		= reqd	= octets(	'requests',	context='multiple',
@@ -1993,14 +1996,14 @@ class Connection_Manager( Object ):
     service			= {} # Service number/name mappings
     transit			= {} # Symbol to transition to service parser on
     lock			= threading.Lock()
-    parser			= automata.dfa( service, initial=automata.state( 'CM svc' ),
+    parser			= dfa( service, initial=state( 'CM svc' ),
                                                 terminal=True )
 
     # A simple parser that parses only the .service and .path of a request, for routing purposes.
     srvc			= USINT(	context='service' )
     srvc[True]			= EPATH(	context='path',
                                                 terminal=True )
-    parser_service_path		= cpppo.dfa( 'target', initial=srvc, terminal=True )
+    parser_service_path		= dfa( 'target', initial=srvc, terminal=True )
 
     FWD_OPEN_NAM		= "Forward Open"
     FWD_OPEN_CTX		= "forward_open"
@@ -2181,7 +2184,7 @@ class Connection_Manager( Object ):
 
         # See if it's a "Connected" request to a remote Target via self.forwards.  If remote, send
         # the request. If local, get the targetpath from self.forwards.
-        targetpath		= cpppo.dotdict()
+        targetpath		= dotdict()
         if addr in self.forwards:
             ufo,uci		= self.forwards[addr]
             if uci:
@@ -2215,7 +2218,7 @@ class Connection_Manager( Object ):
         # (ie. a .service code without bit 0x80 set), thus always followed by an EPATH.
         try:
             if not targetpath: # Not required for "Connected" requests; otherwise, parse request EPATH
-                source		= automata.rememberable( data.request.input )
+                source		= rememberable( data.request.input )
                 with self.parser_service_path as machine:
                     with contextlib.closing( machine.run( source=source, data=targetpath )) as engine:
                         for i,(m,s) in enumerate( engine ):
@@ -2226,7 +2229,7 @@ class Connection_Manager( Object ):
             ids			= resolve( targetpath.path )
             target		= lookup( *ids )
             assert target, "Unknown CIP Object in request: %s" % ( enip_format( targetpath ))
-            source		= automata.rememberable( data.request.input )
+            source		= rememberable( data.request.input )
             with target.parser as machine:
                 with contextlib.closing( machine.run( path='request', source=source, data=data )) as engine:
                     for i,(m,s) in enumerate( engine ):
@@ -2380,7 +2383,7 @@ class Connection_Manager( Object ):
         return result
 
 
-class Connection_decode( cpppo.decide ):
+class Connection_decode( decide ):
     def __init__( self, name, large=None, source=None, **kwds ):
         super( Connection_decode, self ).__init__( name=name, **kwds )
         self.lrg		= large or False
@@ -2488,14 +2491,14 @@ def __forward_open_reply():
             app.data		= []
         return octets
 
-    rsvd[None]			= cpppo.dfa(    'data',		context='forward_open',
+    rsvd[None]			= dfa(		'data',		context='forward_open',
                                                 initial=typed_data(
                                                     context='application', tag_type=USINT.tag_type,
                                                     terminal=True ),
                                                 limit=size_data,
                                                 terminal=True )
     # Choose between Successful reply (otid), or if status is not 0x00, fall through and parse Failure reply
-    stts[True]			= automata.decide( 'ok',	state=otid,
+    stts[True]			= decide(	'ok',	state=otid,
         predicate=lambda path=None, data=None, **kwds: data[path+'.status' if path else 'status'] == 0x00 )
     stts[True]		= cser	= UINT(			context='forward_open', extension='.connection_serial' )
     cser[True]		= ovnd	= UINT(			context='forward_open', extension='.O_vendor' )
@@ -2564,7 +2567,7 @@ def __forward_close_reply():
             app.data		= []
         return octets
 
-    rsvd[None]			= cpppo.dfa(    'data',		context='forward_close',
+    rsvd[None]			= dfa(		'data',		context='forward_close',
                                                 initial=typed_data(
                                                     context='application', tag_type=USINT.tag_type,
                                                     terminal=True ),

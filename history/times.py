@@ -179,7 +179,7 @@ class timestamp( object ):
 
     @classmethod
     @mutexmethod( '_cls_lock' )
-    def support_abbreviations( cls, region, exclude=None, at=None, reach=None, reset=False ):
+    def support_abbreviations( cls, region, exclude=None, at=None, reach=None, reset=False, first=True ):
         """Add all the DST and non-DST abbreviations for the specified region.  If a country code
         (eg. 'CA') is specified, we'll get all its timezones from pytz.country_timezones.
         Otherwise, we'll get all the matching '<region>[/<city>]' zone(s) from pytz's
@@ -201,7 +201,8 @@ class timestamp( object ):
         You cannot load them both at once.  If multiple timezones produce the same abbreviation,
         they must have the same DST transitions between 'at' +/- 'reach', or AmbiguousTimeZoneError
         will be raised -- the timezone abbreviations have ambiguous meaning, and the zones cannot be
-        identified via abbreviation at the same time.
+        identified via abbreviation at the same time.  If first is True, we'll warn, but just
+        default to use the first timezone.
 
         Returns all the timezone abbreviations added to the class's _tzabbrev; you may want to check:
 
@@ -209,7 +210,7 @@ class timestamp( object ):
             abbrevs		= timestamp.support_abbreviations( region )
             assert abbrevs, "Invalid region %r: Matches no timezones" % region
 
-        Timezone definitions change over time.  A 'reach' timedelta (default: 1 year) on either side
+        Timezone definitions change over time.  A 'reach' timedelta (default: 1/2 year) on either side
         of the 'at' (a naive UTC datetime, default: current time) is required, in order for multiple
         zones to use the same abbreviation with guaranteed consistent definitions.
 
@@ -317,8 +318,8 @@ class timestamp( object ):
                 dup		= abb in abbrev
                 if dup and not dst:
                     # A duplicate; non-DST or ambiguous, must have consistent UTC offset and DST
-                    # designation.  We'll allow replacement of a dst=None (still ambiguous) zone with a dst=False zone
-
+                    # designation.  We'll allow replacement of a dst=None (still ambiguous) zone
+                    # with a dst=False zone
                     abbtzi,abbdst,abboff= abbrev[abb]
                     if abboff != off:
                         msg    += " x %-5s %s %s in %s; incompatible" % (
@@ -340,7 +341,7 @@ class timestamp( object ):
                         msg	= "%s has %d time changes vs. %d in %s" % (
                             abb, lst-nxt, abbtzilst-abbtzinxt, abbtzi )
                         incompatible.append( "%s: %s" % ( tzinfo, msg ))
-                        log.warning( "%-30s: %s", tzinfo, msg )
+                        log.warning( "%-30s: inconsistency: %s", tzinfo, msg )
                         continue
                     chg		= zip( tzinfo._utc_transition_times[nxt:lst], tzinfo._transition_info[nxt:lst] )
                     abbchg	= zip( abbtzi._utc_transition_times[abbtzinxt:abbtzilst], abbtzi._transition_info[abbtzinxt:abbtzilst] )
@@ -364,7 +365,7 @@ class timestamp( object ):
                                                        dt.strftime( cls._fmt ), "; Ignoring duplicate" if dup else "" )
                 if not dup:
                     abbrev[abb]	= tzinfo,dst,off
-        if incompatible:
+        if incompatible and not first:
             raise AmbiguousTimeZoneError( "%-30s region(s) incompatible: %s" % ( region, ", ".join( incompatible )))
         added			= list( set( abbrev ) - set( cls._tzabbrev ))
         cls._tzabbrev		= abbrev

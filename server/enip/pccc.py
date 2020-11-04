@@ -37,15 +37,17 @@ import sys
 import logging
 import array
 
-import cpppo
 from .. import enip
+from ..enip import ucmm
+from ..enip.main import main as enip_main
+from ...automata import ( dfa, decide, type_bytes_array_symbol )
 from .parser import ( USINT, UINT, octets_noop, typed_data, move_if )
 from .device import RequestUnrecognized
 log				= logging.getLogger( "enip.pccc" )
 
 
 
-class ANC_120e_DF1( cpppo.dfa ):
+class ANC_120e_DF1( dfa ):
     """Parse a DF1 request/reply, in ANC-120e Class 0xA6 form.  This differs from classical (and
     C*Logix PCCC), as described in:
 
@@ -118,13 +120,13 @@ class ANC_120e_DF1( cpppo.dfa ):
     
         # Split the replies off
         # For a Reply (CMD & 0xb01000000 set); If sts was !0, then the byte following TNS is EXT STS.
-        tns[None]		= cpppo.decide(	'RPY EXT STS?',	state=rpy_extsts,
+        tns[None]		= decide(	'RPY EXT STS?',	state=rpy_extsts,
                                             predicate=lambda path=None, data=None, **kwds: \
                                                 bool( data[path].cmd & 0b01000000 ) and data[path].sts == 0xf0 )
-        tns[None]		= cpppo.decide(	'RPY STS?',	state=rpy_sts,
+        tns[None]		= decide(	'RPY STS?',	state=rpy_sts,
                                             predicate=lambda path=None, data=None, **kwds: \
                                                 bool( data[path].cmd & 0b01000000 ) and data[path].sts != 0x00 )
-        tns[None]		= cpppo.decide(	'RPY?',		state=rpy,
+        tns[None]		= decide(	'RPY?',		state=rpy,
                                             predicate=lambda path=None, data=None, **kwds: \
                                                 bool( data[path].cmd & 0b01000000 ) and data[path].sts == 0x00 )
     
@@ -132,7 +134,7 @@ class ANC_120e_DF1( cpppo.dfa ):
         # http://literature.rockwellautomation.com/idc/groups/literature/documents/rm/1770-rm516_-en-p.pdf
         # 7-2 for a table of all CMD/FNC codes. Just collect the rest into .data.
         req_nonfnc		= typed_data( tag_type=USINT.tag_type, context='',	terminal=True )
-        tns[None]		= cpppo.decide(	'REQ NON FNC',	state=req_nonfnc,
+        tns[None]		= decide(	'REQ NON FNC',	state=req_nonfnc,
                                         predicate=lambda path=None, data=None, **kwds: \
                                             data[path].cmd in (
                                                 0x00, #   protected write
@@ -147,18 +149,18 @@ class ANC_120e_DF1( cpppo.dfa ):
         tlr3		= tlr3b	= USINT(			context='read', extension='.bytes' )
         tlr3b[True]	= tlr3fn= USINT(			context='read', extension='.file' ) # 0-254
         tlr3fn16		= UINT(				context='read', extension='.file' )
-        tlr3fn[None]		= cpppo.decide(	'FLN 16?',	state=tlr3fn16,
+        tlr3fn[None]		= decide(	'FLN 16?',	state=tlr3fn16,
                                                 predicate=lambda path=None, data=None, **kwds: \
                                                     data[path].read.file == 0xFF )
         tlr3fn16[True] = tlr3fn[True] = tlr3ft= USINT(		context='read', extension='.type' ) # 0x80-8F; 89 = integer, 8A = float, ...
         tlr3ft[True]	= tlr3el= USINT(			context='read', extension='.element' ) # 0xFF ==> 16-bit element # follows
         tlr3el16		= UINT(				context='read', extension='.element' )
-        tlr3el[None]		= cpppo.decide(	'ELE 16?',	state=tlr3el16,
+        tlr3el[None]		= decide(	'ELE 16?',	state=tlr3el16,
                                                 predicate=lambda path=None, data=None, **kwds: \
                                                     data[path].read.element == 0xFF )
         tlr3el16[True] = tlr3el[True] = tlr3se = USINT(		context='read', extension='.subelement', terminal=True )
         tlr3se16		= UINT(				context='read', extension='.subelement', terminal=True )
-        tlr3se[None]		= cpppo.decide(	'SEL 16?',	state=tlr3se16,
+        tlr3se[None]		= decide(	'SEL 16?',	state=tlr3se16,
                                                 predicate=lambda path=None, data=None, **kwds: \
                                                     data[path].read.subelement == 0xFF )
 
@@ -173,13 +175,13 @@ class ANC_120e_DF1( cpppo.dfa ):
     
         # A Request CMD w/ a FNC code. See if we recognize it.
         tns[None]		= fnc	= USINT(			context='fnc' )
-        #fnc[None]		= cpppo.decide(	'Typed Read?',		state=tlr3,  # Typed Read (read block) w/ PLC-5 sys. addressing
+        #fnc[None]		= decide(	'Typed Read?',		state=tlr3,  # Typed Read (read block) w/ PLC-5 sys. addressing
         #                                        predicate=lambda path=None, data=None, **kwds: \
         #                                            data[path].cmd in (0x0F, 0x2F) and data[path].fnc == 0x68 )
-        fnc[None]		= cpppo.decide(	'Typed Read 3?',	state=tlr3,  # Protected Typed Logical Read w/ 3 Address Fields
+        fnc[None]		= decide(	'Typed Read 3?',	state=tlr3,  # Protected Typed Logical Read w/ 3 Address Fields
                                                 predicate=lambda path=None, data=None, **kwds: \
                                                     data[path].cmd in (0x0F, 0x2F) and data[path].fnc == 0xA2 )
-        fnc[None]		= cpppo.decide(	'Diagnostic Status? ',	state=diag,  # Diagnostic Status
+        fnc[None]		= decide(	'Diagnostic Status? ',	state=diag,  # Diagnostic Status
                                                 predicate=lambda path=None, data=None, **kwds: \
                                                     data[path].cmd in (0x06, 0x26) and data[path].fnc == 0x03 )
 
@@ -305,7 +307,7 @@ class PCCC_ANC_120e( enip.Object ):
             # b'\x00\x00\x00\x00\x00\x00\x01\x00\x46\x00J\n\x00\xee1[#5/04       V\x00\x9e$\x05D \xfc'
             data.DF1.sts	= 0
             data.DF1.data	= array.array(
-                cpppo.type_bytes_array_symbol,
+                type_bytes_array_symbol,
                 b'\xee1[#5/04       V\x00\x9e$\x05D \xfc' )
         elif data.DF1.get( 'cmd' ) in (0x0F, 0x2F) and data.DF1.get( 'fnc' ) == 0xA2:
             log.warning( "DF1: Protected typed Logical Read w/ 3 Address Fields: %s", enip.enip_format( data ))
@@ -314,7 +316,7 @@ class PCCC_ANC_120e( enip.Object ):
             # b'\x00\x00\x00\x00\x00\x00\x01\x00\x4f\x00K\nFX PLC P\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00!\x00\x000\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x05D\x01\x00#\x00\x04\x00\x02\x00e\x00\x03\x00\xa2\x00\xa7\x00V\x01j\x01t\x01m\x03'
             data.DF1.sts	= 0
             data.DF1.data	= array.array(
-                cpppo.type_bytes_array_symbol,
+                type_bytes_array_symbol,
                 b'FX PLC P\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00!\x00\x000\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x05D\x01\x00#\x00\x04\x00\x02\x00e\x00\x03\x00\xa2\x00\xa7\x00V\x01j\x01t\x01m\x03' )
         else:
             logging.normal( "DF1: Unrecognized: %s", enip.enip_format( data ))
@@ -333,12 +335,12 @@ class PCCC_ANC_120e( enip.Object ):
 # 
 # Simulate a simple ANC-120e DF1 device, w/ an instance of class 0xA6
 # 
-class UCMM_no_route_path( enip.UCMM ):
+class UCMM_no_route_path( ucmm.UCMM ):
     """The PowerFlex/20-COMM-E UnConnected Messages Manager allows no route_path"""
     route_path			= False
 
 def main( **kwds ):
-    """Set up PowerFlex/20-COMM-E objects (enip.main will set up other Logix-like objects)"""
+    """Set up PowerFlex/20-COMM-E objects (enip_main will set up other Logix-like objects)"""
 
     enip.config_files 	       += [ __file__.replace( '.py', '.cfg' ) ]
 
@@ -346,7 +348,7 @@ def main( **kwds ):
     PCCC_ANC_120e( name="PCCC", instance_id=1 ) # 0xA6/1 -- target Object for CIP requests w/ DF1 payload
 
     # Establish Identity and TCPIP objects w/ some custom data for the test, from a config file
-    return enip.main( argv=sys.argv[1:], UCMM_class=UCMM_no_route_path )
+    return enip_main( argv=sys.argv[1:], UCMM_class=UCMM_no_route_path )
 
 
 if __name__ == "__main__":

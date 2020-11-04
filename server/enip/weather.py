@@ -43,7 +43,7 @@ except ImportError: # Python3
     from urllib.parse import urlencode
 
 from cpppo.server.enip import device, REAL
-from cpppo.server.enip.main import main
+from cpppo.server.enip.main import main as enip_main
 
 class Attribute_weather( device.Attribute ):
     OPT 			= {
@@ -79,4 +79,4 @@ class Attribute_weather( device.Attribute ):
     def __setitem__( self, key, value ):
         raise Exception( "Changing the weather isn't that easy..." )
 
-sys.exit( main( attribute_class=Attribute_weather ))
+sys.exit( enip_main( attribute_class=Attribute_weather ))

@@ -49,29 +49,31 @@ import threading
 import time
 import traceback
 
-import cpppo
+from ... import misc
+from ...dotdict import dotdict, apidict
+from ...automata import log_cfg, rememberable
 from .. import network
 from . import defaults, parser, device, ucmm, logix
 
 log				= logging.getLogger( "enip.srv" )
 
 
-# Maintain a global 'options' cpppo.dotdict() containing all our configuration options, configured
+# Maintain a global 'options' dotdict() containing all our configuration options, configured
 # from incoming parsed command-line options.  This'll be passed (ultimately) to the server and
 # web_api Thread Thread target functions, broken out as keyword parameters.  As a result, the second
 # (and lower) levels of this dotdict will remain as dotdict objects assigned to keywords determined
 # by the top level dict keys.  
-options				= cpppo.dotdict()
+options				= dotdict()
 
 # The stats for the connections presently open, indexed by <interface>:<port>.   Of particular
 # interest is connections['key'].eof, which will terminate the connection if set to 1
-connections			= cpppo.dotdict()
+connections			= dotdict()
 
 # All known tags, their CIP Attribute and desired error code
-tags				= cpppo.dotdict()
+tags				= dotdict()
 
 # Server control signals
-srv_ctl				= cpppo.dotdict()
+srv_ctl				= dotdict()
 
 
 # Optional modules.  This module is optional, and only used if the -w|--web option is specified
@@ -291,7 +293,7 @@ def api_request( group, match, command, value,
         "command":	None,
         "data":		{},
         "since":	since,		# time, 0, None (null)
-        "until":	cpppo.timer(),	# time (default, unless we return alarms)
+        "until":	misc.timer(),	# time (default, unless we return alarms)
         }
 
     logging.debug( "Searching for %s/%s, since: %s (%s)",
@@ -541,7 +543,7 @@ def stats_for( peer ):
     stats			= connections.get( connkey )
     if stats is not None:
         return stats,connkey
-    stats			= cpppo.apidict( timeout=defaults.timeout )
+    stats			= apidict( timeout=defaults.timeout )
     connections[connkey]	= stats
     stats['requests']		= 0
     stats['received']		= 0
@@ -626,12 +628,12 @@ def enip_srv_udp( conn, name, enip_process, **kwds ):
     with parser.enip_machine( name=name, context='enip' ) as machine:
         while not kwds['server']['control']['done'] and not kwds['server']['control']['disable']:
             try:
-                source		= cpppo.rememberable()
-                data		= cpppo.dotdict()
+                source		= rememberable()
+                data		= dotdict()
 
                 # If no/partial EtherNet/IP header received, parsing will fail with a NonTerminal
                 # Exception (dfa exits in non-terminal state).  Build data.request.enip:
-                begun		= cpppo.timer() # waiting for next transaction
+                begun		= misc.timer() # waiting for next transaction
                 addr,stats	= None,None
                 with contextlib.closing( machine.run(
                         path='request', source=source, data=data )) as engine:
@@ -649,9 +651,9 @@ def enip_srv_udp( conn, name, enip_process, **kwds ):
                             # from a peer?  No go!
                             wait	= ( kwds['server']['control']['latency']
                                             if source.peek() is None else 0 )
-                            brx		= cpppo.timer()
+                            brx		= misc.timer()
                             msg,frm	= network.recvfrom( conn, timeout=wait )
-                            now		= cpppo.timer()
+                            now		= misc.timer()
                             if msg and log.isEnabledFor( logging.DETAIL ):
                                 log.detail( "Transaction receive after %7.3fs (%5s bytes in %7.3f/%7.3fs): %r",
                                         now - begun, len( msg ) if msg is not None else "None",
@@ -671,7 +673,7 @@ def enip_srv_udp( conn, name, enip_process, **kwds ):
                         stats['received']+= len( msg )
                         if log.isEnabledFor( logging.DETAIL ):
                             log.detail( "%s recv: %5d: %s", machine.name_centered(),
-                                        len( msg ), repr( msg ) if log.isEnabledFor( logging.INFO ) else cpppo.reprlib.repr( msg ))
+                                        len( msg ), repr( msg ) if log.isEnabledFor( logging.INFO ) else misc.reprlib.repr( msg ))
                         source.chain( msg )
 
                 # Terminal state and EtherNet/IP header recognized; process and return response
@@ -694,10 +696,10 @@ def enip_srv_udp( conn, name, enip_process, **kwds ):
                     rpy		= parser.enip_encode( data.response.enip )
                     if log.isEnabledFor( logging.DETAIL ):
                         log.detail( "%s send: %5d: %s", machine.name_centered(),
-                                    len( rpy ), repr( rpy ) if log.isEnabledFor( logging.INFO ) else cpppo.reprlib.repr( rpy ))
+                                    len( rpy ), repr( rpy ) if log.isEnabledFor( logging.INFO ) else misc.reprlib.repr( rpy ))
                     conn.sendto( rpy, addr )
 
-                log.detail( "Transaction complete after %7.3fs", cpppo.timer() - begun )
+                log.detail( "Transaction complete after %7.3fs", misc.timer() - begun )
 
                 stats['processed']	= source.sent
             except:
@@ -715,7 +717,7 @@ def enip_srv_udp( conn, name, enip_process, **kwds ):
 
 
 def enip_srv_tcp( conn, addr, name, enip_process, delay=None, **kwds ):
-    source			= cpppo.rememberable()
+    source			= rememberable()
     with parser.enip_machine( name=name, context='enip' ) as machine:
         # We can be provided a dotdict() to contain our stats.  If one has been passed in, then this
         # means that our stats for this connection will be available to the web API; it may set
@@ -730,12 +732,12 @@ def enip_srv_tcp( conn, addr, name, enip_process, delay=None, **kwds ):
             assert addr, "EtherNet/IP CIP server for TCP/IP must be provided a peer address"
             stats,connkey	= stats_for( addr )
             while not stats.eof:
-                data		= cpppo.dotdict()
+                data		= dotdict()
 
                 source.forget()
                 # If no/partial EtherNet/IP header received, parsing will fail with a NonTerminal
                 # Exception (dfa exits in non-terminal state).  Build data.request.enip:
-                begun		= cpppo.timer()
+                begun		= misc.timer()
                 with contextlib.closing( machine.run(
                         path='request', source=source, data=data )) as engine:
                     # PyPy compatibility; avoid deferred destruction of generators
@@ -751,9 +753,9 @@ def enip_srv_tcp( conn, addr, name, enip_process, delay=None, **kwds ):
                         while msg is None and not stats.eof:
                             wait=( kwds['server']['control']['latency']
                                    if source.peek() is None else 0 )
-                            brx = cpppo.timer()
+                            brx = misc.timer()
                             msg	= network.recv( conn, timeout=wait )
-                            now = cpppo.timer()
+                            now = misc.timer()
                             ( log.detail if msg else log.debug )(
                                 "Transaction receive after %7.3fs (%5s bytes in %7.3f/%7.3fs)",
                                 now - begun, len( msg ) if msg is not None else "None",
@@ -773,7 +775,7 @@ def enip_srv_tcp( conn, addr, name, enip_process, delay=None, **kwds ):
                                 stats['eof']	= stats['eof'] or not len( msg )
                                 if log.isEnabledFor( logging.DETAIL ):
                                     log.detail( "%s recv: %5d: %s", machine.name_centered(),
-                                                len( msg ), repr( msg ) if log.isEnabledFor( logging.INFO ) else cpppo.reprlib.repr( msg ))
+                                                len( msg ), repr( msg ) if log.isEnabledFor( logging.INFO ) else misc.reprlib.repr( msg ))
                                 source.chain( msg )
                             else:
                                 # No input.  If we have symbols available, no problem; continue.
@@ -786,7 +788,7 @@ def enip_srv_tcp( conn, addr, name, enip_process, delay=None, **kwds ):
                                 # We're at a None (can't proceed), and no input is available.  This
                                 # is where we implement "Blocking"; just loop.
 
-                log.detail( "Transaction parsed  after %7.3fs", cpppo.timer() - begun )
+                log.detail( "Transaction parsed  after %7.3fs", misc.timer() - begun )
                 # Terminal state and EtherNet/IP header recognized, or clean EOF (no partial
                 # message); process and return response
                 if 'request' in data:
@@ -809,7 +811,7 @@ def enip_srv_tcp( conn, addr, name, enip_process, delay=None, **kwds ):
                         rpy	= parser.enip_encode( data.response.enip )
                         if log.isEnabledFor( logging.DETAIL ):
                             log.detail( "%s send: %5d: %s %s", machine.name_centered(),
-                                        len( rpy ), repr( rpy ) if log.isEnabledFor( logging.INFO ) else cpppo.reprlib.repr( rpy ),
+                                        len( rpy ), repr( rpy ) if log.isEnabledFor( logging.INFO ) else misc.reprlib.repr( rpy ),
                                         ("delay: %r" % delay) if delay else "" )
                         if delay:
                             # A delay (anything with a delay.value attribute) == #[.#] (converible
@@ -836,11 +838,11 @@ def enip_srv_tcp( conn, addr, name, enip_process, delay=None, **kwds ):
                                         parser.enip_format( data ))
                         stats['eof'] = True
                     log.detail( "Transaction complete after %7.3fs (w/ %7.3fs delay)",
-                        cpppo.timer() - begun, delayseconds )
+                        misc.timer() - begun, delayseconds )
                 except:
                     # Session terminated spontaneously; empty data
                     log.error( "Failed request: %s", parser.enip_format( data ))
-                    enip_process( addr, data=cpppo.dotdict() )
+                    enip_process( addr, data=dotdict() )
                     raise
 
             stats['processed']	= source.sent
@@ -982,6 +984,9 @@ def main( argv=None, attribute_class=device.Attribute, idle_service=None, identi
     ap.add_argument( '-P', '--profile',
                      default=None,
                      help="Output profiling data to a file (default: None)" )
+    ap.add_argument( '-D', '--defined-tags',
+                     default=None,
+                     help="A file containing JSON description of STRUCTs, and associated Tags (default: None)" )
     ap.add_argument( 'tags', nargs="*",
                      help="Any tags, their type (default: INT), and number (default: 1), eg: tag=INT[1000]")
 
@@ -1001,7 +1006,7 @@ def main( argv=None, attribute_class=device.Attribute, idle_service=None, identi
         3: logging.INFO,
         4: logging.DEBUG,
         }
-    cpppo.log_cfg['level']	= ( levelmap[args.verbose] 
+    log_cfg['level']		= ( levelmap[args.verbose] 
                                     if args.verbose in levelmap
                                     else logging.DEBUG )
 
@@ -1011,15 +1016,15 @@ def main( argv=None, attribute_class=device.Attribute, idle_service=None, identi
     if args.log:
         # Output logging to a file, and handle UNIX-y log file rotation via 'logrotate', which sends
         # signals to indicate that a service's log file has been moved/renamed and it should re-open
-        cpppo.log_cfg['filename']= args.log
+        log_cfg['filename']	= args.log
         signal.signal( signal.SIGHUP, logrotate_request )
         idle_service.append( logrotate_perform )
 
     # Set up logging; also, handle the degenerate case where logging has *already* been set up (and
     # basicConfig is a NO-OP), by (also) setting the logging level and (optionally) log filename.
-    logging.basicConfig( **cpppo.log_cfg )
+    logging.basicConfig( **log_cfg )
     if args.verbose:
-        logging.getLogger().setLevel( cpppo.log_cfg['level'] )
+        logging.getLogger().setLevel( log_cfg['level'] )
 
     # Load config file(s), if not disabled, into the device.Object class-level 'config_loader'.
     if not args.no_config:
@@ -1031,11 +1036,11 @@ def main( argv=None, attribute_class=device.Attribute, idle_service=None, identi
     # current values to sane initial defaults/conditions.
     if 'server' in kwds:
         assert 'control' in kwds['server'], "A 'server' keyword provided without a 'control' attribute"
-        srv_ctl			= cpppo.dotdict( kwds.pop( 'server' ))
-        assert isinstance( srv_ctl['control'], cpppo.apidict ), "The server.control... must be a cpppo.apidict"
+        srv_ctl			= dotdict( kwds.pop( 'server' ))
+        assert isinstance( srv_ctl['control'], apidict ), "The server.control... must be a cpppo.apidict"
         log.detail( "External server.control in object %s", id( srv_ctl['control'] ))
     else:
-        srv_ctl.control		= cpppo.apidict( timeout=defaults.timeout )
+        srv_ctl.control		= apidict( timeout=defaults.timeout )
         log.detail( "Internal server.control in object %s", id( srv_ctl['control'] ))
 
     srv_ctl.control['done']	= False
@@ -1065,7 +1070,7 @@ def main( argv=None, attribute_class=device.Attribute, idle_service=None, identi
             except Exception as exc:
                 log.warning( "No delay=#[.#]-#[.#] range specified: %s", exc )
 
-    options.delay		= cpppo.dotdict()
+    options.delay		= dotdict()
     try:
         options.delay.value	= float( args.delay )
         if options.delay.value:
@@ -1208,7 +1213,7 @@ def main( argv=None, attribute_class=device.Attribute, idle_service=None, identi
         # the normal dotdict.__setitem__ resolution to parse it; use plain dict.__setitem__.
         log.normal( "New Tag: %-14s%-10s %10s[%4d]", tag_name, '@'+tag_address if tag_address else '',
                     attribute.parser.__class__.__name__, len( attribute ) )
-        tag_entry		= cpppo.dotdict()
+        tag_entry		= dotdict()
         tag_entry.attribute	= attribute	# The Attribute (may be shared by multiple tags)
         tag_entry.path		= path		# Desired Attribute path (may include element), or None
         tag_entry.error		= 0x00

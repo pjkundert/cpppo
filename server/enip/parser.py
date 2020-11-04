@@ -39,7 +39,10 @@ import sys
 
 import ipaddress
 
-import cpppo
+from ...dotdict import dotdict
+from ...automata import ( type_str_base, type_bytes_iter, type_bytes_array_symbol, is_listlike,
+                          dfa_base, dfa, decide,
+                          state, state_struct, state_drop, state_input, string_bytes )
 
 log				= logging.getLogger( "enip.srv" )
 
@@ -54,7 +57,7 @@ log				= logging.getLogger( "enip.srv" )
 #     You must provide either a name or a context; if you provide neither, then both default to the
 # name of the class.
 # 
-class octets_base( cpppo.dfa_base ):
+class octets_base( dfa_base ):
     """Scan 'repeat' octets (default: 1), using an instance of the provided octets_state class as the
     sub-machine 'initial' state.  The sub-machine has no outgoing transitions, and will terminate
     after accepting and processing exactly one symbol.  Only after all 'repeat' loops will
@@ -62,10 +65,10 @@ class octets_base( cpppo.dfa_base ):
     def __init__( self, name=None, initial=None,
                   octets_name="byte",
                   octets_extension=None, # .input is state_input's default
-                  octets_state=cpppo.state_input,
-                  octets_alphabet=cpppo.type_bytes_iter,
+                  octets_state=state_input,
+                  octets_alphabet=type_bytes_iter,
                   octets_encoder=None,
-                  octets_typecode=cpppo.type_bytes_array_symbol, **kwds ):
+                  octets_typecode=type_bytes_array_symbol, **kwds ):
         assert initial is None, "Cannot specify a sub-machine for %s.%s" % (
             __package__, self.__class__.__name__ )
         name			= name or kwds.setdefault( 'context', self.__class__.__name__ )
@@ -74,52 +77,55 @@ class octets_base( cpppo.dfa_base ):
             typecode=octets_typecode, extension=octets_extension ), **kwds )
    
 
-class octets( octets_base, cpppo.state ):
+class octets( octets_base, state ):
     """Scans 'repeat' octets into <context>.input using a state_input sub-machine (by default), but
     doesn't itself perform any processing."""
     pass
 
 
 def octets_encode( value ):
+    """Convert various containers to bytes"""
     if isinstance( value, array.array ):
         return value.tostring() if sys.version_info[0] < 3 else value.tobytes()
     elif isinstance( value, bytearray ):
         return bytes( value )
+    elif isinstance( value, bytes ):
+        return value
     raise AssertionError( "Unrecognized octets type: %r" % value )
 
 
-class octets_struct( octets_base, cpppo.state_struct ):
+class octets_struct( octets_base, state_struct ):
     """Scans octets sufficient to satisfy the specified struct 'format', and then parses it according
     to the supplied struct 'format' (default is class-level struct_format attribute)."""
     def __init__( self, name=None, format=None, **kwds ):
         if format is not None:
-            assert isinstance( format, cpppo.type_str_base ), "Expected a struct 'format', found: %r" % format
+            assert isinstance( format, type_str_base ), "Expected a struct 'format', found: %r" % format
         super( octets_struct, self ).__init__( name=name, format=format, 
             repeat=struct.calcsize( self.struct_format if format is None else format ),
                                                **kwds )
 
 
-class octets_noop( octets_base, cpppo.state ):
+class octets_noop( octets_base, state ):
     """Does nothing with an octet."""
-    def __init__( self, name=None, octets_state=cpppo.state, **kwds ):
+    def __init__( self, name=None, octets_state=state, **kwds ):
         super( octets_noop, self ).__init__(
             name=name, octets_name="noop", octets_state=octets_state, **kwds )
 
 
-class octets_drop( octets_base, cpppo.state ):
+class octets_drop( octets_base, state ):
     """Scans 'repeat' octets and drops them."""
-    def __init__( self, name=None, octets_state=cpppo.state_drop, **kwds ):
+    def __init__( self, name=None, octets_state=state_drop, **kwds ):
         super( octets_drop, self ).__init__(
             name=name, octets_name="drop", octets_state=octets_state, **kwds )
         
 
-class words_base( cpppo.dfa_base ):
+class words_base( dfa_base ):
     """Scan 'repeat' 2-byte words (default: 1), convenient when sizes are specified in words."""
     def __init__( self, name=None, initial=None,
-                  words_state=cpppo.state_input,
-                  words_alphabet=cpppo.type_bytes_iter,
+                  words_state=state_input,
+                  words_alphabet=type_bytes_iter,
                   words_encoder=None,
-                  words_typecode=cpppo.type_bytes_array_symbol, **kwds ):
+                  words_typecode=type_bytes_array_symbol, **kwds ):
         assert initial is None, "Cannot specify a sub-machine for %s.%s" % (
             __package__, self.__class__.__name__ )
         name			= name or kwds.setdefault( 'context', self.__class__.__name__ )
@@ -132,7 +138,7 @@ class words_base( cpppo.dfa_base ):
         super( words_base, self ).__init__( name=name, initial=byt0, **kwds )
    
 
-class words( words_base, cpppo.state ):
+class words( words_base, state ):
     """Scans 'repeat' words into <context>.input using a state_input sub-machine (by default), but
     doesn't itself perform any processing."""
     pass
@@ -148,10 +154,10 @@ class words( words_base, cpppo.state ):
 #     You must provide either a name or a context; if you provide neither, then both default to the
 # name of the class.  An instance of any of these types "is" a parser state machine, and has a
 # produce method that will re-produce the bytes stream from a (previously parsed) structure.  All
-# the simple data types are derived from TYPE, and simply drive from cpppo.state_struct to directly
+# the simple data types are derived from TYPE, and simply drive from state_struct to directly
 # parse the data value into the provided context (using the python struct module).
 # 
-#     More complex data types are derived from STRUCT, are derived from cpppo.dfa, and require a
+#     More complex data types are derived from STRUCT, are derived from dfa, and require a
 # state machine to be constructed to parse the data.
 # 
 #     Any EtherNet/IP type based on TYPE has class-level .struct_format and a
@@ -187,7 +193,7 @@ class BOOL( TYPE ):
         if exception is not None:
             return
         ours			= self.context( path=path )
-        if cpppo.is_listlike( data[ours] ):
+        if is_listlike( data[ours] ):
             data[ours]		= list( map( bool, data[ours] ))
         else:
             data[ours]		= bool( data[ours] )
@@ -290,7 +296,7 @@ class REAL_network( TYPE ):
     struct_format		= '>f'
     struct_calcsize		= struct.calcsize( struct_format )
 
-class STRUCT( cpppo.dfa, cpppo.state ):
+class STRUCT( dfa, state ):
     """An EtherNet/IP STRUCT; By default, a 2-byte UINT .structure_tag, followed by arbitrarily encoded
     raw .data.input.  We'll generally use this as a base class for types requiring custom parser
     state machinery and produce methods; the default will be an unparsed raw CIP STRUCT w/ a
@@ -363,7 +369,7 @@ class SSTRING( STRUCT ):
         leng[None]		= move_if(		'empty',  destination='.string', initializer='',
                                     predicate=lambda path=None, data=None, **kwds: not data[path].length,
                                                         state=octets_noop( 'done', terminal=True ))
-        leng[None]		= cpppo.string_bytes(	'string',
+        leng[None]		= string_bytes(		'string',
                                                         limit='..length',
                                                         initial='.*',	decode='iso-8859-1',
                                                         terminal=True )
@@ -379,8 +385,8 @@ class SSTRING( STRUCT ):
         """
         result			= b''
         
-        if isinstance( value, cpppo.type_str_base ):
-            value		= cpppo.dotdict( {'string': value } )
+        if isinstance( value, type_str_base ):
+            value		= dotdict( {'string': value } )
 
         encoded			= value.string.encode( 'iso-8859-1' )
         # If .length doesn't exist or is None, set the length to the actual string length
@@ -422,10 +428,10 @@ class STRING( STRUCT ):
                                     predicate=lambda path=None, data=None, **kwds: 0 == data[path].length,
                                     state=octets_noop(	'done',
                                                         terminal=True ))
-        leng[None] = sbdy	= cpppo.string_bytes(	'string',
+        leng[None] = sbdy	= string_bytes(		'string',
                                                         limit='..length',
                                                         initial='.*',	decode='iso-8859-1' )
-        sbdy[None]		= cpppo.decide(		'string_even',
+        sbdy[None]		= decide(		'string_even',
                                     predicate=lambda path=None, data=None, **kwds: 0 == data[path].length % 2,
                                     state=octets_noop(	'done',
                                                         terminal=True ))
@@ -443,8 +449,8 @@ class STRING( STRUCT ):
         """
         result			= b''
         
-        if isinstance( value, cpppo.type_str_base ):
-            value		= cpppo.dotdict( {'string': value } )
+        if isinstance( value, type_str_base ):
+            value		= dotdict( {'string': value } )
 
         encoded			= value.string.encode( 'iso-8859-1' )
         # If .length doesn't exist or is None, set the length to the actual string length
@@ -478,7 +484,7 @@ class IPADDR( UDINT ):
 
     @classmethod
     def produce( cls, value ):
-        if isinstance( value, cpppo.type_str_base ):
+        if isinstance( value, type_str_base ):
             # Parse the supplied IP address string to an integer.  ip_address requires unicode
             # value, even in Python2; there is no Python2/3 agnostic method for casting to unicode!
             ipaddr		= ipaddress.ip_address(
@@ -502,7 +508,7 @@ class IPADDR_network( UDINT_network ):
 
     @classmethod
     def produce( cls, value ):
-        if isinstance( value, cpppo.type_str_base ):
+        if isinstance( value, type_str_base ):
             ipaddr		= ipaddress.ip_address(
                 ( unicode if sys.version_info[0] < 3 else str )( value ))
             value		= int( ipaddr )
@@ -562,7 +568,7 @@ class IFACEADDRS( STRUCT ):
 # enip_machine	-- Parses an EtherNet/IP header and encapsulated data payload
 # enip_encode	--   and convert parsed EtherNet/IP data back into a message
 # 
-class enip_header( cpppo.dfa ):
+class enip_header( dfa ):
     """Scans either a complete EtherNet/IP encapsulation header, or nothing (EOF), into the context
     (default 'header'):
     
@@ -584,7 +590,7 @@ class enip_header( cpppo.dfa ):
     """
     def __init__( self, name=None, **kwds ):
         name 			= name or kwds.setdefault( 'context', 'header' )
-        init			= cpppo.state(  "empty",  terminal=True )
+        init			= state(  "empty",  terminal=True )
         init[True] = cmnd	= UINT(		"command",	context="command" )
         cmnd[True] = leng	= UINT(		"length",	context="length" )
         leng[True] = sess	= UDINT(	"sess_hdl",	context="session_handle" )
@@ -596,7 +602,7 @@ class enip_header( cpppo.dfa ):
         super( enip_header, self ).__init__( name=name, initial=init, **kwds )
 
 
-class enip_machine( cpppo.dfa ):
+class enip_machine( dfa ):
     """Parses a complete EtherNet/IP message, including header (into <context> and command-specific
     encapsulated payload (into <context>.input).  Note that this does *not* put the EtherNet/IP
     header in a separate '.header' context.  '<context>.input'.  Context defaults to 'enip'
@@ -657,7 +663,7 @@ def enip_format( data, sort_keys=False ):
 # items, and finally the CIP Message Router Request from the second CPF item.
 # 
 
-class move_if( cpppo.decide ):
+class move_if( decide ):
     """If the predicate is True (the default), then move (either append or assign) data[path+source]
     to data[path+destination], assigning init to it first if the target doesn't yet exist.  Then,
     proceed to the target state.  If no source is provided, only the initialization (if not None)
@@ -719,7 +725,7 @@ class move_if( cpppo.decide ):
         return target
 
 
-class EPATH( cpppo.dfa ):
+class EPATH( dfa ):
     """Parses an Extended Path of .size (in words), path_data and path segment list
 
         .EPATH.size
@@ -879,15 +885,14 @@ class EPATH( cpppo.dfa ):
         # 0x90 == 100 100 01 Symbolic
         pseg[b'\x91'[0]]= symt	= octets_drop(	'type',		repeat=1 )
         symt[True]	= syml	= USINT(	'sym_len',	context='symbolic.length' )
-        syml[None]	= symv	= cpppo.string_bytes(
-            					'symbolic',	context='symbolic', limit='.length',
+        syml[None]	= symv	= string_bytes(	'symbolic',	context='symbolic', limit='.length',
                                                 initial='.*',	decode='iso-8859-1' )
 
         # An odd-length ANSI Extended Symbolic name means an odd total.  Pad
         symo			= octets_drop(	'pad', 		repeat=1 )
         symo[None]		= pmov
 
-        symv[None]		= cpppo.decide(	'odd',
+        symv[None]		= decide(	'odd',
                 predicate=lambda path=None, data=None, **kwds: len( data[path].symbolic ) % 2,
                                                 state=symo )
         symv[None]		= pmov
@@ -905,7 +910,7 @@ class EPATH( cpppo.dfa ):
             data[path].port    &= 0x0F
             if data[path].port == 0x0F:
                 # Port is extended; discard and prepare to collect new port number
-                data[path].port	= cpppo.dotdict()
+                data[path].port	= dotdict()
                 return True
             # Port is OK; don't transition
             return False
@@ -935,7 +940,7 @@ class EPATH( cpppo.dfa ):
 
         # Fix the port#; if 0x0F, setup for extended port and transition to pnbg.  Otherwise,
         # (not extended port), just go the the port numeric link.
-        pnum[None]		= cpppo.decide( 'port_nfix',	predicate=port_fix,
+        pnum[None]		= decide(	'port_nfix',	predicate=port_fix,
                                                 state=pnbg )
         pnum[None]		= pnlk
         pnlk[None]		= pmov	 	# and done; move segment, get next
@@ -960,15 +965,14 @@ class EPATH( cpppo.dfa ):
         pseg[b'\x1f'[0]]	= padr
 
         # Harvest the addresses into .link
-        adrv			= cpppo.string_bytes(
-            					'link_add',	context='link',	limit='.length',
+        adrv			= string_bytes(	'link_add',	context='link',	limit='.length',
                                                 initial='.*',	decode='iso-8859-1' )
 
         # An odd-length link address means an odd total.  Pad
         adro			= octets_drop(	'link_pad', 		repeat=1 )
         adro[None]		= pmov
 
-        adrv[None]		= cpppo.decide(	'link_odd',
+        adrv[None]		= decide(	'link_odd',
                 predicate=lambda path=None, data=None, **kwds: len( data[path+'.link'] ) % 2,
                                                 state=adro )
         adrv[None]		= pmov
@@ -979,7 +983,7 @@ class EPATH( cpppo.dfa ):
 
         # 
         padr[True]	= adrl	= USINT(	'link_len',	context='link.length' )
-        adrl[None]		= cpppo.decide(	'port_afix', 	predicate=port_fix,
+        adrl[None]		= decide(	'port_afix', 	predicate=port_fix,
                                                 state=pabg )
         adrl[None]	= adrv
 
@@ -992,7 +996,7 @@ class EPATH( cpppo.dfa ):
                 data[path+'..segment'] = []
             return octets
 
-        each			= cpppo.dfa(    'seg',		context='segment__',
+        each			= dfa(		'seg',		context='segment__',
                                                 initial=pseg,	terminal=True,
                                                 limit=None if self.SINGLE else size_init )
         if self.SINGLE:
@@ -1051,7 +1055,7 @@ class EPATH( cpppo.dfa ):
                     assert seg.port > 0, \
                         "A path port must be greater than zero"
                     port, pext	= (seg.port, 0) if seg.port < 0x0F else (0x0F, seg.port)
-                    assert isinstance( seg.link, ( int, cpppo.type_str_base )), \
+                    assert isinstance( seg.link, ( int, type_str_base )), \
                         "A path port link must be either an integer or a address string: % ( seg )"
                     if type( seg.link ) is int:
                         # 0x0_ port, optional extended port#, int link
@@ -1120,7 +1124,7 @@ class route_path( EPATH_padded ):
     """
 
 
-class unconnected_send( cpppo.dfa ):
+class unconnected_send( dfa ):
     """See CIP Specification, Vol. 1, Chapter 3, 3-5.26.  A Message Router object must process
     Unconnected Send (0x52) requests, which carry a message and a routing path, allowing delivery
     of the message to a port.  When the route_path contains only a port, then the message is
@@ -1166,7 +1170,7 @@ class unconnected_send( cpppo.dfa ):
         pad0			= octets_drop( 'pad', 	repeat=1 )
         pad0[None]		= rout
 
-        mesg[None]		= cpppo.decide( 'pad',	state=pad0,
+        mesg[None]		= decide(	'pad',	state=pad0,
                             predicate=lambda path=None, data=None, **kwds: data[path+'.length'] % 2 )
 
         # But, if no pad, go parse the route path
@@ -1199,7 +1203,7 @@ class unconnected_send( cpppo.dfa ):
         return result
 
 
-class communications_service( cpppo.dfa ):
+class communications_service( dfa ):
     """The ListServices response contains a CPF item list containing one item: a "Communications"
     type_id 0x0100, indicating that the device supports encapsulation of CIP packets.  These CPF
     items contain the standard type_id and length, followed by:
@@ -1227,7 +1231,7 @@ class communications_service( cpppo.dfa ):
         vers			= UINT(	context='version' )
         vers[True]	= capa	= UINT(	context='capability' )
 
-        capa[True]	= svnm	= cpppo.string_bytes( 'service_name',
+        capa[True]	= svnm	= string_bytes( 'service_name',
                                         context='service_name', greedy=True,
                                         initial='[^\x00]*', decode='iso-8859-1' )
         svnm[b'\0'[0]]		= octets_drop( 'NUL', repeat=1, terminal=True )
@@ -1244,7 +1248,7 @@ class communications_service( cpppo.dfa ):
         return result
 
 
-class identity_object( cpppo.dfa ):
+class identity_object( dfa ):
     """The ListIdentity response contains a CPF item list containing one item: an "Identity Object "
     type_id 0x000C.
 
@@ -1328,7 +1332,7 @@ class identity_object( cpppo.dfa ):
         # May end here, b/c of CPF framing errors (eg. PowerFlex)!  However, may continue on.
         # Either way, we want to move the parsed SSTRING product_name.string up one level, so that
         # product_name is a string.  So, prepare to parse whatever is after product_name...
-        more			= cpppo.state( 'done',
+        more			= state( 'done',
                                                terminal=True )		# We're OK with ending here...
         more[True]	= stat	= USINT( context='state',		# May end here, too...
                                          terminal=True )
@@ -1366,7 +1370,7 @@ class identity_object( cpppo.dfa ):
         return result
 
 
-class legacy_CPF_0x0001( cpppo.dfa ):
+class legacy_CPF_0x0001( dfa ):
     """EtherNet/IP CIP command 0x0001 carries A CPF payload with one entry -- this undocumented
     structure carries the IP address of the host.  It might be an early, undocumented version of
     List Identity's IP address payload?
@@ -1407,7 +1411,7 @@ class legacy_CPF_0x0001( cpppo.dfa ):
         sprt[True]	= sadd	= IPADDR_network(
                                         context='sin_addr' )
         sadd[True]	= szro	= octets_drop( context='sin_zero', repeat=8 )
-        szro[True]	= addr	= cpppo.string_bytes( 'ip_address', context='ip_address',
+        szro[True]	= addr	= string_bytes( 'ip_address', context='ip_address',
                                         greedy=True, initial='[^\x00]*', decode='iso-8859-1',
                                         terminal=True )
         addr[True]	= nuls	= octets_drop( 'NUL', repeat=1,
@@ -1434,7 +1438,7 @@ class legacy_CPF_0x0001( cpppo.dfa ):
         # to a string using the IPADDR_network parser.
         ip_address		= data.get( 'ip_address' )
         if ip_address is None:
-            ip_address_data	= cpppo.dotdict()
+            ip_address_data	= dotdict()
             with IPADDR_network() as machine:
                 with contextlib.closing( machine.run(
                         source=sin_addr_octets, data=ip_address_data )) as engine:
@@ -1444,14 +1448,14 @@ class legacy_CPF_0x0001( cpppo.dfa ):
 
         # Use the SSTRING producer to properly encode and NUL-pad the string to 16 characters.
         # We'll use the produced SSTRING, discarding the length.
-        sstring_data		= cpppo.dotdict( length=16, string=ip_address )
+        sstring_data		= dotdict( length=16, string=ip_address )
         sstring_octets		= SSTRING.produce( sstring_data )
 
         result		       += sstring_octets[1:]
         return result
 
 
-class connection_ID( cpppo.dfa ):
+class connection_ID( dfa ):
     """EtherNet/IP CIP command 0x00a1 carries a CPF payload with one entry -- a 4-byte 'connection' ID.
 
     """
@@ -1468,7 +1472,7 @@ class connection_ID( cpppo.dfa ):
         return result
 
 
-class connection_data( cpppo.dfa ):
+class connection_data( dfa ):
     """EtherNet/IP CIP command 0x00b1 carries a CPF payload with a number of payload bytes of
     'request.input' data, after a 2-byte sequence number.
 
@@ -1490,7 +1494,7 @@ class connection_data( cpppo.dfa ):
         return result
 
 
-class CPF( cpppo.dfa ):
+class CPF( dfa ):
 
     """A SendRRData Common Packet Format specifies the number and type of the encapsulated CIP
     address items or data items that follow:
@@ -1545,7 +1549,7 @@ class CPF( cpppo.dfa ):
         # A number, and then each CPF item consistes of a type, length and then parsable data.  
         ityp			= UINT( 			context='type_id' )
         ityp[True]	= ilen	= UINT( 			context='length' )
-        ilen[None]		= cpppo.decide( 'empty',
+        ilen[None]		= decide(	'empty',
                                 predicate=lambda path=None, data=None, **kwds: not data[path].length,
                                                 state=octets_noop( 'done', terminal=True ))
 
@@ -1554,7 +1558,7 @@ class CPF( cpppo.dfa ):
         # Note that we must capture the value of 'typ' in the lambda definition as a keyword
         # parameter (which is evaluated at once), or it will take the final value of outer 'typ'
         for typ,cls in self.ITEM_PARSERS.items():
-            ilen[None]		= cpppo.decide( cls.__name__, state=cls( terminal=True, limit='..length' ),
+            ilen[None]		= decide( cls.__name__, state=cls( terminal=True, limit='..length' ),
                         predicate=lambda path=None, data=None, typ=typ, **kwds: data[path].type_id == typ )
 
         # If we don't recognize the CPF item type, just parse remainder into .input (so we could re-generate)
@@ -1564,21 +1568,21 @@ class CPF( cpppo.dfa ):
 
         # Each item is collected into '.item__', 'til no more input available, and then moved into
         # place into '.item' (init to [])
-        item			= cpppo.dfa( 	'each', 	context='item__',
+        item			= dfa(		'each', 	context='item__',
                                                 initial=ityp )
         item[None] 		= move_if( 	'move', 	source='.item__',
                                            destination='.item', initializer=lambda **kwds: [] )
-        item[None]		= cpppo.state( 	'done', terminal=True )
+        item[None]		= state( 	'done', terminal=True )
 
         # Parse count, and then exactly .count CPF items (or just an empty dict, if nothing).  If
         # .count is 0, we're done (we don't even initialize .items to []).
         emty			= octets_noop(	'empty',	terminal=True )
         emty.initial[None]	= move_if( 	'mark',		initializer={} )
         emty[True]	= loop	= UINT( 			context='count' )
-        loop[None]		= cpppo.decide(	'empty',
-                        state=cpppo.state( 'done', terminal=True ),
+        loop[None]		= decide(	'empty',
+                        state=state( 'done', terminal=True ),
                         predicate=lambda path=None, data=None, **kwds: data[path+'.count'] == 0 )
-        loop[None]		= cpppo.dfa( 	'all', 	
+        loop[None]		= dfa(		'all',
                                                 initial=item,	repeat='.count',
                                                 terminal=True )
 
@@ -1611,7 +1615,7 @@ class CPF( cpppo.dfa ):
         return result
 
 
-class send_data( cpppo.dfa ):
+class send_data( dfa ):
     """Handle Connected (SendUnitData) or Unconnected (SendRRData) Send Data request/reply."""
     def __init__( self, name=None, **kwds ):
         name 			= name or kwds.setdefault( 'context', self.__class__.__name__ )
@@ -1631,7 +1635,7 @@ class send_data( cpppo.dfa ):
         return result
 
 
-class register( cpppo.dfa ):
+class register( dfa ):
     """Handle RegisterSession request/reply (identical)"""
     def __init__( self, name=None, **kwds ):
         name 			= name or kwds.setdefault( 'context', self.__class__.__name__ )
@@ -1663,7 +1667,7 @@ class unregister( octets_noop ):
         data[ours]		= True
 
 
-class CPF_service( cpppo.dfa ):
+class CPF_service( dfa ):
     """Handle Service request/reply that are encoded as a CPF list.  We must deduce whether we are
     parsing a request or a reply.  The request will have a 0 length; the reply (which must contain a
     CPF with at least an item count) will have a non-zero length.
@@ -1700,7 +1704,7 @@ class legacy( CPF_service ):
     pass
 
 
-class CIP( cpppo.dfa ):
+class CIP( dfa ):
     """The EtherNet/IP CIP Encapsulation transports various commands back and forth between a
     transmitter and a receiver.  There is no explicit designation of a request or a reply.  All have
     a common prefix; an EtherNet/IP header and encapsulated command (already parsed elsewhere).  We expect
@@ -1773,7 +1777,7 @@ class CIP( cpppo.dfa ):
 
         slct			= octets_noop(	'sel_CIP' )
         for cmd,cls in self.COMMAND_PARSERS.items():
-            slct[None]		= cpppo.decide( cls.__name__,
+            slct[None]		= decide( cls.__name__,
                     state=cls( limit='...length', terminal=True ),
                     predicate=lambda path=None, data=None, cmd=cmd, **kwds: data[path+'..command'] in cmd )
         super( CIP, self ).__init__( name=name, initial=slct, **kwds )
@@ -1799,7 +1803,7 @@ class CIP( cpppo.dfa ):
         raise Exception( "Invalid CIP request/reply format: %r" % data )
 
 
-class typed_data( cpppo.dfa ):
+class typed_data( dfa ):
     """Parses CIP typed data, of the form specified by the datatype (must be a relative path within the
     data artifact, or an integer data type).  Data elements are parsed 'til exhaustion of input, so
     the caller should use limit= to define the limits of the data in the source symbol input stream;
@@ -1851,10 +1855,10 @@ class typed_data( cpppo.dfa ):
 
     def __init__( self, name=None, tag_type=None, structure_tag=None, **kwds ):
         name 			= name or kwds.setdefault( 'context', self.__class__.__name__ )
-        assert tag_type and isinstance( tag_type, (int,cpppo.type_str_base)), \
+        assert tag_type and isinstance( tag_type, (int,type_str_base)), \
             "Must specify a numeric (or relative path to) the CIP data type; found: %r" % tag_type
         if structure_tag:
-            assert structure_tag and isinstance( structure_tag, (int,cpppo.type_str_base)), \
+            assert structure_tag and isinstance( structure_tag, (int,type_str_base)), \
                 "Must specify a numeric (or relative path to) the STRUCT handle; found: %r" % structure_tag
 
         slct			= octets_noop(	'sel_type' )
@@ -1971,53 +1975,53 @@ class typed_data( cpppo.dfa ):
                                                 destination='.structure_tag' )
         strt[None]		= move_if( 	'mov_struct',	source='.STRUCT.data',
                                                 destination='.STRUCT',
-                                    initializer=lambda **kwds: dict( input=array.array( cpppo.type_bytes_array_sumbol, [] )))
+                                    initializer=lambda **kwds: dict( input=array.array( type_bytes_array_sumbol, [] )))
         strt[None]		= move_if( 	'mov_struct',	source='.STRUCT',
                                                 destination='.data' )
 
-        slct[None]		= cpppo.decide(	'BOOL',	state=u_1d,
+        slct[None]		= decide(	'BOOL',	state=u_1d,
             predicate=lambda path=None, data=None, **kwds: \
-                BOOL.tag_type == ( data[path+tag_type] if isinstance( tag_type, cpppo.type_str_base ) else tag_type ))
-        slct[None]		= cpppo.decide(	'SINT',	state=i_8d,
+                BOOL.tag_type == ( data[path+tag_type] if isinstance( tag_type, type_str_base ) else tag_type ))
+        slct[None]		= decide(	'SINT',	state=i_8d,
             predicate=lambda path=None, data=None, **kwds: \
-                SINT.tag_type == ( data[path+tag_type] if isinstance( tag_type, cpppo.type_str_base ) else tag_type ))
-        slct[None]		= cpppo.decide(	'USINT',state=u_8d,
+                SINT.tag_type == ( data[path+tag_type] if isinstance( tag_type, type_str_base ) else tag_type ))
+        slct[None]		= decide(	'USINT',state=u_8d,
             predicate=lambda path=None, data=None, **kwds: \
-                USINT.tag_type == ( data[path+tag_type] if isinstance( tag_type, cpppo.type_str_base ) else tag_type ))
-        slct[None]		= cpppo.decide(	'INT',	state=i16d,
+                USINT.tag_type == ( data[path+tag_type] if isinstance( tag_type, type_str_base ) else tag_type ))
+        slct[None]		= decide(	'INT',	state=i16d,
             predicate=lambda path=None, data=None, **kwds: \
-                INT.tag_type == ( data[path+tag_type] if isinstance( tag_type, cpppo.type_str_base ) else tag_type ))
-        slct[None]		= cpppo.decide(	'UINT',	state=u16d,
+                INT.tag_type == ( data[path+tag_type] if isinstance( tag_type, type_str_base ) else tag_type ))
+        slct[None]		= decide(	'UINT',	state=u16d,
             predicate=lambda path=None, data=None, **kwds: \
-                UINT.tag_type == ( data[path+tag_type] if isinstance( tag_type, cpppo.type_str_base ) else tag_type ))
+                UINT.tag_type == ( data[path+tag_type] if isinstance( tag_type, type_str_base ) else tag_type ))
 
-        slct[None]		= cpppo.decide(	'DINT',	state=i32d,
+        slct[None]		= decide(	'DINT',	state=i32d,
             predicate=lambda path=None, data=None, **kwds: \
-                DINT.tag_type == ( data[path+tag_type] if isinstance( tag_type, cpppo.type_str_base ) else tag_type ))
-        slct[None]		= cpppo.decide(	'UDINT',state=u32d,
+                DINT.tag_type == ( data[path+tag_type] if isinstance( tag_type, type_str_base ) else tag_type ))
+        slct[None]		= decide(	'UDINT',state=u32d,
             predicate=lambda path=None, data=None, **kwds: \
-                UDINT.tag_type == ( data[path+tag_type] if isinstance( tag_type, cpppo.type_str_base ) else tag_type ))
-        slct[None]		= cpppo.decide(	'LINT',	state=i64d,
+                UDINT.tag_type == ( data[path+tag_type] if isinstance( tag_type, type_str_base ) else tag_type ))
+        slct[None]		= decide(	'LINT',	state=i64d,
             predicate=lambda path=None, data=None, **kwds: \
-                LINT.tag_type == ( data[path+tag_type] if isinstance( tag_type, cpppo.type_str_base ) else tag_type ))
-        slct[None]		= cpppo.decide(	'ULINT',state=u64d,
+                LINT.tag_type == ( data[path+tag_type] if isinstance( tag_type, type_str_base ) else tag_type ))
+        slct[None]		= decide(	'ULINT',state=u64d,
             predicate=lambda path=None, data=None, **kwds: \
-                ULINT.tag_type == ( data[path+tag_type] if isinstance( tag_type, cpppo.type_str_base ) else tag_type ))
-        slct[None]		= cpppo.decide(	'REAL',	state=fltd,
+                ULINT.tag_type == ( data[path+tag_type] if isinstance( tag_type, type_str_base ) else tag_type ))
+        slct[None]		= decide(	'REAL',	state=fltd,
             predicate=lambda path=None, data=None, **kwds: \
-                REAL.tag_type == ( data[path+tag_type] if isinstance( tag_type, cpppo.type_str_base ) else tag_type ))
-        slct[None]		= cpppo.decide(	'LREAL', state=dltd,
+                REAL.tag_type == ( data[path+tag_type] if isinstance( tag_type, type_str_base ) else tag_type ))
+        slct[None]		= decide(	'LREAL', state=dltd,
             predicate=lambda path=None, data=None, **kwds: \
-                LREAL.tag_type == ( data[path+tag_type] if isinstance( tag_type, cpppo.type_str_base ) else tag_type ))
-        slct[None]		= cpppo.decide(	'SSTRING', state=sstd,
+                LREAL.tag_type == ( data[path+tag_type] if isinstance( tag_type, type_str_base ) else tag_type ))
+        slct[None]		= decide(	'SSTRING', state=sstd,
             predicate=lambda path=None, data=None, **kwds: \
-                SSTRING.tag_type == ( data[path+tag_type] if isinstance( tag_type, cpppo.type_str_base ) else tag_type ))
-        slct[None]		= cpppo.decide(	'STRING', state=sttd,
+                SSTRING.tag_type == ( data[path+tag_type] if isinstance( tag_type, type_str_base ) else tag_type ))
+        slct[None]		= decide(	'STRING', state=sttd,
             predicate=lambda path=None, data=None, **kwds: \
-                STRING.tag_type == ( data[path+tag_type] if isinstance( tag_type, cpppo.type_str_base ) else tag_type ))
-        slct[None]		= cpppo.decide(	'STRUCT', state=strt,
+                STRING.tag_type == ( data[path+tag_type] if isinstance( tag_type, type_str_base ) else tag_type ))
+        slct[None]		= decide(	'STRUCT', state=strt,
             predicate=lambda path=None, data=None, **kwds: \
-                STRUCT.tag_type == ( data[path+tag_type] if isinstance( tag_type, cpppo.type_str_base ) else tag_type ))
+                STRUCT.tag_type == ( data[path+tag_type] if isinstance( tag_type, type_str_base ) else tag_type ))
 
         super( typed_data, self ).__init__( name=name, initial=slct, **kwds )
 
@@ -2053,7 +2057,7 @@ class typed_data( cpppo.dfa ):
         return cls.TYPES_SUPPORTED[tag_type].struct_calcsize * size
 
 
-class status( cpppo.dfa ):
+class status( dfa ):
     """Parses CIP status, and status_ext.size/.data:
 
         .status				USINT		1
@@ -2072,14 +2076,14 @@ class status( cpppo.dfa ):
         exts			= UINT(		'ext_status',	extension='.ext_status' )
         exts[None]		= move_if( 	'data',		source='.ext_status',
                                            destination='.data',	initializer=lambda **kwds: [] )
-        exts[None]		= cpppo.state( 	'done', terminal=True )
+        exts[None]		= state( 	'done', terminal=True )
 
         # Parse each status_ext.data in a sub-dfa, repeating status_ext.size times
-        each			= cpppo.dfa(    'each',		extension='_ext',
+        each			= dfa(		'each',		extension='_ext',
                                                 initial=exts,	repeat='_ext.size',
                                                 terminal=True )
         # Only enter the state_ext.data dfa if status_ext.size is non-zero
-        size[None]		= cpppo.decide(	'_ext.size', 
+        size[None]		= decide(	'_ext.size', 
                             predicate=lambda path=None, data=None, **kwds: data[path+'_ext.size'],
                                                 state=each )
         # Otherwise, we're done!
