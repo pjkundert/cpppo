@@ -292,14 +292,14 @@ class REAL_network( TYPE ):
 
 class STRUCT( cpppo.dfa, cpppo.state ):
     """An EtherNet/IP STRUCT; By default, a 2-byte UINT .structure_tag, followed by arbitrarily encoded
-    USINT into .data.  We'll generally use this as a base class for types requiring custom parser
+    raw .data.input.  We'll generally use this as a base class for types requiring custom parser
     state machinery and produce methods; the default will be an unparsed raw CIP STRUCT w/ a
     .structure_tag value.
 
     To parse just the .structure_tag, establish the STRUCT parser w/ limit=2.
 
     If a structure_tag is supplied (as either a string or numeric value), then we assume it has
-    already been parsed and only the raw data is parsed.
+    already been parsed and only the raw data is to be parsed.
 
     """
     tag_type			= 0x02a0
@@ -308,22 +308,37 @@ class STRUCT( cpppo.dfa, cpppo.state ):
         name			= name or kwds.setdefault( 'context', self.__class__.__name__ )
 
         if initial is None:
-            strt		= UINT(				context='structure_tag' )
-            strt[None]	= u_8d	= octets_noop(	'end_8bitu',
+            strt		= UINT(				context='structure_tag',
+                                                terminal=True)
+            # Any remaining data into .data.input (only if input remains!)
+            strt[True]	= pyld	= octets(	'payload',	context='data',
                                                 terminal=True )
-            u_8d[True]	= u_8p	= USINT()
-            u_8p[None]		= move_if( 	'mov_8bitu',	source='.USINT', 
-                                           destination='.data',initializer=lambda **kwds: [],
-                                                state=u_8d )
-            initial		= strt if structure_tag is None else u_8d
+            pyld[True]		= pyld
+
+            initial		= strt if structure_tag is None else pyld
 
         super( STRUCT, self ).__init__( name=name, initial=initial, **kwds )
 
     @classmethod
-    def produce( cls, value ):
+    def produce( cls, value, structure_tag=None ):
+        """We need to be able to produce the result with and without a UINT .structure_tag encoded
+        before it.  If None/False, the default is to produce no UINT structure tag prefix.
+
+        It is assumed that the encoded structure data payload is in .input.
+        """
+        if structure_tag is None:
+            structure_tag	= False			# default: No UINT structure_tag prefix
+        if isinstance( structure_tag, bool ) and structure_tag:
+            structure_tag	= value.structure_tag	# True: Use the known structure_tag
         result			= b''
-        result		       += UINT.produce( value.structure_tag )
-        result		       += b''.join( USINT.produce( v ) for v in value.data )
+        if structure_tag:
+            result	       += UINT.produce( structure_tag )
+        # A single UDT record's worth of raw payload is assumed to be available in .data.input;
+        # derived classes should pre-encode their value.
+        encoded			= value.data.input
+        if not isinstance( encoded, bytes ):
+            encoded		= octets_encode( encoded )
+        result		       += encoded
         return result
 
 
@@ -669,7 +684,7 @@ class move_if( cpppo.decide ):
 
         pathsrc			= path + ( self.src or '' )
         pathdst			= path + self.dst
-        log.normal( "%s -- moving data[%r] to data[%r], in %r", self, pathsrc, pathdst, data )
+        #log.normal( "%s -- moving data[%r] to data[%r], in %r", self, pathsrc, pathdst, data )
         if self.ini is not None and pathdst not in data:
             ini			= ( self.ini
                                     if not hasattr( self.ini, '__call__' )
@@ -1940,21 +1955,23 @@ class typed_data( cpppo.dfa ):
                                            destination='.data', initializer=lambda **kwds: [],
                                                 state=sttd )
 
-        # STRUCT data is prefixed by a UINT structure_tag, then raw data.  In theory, there could be
-        # a .structure_tag followed by no data (eg. if you do a Read Tag Fragmented with an offset
-        # to exactly the end of the structure.)  Move the parse { 'STRUCT': { 'data': [],
-        # 'structure_tag': }} up onto the target name eg. 'typed_data' (tidy empty dicts as we go).
+        # STRUCT data is prefixed by a UINT structure_tag, then parsed raw into .data.  In theory,
+        # there could be a .structure_tag followed by no data (eg. if you do a Read Tag Fragmented
+        # with an offset to exactly the end of the structure.)  Move the parse { 'STRUCT': { 'data':
+        # array( 'B'/'c', []), 'structure_tag': }} up onto the target name eg. 'typed_data' (tidy
+        # empty dict as we go).
         # 
         # If the structure_tag has been supplied as either a string (data lookup, relative to path),
-        # or a numeric value, we'll parse it with STRUCT (and move it into place, here) Otherwise,
-        # just data the STRUCT.data will be parsed.
+        # or a numeric value, we'll parse it with STRUCT (and move it into place, here).  Otherwise,
+        # just the STRUCT.data payload will be parsed.
         strt			= STRUCT( structure_tag=structure_tag,
                                           terminal=True )
         if structure_tag is None:
             strt[None]		= move_if( 	'mov_struct',	source='.STRUCT.structure_tag',
                                                 destination='.structure_tag' )
         strt[None]		= move_if( 	'mov_struct',	source='.STRUCT.data',
-                                                destination='.STRUCT' )
+                                                destination='.STRUCT',
+                                    initializer=lambda **kwds: dict( input=array.array( cpppo.type_bytes_array_sumbol, [] )))
         strt[None]		= move_if( 	'mov_struct',	source='.STRUCT',
                                                 destination='.data' )
 
@@ -2010,12 +2027,23 @@ class typed_data( cpppo.dfa ):
         encoded to bytes."""
         if tag_type is None:
             tag_type		= data.get( 'type' ) or data.get( 'tag_type' )
-        assert 'data' in data and hasattr( data.get( 'data' ), '__iter__' ) and tag_type in cls.TYPES_SUPPORTED, \
-            "Unknown (or no) typed data found for tag_type %r: %r" % ( tag_type, data )
-        if tag_type == STRUCT.tag_type:
-            return STRUCT.produce( data )
+        assert tag_type in cls.TYPES_SUPPORTED, \
+            "Unknown tag_type %r: %r" % ( tag_type, data )
+        result			= b''
         producer		= cls.TYPES_SUPPORTED[tag_type].produce
-        return b''.join( producer( v ) for v in data.get( 'data' ))
+        if tag_type == STRUCT.tag_type:
+            # Raw .input data payload representing the UDT is expected to have been formed.  A UDT
+            # is a monolithic data type that is opaque to us.
+            assert 'data.input' in data and hasattr( data.get( 'data.input' ), '__iter__' ), \
+                "Unknown (or no) typed data found for tag_type %r: %r" % ( tag_type, data )
+            result	       += producer( data, structure_tag=True )
+        else:
+            # Other basic CIP data types
+            payload		= data.get( 'data' )
+            assert payload is not None and hasattr( payload, '__iter__' ), \
+                "Unknown (or no) typed data found for tag_type %r: %r" % ( tag_type, data )
+            result	       += b''.join( map( producer, data.get( 'data' )))
+        return result
 
     @classmethod
     def datasize( cls, tag_type, size=1 ):

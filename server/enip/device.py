@@ -48,6 +48,11 @@ import sys
 import threading
 import traceback
 
+try:
+    import reprlib
+except ImportError:
+    import repr as reprlib
+
 import configparser # Python2 requires 'pip install configparser'
 
 import cpppo
@@ -556,8 +561,9 @@ class Attribute( object ):
         self.default		= type(self.default)( v )
 
     def __str__( self ):
-        return "%-24s %10s[%4d] == %r" % (
-            self.name, self.parser.__class__.__name__, len( self ), self.value )
+        return "%-24s %10s%s == %s" % (
+            self.name, self.parser.__class__.__name__,
+            ( ("[%4d]" % len( self )) if not self.scalar else ( " x-4d" % len( self )) ), reprlib.repr( self.value ))
     __repr__ 			= __str__
 
     def __len__( self ):

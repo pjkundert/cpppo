@@ -342,9 +342,10 @@ def test_enip_TYPES_STRUCT():
         for i,(m,s) in enumerate( machine.run( source=source, data=data )):
             log.info( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r", m.name_centered(),
                       i, s, source.sent, source.peek(), data )
-        assert i == 21
+        assert i == 11
     assert data.STRUCT.structure_tag == 0x8899
-    assert data.STRUCT.data == [ 2, 0, 3, 0 ]
+    assert data.STRUCT.data.input == \
+        array.array( cpppo.type_bytes_array_symbol, b'\x02\x00\x03\x00' )
 
     # Only parse the .structure_tag
     data			= cpppo.dotdict()
@@ -353,7 +354,7 @@ def test_enip_TYPES_STRUCT():
         for i,(m,s) in enumerate( machine.run( source=source, data=data )):
             log.info( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r", m.name_centered(),
                       i, s, source.sent, source.peek(), data )
-        assert i == 4
+        assert i == 2
     assert data.STRUCT == dict( structure_tag = 0x8899 )
 
     data			= cpppo.dotdict()
@@ -362,10 +363,11 @@ def test_enip_TYPES_STRUCT():
         for i,(m,s) in enumerate( machine.run( source=source, data=data )):
             log.info( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r", m.name_centered(),
                       i, s, source.sent, source.peek(), data )
-        assert i == 25
+        assert i == 15
     assert data.typed_data.structure_tag == 0x8899
-    assert len( data.typed_data.data ) == 4
-    assert data.typed_data.data == [ 2, 0, 3, 0 ]
+    assert len( data.typed_data.data.input ) == 4
+    assert data.typed_data.data.input == \
+        array.array( cpppo.type_bytes_array_symbol, b'\x02\x00\x03\x00' )
 
 
 
@@ -1891,7 +1893,7 @@ CIP_tests			= [
                     "enip.CIP.send_data.CPF.item[1].connection_data.request.status_ext.size": 0,
                     "enip.CIP.send_data.CPF.item[1].connection_data.request.read_frag.type": 672,
                     "enip.CIP.send_data.CPF.item[1].connection_data.request.read_frag.structure_tag": 36345,
-                    "enip.CIP.send_data.CPF.item[1].connection_data.request.read_frag.data": [
+                    "enip.CIP.send_data.CPF.item[1].connection_data.request.read_frag.data.input": array.array( cpppo.type_bytes_array_symbol, bytes(bytearray([
                         111,  0, 0, 0, 6, 0, 0, 0, 82, 84, 49, 45, 49, 55, 0, 32,
                         49, 55, 0, 97, 116, 105, 111, 110, 32, 49, 0, 0, 0, 0, 0, 0,
                         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
@@ -1923,7 +1925,7 @@ CIP_tests			= [
                         25, 16, 0, 0, 51, 51, 51, 63, 208, 7, 0, 0, 128, 62, 0, 0,
                         240, 85, 0, 0, 240, 85, 0, 0, 240, 85, 0, 0, 0, 0, 224, 64,
                         0, 0, 32, 65, 0, 0, 32, 65
-                    ]
+                    ] )))
                 }
             ), (
                 'msp_001_reply', logix.Logix,
@@ -2142,9 +2144,9 @@ CIP_tests			= [
                     "enip.CIP.send_data.CPF.item[1].connection_data.request.write_tag.type": 672,
                     "enip.CIP.send_data.CPF.item[1].connection_data.request.write_tag.structure_tag": 34969,
                     "enip.CIP.send_data.CPF.item[1].connection_data.request.write_tag.elements": 1,
-                    "enip.CIP.send_data.CPF.item[1].connection_data.request.write_tag.data": [
+                    "enip.CIP.send_data.CPF.item[1].connection_data.request.write_tag.data.input": array.array( cpppo.type_bytes_array_symbol, bytes(bytearray([
                         0xff,
-                    ]
+                    ])))
                 }
             ), (
                 'wfg_003_request', logix.Logix,
@@ -2170,7 +2172,9 @@ CIP_tests			= [
                     "enip.CIP.send_data.CPF.item[1].connection_data.request.write_frag.structure_tag": 34969,
                     "enip.CIP.send_data.CPF.item[1].connection_data.request.write_frag.elements": 1,
                     "enip.CIP.send_data.CPF.item[1].connection_data.request.write_frag.offset": 2,
-                    "enip.CIP.send_data.CPF.item[1].connection_data.request.write_frag.data": [ 0xff, ]
+                    "enip.CIP.send_data.CPF.item[1].connection_data.request.write_frag.data.input": array.array( cpppo.type_bytes_array_symbol, bytes(bytearray([
+                        0xff,
+                    ])))
                 }
             ), (
                 'snd_u01_req', pccc.PCCC_ANC_120e,
@@ -3418,11 +3422,17 @@ def test_enip_CIP( repeat=1 ):
             log.warning( "%r not in data, or != %r: data %s\n != test %s", k, v, enip.enip_format( data ), enip.enip_format( tst ))
             raise
 
-        # Ensure that we can get the original EtherNet/IP CIP back; delete any pre-generated 'input'
+        # Ensure that we can get the original EtherNet/IP CIP back; delete any pre-generated
+        # 'enip/request.input'.  Leave other eg. read_tag.data.input alone; these may not be
+        # re-generable (for example, parsed STRUCT UDT are opaque, and their data.input must be
+        # retained).
         for k in list(data.keys()):
-            if k.endswith( 'input' ) and 'sender_context' not in k:
-                log.detail( "del data[%r]", k )
-                del data[k]
+            if k.endswith( 'input' ):
+                if k.endswith( 'enip.input' ) or k.endswith( 'request.input' ):
+                    log.detail( "del  data[%r]", k )
+                    del data[k]
+                else:
+                    log.detail( "keep data[%r]", k )
 
         try:
             # First reconstruct any SendRRData CPF items, containing encapsulated requests/responses

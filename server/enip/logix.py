@@ -208,12 +208,24 @@ class Logix( Message_Router ):
         # Maximum elements for read is the capacity of the reply message, for write is the number
         # actually provided in request.  Compute this from the beginning element deduced from the
         # byte offset of this request.  This will reduce the scope of the reply by A) advancing
-        # 'beg' by a byte offset, and/or B) reducing 'end' due to reply size limitations or
-        # an incomplete number of data elements provided.  The 'end' can only get smaller
-        # than the (known valid) 'endactual'.
-        beg		       += off // siz
+        # 'beg' by a byte offset, and/or B) reducing 'end' due to reply size limitations or an
+        # incomplete number of data elements provided.  The 'end' can only get smaller than the
+        # (known valid) 'endactual'.
+        # 
+        # TODO: This is not strictly correct; we must be able to return a response w/ an offset that
+        # starts mid-element!  Also, for STRUCT types, the size of each UDT element (eg. 600 bytes)
+        # can be greater than the maximum connection size, preventing even one complete element from
+        # being returned.  For now, always round up to return a complete element; this may prevent
+        # some clients from accepting the data (eg. if the elements are too big, and a Small Forward
+        # Open is used.
+        begadvance		= off // siz
+        log.detail( "index: {index!r} beg: {beg}, cnt: {cnt}, elm: {elm}; endactual: {endactual}, begadvance: {begadvance}".format(
+            index=index, beg=beg, cnt=cnt, elm=elm, endactual=endactual, begadvance=begadvance ))
+        assert begadvance * siz == off, \
+            "Fragment offset {off} is not on an element {siz}-byte boundary".format( off=off, siz=siz )
+        beg		       += begadvance
         if data.service in (self.RD_TAG_RPY, self.RD_FRG_RPY):
-            endmax 		= beg + self.MAX_BYTES // siz
+            endmax 		= beg + max( self.MAX_BYTES // siz, 1 )
         else:
             endmax		= beg + len( data[context].data )
             assert endmax <= endactual, \
@@ -221,9 +233,9 @@ class Logix( Message_Router ):
                     attribute, len( data[context].data ), beg )
         end			= min( endactual, endmax )
         assert 0 <= beg < cnt, \
-            "Attribute %s initial element invalid: %r" % ( attribute, (beg, end) )
+            "Attribute %r initial element invalid: %r" % ( attribute, (beg, end) )
         assert beg < end, \
-            "Attribute %s ending element before beginning: %r" % ( attribute, (beg, end) )
+            "Attribute %r ending element before beginning: %r" % ( attribute, (beg, end) )
         return (beg,end,endactual)
 
     def request( self, data, addr=None ):
@@ -376,8 +388,16 @@ class Logix( Message_Router ):
             log.debug( "Replying w/ elements [%3d-%-3d/%3d] for %r", beg, end, endactual, data )
             if data.service in (self.RD_TAG_RPY, self.RD_FRG_RPY):
                 # Read Tag [Fragmented]
-                data[context].data	= attribute[beg:end]
-                log.detail( "%s Reading %3d elements %3d-%3d from %s: %s",
+                recs			= attribute[beg:end]
+                if attribute.parser.tag_type == STRUCT.tag_type:
+                    # Render the STRUCT UDTs to binary.  Assume that each record has its data.input
+                    # representation
+                    input		= b''
+                    for r in recs:
+                        input	       += bytes( r.data.input )
+                    recs		= dict( input=input )
+                data[context].data	= recs
+                log.detail( "%s Reading %3d elements %3d-%3d from %s: %r",
                             self, end - beg, beg, end-1, attribute, data[context].data )
                 # Final .status is 0x00 if all requested elements were shipped; 0x06 if not
                 data.status		= 0x00 if end == endactual else 0x06
