@@ -27,3 +27,4 @@ __all__				= ["logix", "client", "ucmm", "main"]
 from .defaults import *
 from .parser   import *
 from .device   import *
+from .udt      import *

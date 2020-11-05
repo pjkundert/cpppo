@@ -525,6 +525,7 @@ def assert_tps( minimum=None, scale=None, repeat=1 ):
         return wrapper
     return decorator
 
+
 def hexdump( src, offset=0, length=16, sep='.', quote='|' ):
     '''
     @brief Return {src} in hex dump.
@@ -567,8 +568,19 @@ def hexdump( src, offset=0, length=16, sep='.', quote='|' ):
                 text += sep;
         result.append( "{addr:08X}:  {hexa:<{hexawidth}s}  {quote}{text}{quote}".format(
             addr=i+offset, hexa=hexa, hexawidth=length*(2+1)+1, text=text, quote=quote or '' ))
-
     return '\n'.join(result);
+
+
+def hexdump_differs( *dumps, **kwds ): # Python3 version: ', inclusive=False ):'
+    """Compare a number of hexdump outputs side by side, returning differing lines."""
+    inclusive			= kwds.get( 'inclusive', False ) # for Python2 compatibility
+    lines			= [ d.split( '\n' ) for d in dumps ]
+    differs			= []
+    for cols in zip( *lines ):
+        same			= all( c == cols[0] for c in cols[1:] )
+        if not same or inclusive:
+            differs.append(( ' == ' if same else ' != ' ).join( cols ))
+    return '\n'.join( differs )
 
 
 def hexdecode( enc, offset=0, sep=':' ):

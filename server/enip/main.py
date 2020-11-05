@@ -1108,6 +1108,8 @@ def main( argv=None, attribute_class=device.Attribute, attribute_kwds=None,
                 key.indices( len( self ))[1]-1 if isinstance( key, slice ) else key,
                 value ))
 
+    # Iterate the specified Tag names=... in args.tags, deducing Tag names, CIP types, etc.  If no
+    # type is provided, defaults to CIP INT (or, whatever type_cls is specified in attribute_kwds).
     for t in args.tags:
         tag_name, rest		= t, ''
         if '=' in tag_name:
@@ -1203,7 +1205,6 @@ def main( argv=None, attribute_class=device.Attribute, attribute_kwds=None,
         tag_entry.error		= 0x00
         dict.__setitem__( tags, tag_name, tag_entry )
 
-
     # Use the Logix simulator and all the basic required default CIP message processing classes by
     # default (unless some other one was supplied as a keyword options to main(), loaded above into
     # 'options').  This key indexes an immutable value (not another dotdict layer), so is not
@@ -1252,7 +1253,6 @@ def main( argv=None, attribute_class=device.Attribute, attribute_kwds=None,
     assert 1 <= len( http ) <= 2, "Invalid --web [<interface>][:<port>]: %s" % args.web
     http			= ( str( http[0] ) if http[0] else bind[0],
                                     int( http[1] ) if len( http ) > 1 and http[1] else 80 )
-
 
     if args.web:
         assert 'web' in sys.modules, "Failed to import web API module; --web option not available.  Run 'pip install web.py'"

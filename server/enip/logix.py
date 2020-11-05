@@ -688,7 +688,7 @@ def setup_tag( key, val ):
                                   ( lookup( 0x02, 0 ).__class__,),
                                   {'class_id': cls} )
             instance		= class_type( instance_id=ins )
-            log.normal( "Set Tag %-14s%-10s: %-24s Instance %3d created", key,
+            log.normal( "Set Tag %-14s%-10s: %-24s Instance %3d Created", key,
                         "@%s/%s/%s" % ( cls, ins, '?' if att is None else att ), instance, ins )
 
         # We know that the required Instance of the designated Class now exists.  Now, if
@@ -715,8 +715,8 @@ def setup_tag( key, val ):
             # or no specified path. 
             attribute		= instance.attribute[str(att)] \
                                 = val.attribute
-        log.normal( "Set Tag %-14s%-10s: %-24s Instance Added: %s",
-                    key, "@%s/%s/%s" % ( cls, ins, att ), instance, 
+        log.normal( "Set Tag %-14s%-10s: %-24s Instance %3d Added: %s",
+                    key, "@%s/%s/%s" % ( cls, ins, att ), instance, ins,
                     attribute if log.isEnabledFor( logging.INFO ) else misc.reprlib.repr( attribute ))
 
         # Finally, set tag 'key' to point to the (now existing) Class, Instance, Attribute
