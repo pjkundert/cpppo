@@ -32,17 +32,22 @@ enip/parser.py	-- The EtherNet/IP CIP protocol parsers
 
 import array
 import contextlib
-import json
 import logging
 import struct
 import sys
 
 import ipaddress
 
+try:
+    import reprlib
+except ImportError:
+    import repr as reprlib
+
 from ...dotdict import dotdict
 from ...automata import ( type_str_base, type_bytes_iter, type_bytes_array_symbol, is_listlike,
                           dfa_base, dfa, decide,
                           state, state_struct, state_drop, state_input, string_bytes )
+from ... import misc
 
 log				= logging.getLogger( "enip.srv" )
 
@@ -85,7 +90,7 @@ class octets( octets_base, state ):
 
 def octets_encode( value ):
     """Convert various containers to bytes"""
-    if isinstance( value, array.array ):
+    if isinstance( value, array.array ) and value.typecode == type_bytes_array_symbol:
         return value.tostring() if sys.version_info[0] < 3 else value.tobytes()
     elif isinstance( value, bytearray ):
         return bytes( value )
@@ -341,9 +346,7 @@ class STRUCT( dfa, state ):
             result	       += UINT.produce( structure_tag )
         # A single UDT record's worth of raw payload is assumed to be available in .data.input;
         # derived classes should pre-encode their value.
-        encoded			= value.data.input
-        if not isinstance( encoded, bytes ):
-            encoded		= octets_encode( encoded )
+        encoded			= octets_encode( value.data.input )
         result		       += encoded
         return result
 
@@ -642,9 +645,9 @@ def enip_encode( data ):
     ])
     return result
     
-def enip_format( data, sort_keys=False ):
-    """Format a decoded EtherNet/IP data bundle in a (more) human-readable form.  Note that sort_keys=True
-    will not work as expected for keys which contain indices: the order of keys like:
+def enip_format( data, sort_keys=False, indent=4 ):
+    """Format a decoded EtherNet/IP data bundle in a (more) human-readable form.  Note that
+    sort_keys=True will not work as expected for keys which contain indices: the order of keys like:
 
         path[0].more
         path[10].more
@@ -652,8 +655,69 @@ def enip_format( data, sort_keys=False ):
 
     will probably be unexpected.  There is no means by which to specify a custom sorting function.
 
+    Only outputs full (sometimes excruciatingly long) repr details at logging level INFO and below.
+
+    In Python2, we need to specially handle str/bytes vs. unicode strings; we need to avoid
+    enip_format attempting to decode str as utf-8
+
     """
-    return json.dumps( data, indent=4, sort_keys=sort_keys, default=lambda obj: repr( obj ))
+    pairs		= data.items()
+    if sort_keys:
+        pairs		= sorted( pairs )
+    prefix		= ' ' * indent
+    newline		= '\n' + prefix
+    result		= '{'
+    for key,val in pairs:
+        result	       += newline + "{key:32}".format( key=repr( key ) + ': ' )
+        if isinstance( val, bytes ) and sys.version_info[0] < 3: # Python2: str; very ambiguous
+            if not any( c < ' ' or c > '~' for c in val ):
+                result += repr( val ) + ',' # '...',
+                continue
+            try:
+                if not any( c < ' ' for c in val ):
+                    result += repr( val.decode( 'utf-8' )) + ',' # Python2: u"...", Python3: "..."
+                    continue
+            except:
+                pass
+            # Probably binary data in bytes; fall thru...
+        try:
+            binary	= octets_encode( val )
+        except:
+            pass
+        else:
+            # Yes, some binary data container
+            if isinstance( val, array.array ):
+                beg,end	= 'array( {val.typecode!r}, '.format( val=val ),')'
+            elif isinstance( val, bytearray ):
+                beg,end	= 'bytearray(',')'
+            else:
+                beg,end	= 'bytes(',')'
+            result     += "{beg}hexload('''".format( beg=beg )
+            result     += ''.join( newline + prefix + row for row in misc.hexdumper( val ))
+            result     += newline + "'''){end},".format( end=end )
+            continue
+
+        if is_listlike( val ) and len( val ) > 10:
+            # Try to tabularize large lists of data
+            try:
+                beg,end	= getattr( getattr( val, '__class__' ), '__name__' ) + '(',')'
+            except:
+                pass
+            else:
+                result += beg
+                for i,v in enumerate( val ):
+                    if i%10 == 0:
+                        result += newline + prefix
+                    fmt	= "{v:<8}" if isinstance( v, type_str_base ) else "{v:>8}"
+                    result += fmt.format( v=repr( v )+',' )
+                result += newline + end + ','
+                continue
+
+        # Other data types
+        result	       += repr( val )
+        result	       += ','
+    result	       += '\n}'
+    return result
 
 # 
 # EtherNet/IP CIP Parsing
@@ -2037,12 +2101,10 @@ class typed_data( dfa ):
         producer		= cls.TYPES_SUPPORTED[tag_type].produce
         if tag_type == STRUCT.tag_type:
             # Raw .input data payload representing the UDT is expected to have been formed.  A UDT
-            # is a monolithic data type that is opaque to us.
-            assert 'data.input' in data and hasattr( data.get( 'data.input' ), '__iter__' ), \
-                "Unknown (or no) typed data found for tag_type %r: %r" % ( tag_type, data )
+            # is a monolithic data type that is opaque to us; raw data.data.input is expected.
             result	       += producer( data, structure_tag=True )
         else:
-            # Other basic CIP data types
+            # Other basic CIP data types; some type of data.data sequence expected
             payload		= data.get( 'data' )
             assert payload is not None and hasattr( payload, '__iter__' ), \
                 "Unknown (or no) typed data found for tag_type %r: %r" % ( tag_type, data )

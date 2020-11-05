@@ -38,7 +38,7 @@ import traceback
 
 from ... import misc
 from ...dotdict import dotdict
-from ...automata import peekable
+from ...automata import peekable, type_str_base
 from . import parser
 
 log				= logging.getLogger( "enip.udt" )
@@ -78,7 +78,7 @@ class tag_struct( object ):
                 # these out, and convert it to a standard CIP STRING for parsing.
                 if type_name["name"] == "STRING":
                     item	= ''.join( chr( c ) for c in item.DATA[:item.LEN] )
-            elif isinstance( type_name, str ):
+            elif isinstance( type_name, type_str_base ):
                 # Simple atomic data type name (eg "DINT"; use parser.DINT() as parser, and parse
                 # data.  May be a single item, or an array.
                 assert internal_tag["tag_type"] == "atomic"
@@ -102,15 +102,17 @@ class tag_struct( object ):
                             for m,s in engine:
                                 pass
                     if log.isEnabledFor( logging.DETAIL ):
-                        log.detail( "{internal_tag_name:32} ==> {type_name:10}: {data.typed_data.data!r} == \n{dump}".format(
+                        log.detail( "{internal_tag_name:32} ==> {type_name:10}: {data.typed_data.data!r:24} == {dump}".format(
                             internal_tag_name=internal_tag_name, type_name=type_name, data=data,
-                            dump=misc.hexdump( raw[:size] )))
+                            dump=misc.hexdump( raw[:size], length=8 )))
                     item	= data.typed_data.data
                     if not count: # None/0 --> scalar
                         item	= item[0]
                 except Exception as exc:
                     log.info( ''.join( traceback.format_exception( *sys.exc_info() )))
                     item	= exc
+            else:
+                raise RuntimeError( "Unrecognized type_name: {type_name!r}".format( type_name=type_name ))
             record[internal_tag_name] = item
         return record
 
@@ -121,6 +123,7 @@ class tag_struct( object ):
         # Begin w/ an empty 0x00 bytearray of the correct structure_siz
         rec			= bytearray( int( structure_size ))
         for internal_tag_name in data_type["attributes"]:
+          try:
             internal_tag	= data_type["internal_tags"][internal_tag_name]
             offset		= internal_tag["offset"]
             type_name		= internal_tag["data_type"]
@@ -131,11 +134,11 @@ class tag_struct( object ):
                 # A sub-struct; recursion.  A "STRING" struct w/ a DINT .LEN and SINT[] .DATA.  Encode
                 # string as ISO-8859-1, decode its LEN and DATA.
                 if type_name["name"] == "STRING" and set( type_name["attributes"] ) == {"LEN", "DATA"}:
-                    string	= str( record[internal_tag_name] ).encode( 'iso-8859-1' )
-                    data	= dotdict( dict(
-                        LEN	= len( string ),
-                        DATA	= list( map( int, string )),
-                    ))
+                    stringdata	= bytearray(str( record[internal_tag_name] ).encode( 'iso-8859-1' ))
+                    data	= dotdict(
+                        LEN	= len( stringdata ),
+                        DATA	= list( map( int, stringdata )),
+                    )
                 else:
                     data	= record[internal_tag_name]
                 item		= self.produce( data, type_name )
@@ -157,24 +160,25 @@ class tag_struct( object ):
                 item		= parser.typed_data.produce( data )
                 if type_name == "BOOL" and "bit" in internal_tag:
                     # We shouldn't assume a BOOL True encodes to b'\xff'...
-                    #arr        = bytearray( item )
-                    #arr[0]    &= 1 << internal_tag["bit"]
-                    #item       = bytes( arr )
                     truthy	= item != b'\x00'
-                    item	= bytes( [ 1 << internal_tag["bit"] if truthy else 0 ] )
+                    item	= bytearray( [ 1 << internal_tag["bit"] if truthy else 0 ] )
 
             beg			= offset
             end			= offset + len( item )
             oring		= type_name == "BOOL" and "bit" in internal_tag
             if log.isEnabledFor( logging.DETAIL ):
-                log.detail( "{internal_tag_name:32} <== {type_name!r:10}: {data!r} [{beg}:{end}] {assign} \n{dump}".format(
-                    internal_tag_name=internal_tag_name, type_name=type_name, data=data,
-                    beg=beg, end=end, assign='|=' if oring else ' =', dump=misc.hexdump( item )))
+                log.detail( "{internal_tag_name:32} <== {type_name!r:10}: [{beg:3}:{end:3}] {assign} {dump}".format(
+                    internal_tag_name=internal_tag_name, type_name=type_name,
+                    beg=beg, end=end, assign='|=' if oring else ' =',
+                    dump=misc.hexdump( item, length=8 )))
             if oring:
                 assert end == beg+len(item)
-                rec[beg:end]	= bytes( a|b for a,b in zip( rec[beg:end], item ))
+                rec[beg:end]	= bytearray( a|b for a,b in zip( rec[beg:end], item ))
             else:
                 rec[beg:end]	= item
+          except Exception as exc:
+            log.warning( "Failed to produce {type_name} {internal_tag_name!r} at offset {offset}: {exc!r}".format(
+                internal_tag_name=internal_tag_name, exc=exc, offset=offset, type_name=type_name ))
         return bytes( rec )
 
 

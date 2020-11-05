@@ -42,6 +42,11 @@ try:
 except ImportError:
     import repr as reprlib
 
+try:
+    xrange(0,1)
+except NameError:
+    xrange 			= range
+
 __author__                      = "Perry Kundert"
 __email__                       = "perry@hardconsulting.com"
 __copyright__                   = "Copyright (c) 2013 Hard Consulting Corporation"
@@ -526,7 +531,7 @@ def assert_tps( minimum=None, scale=None, repeat=1 ):
     return decorator
 
 
-def hexdump( src, offset=0, length=16, sep='.', quote='|' ):
+def hexdumper( src, offset=0, length=16, sep='.', quote='|' ):
     '''
     @brief Return {src} in hex dump.
     @param[in] length   {Int} Nb Bytes by row.
@@ -536,12 +541,6 @@ def hexdump( src, offset=0, length=16, sep='.', quote='|' ):
     @note Full support for python2 and python3 !
     '''
     result = []
-
-    # Python3 support
-    try:
-        xrange(0,1);
-    except NameError:
-        xrange = range;
 
     for i in xrange(0, len(src), length):
         subSrc = src[i:i+length];
@@ -566,9 +565,12 @@ def hexdump( src, offset=0, length=16, sep='.', quote='|' ):
                 text += chr(c);
             else:
                 text += sep;
-        result.append( "{addr:08X}:  {hexa:<{hexawidth}s}  {quote}{text}{quote}".format(
-            addr=i+offset, hexa=hexa, hexawidth=length*(2+1)+1, text=text, quote=quote or '' ))
-    return '\n'.join(result);
+        yield "{addr:08X}:  {hexa:<{hexawidth}s}  {quote}{text}{quote}".format(
+            addr=i+offset, hexa=hexa, hexawidth=length*(2+1)+1, text=text, quote=quote or '' )
+
+
+def hexdump( src, offset=0, length=16, sep='.', quote='|' ):
+    return '\n'.join( hexdumper( src, offset=offset, length=length, sep=sep, quote=quote ))
 
 
 def hexdump_differs( *dumps, **kwds ): # Python3 version: ', inclusive=False ):'

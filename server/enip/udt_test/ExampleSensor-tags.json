@@ -1,0 +1,1903 @@
+{
+    "Input_MSG_ExampleSensor": {
+        "tag_name": "Input_MSG_ExampleSensor",
+        "dim": 1,
+        "instance_id": 8,
+        "symbol_address": 9632,
+        "symbol_object_address": 16729900,
+        "software_control": 67174401,
+        "alias": false,
+        "external_access": "Read/Write",
+        "dimensions": [
+            360,
+            0,
+            0
+        ],
+        "tag_type": "struct",
+        "template_instance_id": 2336,
+        "data_type": {
+            "name": "Example_SENSOR",
+            "internal_tags": {
+                "SENSOR_ID": {
+                    "offset": 0,
+                    "tag_type": "atomic",
+                    "data_type": "DINT",
+                    "array": 0
+                },
+                "SENSOR_Name": {
+                    "offset": 4,
+                    "tag_type": "struct",
+                    "data_type": {
+                        "name": "STRING",
+                        "internal_tags": {
+                            "LEN": {
+                                "offset": 0,
+                                "tag_type": "atomic",
+                                "data_type": "DINT",
+                                "array": 0
+                            },
+                            "DATA": {
+                                "offset": 4,
+                                "tag_type": "atomic",
+                                "data_type": "SINT",
+                                "array": 82
+                            }
+                        },
+                        "attributes": [
+                            "LEN",
+                            "DATA"
+                        ],
+                        "string": 82,
+                        "template": {
+                            "object_definition_size": 16,
+                            "structure_size": 88,
+                            "member_count": 2,
+                            "structure_handle": 4046
+                        }
+                    },
+                    "array": 0
+                },
+                "SENSOR_Location": {
+                    "offset": 92,
+                    "tag_type": "struct",
+                    "data_type": {
+                        "name": "STRING",
+                        "internal_tags": {
+                            "LEN": {
+                                "offset": 0,
+                                "tag_type": "atomic",
+                                "data_type": "DINT",
+                                "array": 0
+                            },
+                            "DATA": {
+                                "offset": 4,
+                                "tag_type": "atomic",
+                                "data_type": "SINT",
+                                "array": 82
+                            }
+                        },
+                        "attributes": [
+                            "LEN",
+                            "DATA"
+                        ],
+                        "string": 82,
+                        "template": {
+                            "object_definition_size": 16,
+                            "structure_size": 88,
+                            "member_count": 2,
+                            "structure_handle": 4046
+                        }
+                    },
+                    "array": 0
+                },
+                "SENSOR_Description": {
+                    "offset": 180,
+                    "tag_type": "struct",
+                    "data_type": {
+                        "name": "STRING",
+                        "internal_tags": {
+                            "LEN": {
+                                "offset": 0,
+                                "tag_type": "atomic",
+                                "data_type": "DINT",
+                                "array": 0
+                            },
+                            "DATA": {
+                                "offset": 4,
+                                "tag_type": "atomic",
+                                "data_type": "SINT",
+                                "array": 82
+                            }
+                        },
+                        "attributes": [
+                            "LEN",
+                            "DATA"
+                        ],
+                        "string": 82,
+                        "template": {
+                            "object_definition_size": 16,
+                            "structure_size": 88,
+                            "member_count": 2,
+                            "structure_handle": 4046
+                        }
+                    },
+                    "array": 0
+                },
+                "SENSOR_Gas_Name": {
+                    "offset": 268,
+                    "tag_type": "struct",
+                    "data_type": {
+                        "name": "STRING",
+                        "internal_tags": {
+                            "LEN": {
+                                "offset": 0,
+                                "tag_type": "atomic",
+                                "data_type": "DINT",
+                                "array": 0
+                            },
+                            "DATA": {
+                                "offset": 4,
+                                "tag_type": "atomic",
+                                "data_type": "SINT",
+                                "array": 82
+                            }
+                        },
+                        "attributes": [
+                            "LEN",
+                            "DATA"
+                        ],
+                        "string": 82,
+                        "template": {
+                            "object_definition_size": 16,
+                            "structure_size": 88,
+                            "member_count": 2,
+                            "structure_handle": 4046
+                        }
+                    },
+                    "array": 0
+                },
+                "SENSOR_Gas_Group": {
+                    "offset": 356,
+                    "tag_type": "struct",
+                    "data_type": {
+                        "name": "STRING",
+                        "internal_tags": {
+                            "LEN": {
+                                "offset": 0,
+                                "tag_type": "atomic",
+                                "data_type": "DINT",
+                                "array": 0
+                            },
+                            "DATA": {
+                                "offset": 4,
+                                "tag_type": "atomic",
+                                "data_type": "SINT",
+                                "array": 82
+                            }
+                        },
+                        "attributes": [
+                            "LEN",
+                            "DATA"
+                        ],
+                        "string": 82,
+                        "template": {
+                            "object_definition_size": 16,
+                            "structure_size": 88,
+                            "member_count": 2,
+                            "structure_handle": 4046
+                        }
+                    },
+                    "array": 0
+                },
+                "ZZZZZZZZZZExample_S6": {
+                    "offset": 444,
+                    "tag_type": "atomic",
+                    "data_type": "SINT",
+                    "array": 0
+                },
+                "SENSOR_Low_Fault": {
+                    "offset": 444,
+                    "tag_type": "atomic",
+                    "data_type": "BOOL",
+                    "bit": 0
+                },
+                "SENSOR_Alarm_1": {
+                    "offset": 444,
+                    "tag_type": "atomic",
+                    "data_type": "BOOL",
+                    "bit": 1
+                },
+                "SENSOR_Alarm_2": {
+                    "offset": 444,
+                    "tag_type": "atomic",
+                    "data_type": "BOOL",
+                    "bit": 2
+                },
+                "SENSOR_Alarm_3": {
+                    "offset": 444,
+                    "tag_type": "atomic",
+                    "data_type": "BOOL",
+                    "bit": 3
+                },
+                "SENSOR_High_Fault": {
+                    "offset": 444,
+                    "tag_type": "atomic",
+                    "data_type": "BOOL",
+                    "bit": 4
+                },
+                "SENSOR_Analog_Raw": {
+                    "offset": 448,
+                    "tag_type": "atomic",
+                    "data_type": "DINT",
+                    "array": 0
+                },
+                "SENSOR_Analog_Scaled": {
+                    "offset": 452,
+                    "tag_type": "atomic",
+                    "data_type": "REAL",
+                    "array": 0
+                },
+                "SENSOR_Setpoint_LF_Raw": {
+                    "offset": 456,
+                    "tag_type": "atomic",
+                    "data_type": "DINT",
+                    "array": 0
+                },
+                "SENSOR_Setpoint_A1_Raw": {
+                    "offset": 460,
+                    "tag_type": "atomic",
+                    "data_type": "DINT",
+                    "array": 0
+                },
+                "SENSOR_Setpoint_A2_Raw": {
+                    "offset": 464,
+                    "tag_type": "atomic",
+                    "data_type": "DINT",
+                    "array": 0
+                },
+                "SENSOR_Setpoint_A3_Raw": {
+                    "offset": 468,
+                    "tag_type": "atomic",
+                    "data_type": "DINT",
+                    "array": 0
+                },
+                "SENSOR_Setpoint_HF_Raw": {
+                    "offset": 472,
+                    "tag_type": "atomic",
+                    "data_type": "DINT",
+                    "array": 0
+                },
+                "SENSOR_Setpoint_A1": {
+                    "offset": 476,
+                    "tag_type": "atomic",
+                    "data_type": "REAL",
+                    "array": 0
+                },
+                "SENSOR_Setpoint_A2": {
+                    "offset": 480,
+                    "tag_type": "atomic",
+                    "data_type": "REAL",
+                    "array": 0
+                },
+                "SENSOR_Setpoint_A3": {
+                    "offset": 484,
+                    "tag_type": "atomic",
+                    "data_type": "REAL",
+                    "array": 0
+                },
+                "SENSOR_Alarm_Direction": {
+                    "offset": 488,
+                    "tag_type": "atomic",
+                    "data_type": "DINT",
+                    "array": 0
+                },
+                "SENSOR_Alarm_Latch": {
+                    "offset": 492,
+                    "tag_type": "atomic",
+                    "data_type": "DINT",
+                    "array": 0
+                },
+                "SENSOR_Alarm_Delay": {
+                    "offset": 496,
+                    "tag_type": "atomic",
+                    "data_type": "DINT",
+                    "array": 0
+                },
+                "SENSOR_Control": {
+                    "offset": 500,
+                    "tag_type": "atomic",
+                    "data_type": "DINT",
+                    "array": 0
+                },
+                "ZZZZZZZZZZExample_S26": {
+                    "offset": 504,
+                    "tag_type": "atomic",
+                    "data_type": "SINT",
+                    "array": 0
+                },
+                "SENSOR_Valid_Data": {
+                    "offset": 504,
+                    "tag_type": "atomic",
+                    "data_type": "BOOL",
+                    "bit": 0
+                },
+                "SENSOR_Device_Comms_Fault": {
+                    "offset": 504,
+                    "tag_type": "atomic",
+                    "data_type": "BOOL",
+                    "bit": 1
+                },
+                "SENSOR_Underrange": {
+                    "offset": 504,
+                    "tag_type": "atomic",
+                    "data_type": "BOOL",
+                    "bit": 2
+                },
+                "SENSOR_Overrange": {
+                    "offset": 504,
+                    "tag_type": "atomic",
+                    "data_type": "BOOL",
+                    "bit": 3
+                },
+                "ISOLATOR_TRIP_LIST": {
+                    "offset": 508,
+                    "tag_type": "atomic",
+                    "data_type": "INT",
+                    "array": 10
+                },
+                "ZZZZZZZZZZExample_S32": {
+                    "offset": 528,
+                    "tag_type": "atomic",
+                    "data_type": "SINT",
+                    "array": 0
+                },
+                "SENSOR_ByPass": {
+                    "offset": 528,
+                    "tag_type": "atomic",
+                    "data_type": "BOOL",
+                    "bit": 0
+                },
+                "SENSOR_ByPass_Time": {
+                    "offset": 532,
+                    "tag_type": "atomic",
+                    "data_type": "DINT",
+                    "array": 0
+                },
+                "SENSOR_FULL_RANGE": {
+                    "offset": 536,
+                    "tag_type": "atomic",
+                    "data_type": "REAL",
+                    "array": 0
+                },
+                "ZZZZZZZZZZExample_S36": {
+                    "offset": 540,
+                    "tag_type": "atomic",
+                    "data_type": "SINT",
+                    "array": 0
+                },
+                "SENSOR_TRIPPED": {
+                    "offset": 540,
+                    "tag_type": "atomic",
+                    "data_type": "BOOL",
+                    "bit": 0
+                },
+                "SENSOR_BYPASS_TIMER_ALARM": {
+                    "offset": 540,
+                    "tag_type": "atomic",
+                    "data_type": "BOOL",
+                    "bit": 1
+                },
+                "SENSOR_BYPASS_Time_REMAINING": {
+                    "offset": 544,
+                    "tag_type": "atomic",
+                    "data_type": "REAL",
+                    "array": 0
+                },
+                "SENSOR_IN_BYPASS_Time_Sec": {
+                    "offset": 548,
+                    "tag_type": "atomic",
+                    "data_type": "DINT",
+                    "array": 0
+                },
+                "SENSOR_ByPass_Start_Time": {
+                    "offset": 552,
+                    "tag_type": "atomic",
+                    "data_type": "LINT",
+                    "array": 0
+                },
+                "SENSOR_IN_BYPASS_Time_Min": {
+                    "offset": 560,
+                    "tag_type": "atomic",
+                    "data_type": "DINT",
+                    "array": 0
+                },
+                "SENSOR_IN_BYPASS_Time_Hrs": {
+                    "offset": 564,
+                    "tag_type": "atomic",
+                    "data_type": "DINT",
+                    "array": 0
+                },
+                "SENSOR_IN_BYPASS_Time_Days": {
+                    "offset": 568,
+                    "tag_type": "atomic",
+                    "data_type": "DINT",
+                    "array": 0
+                },
+                "SENSOR_ByPass_Start_Time_HMI": {
+                    "offset": 572,
+                    "tag_type": "atomic",
+                    "data_type": "DINT",
+                    "array": 7
+                }
+            },
+            "attributes": [
+                "SENSOR_ID",
+                "SENSOR_Name",
+                "SENSOR_Location",
+                "SENSOR_Description",
+                "SENSOR_Gas_Name",
+                "SENSOR_Gas_Group",
+                "SENSOR_Low_Fault",
+                "SENSOR_Alarm_1",
+                "SENSOR_Alarm_2",
+                "SENSOR_Alarm_3",
+                "SENSOR_High_Fault",
+                "SENSOR_Analog_Raw",
+                "SENSOR_Analog_Scaled",
+                "SENSOR_Setpoint_LF_Raw",
+                "SENSOR_Setpoint_A1_Raw",
+                "SENSOR_Setpoint_A2_Raw",
+                "SENSOR_Setpoint_A3_Raw",
+                "SENSOR_Setpoint_HF_Raw",
+                "SENSOR_Setpoint_A1",
+                "SENSOR_Setpoint_A2",
+                "SENSOR_Setpoint_A3",
+                "SENSOR_Alarm_Direction",
+                "SENSOR_Alarm_Latch",
+                "SENSOR_Alarm_Delay",
+                "SENSOR_Control",
+                "SENSOR_Valid_Data",
+                "SENSOR_Device_Comms_Fault",
+                "SENSOR_Underrange",
+                "SENSOR_Overrange",
+                "ISOLATOR_TRIP_LIST",
+                "SENSOR_ByPass",
+                "SENSOR_ByPass_Time",
+                "SENSOR_FULL_RANGE",
+                "SENSOR_TRIPPED",
+                "SENSOR_BYPASS_TIMER_ALARM",
+                "SENSOR_BYPASS_Time_REMAINING",
+                "SENSOR_IN_BYPASS_Time_Sec",
+                "SENSOR_ByPass_Start_Time",
+                "SENSOR_IN_BYPASS_Time_Min",
+                "SENSOR_IN_BYPASS_Time_Hrs",
+                "SENSOR_IN_BYPASS_Time_Days",
+                "SENSOR_ByPass_Start_Time_HMI"
+            ],
+            "template": {
+                "object_definition_size": 379,
+                "structure_size": 600,
+                "member_count": 46,
+                "structure_handle": 36345
+            }
+        }
+    },
+    "Input_MSG_SafegasData": {
+        "tag_name": "Input_MSG_SafegasData",
+        "dim": 1,
+        "instance_id": 9,
+        "symbol_address": 7992,
+        "symbol_object_address": 16729940,
+        "software_control": 1946222594,
+        "alias": false,
+        "external_access": "Read/Write",
+        "dimensions": [
+            401,
+            0,
+            0
+        ],
+        "tag_type": "atomic",
+        "data_type": "REAL"
+    },
+    "Msg_PLC01": {
+        "tag_name": "Msg_PLC01",
+        "dim": 0,
+        "instance_id": 10,
+        "symbol_address": 7952,
+        "symbol_object_address": 16729980,
+        "software_control": 67174403,
+        "alias": false,
+        "external_access": "Read/Write",
+        "dimensions": [
+            0,
+            0,
+            0
+        ],
+        "tag_type": "struct",
+        "template_instance_id": 547,
+        "data_type": {
+            "name": "CT_Msg",
+            "internal_tags": {
+                "ZZZZZZZZZZCT_Msg0": {
+                    "offset": 0,
+                    "tag_type": "atomic",
+                    "data_type": "SINT",
+                    "array": 0
+                },
+                "Enabled": {
+                    "offset": 0,
+                    "tag_type": "atomic",
+                    "data_type": "BOOL",
+                    "bit": 0
+                },
+                "WatchdogVal_Act": {
+                    "offset": 4,
+                    "tag_type": "atomic",
+                    "data_type": "REAL",
+                    "array": 0
+                },
+                "WatchdogVal_Prev": {
+                    "offset": 8,
+                    "tag_type": "atomic",
+                    "data_type": "REAL",
+                    "array": 0
+                },
+                "ZZZZZZZZZZCT_Msg4": {
+                    "offset": 12,
+                    "tag_type": "atomic",
+                    "data_type": "SINT",
+                    "array": 0
+                },
+                "WatchdogFail": {
+                    "offset": 12,
+                    "tag_type": "atomic",
+                    "data_type": "BOOL",
+                    "bit": 0
+                },
+                "TimeoutCounter": {
+                    "offset": 16,
+                    "tag_type": "struct",
+                    "data_type": {
+                        "name": "COUNTER",
+                        "internal_tags": {
+                            "Control": {
+                                "offset": 0,
+                                "tag_type": "atomic",
+                                "data_type": "DINT",
+                                "array": 0
+                            },
+                            "PRE": {
+                                "offset": 4,
+                                "tag_type": "atomic",
+                                "data_type": "DINT",
+                                "array": 0
+                            },
+                            "ACC": {
+                                "offset": 8,
+                                "tag_type": "atomic",
+                                "data_type": "DINT",
+                                "array": 0
+                            },
+                            "CU": {
+                                "offset": 3,
+                                "tag_type": "atomic",
+                                "data_type": "BOOL",
+                                "bit": 7
+                            },
+                            "CD": {
+                                "offset": 3,
+                                "tag_type": "atomic",
+                                "data_type": "BOOL",
+                                "bit": 6
+                            },
+                            "DN": {
+                                "offset": 3,
+                                "tag_type": "atomic",
+                                "data_type": "BOOL",
+                                "bit": 5
+                            },
+                            "OV": {
+                                "offset": 3,
+                                "tag_type": "atomic",
+                                "data_type": "BOOL",
+                                "bit": 4
+                            },
+                            "UN": {
+                                "offset": 3,
+                                "tag_type": "atomic",
+                                "data_type": "BOOL",
+                                "bit": 3
+                            }
+                        },
+                        "attributes": [
+                            "Control",
+                            "PRE",
+                            "ACC",
+                            "CU",
+                            "CD",
+                            "DN",
+                            "OV",
+                            "UN"
+                        ],
+                        "template": {
+                            "object_definition_size": 40,
+                            "structure_size": 12,
+                            "member_count": 8,
+                            "structure_handle": 3970
+                        }
+                    },
+                    "array": 0
+                },
+                "TimeoutCounter_Preset": {
+                    "offset": 28,
+                    "tag_type": "atomic",
+                    "data_type": "DINT",
+                    "array": 0
+                }
+            },
+            "attributes": [
+                "Enabled",
+                "WatchdogVal_Act",
+                "WatchdogVal_Prev",
+                "WatchdogFail",
+                "TimeoutCounter",
+                "TimeoutCounter_Preset"
+            ],
+            "template": {
+                "object_definition_size": 63,
+                "structure_size": 32,
+                "member_count": 8,
+                "structure_handle": 4012
+            }
+        }
+    },
+    "Msg_PLC02": {
+        "tag_name": "Msg_PLC02",
+        "dim": 0,
+        "instance_id": 11,
+        "symbol_address": 7896,
+        "symbol_object_address": 16730020,
+        "software_control": 67174404,
+        "alias": false,
+        "external_access": "Read/Write",
+        "dimensions": [
+            0,
+            0,
+            0
+        ],
+        "tag_type": "struct",
+        "template_instance_id": 547,
+        "data_type": {
+            "name": "CT_Msg",
+            "internal_tags": {
+                "ZZZZZZZZZZCT_Msg0": {
+                    "offset": 0,
+                    "tag_type": "atomic",
+                    "data_type": "SINT",
+                    "array": 0
+                },
+                "Enabled": {
+                    "offset": 0,
+                    "tag_type": "atomic",
+                    "data_type": "BOOL",
+                    "bit": 0
+                },
+                "WatchdogVal_Act": {
+                    "offset": 4,
+                    "tag_type": "atomic",
+                    "data_type": "REAL",
+                    "array": 0
+                },
+                "WatchdogVal_Prev": {
+                    "offset": 8,
+                    "tag_type": "atomic",
+                    "data_type": "REAL",
+                    "array": 0
+                },
+                "ZZZZZZZZZZCT_Msg4": {
+                    "offset": 12,
+                    "tag_type": "atomic",
+                    "data_type": "SINT",
+                    "array": 0
+                },
+                "WatchdogFail": {
+                    "offset": 12,
+                    "tag_type": "atomic",
+                    "data_type": "BOOL",
+                    "bit": 0
+                },
+                "TimeoutCounter": {
+                    "offset": 16,
+                    "tag_type": "struct",
+                    "data_type": {
+                        "name": "COUNTER",
+                        "internal_tags": {
+                            "Control": {
+                                "offset": 0,
+                                "tag_type": "atomic",
+                                "data_type": "DINT",
+                                "array": 0
+                            },
+                            "PRE": {
+                                "offset": 4,
+                                "tag_type": "atomic",
+                                "data_type": "DINT",
+                                "array": 0
+                            },
+                            "ACC": {
+                                "offset": 8,
+                                "tag_type": "atomic",
+                                "data_type": "DINT",
+                                "array": 0
+                            },
+                            "CU": {
+                                "offset": 3,
+                                "tag_type": "atomic",
+                                "data_type": "BOOL",
+                                "bit": 7
+                            },
+                            "CD": {
+                                "offset": 3,
+                                "tag_type": "atomic",
+                                "data_type": "BOOL",
+                                "bit": 6
+                            },
+                            "DN": {
+                                "offset": 3,
+                                "tag_type": "atomic",
+                                "data_type": "BOOL",
+                                "bit": 5
+                            },
+                            "OV": {
+                                "offset": 3,
+                                "tag_type": "atomic",
+                                "data_type": "BOOL",
+                                "bit": 4
+                            },
+                            "UN": {
+                                "offset": 3,
+                                "tag_type": "atomic",
+                                "data_type": "BOOL",
+                                "bit": 3
+                            }
+                        },
+                        "attributes": [
+                            "Control",
+                            "PRE",
+                            "ACC",
+                            "CU",
+                            "CD",
+                            "DN",
+                            "OV",
+                            "UN"
+                        ],
+                        "template": {
+                            "object_definition_size": 40,
+                            "structure_size": 12,
+                            "member_count": 8,
+                            "structure_handle": 3970
+                        }
+                    },
+                    "array": 0
+                },
+                "TimeoutCounter_Preset": {
+                    "offset": 28,
+                    "tag_type": "atomic",
+                    "data_type": "DINT",
+                    "array": 0
+                }
+            },
+            "attributes": [
+                "Enabled",
+                "WatchdogVal_Act",
+                "WatchdogVal_Prev",
+                "WatchdogFail",
+                "TimeoutCounter",
+                "TimeoutCounter_Preset"
+            ],
+            "template": {
+                "object_definition_size": 63,
+                "structure_size": 32,
+                "member_count": 8,
+                "structure_handle": 4012
+            }
+        }
+    },
+    "Msg_PLC_Read1": {
+        "tag_name": "Msg_PLC_Read1",
+        "dim": 0,
+        "instance_id": 12,
+        "symbol_address": 226376,
+        "symbol_object_address": 16730060,
+        "software_control": 67183648,
+        "alias": false,
+        "external_access": "Read/Write",
+        "dimensions": [
+            0,
+            0,
+            0
+        ],
+        "tag_type": "struct",
+        "template_instance_id": 4095,
+        "data_type": {
+            "name": "MESSAGE",
+            "internal_tags": {
+                "offsettodata": {
+                    "offset": 0,
+                    "tag_type": "atomic",
+                    "data_type": "DINT",
+                    "array": 0
+                },
+                "Flags": {
+                    "offset": 4,
+                    "tag_type": "atomic",
+                    "data_type": "INT",
+                    "array": 0
+                },
+                "EW": {
+                    "offset": 4,
+                    "tag_type": "atomic",
+                    "data_type": "BOOL",
+                    "bit": 2
+                },
+                "ER": {
+                    "offset": 4,
+                    "tag_type": "atomic",
+                    "data_type": "BOOL",
+                    "bit": 4
+                },
+                "DN": {
+                    "offset": 4,
+                    "tag_type": "atomic",
+                    "data_type": "BOOL",
+                    "bit": 5
+                },
+                "ST": {
+                    "offset": 4,
+                    "tag_type": "atomic",
+                    "data_type": "BOOL",
+                    "bit": 6
+                },
+                "EN": {
+                    "offset": 4,
+                    "tag_type": "atomic",
+                    "data_type": "BOOL",
+                    "bit": 7
+                },
+                "TO": {
+                    "offset": 5,
+                    "tag_type": "atomic",
+                    "data_type": "BOOL",
+                    "bit": 0
+                },
+                "EN_CC": {
+                    "offset": 5,
+                    "tag_type": "atomic",
+                    "data_type": "BOOL",
+                    "bit": 1
+                },
+                "ERR": {
+                    "offset": 6,
+                    "tag_type": "atomic",
+                    "data_type": "INT",
+                    "array": 0
+                },
+                "EXERR": {
+                    "offset": 8,
+                    "tag_type": "atomic",
+                    "data_type": "DINT",
+                    "array": 0
+                },
+                "exerrlength": {
+                    "offset": 12,
+                    "tag_type": "atomic",
+                    "data_type": "SINT",
+                    "array": 0
+                },
+                "ERR_SRC": {
+                    "offset": 13,
+                    "tag_type": "atomic",
+                    "data_type": "SINT",
+                    "array": 0
+                },
+                "DN_LEN": {
+                    "offset": 14,
+                    "tag_type": "atomic",
+                    "data_type": "INT",
+                    "array": 0
+                },
+                "REQ_LEN": {
+                    "offset": 16,
+                    "tag_type": "atomic",
+                    "data_type": "INT",
+                    "array": 0
+                },
+                "DestinationLink": {
+                    "offset": 18,
+                    "tag_type": "atomic",
+                    "data_type": "INT",
+                    "array": 0
+                },
+                "DestinationNode": {
+                    "offset": 20,
+                    "tag_type": "atomic",
+                    "data_type": "INT",
+                    "array": 0
+                },
+                "SourceLink": {
+                    "offset": 22,
+                    "tag_type": "atomic",
+                    "data_type": "INT",
+                    "array": 0
+                },
+                "Class": {
+                    "offset": 24,
+                    "tag_type": "atomic",
+                    "data_type": "INT",
+                    "array": 0
+                },
+                "Attribute": {
+                    "offset": 26,
+                    "tag_type": "atomic",
+                    "data_type": "INT",
+                    "array": 0
+                },
+                "Instance": {
+                    "offset": 28,
+                    "tag_type": "atomic",
+                    "data_type": "DINT",
+                    "array": 0
+                },
+                "LocalIndex": {
+                    "offset": 32,
+                    "tag_type": "atomic",
+                    "data_type": "DINT",
+                    "array": 0
+                },
+                "Channel": {
+                    "offset": 36,
+                    "tag_type": "atomic",
+                    "data_type": "SINT",
+                    "array": 0
+                },
+                "Rack": {
+                    "offset": 37,
+                    "tag_type": "atomic",
+                    "data_type": "SINT",
+                    "array": 0
+                },
+                "Group": {
+                    "offset": 38,
+                    "tag_type": "atomic",
+                    "data_type": "SINT",
+                    "array": 0
+                },
+                "Slot": {
+                    "offset": 39,
+                    "tag_type": "atomic",
+                    "data_type": "SINT",
+                    "array": 0
+                },
+                "Path": {
+                    "offset": 40,
+                    "tag_type": "struct",
+                    "data_type": {
+                        "name": "STRING",
+                        "internal_tags": {
+                            "LEN": {
+                                "offset": 0,
+                                "tag_type": "atomic",
+                                "data_type": "DINT",
+                                "array": 0
+                            },
+                            "DATA": {
+                                "offset": 4,
+                                "tag_type": "atomic",
+                                "data_type": "SINT",
+                                "array": 82
+                            }
+                        },
+                        "attributes": [
+                            "LEN",
+                            "DATA"
+                        ],
+                        "string": 82,
+                        "template": {
+                            "object_definition_size": 16,
+                            "structure_size": 88,
+                            "member_count": 2,
+                            "structure_handle": 4046
+                        }
+                    },
+                    "array": 0
+                },
+                "Reserved1": {
+                    "offset": 128,
+                    "tag_type": "atomic",
+                    "data_type": "DINT",
+                    "array": 0
+                },
+                "RemoteIndex": {
+                    "offset": 132,
+                    "tag_type": "atomic",
+                    "data_type": "DINT",
+                    "array": 0
+                },
+                "RemoteElement": {
+                    "offset": 136,
+                    "tag_type": "struct",
+                    "data_type": {
+                        "name": "STRING",
+                        "internal_tags": {
+                            "LEN": {
+                                "offset": 0,
+                                "tag_type": "atomic",
+                                "data_type": "DINT",
+                                "array": 0
+                            },
+                            "DATA": {
+                                "offset": 4,
+                                "tag_type": "atomic",
+                                "data_type": "SINT",
+                                "array": 82
+                            }
+                        },
+                        "attributes": [
+                            "LEN",
+                            "DATA"
+                        ],
+                        "string": 82,
+                        "template": {
+                            "object_definition_size": 16,
+                            "structure_size": 88,
+                            "member_count": 2,
+                            "structure_handle": 4046
+                        }
+                    },
+                    "array": 0
+                },
+                "Reserved2": {
+                    "offset": 224,
+                    "tag_type": "atomic",
+                    "data_type": "DINT",
+                    "array": 0
+                },
+                "UnconnectedTimeout": {
+                    "offset": 228,
+                    "tag_type": "atomic",
+                    "data_type": "DINT",
+                    "array": 0
+                },
+                "ConnectionRate": {
+                    "offset": 232,
+                    "tag_type": "atomic",
+                    "data_type": "DINT",
+                    "array": 0
+                },
+                "TimeoutMultiplier": {
+                    "offset": 236,
+                    "tag_type": "atomic",
+                    "data_type": "SINT",
+                    "array": 0
+                }
+            },
+            "attributes": [
+                "offsettodata",
+                "Flags",
+                "EW",
+                "ER",
+                "DN",
+                "ST",
+                "EN",
+                "TO",
+                "EN_CC",
+                "ERR",
+                "EXERR",
+                "exerrlength",
+                "ERR_SRC",
+                "DN_LEN",
+                "REQ_LEN",
+                "DestinationLink",
+                "DestinationNode",
+                "SourceLink",
+                "Class",
+                "Attribute",
+                "Instance",
+                "LocalIndex",
+                "Channel",
+                "Rack",
+                "Group",
+                "Slot",
+                "Path",
+                "Reserved1",
+                "RemoteIndex",
+                "RemoteElement",
+                "Reserved2",
+                "UnconnectedTimeout",
+                "ConnectionRate",
+                "TimeoutMultiplier"
+            ],
+            "template": {
+                "object_definition_size": 183,
+                "structure_size": 240,
+                "member_count": 34,
+                "structure_handle": 4095
+            }
+        }
+    },
+    "Msg_PLC_Read1_ErrCount": {
+        "tag_name": "Msg_PLC_Read1_ErrCount",
+        "dim": 0,
+        "instance_id": 13,
+        "symbol_address": 7864,
+        "symbol_object_address": 16730100,
+        "software_control": 1140916229,
+        "alias": false,
+        "external_access": "Read/Write",
+        "dimensions": [
+            0,
+            0,
+            0
+        ],
+        "tag_type": "atomic",
+        "data_type": "DINT"
+    },
+    "Msg_PLC_Read2": {
+        "tag_name": "Msg_PLC_Read2",
+        "dim": 0,
+        "instance_id": 14,
+        "symbol_address": 225664,
+        "symbol_object_address": 16730140,
+        "software_control": 67221283,
+        "alias": false,
+        "external_access": "Read/Write",
+        "dimensions": [
+            0,
+            0,
+            0
+        ],
+        "tag_type": "struct",
+        "template_instance_id": 4095,
+        "data_type": {
+            "name": "MESSAGE",
+            "internal_tags": {
+                "offsettodata": {
+                    "offset": 0,
+                    "tag_type": "atomic",
+                    "data_type": "DINT",
+                    "array": 0
+                },
+                "Flags": {
+                    "offset": 4,
+                    "tag_type": "atomic",
+                    "data_type": "INT",
+                    "array": 0
+                },
+                "EW": {
+                    "offset": 4,
+                    "tag_type": "atomic",
+                    "data_type": "BOOL",
+                    "bit": 2
+                },
+                "ER": {
+                    "offset": 4,
+                    "tag_type": "atomic",
+                    "data_type": "BOOL",
+                    "bit": 4
+                },
+                "DN": {
+                    "offset": 4,
+                    "tag_type": "atomic",
+                    "data_type": "BOOL",
+                    "bit": 5
+                },
+                "ST": {
+                    "offset": 4,
+                    "tag_type": "atomic",
+                    "data_type": "BOOL",
+                    "bit": 6
+                },
+                "EN": {
+                    "offset": 4,
+                    "tag_type": "atomic",
+                    "data_type": "BOOL",
+                    "bit": 7
+                },
+                "TO": {
+                    "offset": 5,
+                    "tag_type": "atomic",
+                    "data_type": "BOOL",
+                    "bit": 0
+                },
+                "EN_CC": {
+                    "offset": 5,
+                    "tag_type": "atomic",
+                    "data_type": "BOOL",
+                    "bit": 1
+                },
+                "ERR": {
+                    "offset": 6,
+                    "tag_type": "atomic",
+                    "data_type": "INT",
+                    "array": 0
+                },
+                "EXERR": {
+                    "offset": 8,
+                    "tag_type": "atomic",
+                    "data_type": "DINT",
+                    "array": 0
+                },
+                "exerrlength": {
+                    "offset": 12,
+                    "tag_type": "atomic",
+                    "data_type": "SINT",
+                    "array": 0
+                },
+                "ERR_SRC": {
+                    "offset": 13,
+                    "tag_type": "atomic",
+                    "data_type": "SINT",
+                    "array": 0
+                },
+                "DN_LEN": {
+                    "offset": 14,
+                    "tag_type": "atomic",
+                    "data_type": "INT",
+                    "array": 0
+                },
+                "REQ_LEN": {
+                    "offset": 16,
+                    "tag_type": "atomic",
+                    "data_type": "INT",
+                    "array": 0
+                },
+                "DestinationLink": {
+                    "offset": 18,
+                    "tag_type": "atomic",
+                    "data_type": "INT",
+                    "array": 0
+                },
+                "DestinationNode": {
+                    "offset": 20,
+                    "tag_type": "atomic",
+                    "data_type": "INT",
+                    "array": 0
+                },
+                "SourceLink": {
+                    "offset": 22,
+                    "tag_type": "atomic",
+                    "data_type": "INT",
+                    "array": 0
+                },
+                "Class": {
+                    "offset": 24,
+                    "tag_type": "atomic",
+                    "data_type": "INT",
+                    "array": 0
+                },
+                "Attribute": {
+                    "offset": 26,
+                    "tag_type": "atomic",
+                    "data_type": "INT",
+                    "array": 0
+                },
+                "Instance": {
+                    "offset": 28,
+                    "tag_type": "atomic",
+                    "data_type": "DINT",
+                    "array": 0
+                },
+                "LocalIndex": {
+                    "offset": 32,
+                    "tag_type": "atomic",
+                    "data_type": "DINT",
+                    "array": 0
+                },
+                "Channel": {
+                    "offset": 36,
+                    "tag_type": "atomic",
+                    "data_type": "SINT",
+                    "array": 0
+                },
+                "Rack": {
+                    "offset": 37,
+                    "tag_type": "atomic",
+                    "data_type": "SINT",
+                    "array": 0
+                },
+                "Group": {
+                    "offset": 38,
+                    "tag_type": "atomic",
+                    "data_type": "SINT",
+                    "array": 0
+                },
+                "Slot": {
+                    "offset": 39,
+                    "tag_type": "atomic",
+                    "data_type": "SINT",
+                    "array": 0
+                },
+                "Path": {
+                    "offset": 40,
+                    "tag_type": "struct",
+                    "data_type": {
+                        "name": "STRING",
+                        "internal_tags": {
+                            "LEN": {
+                                "offset": 0,
+                                "tag_type": "atomic",
+                                "data_type": "DINT",
+                                "array": 0
+                            },
+                            "DATA": {
+                                "offset": 4,
+                                "tag_type": "atomic",
+                                "data_type": "SINT",
+                                "array": 82
+                            }
+                        },
+                        "attributes": [
+                            "LEN",
+                            "DATA"
+                        ],
+                        "string": 82,
+                        "template": {
+                            "object_definition_size": 16,
+                            "structure_size": 88,
+                            "member_count": 2,
+                            "structure_handle": 4046
+                        }
+                    },
+                    "array": 0
+                },
+                "Reserved1": {
+                    "offset": 128,
+                    "tag_type": "atomic",
+                    "data_type": "DINT",
+                    "array": 0
+                },
+                "RemoteIndex": {
+                    "offset": 132,
+                    "tag_type": "atomic",
+                    "data_type": "DINT",
+                    "array": 0
+                },
+                "RemoteElement": {
+                    "offset": 136,
+                    "tag_type": "struct",
+                    "data_type": {
+                        "name": "STRING",
+                        "internal_tags": {
+                            "LEN": {
+                                "offset": 0,
+                                "tag_type": "atomic",
+                                "data_type": "DINT",
+                                "array": 0
+                            },
+                            "DATA": {
+                                "offset": 4,
+                                "tag_type": "atomic",
+                                "data_type": "SINT",
+                                "array": 82
+                            }
+                        },
+                        "attributes": [
+                            "LEN",
+                            "DATA"
+                        ],
+                        "string": 82,
+                        "template": {
+                            "object_definition_size": 16,
+                            "structure_size": 88,
+                            "member_count": 2,
+                            "structure_handle": 4046
+                        }
+                    },
+                    "array": 0
+                },
+                "Reserved2": {
+                    "offset": 224,
+                    "tag_type": "atomic",
+                    "data_type": "DINT",
+                    "array": 0
+                },
+                "UnconnectedTimeout": {
+                    "offset": 228,
+                    "tag_type": "atomic",
+                    "data_type": "DINT",
+                    "array": 0
+                },
+                "ConnectionRate": {
+                    "offset": 232,
+                    "tag_type": "atomic",
+                    "data_type": "DINT",
+                    "array": 0
+                },
+                "TimeoutMultiplier": {
+                    "offset": 236,
+                    "tag_type": "atomic",
+                    "data_type": "SINT",
+                    "array": 0
+                }
+            },
+            "attributes": [
+                "offsettodata",
+                "Flags",
+                "EW",
+                "ER",
+                "DN",
+                "ST",
+                "EN",
+                "TO",
+                "EN_CC",
+                "ERR",
+                "EXERR",
+                "exerrlength",
+                "ERR_SRC",
+                "DN_LEN",
+                "REQ_LEN",
+                "DestinationLink",
+                "DestinationNode",
+                "SourceLink",
+                "Class",
+                "Attribute",
+                "Instance",
+                "LocalIndex",
+                "Channel",
+                "Rack",
+                "Group",
+                "Slot",
+                "Path",
+                "Reserved1",
+                "RemoteIndex",
+                "RemoteElement",
+                "Reserved2",
+                "UnconnectedTimeout",
+                "ConnectionRate",
+                "TimeoutMultiplier"
+            ],
+            "template": {
+                "object_definition_size": 183,
+                "structure_size": 240,
+                "member_count": 34,
+                "structure_handle": 4095
+            }
+        }
+    },
+    "Msg_PLC_Read2_ErrCount": {
+        "tag_name": "Msg_PLC_Read2_ErrCount",
+        "dim": 0,
+        "instance_id": 15,
+        "symbol_address": 7832,
+        "symbol_object_address": 16730180,
+        "software_control": 1140916230,
+        "alias": false,
+        "external_access": "Read/Write",
+        "dimensions": [
+            0,
+            0,
+            0
+        ],
+        "tag_type": "atomic",
+        "data_type": "DINT"
+    },
+    "testbit": {
+        "tag_name": "testbit",
+        "dim": 0,
+        "instance_id": 16,
+        "symbol_address": 7800,
+        "symbol_object_address": 16730220,
+        "software_control": 1140916231,
+        "alias": false,
+        "external_access": "Read/Write",
+        "dimensions": [
+            0,
+            0,
+            0
+        ],
+        "tag_type": "atomic",
+        "data_type": "BOOL",
+        "bit_position": 0
+    },
+    "Analog_Raw": {
+        "tag_name": "Analog_Raw",
+        "dim": 1,
+        "instance_id": 17,
+        "symbol_address": 7592,
+        "symbol_object_address": 16730260,
+        "software_control": 1140916232,
+        "alias": false,
+        "external_access": "Read/Write",
+        "dimensions": [
+            40,
+            0,
+            0
+        ],
+        "tag_type": "atomic",
+        "data_type": "DINT"
+    },
+    "testmsg": {
+        "tag_name": "testmsg",
+        "dim": 0,
+        "instance_id": 18,
+        "symbol_address": 227088,
+        "symbol_object_address": 16730300,
+        "software_control": 67181562,
+        "alias": false,
+        "external_access": "Read/Write",
+        "dimensions": [
+            0,
+            0,
+            0
+        ],
+        "tag_type": "struct",
+        "template_instance_id": 4095,
+        "data_type": {
+            "name": "MESSAGE",
+            "internal_tags": {
+                "offsettodata": {
+                    "offset": 0,
+                    "tag_type": "atomic",
+                    "data_type": "DINT",
+                    "array": 0
+                },
+                "Flags": {
+                    "offset": 4,
+                    "tag_type": "atomic",
+                    "data_type": "INT",
+                    "array": 0
+                },
+                "EW": {
+                    "offset": 4,
+                    "tag_type": "atomic",
+                    "data_type": "BOOL",
+                    "bit": 2
+                },
+                "ER": {
+                    "offset": 4,
+                    "tag_type": "atomic",
+                    "data_type": "BOOL",
+                    "bit": 4
+                },
+                "DN": {
+                    "offset": 4,
+                    "tag_type": "atomic",
+                    "data_type": "BOOL",
+                    "bit": 5
+                },
+                "ST": {
+                    "offset": 4,
+                    "tag_type": "atomic",
+                    "data_type": "BOOL",
+                    "bit": 6
+                },
+                "EN": {
+                    "offset": 4,
+                    "tag_type": "atomic",
+                    "data_type": "BOOL",
+                    "bit": 7
+                },
+                "TO": {
+                    "offset": 5,
+                    "tag_type": "atomic",
+                    "data_type": "BOOL",
+                    "bit": 0
+                },
+                "EN_CC": {
+                    "offset": 5,
+                    "tag_type": "atomic",
+                    "data_type": "BOOL",
+                    "bit": 1
+                },
+                "ERR": {
+                    "offset": 6,
+                    "tag_type": "atomic",
+                    "data_type": "INT",
+                    "array": 0
+                },
+                "EXERR": {
+                    "offset": 8,
+                    "tag_type": "atomic",
+                    "data_type": "DINT",
+                    "array": 0
+                },
+                "exerrlength": {
+                    "offset": 12,
+                    "tag_type": "atomic",
+                    "data_type": "SINT",
+                    "array": 0
+                },
+                "ERR_SRC": {
+                    "offset": 13,
+                    "tag_type": "atomic",
+                    "data_type": "SINT",
+                    "array": 0
+                },
+                "DN_LEN": {
+                    "offset": 14,
+                    "tag_type": "atomic",
+                    "data_type": "INT",
+                    "array": 0
+                },
+                "REQ_LEN": {
+                    "offset": 16,
+                    "tag_type": "atomic",
+                    "data_type": "INT",
+                    "array": 0
+                },
+                "DestinationLink": {
+                    "offset": 18,
+                    "tag_type": "atomic",
+                    "data_type": "INT",
+                    "array": 0
+                },
+                "DestinationNode": {
+                    "offset": 20,
+                    "tag_type": "atomic",
+                    "data_type": "INT",
+                    "array": 0
+                },
+                "SourceLink": {
+                    "offset": 22,
+                    "tag_type": "atomic",
+                    "data_type": "INT",
+                    "array": 0
+                },
+                "Class": {
+                    "offset": 24,
+                    "tag_type": "atomic",
+                    "data_type": "INT",
+                    "array": 0
+                },
+                "Attribute": {
+                    "offset": 26,
+                    "tag_type": "atomic",
+                    "data_type": "INT",
+                    "array": 0
+                },
+                "Instance": {
+                    "offset": 28,
+                    "tag_type": "atomic",
+                    "data_type": "DINT",
+                    "array": 0
+                },
+                "LocalIndex": {
+                    "offset": 32,
+                    "tag_type": "atomic",
+                    "data_type": "DINT",
+                    "array": 0
+                },
+                "Channel": {
+                    "offset": 36,
+                    "tag_type": "atomic",
+                    "data_type": "SINT",
+                    "array": 0
+                },
+                "Rack": {
+                    "offset": 37,
+                    "tag_type": "atomic",
+                    "data_type": "SINT",
+                    "array": 0
+                },
+                "Group": {
+                    "offset": 38,
+                    "tag_type": "atomic",
+                    "data_type": "SINT",
+                    "array": 0
+                },
+                "Slot": {
+                    "offset": 39,
+                    "tag_type": "atomic",
+                    "data_type": "SINT",
+                    "array": 0
+                },
+                "Path": {
+                    "offset": 40,
+                    "tag_type": "struct",
+                    "data_type": {
+                        "name": "STRING",
+                        "internal_tags": {
+                            "LEN": {
+                                "offset": 0,
+                                "tag_type": "atomic",
+                                "data_type": "DINT",
+                                "array": 0
+                            },
+                            "DATA": {
+                                "offset": 4,
+                                "tag_type": "atomic",
+                                "data_type": "SINT",
+                                "array": 82
+                            }
+                        },
+                        "attributes": [
+                            "LEN",
+                            "DATA"
+                        ],
+                        "string": 82,
+                        "template": {
+                            "object_definition_size": 16,
+                            "structure_size": 88,
+                            "member_count": 2,
+                            "structure_handle": 4046
+                        }
+                    },
+                    "array": 0
+                },
+                "Reserved1": {
+                    "offset": 128,
+                    "tag_type": "atomic",
+                    "data_type": "DINT",
+                    "array": 0
+                },
+                "RemoteIndex": {
+                    "offset": 132,
+                    "tag_type": "atomic",
+                    "data_type": "DINT",
+                    "array": 0
+                },
+                "RemoteElement": {
+                    "offset": 136,
+                    "tag_type": "struct",
+                    "data_type": {
+                        "name": "STRING",
+                        "internal_tags": {
+                            "LEN": {
+                                "offset": 0,
+                                "tag_type": "atomic",
+                                "data_type": "DINT",
+                                "array": 0
+                            },
+                            "DATA": {
+                                "offset": 4,
+                                "tag_type": "atomic",
+                                "data_type": "SINT",
+                                "array": 82
+                            }
+                        },
+                        "attributes": [
+                            "LEN",
+                            "DATA"
+                        ],
+                        "string": 82,
+                        "template": {
+                            "object_definition_size": 16,
+                            "structure_size": 88,
+                            "member_count": 2,
+                            "structure_handle": 4046
+                        }
+                    },
+                    "array": 0
+                },
+                "Reserved2": {
+                    "offset": 224,
+                    "tag_type": "atomic",
+                    "data_type": "DINT",
+                    "array": 0
+                },
+                "UnconnectedTimeout": {
+                    "offset": 228,
+                    "tag_type": "atomic",
+                    "data_type": "DINT",
+                    "array": 0
+                },
+                "ConnectionRate": {
+                    "offset": 232,
+                    "tag_type": "atomic",
+                    "data_type": "DINT",
+                    "array": 0
+                },
+                "TimeoutMultiplier": {
+                    "offset": 236,
+                    "tag_type": "atomic",
+                    "data_type": "SINT",
+                    "array": 0
+                }
+            },
+            "attributes": [
+                "offsettodata",
+                "Flags",
+                "EW",
+                "ER",
+                "DN",
+                "ST",
+                "EN",
+                "TO",
+                "EN_CC",
+                "ERR",
+                "EXERR",
+                "exerrlength",
+                "ERR_SRC",
+                "DN_LEN",
+                "REQ_LEN",
+                "DestinationLink",
+                "DestinationNode",
+                "SourceLink",
+                "Class",
+                "Attribute",
+                "Instance",
+                "LocalIndex",
+                "Channel",
+                "Rack",
+                "Group",
+                "Slot",
+                "Path",
+                "Reserved1",
+                "RemoteIndex",
+                "RemoteElement",
+                "Reserved2",
+                "UnconnectedTimeout",
+                "ConnectionRate",
+                "TimeoutMultiplier"
+            ],
+            "template": {
+                "object_definition_size": 183,
+                "structure_size": 240,
+                "member_count": 34,
+                "structure_handle": 4095
+            }
+        }
+    },
+    "Location": {
+        "tag_name": "Location",
+        "dim": 0,
+        "instance_id": 19,
+        "symbol_address": 6560,
+        "symbol_object_address": 16730340,
+        "software_control": 67174413,
+        "alias": false,
+        "external_access": "Read/Write",
+        "dimensions": [
+            0,
+            0,
+            0
+        ],
+        "tag_type": "struct",
+        "template_instance_id": 4046,
+        "data_type": {
+            "name": "STRING",
+            "internal_tags": {
+                "LEN": {
+                    "offset": 0,
+                    "tag_type": "atomic",
+                    "data_type": "DINT",
+                    "array": 0
+                },
+                "DATA": {
+                    "offset": 4,
+                    "tag_type": "atomic",
+                    "data_type": "SINT",
+                    "array": 82
+                }
+            },
+            "attributes": [
+                "LEN",
+                "DATA"
+            ],
+            "string": 82,
+            "template": {
+                "object_definition_size": 16,
+                "structure_size": 88,
+                "member_count": 2,
+                "structure_handle": 4046
+            }
+        }
+    },
+    "SCADA": {
+        "tag_name": "SCADA",
+        "dim": 1,
+        "instance_id": 20,
+        "symbol_address": 6376,
+        "symbol_object_address": 16730380,
+        "software_control": 1140916239,
+        "alias": false,
+        "external_access": "Read/Write",
+        "dimensions": [
+            10,
+            0,
+            0
+        ],
+        "tag_type": "atomic",
+        "data_type": "INT"
+    }
+}

@@ -841,7 +841,10 @@ def enip_srv_tcp( conn, addr, name, enip_process, delay=None, **kwds ):
                         misc.timer() - begun, delayseconds )
                 except:
                     # Session terminated spontaneously; empty data
-                    log.error( "Failed request: %s", parser.enip_format( data ))
+                    try:
+                        log.error( "Failed request: %s", parser.enip_format( data ))
+                    except Exception as exc:
+                        log.error( "Failed request (exception %r): %r", exc, data )
                     enip_process( addr, data=dotdict() )
                     raise
 

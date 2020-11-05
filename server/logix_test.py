@@ -9,6 +9,11 @@ import sys
 import threading
 import time
 
+try:
+    import reprlib
+except ImportError:
+    import repr as reprlib
+
 has_pylogix			= False
 try:
     import pylogix
@@ -725,8 +730,10 @@ def test_logix_remote_cpppo( count=100 ):
     logixthread			= threading.Thread( target=logix_remote_cpppo, kwargs=logixthread_kwargs )
     logixthread.daemon		= True
     logixthread.start()
-
-    enip_main( **kwargs )
+    try:
+        enip_main( **kwargs )
+    finally:
+        kwargs['server']['control'].done= True # Signal the server to terminate
 
     logixthread.join()
 
@@ -828,9 +835,13 @@ def test_logix_remote_pylogix( count=100 ):
     logixthread.daemon		= True
     logixthread.start()
 
-    enip_main( **kwargs )
+    try:
+        enip_main( **kwargs )
+    finally:
+        kwargs['server']['control'].done = True # Signal the server to terminate
 
     logixthread.join()
+    log.normal( "Shutdown of server complete" )
 
 
 def logix_remote_pylogix( count, svraddr, kwargs ):
@@ -842,7 +853,7 @@ def logix_remote_pylogix( count, svraddr, kwargs ):
 
     with pylogix.PLC() as comm:
         comm.SocketTimeout	= timeout
-        comm.IPAddress		= enip.address[0]
+        comm.IPAddress		= svraddr[0]
         comm.ConnectionSize	= 4000
 
         # CIP Register, Forward Open
@@ -858,7 +869,7 @@ def logix_remote_pylogix( count, svraddr, kwargs ):
             reply		= comm.Read( 'SCADA[12]', 201 )
             elapsed		= cpppo.timer() - start
             data		= reply.Value
-            log.detail( "Client ReadFrg. Rcvd %7.3f/%7.3fs: %r", elapsed, timeout, data )
+            log.detail( "Client ReadFrg. Rcvd %7.3f/%7.3fs: %s", elapsed, timeout, reprlib.repr( data ))
 
         duration		= cpppo.timer() - start
         log.warning( "Client ReadFrg. Average %7.3f TPS (%7.3fs ea)." % ( count / duration, duration / count ))
@@ -866,6 +877,7 @@ def logix_remote_pylogix( count, svraddr, kwargs ):
     log.normal( "Signal shutdown w/ server.control in object %s", id( kwargs['server']['control'] ))
   finally:
     kwargs['server']['control'].done= True # Signal the server to terminate
+    log.normal( "Signalling shutdown server complete" )
 
 
 if __name__ == "__main__":

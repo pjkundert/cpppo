@@ -1,5 +1,6 @@
 
 #import logging
+import copy
 import threading
 import sys
 
@@ -291,11 +292,13 @@ class dotdict( dict ):
             if isinstance( val, dotdict ) and val: # a non-empty sub-dotdict layer
                 for subkey,subval in val.iteritems():
                     yield key+'.'+subkey, subval
-            elif isinstance( val, list ) and all( isinstance( subelm, dotdict ) for subelm in val ):
+            elif isinstance( val, list ) and val and all( isinstance( subelm, dotdict ) for subelm in val ):
+                # Non-empty list of dicts
+                subfmt		= "[{subidx:%d}]." % len( str( len( val ) - 1 ))
                 for subidx,subelm in enumerate( val ):
                     for subkey,subval in subelm.iteritems():
-                        yield key+'['+str(subidx)+'].'+subkey, subval
-            else: # non-list elements, empty dotdict layers
+                        yield key+subfmt.format( subidx=subidx )+subkey, subval
+            else: # non-list elements, empty dotdict layers, empty lists
                 yield key, val
 
     def itervalues( self ):
@@ -319,6 +322,15 @@ class dotdict( dict ):
     keys 			= __listkeys   if sys.version_info[0] < 3 else iterkeys
     values			= __listvalues if sys.version_info[0] < 3 else itervalues
     items			= __listitems  if sys.version_info[0] < 3 else iteritems
+
+    def __deepcopy__( self, memo ):
+        """Must copy each layer, to avoid copying keys that reference non-existent members."""
+        return type( self )( (k,copy.deepcopy( v, memo ))
+                             for k,v in dict.items( self ) )
+
+    def __copy__( self ):
+        return type( self )( (k,copy.copy( v ))
+                             for k,v in dict.items( self ) )
 
 
 class apidict( dotdict ):
