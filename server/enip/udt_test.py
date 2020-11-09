@@ -198,7 +198,7 @@ def test_logix_remote_udt( count=1 ):
         default		= tagrecords
     )
     latency		= 1.0
-    timeout		= 5.0
+    timeout		=10.0
     
     kwargs			= dict(
         argv		= [
@@ -286,7 +286,6 @@ def logix_remote_udt_pylogix( count, svraddr, kwargs ):
         with pylogix.PLC() as comm:
             comm.SocketTimeout	= timeout
             comm.IPAddress	= svraddr[0]
-            comm.ConnectionSize	= 4000
 
             # CIP Register, Forward Open
             start		= misc.timer()
@@ -313,7 +312,8 @@ def logix_remote_udt_pylogix( count, svraddr, kwargs ):
             {
                 "enip.CIP.register.options": 0,
             }, {
-                "enip.CIP.send_data.CPF.item[1].unconnected_send.request.forward_open.O_T.size": 4000,
+                # The default forward_open connection size should be ~4002, but should be Large
+                "enip.CIP.send_data.CPF.item[1].unconnected_send.request.forward_open.O_T.large": True,
             }, {
                 # Initial Pylogix Read Tag Fragmented is of a single element (to test Tag type)
                 "enip.CIP.send_data.CPF.item[1].connection_data.request.read_frag.offset": 0,

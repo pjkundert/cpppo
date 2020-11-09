@@ -869,7 +869,10 @@ def enip_srv_tcp( conn, addr, name, enip_process, delay=None, **kwds ):
                         stats.requests,  " " if stats.requests == 1  else "s",
                         stats.processed, " " if stats.processed == 1 else "s", stats.received,
                         len( connections ))
-            sys.stdout.flush()
+            try:
+                sys.stdout.flush()
+            except:
+                pass
             conn.close()
 
 

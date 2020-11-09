@@ -4,6 +4,7 @@ try:
 except ImportError:
     pass
 
+import atexit
 import errno
 import logging
 import os
@@ -51,8 +52,12 @@ class nonblocking_command( object ):
 
             # do other stuff in loop...
 
-    The command is killed when it goes out of scope.  Pass a file-like object for stderr if desired; None would
-    cause it to share the enclosing interpreter's stderr.
+    The command is killed when it goes out of scope.  Pass a file-like object for stderr if desired;
+    None would cause it to share the enclosing interpreter's stderr.
+
+    As a safety mechanism, arrange to use atexit.register to terminate the command (if it isn't
+    already dead).
+
     """
     def __init__( self, command, stderr=subprocess.STDOUT, stdin=None, bufsize=0, blocking=None ):
         shell			= type( command ) is not list
@@ -65,6 +70,8 @@ class nonblocking_command( object ):
             fd 			= self.process.stdout.fileno()
             fl			= fcntl.fcntl( fd, fcntl.F_GETFL )
             fcntl.fcntl( fd, fcntl.F_SETFL, fl | os.O_NONBLOCK )
+
+        atexit.register( lambda: self.kill() )
 
     @property
     def stdout( self ):

@@ -38,11 +38,6 @@ import sys
 
 import ipaddress
 
-try:
-    import reprlib
-except ImportError:
-    import repr as reprlib
-
 from ...dotdict import dotdict
 from ...automata import ( type_str_base, type_bytes_iter, type_bytes_array_symbol, is_listlike,
                           dfa_base, dfa, decide,
@@ -645,20 +640,15 @@ def enip_encode( data ):
     ])
     return result
     
+
 def enip_format( data, sort_keys=False, indent=4 ):
-    """Format a decoded EtherNet/IP data bundle in a (more) human-readable form.  Note that
-    sort_keys=True will not work as expected for keys which contain indices: the order of keys like:
+    """Format a decoded EtherNet/IP data bundle in a (more) human-readable form.
 
-        path[0].more
-        path[10].more
-        path[1].more
-
-    will probably be unexpected.  There is no means by which to specify a custom sorting function.
-
-    Only outputs full (sometimes excruciatingly long) repr details at logging level INFO and below.
+    There is no means by which to specify a custom sorting function.  The cpppo.dotdict outputs keys
+    with formatting that tries to retain sorting order of lists of sub-dotdict indices.
 
     In Python2, we need to specially handle str/bytes vs. unicode strings; we need to avoid
-    enip_format attempting to decode str as utf-8
+    enip_format attempting to decode str as utf-8.
 
     """
     pairs		= data.items()

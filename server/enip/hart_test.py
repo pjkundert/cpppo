@@ -50,7 +50,7 @@ def start_hart_simulator( *options, **kwds ):
     command                     = nonblocking_command( [
         sys.executable, os.path.abspath( __file__ ),
         '-a', ':0', '-A', '-p', '-v', '--no-udp',
-    ] + list( options ), stderr=None )
+    ] + list( options ), stderr=None, bufsize=0, blocking=None )
 
     # For python 2/3 compatibility (can't mix positional wildcard, keyword parameters in Python 2)
     CMD_WAIT			= kwds.pop( 'CMD_WAIT', 10.0 )
@@ -73,7 +73,6 @@ def start_hart_simulator( *options, **kwds ):
             assert exc.errno == errno.EAGAIN, "Expected only Non-blocking IOError"
         except Exception as exc:
             log.warning("Socket read return Exception: %s", exc)
-
         if not data:
             time.sleep( CMD_LATENCY )
         while data.find( '\n' ) >= 0:
