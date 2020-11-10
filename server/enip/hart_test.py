@@ -286,7 +286,7 @@ def hart_pass_thru( io, path, hart_data, data_size, route_path=None ):
 # 
 # Since we implemented STRUCT tags, we need to update the HART implementation.
 # 
-@pytest.mark.xfail
+#@pytest.mark.xfail
 def test_hart_pass_thru_poll( simulated_hart_gateway ):
     r"""To test a remote C*Logix w/ a HART card, set up a remote port forward from another host in the
     same LAN.  Here's a windows example, using putty.  This windows machine (at 100.100.102.1)
@@ -376,12 +376,12 @@ def test_hart_pass_thru_poll( simulated_hart_gateway ):
             hio, path=path, hart_data=[3, 0], route_path=route_path, data_size=4*4 ) # with no size
 
         # small response carries PV, SV, TV, FV values, no data types
-        value			= []
+        value			= cpppo.dotdict( current=[] )
         if data and len( data ) == 4*4:
             # Short
             packer		= struct.Struct( enip.REAL_network.struct_format )
             for i in range( 0, len( data ), 4 ):
-                value		+= packer.unpack_from( buffer=bytearray( data[i:i+4] ))
+                value.current	+= packer.unpack_from( buffer=bytearray( data[i:i+4] ))
         elif data and len( data ) >= 24:
             # Long
             packer		= struct.Struct( enip.REAL_network.struct_format )
@@ -580,7 +580,7 @@ CIP_HART_tests			= [
              ),
 ]
 
-#@pytest.mark.xfail
+
 def test_CIP_hart( repeat=1 ):
     """HART protocol enip CIP messages
     """

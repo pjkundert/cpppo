@@ -651,62 +651,64 @@ def enip_format( data, sort_keys=False, indent=4 ):
     enip_format attempting to decode str as utf-8.
 
     """
-    pairs		= data.items()
+    assert isinstance( data, dict ), \
+        "Unknown data type {data!r}".format( data=data )
+    pairs			= data.items()
     if sort_keys:
-        pairs		= sorted( pairs )
-    prefix		= ' ' * indent
-    newline		= '\n' + prefix
-    result		= '{'
+        pairs			= sorted( pairs )
+    prefix			= ' ' * indent
+    newline			= '\n' + prefix
+    result			= '{'
     for key,val in pairs:
-        result	       += newline + "{key:32}".format( key=repr( key ) + ': ' )
+        result		       += newline + "{key:32}".format( key=repr( key ) + ': ' )
         if isinstance( val, bytes ) and sys.version_info[0] < 3: # Python2: str; very ambiguous
             if not any( c < ' ' or c > '~' for c in val ):
                 result += repr( val ) + ',' # '...',
                 continue
             try:
                 if not any( c < ' ' for c in val ):
-                    result += repr( val.decode( 'utf-8' )) + ',' # Python2: u"...", Python3: "..."
+                    result     += repr( val.decode( 'utf-8' )) + ',' # Python2: u"...", Python3: "..."
                     continue
             except:
                 pass
             # Probably binary data in bytes; fall thru...
         try:
-            binary	= octets_encode( val )
+            binary		= octets_encode( val )
         except:
             pass
         else:
             # Yes, some binary data container
             if isinstance( val, array.array ):
-                beg,end	= 'array( {val.typecode!r}, '.format( val=val ),')'
+                beg,end		= 'array( {val.typecode!r}, '.format( val=val ),')'
             elif isinstance( val, bytearray ):
-                beg,end	= 'bytearray(',')'
+                beg,end		= 'bytearray(',')'
             else:
-                beg,end	= 'bytes(',')'
-            result     += "{beg}hexload('''".format( beg=beg )
-            result     += ''.join( newline + prefix + row for row in misc.hexdumper( val ))
-            result     += newline + "'''){end},".format( end=end )
+                beg,end		= 'bytes(',')'
+            result	       += "{beg}hexload('''".format( beg=beg )
+            result	       += ''.join( newline + prefix + row for row in misc.hexdumper( val ))
+            result	       += newline + "'''){end},".format( end=end )
             continue
 
         if is_listlike( val ) and len( val ) > 10:
             # Try to tabularize large lists of data
             try:
-                beg,end	= getattr( getattr( val, '__class__' ), '__name__' ) + '(',')'
+                beg,end		= getattr( getattr( val, '__class__' ), '__name__' ) + '(',')'
             except:
                 pass
             else:
-                result += beg
+                result	       += beg
                 for i,v in enumerate( val ):
                     if i%10 == 0:
                         result += newline + prefix
-                    fmt	= "{v:<8}" if isinstance( v, type_str_base ) else "{v:>8}"
-                    result += fmt.format( v=repr( v )+',' )
-                result += newline + end + ','
+                    fmt		= "{v:<8}" if isinstance( v, type_str_base ) else "{v:>8}"
+                    result     += fmt.format( v=repr( v )+',' )
+                result	       += newline + end + ','
                 continue
 
         # Other data types
-        result	       += repr( val )
-        result	       += ','
-    result	       += '\n}'
+        result		       += repr( val )
+        result		       += ','
+    result		       += '\n}'
     return result
 
 # 
