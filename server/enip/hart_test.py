@@ -27,6 +27,8 @@ from cpppo.misc import timer, near, hexdump
 from cpppo.modbus_test import nonblocking_command
 from cpppo.server import enip
 from cpppo.server.enip import client
+from cpppo.server.enip.main import main as enip_main
+
 
 from cpppo.server.enip.hart import HART, proxy_hart # Class, proxy
 
@@ -48,7 +50,7 @@ def start_hart_simulator( *options, **kwds ):
     command                     = nonblocking_command( [
         sys.executable, os.path.abspath( __file__ ),
         '-a', ':0', '-A', '-p', '-v', '--no-udp',
-    ] + list( options ), stderr=None )
+    ] + list( options ), stderr=None, bufsize=0, blocking=None )
 
     # For python 2/3 compatibility (can't mix positional wildcard, keyword parameters in Python 2)
     CMD_WAIT			= kwds.pop( 'CMD_WAIT', 10.0 )
@@ -71,7 +73,6 @@ def start_hart_simulator( *options, **kwds ):
             assert exc.errno == errno.EAGAIN, "Expected only Non-blocking IOError"
         except Exception as exc:
             log.warning("Socket read return Exception: %s", exc)
-
         if not data:
             time.sleep( CMD_LATENCY )
         while data.find( '\n' ) >= 0:
@@ -99,8 +100,11 @@ def command_logging( command, buf='' ):
 
 
 @pytest.fixture( scope="module" )
-def simulated_hart_gateway():
-    return start_hart_simulator()
+def simulated_hart_gateway( request ):
+    command,address		= start_hart_simulator()
+    request.addfinalizer( command.kill )
+    return command,address
+
 
 hart_kwds			= dict(
     timeout		= 15.0,
@@ -279,6 +283,10 @@ def hart_pass_thru( io, path, hart_data, data_size, route_path=None ):
     return reply.get( 'query.reply_data.data', None )
 
 
+# 
+# Since we implemented STRUCT tags, we need to update the HART implementation.
+# 
+#@pytest.mark.xfail
 def test_hart_pass_thru_poll( simulated_hart_gateway ):
     r"""To test a remote C*Logix w/ a HART card, set up a remote port forward from another host in the
     same LAN.  Here's a windows example, using putty.  This windows machine (at 100.100.102.1)
@@ -368,12 +376,12 @@ def test_hart_pass_thru_poll( simulated_hart_gateway ):
             hio, path=path, hart_data=[3, 0], route_path=route_path, data_size=4*4 ) # with no size
 
         # small response carries PV, SV, TV, FV values, no data types
-        value			= []
+        value			= cpppo.dotdict( current=[] )
         if data and len( data ) == 4*4:
             # Short
             packer		= struct.Struct( enip.REAL_network.struct_format )
             for i in range( 0, len( data ), 4 ):
-                value		+= packer.unpack_from( buffer=bytearray( data[i:i+4] ))
+                value.current	+= packer.unpack_from( buffer=bytearray( data[i:i+4] ))
         elif data and len( data ) >= 24:
             # Long
             packer		= struct.Struct( enip.REAL_network.struct_format )
@@ -572,8 +580,8 @@ CIP_HART_tests			= [
              ),
 ]
 
-#@pytest.mark.xfail
-def test_CIP_HART( repeat=1 ):
+
+def test_CIP_hart( repeat=1 ):
     """HART protocol enip CIP messages
     """
     enip.lookup_reset() # Flush out any existing CIP Objects for a fresh start
@@ -682,7 +690,7 @@ def main( **kwds ):
         HART( name="HART Channel %d" % i, instance_id=i + 1 )
 
     # Establish Identity and TCPIP objects w/ some custom data for the test, from a config file
-    return enip.main( argv=sys.argv[1:] )
+    return enip_main( argv=sys.argv[1:] )
 
 
 if __name__ == "__main__":

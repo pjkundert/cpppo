@@ -1,8 +1,8 @@
 Cpppo is distributed under the GNU General Public License version 3 and is also
-available under alternative licenses negotiated directly with Hard Consulting
-Corporation. If you obtained Cpppo under the GPL, then the GPL applies to all
-Cpppo modules used on your system as well, except as defined below. The GPL
-(version 3) is included in this source tree in the file COPYING.
+available under alternative licenses negotiated directly with Dominion Research
+& Development Corp.  If you obtained Cpppo under the GPL, then the GPL applies
+to all Cpppo modules used on your system as well, except as defined below. The
+GPL (version 3) is included in this source tree in the file COPYING.
 
 Hard Consulting Corporation holds copyright and/or sufficient licenses to all
 components of the Cpppo package, and therefore can grant, at its sole
@@ -28,9 +28,5 @@ licensed under any license you wish.
 If you have any questions regarding our licensing policy, please contact us:
 
 +1.780.970.8148
-info@hardconsulting.com
-
-Hard Consulting Corporation
-74 Greystone Crescent
-Spruce Grove, AB, T7X 0A7
-Canada
+perry@dominionrnd.com
+Dominion Research & Development Corp.

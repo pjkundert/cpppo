@@ -53,7 +53,7 @@ import sys
 
 from cpppo import history
 from cpppo.server.enip import device
-from cpppo.server.enip.main import main
+from cpppo.server.enip.main import main as enip_main
 
 # 
 # Attribute_historize -- intercept all EtherNet/IP Attribute I/O, and output to a file
@@ -145,4 +145,4 @@ class Attribute_historize( device.Attribute ):
             # ^^^^
             raise
 
-sys.exit( main( attribute_class=Attribute_historize ))
+sys.exit( enip_main( attribute_class=Attribute_historize ))

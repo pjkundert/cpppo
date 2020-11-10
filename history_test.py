@@ -60,7 +60,7 @@ def test_history_timestamp_abbreviations():
     # Try to add all of the Americas to the CA abbreviations already supported; can't be done (too
     # many inconsistencies)
     try:
-        abbrev			= timestamp.support_abbreviations( 'America' )
+        abbrev			= timestamp.support_abbreviations( 'America', first=False )
         assert False, "Many zones should have been ambiguously abbreviated"
     except AmbiguousTimeZoneError as exc:
         assert "America/Mazatlan" in str( exc )
@@ -120,7 +120,7 @@ def test_history_timestamp_abbreviations():
         
     assert 'EEST' in timestamp._tzabbrev
     try:
-        timestamp.support_abbreviations( 'Asia' )
+        timestamp.support_abbreviations( 'Asia', first=False )
         assert False, "Asia/Jerusalem IST should have mismatched Europe/Dublin IST"
     except AmbiguousTimeZoneError as exc:
         assert "Asia/Jerusalem" in str( exc )

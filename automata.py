@@ -272,7 +272,7 @@ class decide( object ):
         self.name		= name
         self.state		= state
         if predicate is None:
-            predicate		= lambda machine=None, source=None, path=None, data=None: True 
+            predicate		= lambda **kwds: True 
         self.predicate		= predicate
 
     def __str__( self ):
@@ -288,7 +288,7 @@ class decide( object ):
 
     def execute( self, truth, machine=None, source=None, path=None, data=None ):
         target			= self.state if truth else None
-        #log.info( "%s %-13.13s -> %10s w/ data: %r", machine.name_centered(), self, target, data )
+        #log.debug( "%s %-13.13s -> %10s w/ data: %r", machine.name_centered(), self, target, data )
         return target
 
 

@@ -1,5 +1,5 @@
 minimalmodbus
-pylogix
+pylogix>=0.7.5
 pymodbus>=1.2.0
 pytest
 pytz>=2014.7

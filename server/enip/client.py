@@ -55,7 +55,9 @@ import sys
 import traceback
 import warnings
 
-import cpppo
+from ... import misc
+from ...dotdict import dotdict
+from ...automata import ( log_cfg, type_str_base, chainable, peekable )
 from .. import network
 from . import defaults, parser, device
 
@@ -86,7 +88,7 @@ def format_path( segments, count=None ):
     we'll append a [#-#] element range.
 
     """
-    if isinstance( segments, cpppo.type_str_base ):
+    if isinstance( segments, type_str_base ):
         path			= segments
     else:
         symbolic		= ''
@@ -386,7 +388,7 @@ class client( object ):
         # If no 'host' supplied; get from 'Address' in configuration.  Default is 
         if host is None:
             addr_str		= device.Object.config_override( host, 'Address', default='', section=configuration ).strip()
-            host,port_cnf	= cpppo.parse_ip_port( addr_str, default=('localhost',defaults.address[1]) )
+            host,port_cnf	= misc.parse_ip_port( addr_str, default=('localhost',defaults.address[1]) )
             if port is None:
                 port	= port_cnf # only override if nonexistent/None
         if port is None:
@@ -450,7 +452,7 @@ class client( object ):
                              self.addr[0], self.addr[1], exc )
 
         self.session		= None	# Not set w/in client class; set manually, or in derived class
-        self.source		= cpppo.chainable()
+        self.source		= chainable()
         self.data		= None
         # Parsers
         self.engine		= None # EtherNet/IP frame parsing in progress
@@ -589,7 +591,7 @@ class client( object ):
         result			= None
         try:
             if self.engine is None:
-                self.data	= cpppo.dotdict( peer=addr )
+                self.data	= dotdict( peer=addr )
                 self.engine	= self.frame.run( source=self.source, data=self.data )
                 
             for mch,sta in self.engine:
@@ -618,7 +620,7 @@ class client( object ):
         if result is not None and 'enip.input' in result:
             with self.cip as machine:
                 with contextlib.closing( machine.run(
-                        path='enip', source=cpppo.peekable( result.enip.input ), data=result )) as engine:
+                        path='enip', source=peekable( result.enip.input ), data=result )) as engine:
                     for m,s in engine:
                         pass
                 assert machine.terminal, "No CIP payload in the EtherNet/IP frame: %r" % ( result )
@@ -641,7 +643,7 @@ class client( object ):
                 dialect	= self.dialect or device.dialect # May be (temporarily) changed
                 with dialect.parser as machine:
                     with contextlib.closing( machine.run( # for pypy, where gc may delay destruction of generators
-                            source=cpppo.peekable( request.input ),
+                            source=peekable( request.input ),
                             data=request )) as engine:
                         for m,s in engine:
                             pass
@@ -667,7 +669,7 @@ class client( object ):
         """Send encoded request data."""
         assert self.writable( timeout=timeout ), \
             "Failed to send to %r within %7.3fs: %r" % (
-                self.addr, cpppo.inf if timeout is None else timeout, request )
+                self.addr, misc.inf if timeout is None else timeout, request )
         sent			= bytes( request )
         if self.addr_connected:
             self.conn.sendall( sent ) # ensure full buffer is sent
@@ -699,24 +701,24 @@ class client( object ):
 
     # Basic CIP Requests; sent immediately
     def register( self, timeout=None, sender_context=b'' ):
-        cip			= cpppo.dotdict()
+        cip			= dotdict()
         cip.register		= {}
         cip.register.options 	= 0
         cip.register.protocol_version = 1
         return self.cip_send( cip=cip, sender_context=sender_context, timeout=timeout )
 
     def list_interfaces( self, timeout=None, sender_context=b'' ):
-        cip			= cpppo.dotdict()
+        cip			= dotdict()
         cip.list_interfaces	= {}
         return self.cip_send( cip=cip, sender_context=sender_context, timeout=timeout )
 
     def list_services( self, timeout=None, sender_context=b'' ):
-        cip			= cpppo.dotdict()
+        cip			= dotdict()
         cip.list_services	= {}
         return self.cip_send( cip=cip, sender_context=sender_context, timeout=timeout )
 
     def list_identity( self, timeout=None, sender_context=b'' ):
-        cip			= cpppo.dotdict()
+        cip			= dotdict()
         cip.list_identity	= {}
         return self.cip_send( cip=cip, sender_context=sender_context, timeout=timeout )
 
@@ -739,9 +741,9 @@ class client( object ):
         with a self.dialect == Connection_Manager to properly produce request and parse response.
 
         """
-        req			= cpppo.dotdict()
+        req			= dotdict()
         req.path		= { 'segment': [
-            cpppo.dotdict( d )
+            dotdict( d )
             for d in device.parse_path( path )
         ]}
         req.forward_open 	= {}
@@ -756,7 +758,7 @@ class client( object ):
         fo.transport_class_triggers = transport_class_triggers
         fo.connection_timeout_multiplier = connection_timeout_multiplier
         fo.connection_path	= { 'segment': [
-            cpppo.dotdict( d ) for d in device.parse_connection_path( connection_path )
+            dotdict( d ) for d in device.parse_connection_path( connection_path )
         ]}
         if send:
             self.unconnected_send(
@@ -769,9 +771,9 @@ class client( object ):
                        O_serial, O_vendor, connection_serial,
                        timeout=None, send=True,
                        route_path=False, send_path='', sender_context=b'' ):
-        req			= cpppo.dotdict()
+        req			= dotdict()
         req.path		= { 'segment': [
-            cpppo.dotdict( d ) for d in device.parse_path( path )
+            dotdict( d ) for d in device.parse_path( path )
         ]}
         req.forward_close 	= {}
         fc			= req.forward_close
@@ -781,7 +783,7 @@ class client( object ):
         fc.O_vendor		= O_vendor
         fc.O_serial		= O_serial
         fc.connection_path	= { 'segment': [
-            cpppo.dotdict( d ) for d in device.parse_connection_path( connection_path )
+            dotdict( d ) for d in device.parse_connection_path( connection_path )
         ]}
         if send:
             self.unconnected_send(
@@ -806,9 +808,9 @@ class client( object ):
             data.service_code.data = [0, 1, 2, 3]
 
         """
-        req			= cpppo.dotdict()
+        req			= dotdict()
         req.path		= { 'segment': [
-            cpppo.dotdict( d ) for d in device.parse_path( path )
+            dotdict( d ) for d in device.parse_path( path )
         ]}
         req.service		= code
         if data is None:
@@ -844,9 +846,9 @@ class client( object ):
               route_path=None, send_path=None, timeout=None, send=True,
               data_size=None, elements=None, tag_type=None, # for response data_size estimation
               sender_context=b'', **kwds ):
-        req			= cpppo.dotdict()
+        req			= dotdict()
         req.path		= { 'segment': [
-            cpppo.dotdict( d ) for d in device.parse_path( path )
+            dotdict( d ) for d in device.parse_path( path )
         ]}
         req.get_attributes_all	= True
         if send:
@@ -859,9 +861,9 @@ class client( object ):
               route_path=None, send_path=None, timeout=None, send=True,
               data_size=None, elements=None, tag_type=None, # for response data_size estimation
               sender_context=b'', **kwds ):
-        req			= cpppo.dotdict()
+        req			= dotdict()
         req.path		= { 'segment': [
-            cpppo.dotdict( d ) for d in device.parse_path( path )
+            dotdict( d ) for d in device.parse_path( path )
         ]}
         req.get_attribute_single= True
         if send:
@@ -889,9 +891,9 @@ class client( object ):
             log.detail( "Converted %s[%d] to USINT[%d]",
                         parser.typed_data.TYPES_SUPPORTED[tag_type], elements, len( usints ))
             data,elements	= usints,len( usints )
-        req			= cpppo.dotdict()
+        req			= dotdict()
         req.path		= { 'segment': [
-            cpppo.dotdict( d ) for d in device.parse_path( path )
+            dotdict( d ) for d in device.parse_path( path )
         ]}
         req.set_attribute_single= {
             'data':		data,
@@ -911,12 +913,21 @@ class client( object ):
         elements is specified, get it from the path (if it is unparsed, eg Tag[0-9] or
         @0x04/5/connection=100)
 
+        The Read Tag [Fragmented] response carries a data type; this may be a simple CIP type
+        (eg. DINT == 0x00c4), or it may indicate a C*Logix STRUCT == 0x02a0 + a UINT structure_tag).
+
+        We cannot parse these complex STRUCT types until we get the complete return value, since an
+        individual Read Tag [Fragmented] may return partial data -- and probably not fill STRUCT
+        records.  So, we do not bother to transmit tag_type data describing the STRUCT, as it cannot
+        be used 'til the full response has been collected, possibly over several Read Tag
+        [Fragmented] calls.  Thus, all STRUCT responses are returned as raw USINT data.
+
         """
-        req			= cpppo.dotdict()
+        req			= dotdict()
         seg,elm,cnt		= device.parse_path_elements( path )
         if cnt is not None:
             elements		= cnt
-        req.path		= { 'segment': [ cpppo.dotdict( s ) for s in seg ]}
+        req.path		= { 'segment': [ dotdict( s ) for s in seg ]}
         if offset is None:
             req.read_tag	= {
                 'elements':	elements
@@ -935,11 +946,11 @@ class client( object ):
     def write( self, path, data, elements=1, offset=0, tag_type=None,
                route_path=None, send_path=None, timeout=None, send=True,
                sender_context=b'', **kwds ):
-        req			= cpppo.dotdict()
+        req			= dotdict()
         seg,elm,cnt		= device.parse_path_elements( path )
         if cnt is not None:
             elements		= cnt
-        req.path		= { 'segment': [ cpppo.dotdict( s ) for s in seg ]}
+        req.path		= { 'segment': [ dotdict( s ) for s in seg ]}
         if tag_type is None:
             tag_type		= parser.INT.tag_type
         if offset is None:
@@ -965,10 +976,10 @@ class client( object ):
                   sender_context=b'', **kwds ):
         assert isinstance( request, list ), \
             "A Multiple Service Packet requires a request list"
-        req			= cpppo.dotdict()
+        req			= dotdict()
         if path:
             req.path		= { 'segment': [
-                cpppo.dotdict( s ) for s in device.parse_path( path )
+                dotdict( s ) for s in device.parse_path( path )
             ]}
         req.multiple		= {
             'request':		request,
@@ -1017,14 +1028,14 @@ class client( object ):
         if dialect is None:
             dialect		= self.dialect or device.dialect # May be (temporarily) changed
 
-        cip			= cpppo.dotdict()
+        cip			= dotdict()
         cip.send_data		= {}
 
         sd			= cip.send_data
         sd.interface		= 0
         sd.timeout		= 8 # 0 # was 0; unknown functionality...
         sd.CPF			= {}
-        sd.CPF.item		= [ cpppo.dotdict(), cpppo.dotdict() ]
+        sd.CPF.item		= [ dotdict(), dotdict() ]
         sd.CPF.item[0].type_id	= 0x00 # 0
         sd.CPF.item[1].type_id	= 0xb2 # 178
         sd.CPF.item[1].unconnected_send = {}
@@ -1041,11 +1052,11 @@ class client( object ):
             us.priority		= self.priority_time_tick if priority_time_tick is None else priority_time_tick
             us.timeout_ticks	= self.timeout_ticks      if timeout_ticks      is None else timeout_ticks
             us.path		= { 'segment': [
-                cpppo.dotdict( s ) for s in send_path
+                dotdict( s ) for s in send_path
             ]}
             if route_path: # May be None/0/False or empty, to eliminate routing encapsulation
                 us.route_path	= { 'segment': [
-                    cpppo.dotdict( s ) for s in route_path
+                    dotdict( s ) for s in route_path
                 ]}
 
         # If the paylaod is an opaque byte string, just pass it thru (we probably don't know how to
@@ -1089,14 +1100,14 @@ class client( object ):
         if dialect is None:
             dialect		= self.dialect or device.dialect
 
-        cip			= cpppo.dotdict()
+        cip			= dotdict()
         cip.send_data		= {}
 
         sd			= cip.send_data
         sd.interface		= 0
         sd.timeout		= 8 # 0 # was 0; unknown functionality...
         sd.CPF			= {}
-        sd.CPF.item		= [ cpppo.dotdict(), cpppo.dotdict() ]
+        sd.CPF.item		= [ dotdict(), dotdict() ]
         sd.CPF.item[0].type_id	= 0xa1 # 161
         sd.CPF.item[0].connection_ID = {}
         sd.CPF.item[0].connection_ID.connection = connection or 0
@@ -1135,7 +1146,7 @@ class client( object ):
         payload, then command may be used to specify the data.enip.command for EtherNet/IP framing.
 
         """
-        data			= cpppo.dotdict()
+        data			= dotdict()
         data.enip		= {}
         if command:
             data.enip.command	= command
@@ -1194,22 +1205,22 @@ def await_response( cli, timeout=None ):
     existing partial response in process of parsing in the cli iterator.)
 
     """
-    response			= cpppo.dotdict() # Prepare for EOF
-    begun			= cpppo.timer()
+    response			= dotdict() # Prepare for EOF
+    begun			= misc.timer()
     for response in cli: # if StopIteration raised immediately, defaults to {} signalling completion
         if response is None:
-            elapsed		= cpppo.timer() - begun
+            elapsed		= misc.timer() - begun
             if not timeout or elapsed <= timeout:
                 # 0 (immediate) or None (infinite), or unsatisfied timeout; input pending?
                 if cli.readable( timeout=timeout if not timeout else timeout - elapsed ):
-                    response	= cpppo.dotdict() # Prepare (again) for EOF
+                    response	= dotdict() # Prepare (again) for EOF
                     continue # Client I/O pending w/in timeout; see if response complete
             # No input available w'in timeout.  A partially parsed response may remain
             # in 'cli', which may be continued 'til the cli is released.
         break
-    elapsed			= cpppo.timer() - begun
+    elapsed			= misc.timer() - begun
     log.info( "Awaited %7.3f/%7.3fs for response: %r",
-              elapsed, cpppo.inf if timeout is None else timeout, response )
+              elapsed, misc.inf if timeout is None else timeout, response )
     return response,elapsed
 
 
@@ -1234,17 +1245,17 @@ class connector( client ):
         type connections.
 
         """
-        begun			= cpppo.timer()
+        begun			= misc.timer()
         try:
             super( connector, self ).__init__( host=host, port=port, timeout=timeout, **kwds )
             if self.udp:
                 return
             with self:
                 # The register( timeout=... ) applies to the socket send only
-                elapsed_req	= cpppo.timer() - begun
+                elapsed_req	= misc.timer() - begun
                 self.register( timeout=None if timeout is None else max( 0, timeout - elapsed_req ))
                 # Await the CIP response for remainder of timeout
-                elapsed_req	= cpppo.timer() - begun
+                elapsed_req	= misc.timer() - begun
                 data,elapsed_rpy= await_response( self, timeout=None if timeout is None else max( 0, timeout - elapsed_req ))
 
             assert data is not None, "Failed to receive any response"
@@ -1254,12 +1265,12 @@ class connector( client ):
 
             self.session	= data.enip.session_handle
         except Exception as exc:
-            log.normal( "Connect:  Failure in %7.3f/%7.3fs: %s", cpppo.timer() - begun,
-                        cpppo.inf if timeout is None else timeout, exc )
+            log.normal( "Connect:  Failure in %7.3f/%7.3fs: %s", misc.timer() - begun,
+                        misc.inf if timeout is None else timeout, exc )
             raise
         else:
-            log.normal( "Connect:  Success in %7.3f/%7.3fs", cpppo.timer() - begun,
-                        cpppo.inf if timeout is None else timeout )
+            log.normal( "Connect:  Success in %7.3f/%7.3fs", misc.timer() - begun,
+                        misc.inf if timeout is None else timeout )
 
     def index_to_sender_context( self, index ):
         return str( index ).encode( 'iso-8859-1' )
@@ -1310,7 +1321,7 @@ class connector( client ):
             # handle Get Attribute(s) Single/All, but don't include ...All in Multiple Service Packet.
             op['sender_context']= sender_context
             descr		= "Multi. " if multiple else "Single "
-            begun		= cpppo.timer()
+            begun		= misc.timer()
             method		= op.pop( 'method', 'write' if 'data' in op else 'read' )
             if method == 'write':
                 descr	       += "Write "
@@ -1372,7 +1383,7 @@ class connector( client ):
                     rpyest	= multiple
             else:
                 assert False, "Unrecognized operation method %s: %r" % ( method, op )
-            elapsed		= cpppo.timer() - begun
+            elapsed		= misc.timer() - begun
             descr	       += '    ' if 'offset' not in op else 'Frag' if op['offset'] is not None else 'Tag '
             if 'path' in op:
                 descr	       += ' ' + format_path( op['path'], count=op.get( 'elements' ))
@@ -1386,13 +1397,13 @@ class connector( client ):
                     rpysiz     += rpyest
                 else:
                     # Multiple Service Packet siz too full w/ this req (or paths differ); issue requests and queue it
-                    begun	= cpppo.timer()
+                    begun	= misc.timer()
                     mul		= self.multiple( request=[r for d,o,r in requests], timeout=timeout,
                                                  sender_context=sender_context, **requests_paths )
-                    elapsed	= cpppo.timer() - begun
+                    elapsed	= misc.timer() - begun
                     if log.isEnabledFor( logging.DETAIL ):
                         log.detail( "Sent %7.3f/%7.3fs: %s (req: %d + %d or rpy: %d + %d >= %d): %s", elapsed,
-                                    cpppo.inf if timeout is None else timeout, "Multiple Service Packet",
+                                    misc.inf if timeout is None else timeout, "Multiple Service Packet",
                                     reqsiz, reqest, rpysiz, rpyest, multiple,
                                     parser.enip_format( mul ))
                     log.detail( "Sending %2d (Context %10r)", len( requests ), sender_context )
@@ -1413,7 +1424,7 @@ class connector( client ):
                 # Single requests already issued
                 if log.isEnabledFor( logging.DETAIL ):
                     log.detail( "Sent %7.3f/%7.3fs: %s %s", elapsed,
-                                cpppo.inf if timeout is None else timeout, descr,
+                                misc.inf if timeout is None else timeout, descr,
                                 parser.enip_format( req ))
                 log.detail( "Sending  1 (Context %10r)", sender_context )
                 yield index,sender_context,descr,op,req
@@ -1423,13 +1434,13 @@ class connector( client ):
 
         # No more operations!  Issue the (final) Multiple Service Packet w/ remaining requests
         if multiple and requests:
-            begun		= cpppo.timer()
+            begun		= misc.timer()
             mul			= self.multiple( request=[r for d,o,r in requests], timeout=timeout,
                                                  sender_context=sender_context, **requests_paths )
-            elapsed		= cpppo.timer() - begun
+            elapsed		= misc.timer() - begun
             if log.isEnabledFor( logging.DETAIL ):
                 log.detail( "Sent %7.3f/%7.3fs: %s %s", elapsed,
-                            cpppo.inf if timeout is None else timeout, "Multiple Service Packet",
+                            misc.inf if timeout is None else timeout, "Multiple Service Packet",
                             parser.enip_format( req ))
             log.detail( "Sending %2d (Context %10r)", len( requests ), sender_context )
             for d,o,r in requests:
@@ -1786,10 +1797,10 @@ class implicit( connector ):
                   transport_class_triggers=None, connection_timeout_multiplier=None,
                   route_path=False, send_path='', # typically no 0x52 encapsulation w/ routing for fwd open
                   sender_context=b'', **kwds ):
-        begun			= cpppo.timer()
+        begun			= misc.timer()
         self.timeout		= timeout
-        self.requested		= cpppo.dotdict()
-        self.established	= cpppo.dotdict()
+        self.requested		= dotdict()
+        self.established	= dotdict()
         self.seqs		= {} # Forward Open connected_send( connection --> sequence )
 
         super( implicit, self ).__init__( host=host, port=port, timeout=timeout,
@@ -1843,7 +1854,7 @@ class implicit( connector ):
 
             with self:
                 # The forward_open( timeout=... ) applies to the socket send only
-                elapsed_req	= cpppo.timer() - begun
+                elapsed_req	= misc.timer() - begun
                 self.requested	= self.forward_open(
                     path		= path,
                     connection_path	= connection_path,
@@ -1862,7 +1873,7 @@ class implicit( connector ):
                     sender_context	= sender_context )
 
                 # Await the CIP response for remainder of timeout
-                elapsed_req	= cpppo.timer() - begun
+                elapsed_req	= misc.timer() - begun
                 data,elapsed_rpy= await_response( self, timeout=None if timeout is None else max( 0, timeout - elapsed_req ))
 
             assert data is not None, "Failed to receive any response"
@@ -1872,12 +1883,12 @@ class implicit( connector ):
             assert self.established and 'forward_open' in self.established and self.established.status == 0, \
                 "Failed to receive successful Forward Open response: %s" % ( parser.enip_format( self.established ))
         except Exception as exc:
-            log.info( "FwdOpen:  Failure in %7.3f/%7.3fs: %s", cpppo.timer() - begun,
-                      cpppo.inf if timeout is None else timeout, exc )
+            log.info( "FwdOpen:  Failure in %7.3f/%7.3fs: %s", misc.timer() - begun,
+                      misc.inf if timeout is None else timeout, exc )
             raise
         else:
-            log.detail( "FwdOpen:  Success in %7.3f/%7.3fs", cpppo.timer() - begun,
-                        cpppo.inf if timeout is None else timeout )
+            log.detail( "FwdOpen:  Success in %7.3f/%7.3fs", misc.timer() - begun,
+                        misc.inf if timeout is None else timeout )
         finally:
             self.dialect	= dialect_bak # Restore original self.dialect
 
@@ -1899,7 +1910,7 @@ class implicit( connector ):
         Exception in the (likely) case that the socket has already closed.
 
         """
-        begun			= cpppo.timer()
+        begun			= misc.timer()
         dialect_bak,self.dialect= getattr( self, 'dialect', None ),device.Connection_Manager
         try:
             if not hasattr( self, 'established' ):
@@ -1922,23 +1933,23 @@ class implicit( connector ):
                     connection_serial	= self.established.forward_open.connection_serial )
                 self.shutdown()
                 # Await the CIP response for remainder of self.timeout
-                elapsed_req	= cpppo.timer() - begun
+                elapsed_req	= misc.timer() - begun
                 data,elapsed_rpy= await_response( self, timeout=None if self.timeout is None else max( 0, self.timeout - elapsed_req ))
             replies		= enip_replies( data ) 
             if data is None: # [<replies>], None or {} (EOF), or Exception/ENIPStatusError
                 # Response to Forward Close + socket shutdown was ... silence.  This connection is no good.
                 raise Exception( "Failed to cleanly close Implicit (Connected) session after %7.3f/%7.3fs" % (
-                    cpppo.timer() - begun, cpppo.inf if self.timeout is None else self.timeout ))
+                    misc.timer() - begun, misc.inf if self.timeout is None else self.timeout ))
             # Either {} (EOF), or a forward_close response { 'enip':... }
             assert not replies or len( replies ) == 1 and 'forward_close' in replies[0], \
                 "Failed to receive successful Forward Close response: %s" % ( parser.enip_format( data ))
         except Exception as exc:
-            log.detail( "FwdClose: Failure in %7.3f/%7.3fs: %s", cpppo.timer() - begun,
-                        cpppo.inf if self.timeout is None else self.timeout, exc )
+            log.detail( "FwdClose: Failure in %7.3f/%7.3fs: %s", misc.timer() - begun,
+                        misc.inf if self.timeout is None else self.timeout, exc )
             raise
         else:
-            log.detail( "FwdClose: Success in %7.3f/%7.3fs", cpppo.timer() - begun,
-                        cpppo.inf if self.timeout is None else self.timeout )
+            log.detail( "FwdClose: Success in %7.3f/%7.3fs", misc.timer() - begun,
+                        misc.inf if self.timeout is None else self.timeout )
         finally:
             self.dialect	= dialect_bak # Restore original self.dialect
             super( implicit, self ).close()
@@ -2045,11 +2056,11 @@ which is required to carry this Send/Route Path data. """ )
     ap.add_argument( '-b', '--broadcast', action='store_true',
                      default=False, 
                      help="Allow multiple peers, and use of broadcast address (default: False)" )
-    ap.add_argument( '--no-print', action='store_false', dest='print',
-                     help="Disable printing of summary of operations to stdout" )
     ap.add_argument( '-p', '--print', action='store_true',
                      default=False, # inconsistent default from get_attribute.py, for historical reasons
                      help="Print a summary of operations to stdout (default: False)" )
+    ap.add_argument( '--no-print', action='store_false', dest='print',
+                     help="Disable printing of summary of operations to stdout" )
     ap.add_argument( '-l', '--log',
                      help="Log file, if desired" )
     ap.add_argument( '-t', '--timeout',
@@ -2114,13 +2125,13 @@ which is required to carry this Send/Route Path data. """ )
         3: logging.INFO,
         4: logging.DEBUG,
         }
-    cpppo.log_cfg['level']	= ( levelmap[args.verbose] 
+    log_cfg['level']		= ( levelmap[args.verbose] 
                                     if args.verbose in levelmap
                                     else logging.DEBUG )
     if args.log:
-        cpppo.log_cfg['filename'] = args.log
+        log_cfg['filename'] = args.log
 
-    logging.basicConfig( **cpppo.log_cfg )
+    logging.basicConfig( **log_cfg )
 
     addr			= args.address.split( ':', 1 )
     assert 1 <= len( addr ) <= 2, "Invalid --address [<interface>][:<port>]: %s" % args.address
@@ -2157,7 +2168,7 @@ which is required to carry this Send/Route Path data. """ )
         profiler		= profile.Profile()
 
     # Register and EtherNet/IP CIP connection to a Controller; default to Explicit, but support Implicit
-    begun			= cpppo.timer()
+    begun			= misc.timer()
     failures			= 0
     connector_cls		= connector
     connector_kwds		= {}
@@ -2165,7 +2176,7 @@ which is required to carry this Send/Route Path data. """ )
         connector_cls		= implicit
     with connector_cls( host=addr[0], port=addr[1], timeout=timeout, profiler=profiler,
                         udp=args.udp, broadcast=args.broadcast, **connector_kwds ) as connection:
-        elapsed			= cpppo.timer() - begun
+        elapsed			= misc.timer() - begun
         log.detail( "Client Register Rcvd %7.3f/%7.3fs" % ( elapsed, timeout ))
 
         # Issue List {Identity,Service} requests, if desired.  If broadcast, await (multiple)
@@ -2177,7 +2188,7 @@ which is required to carry this Send/Route Path data. """ )
                 continue # not selected, or no arg option yet, or no/zero --legacy command value
 
             path		= '.'.join( [ 'enip', 'CIP', meth, 'CPF' ] )
-            begun		= cpppo.timer()
+            begun		= misc.timer()
             meth_kwds		= dict( timeout=timeout )
             if desc == "Legacy":
                 # All legacy EtherNet/IP commands require a command value, and an empty 'CIP.legacy'
@@ -2186,7 +2197,7 @@ which is required to carry this Send/Route Path data. """ )
                 desc	       += " 0x%04X" % ( command )
                 meth_kwds.update(
                     command	= command,
-                    cip		= cpppo.dotdict(
+                    cip		= dotdict(
                         legacy	= None ))
 
             getattr( connection, meth )( **meth_kwds )
@@ -2202,14 +2213,14 @@ which is required to carry this Send/Route Path data. """ )
                 if not reply or not args.broadcast:
                     # No reply or EOF w'in timeout, or reply but not --broadcast; done waiting
                     break
-                elapsed		= cpppo.timer() - begun
+                elapsed		= misc.timer() - begun
             if not counter:
                 log.warning( "No %s response w/in %7.3fs timeout", desc, timeout )
                 failures       += 1
 
         if tags:
             # Issue Tag I/O operations, optionally printing a summary
-            begun		= cpppo.timer()
+            begun		= misc.timer()
             operations		= parse_operations(
                 recycle( tags, times=repeat ), route_path=route_path, send_path=send_path,
                 timeout_ticks=timeout_ticks, priority_time_tick=priority_time_tick )
@@ -2217,7 +2228,7 @@ which is required to carry this Send/Route Path data. """ )
                 operations=operations, depth=depth, multiple=multiple,
                 fragment=fragment, printing=printing, timeout=timeout )
             failures	       += failed
-            elapsed		= cpppo.timer() - begun
+            elapsed		= misc.timer() - begun
             if transactions: # May be [], if from stdin, and no operations provided
                 log.normal( "Client Tag I/O  Average %7.3f TPS (%7.3fs ea)." % (
                     len( transactions ) / elapsed, elapsed / len( transactions )))

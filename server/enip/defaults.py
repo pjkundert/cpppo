@@ -33,7 +33,7 @@ __all__				= [ 'latency', 'timeout', 'address',
 
 import os
 
-import cpppo
+from ...dotdict import dotdict
 
 latency				=  0.1		# network I/O polling (should allow several round-trips)
 timeout				= 20.0		# Await completion of all I/O, thread activity (on many threads)
@@ -49,14 +49,14 @@ timeout_ticks			= 157		#  157 * 32 == 5.024s
 
 config_name			= 'cpppo.cfg'
 config_files			= [
-    os.path.join( os.path.dirname( cpppo.__file__ ), config_name ),	# cpppo install dir
+    os.path.join( os.path.dirname( __file__ ), '..', '..', config_name ),# cpppo install dir
     os.path.join( os.getenv( 'APPDATA', os.sep + 'etc' ), config_name ),# global app data
     os.path.join( os.path.expanduser( '~' ), '.' + config_name ),	# user home dir
     config_name,							# current dir
 ]
 
 # Forward Open has Connection Path and Path (in addition to the Send RR Data's Route Path and Send Path)
-forward_open_default		= cpppo.dotdict({
+forward_open_default		= dotdict({
     'path':			   '@6/1',	# Connection Manager
     'connection_path':	       '1/0/@2/1',	# Backplane slot 0 (CPU), Message Router
     'transport_class_triggers':	     0xa3,	# dir-server, trig-app-object, class-3
@@ -138,7 +138,7 @@ class Connection( object ):
     def __init__( self, large=None, size=None, variable=None, priority=None,
                   type=None, redundant=None, NCP=None, **kwds ):
         # Save other supplied connection parameters (eg. RPI, API, connection_ID, ...)
-        self.other		= cpppo.dotdict( kwds )
+        self.other		= dotdict( kwds )
 
         if large is None:
             self._large		= bool( size and size > 0x1FF ) or bool( NCP and NCP > 0xFFFF )
@@ -186,7 +186,7 @@ class Connection( object ):
         connection (eg. RPI, connection_ID, ...)
 
         """
-        parameters		= cpppo.dotdict(
+        parameters		= dotdict(
             size	= self._NCP & ( 0xFFFF if self._large else 0x01FF ),
             variable	= 0b01 & self._NCP >> (  9 + ( 16 if self._large else 0 )),
             priority	= 0b11 & self._NCP >> ( 10 + ( 16 if self._large else 0 )),

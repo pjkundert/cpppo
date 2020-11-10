@@ -6,7 +6,7 @@ import sys
 
 from cpppo.server import enip
 from cpppo.server.enip import client, Object, config_files
-from cpppo.server.enip.main import tags
+from cpppo.server.enip.main import tags, main as enip_main
 
 def main( argv=None, idle_service=None, **kwds ):
     """Run a cpppo.server.enip.main simulating a bunch of Tags, with the initial data specified in the
@@ -85,7 +85,7 @@ def main( argv=None, idle_service=None, **kwds ):
     idle_init.complete		= False
     
     # Establish Identity, TCPIP, etc. objects, and any custom [Simulator] tags from the config file(s).
-    return enip.main( argv=argv, idle_service=idle_init, **kwds )
+    return enip_main( argv=argv, idle_service=idle_init, **kwds )
 
 
 if __name__ == "__main__":

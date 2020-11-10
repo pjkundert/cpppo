@@ -34,7 +34,7 @@ USAGE
 
 """
 
-__all__				= ['main']
+__all__				= ['main', 'options', 'connections', 'tags', 'svr_ctl']
 
 import argparse
 import contextlib
@@ -49,29 +49,31 @@ import threading
 import time
 import traceback
 
-import cpppo
+from ... import misc
+from ...dotdict import dotdict, apidict
+from ...automata import log_cfg, rememberable
 from .. import network
 from . import defaults, parser, device, ucmm, logix
 
 log				= logging.getLogger( "enip.srv" )
 
 
-# Maintain a global 'options' cpppo.dotdict() containing all our configuration options, configured
+# Maintain a global 'options' dotdict() containing all our configuration options, configured
 # from incoming parsed command-line options.  This'll be passed (ultimately) to the server and
 # web_api Thread Thread target functions, broken out as keyword parameters.  As a result, the second
 # (and lower) levels of this dotdict will remain as dotdict objects assigned to keywords determined
 # by the top level dict keys.  
-options				= cpppo.dotdict()
+options				= dotdict()
 
 # The stats for the connections presently open, indexed by <interface>:<port>.   Of particular
 # interest is connections['key'].eof, which will terminate the connection if set to 1
-connections			= cpppo.dotdict()
+connections			= dotdict()
 
 # All known tags, their CIP Attribute and desired error code
-tags				= cpppo.dotdict()
+tags				= dotdict()
 
 # Server control signals
-srv_ctl				= cpppo.dotdict()
+srv_ctl				= dotdict()
 
 
 # Optional modules.  This module is optional, and only used if the -w|--web option is specified
@@ -291,10 +293,10 @@ def api_request( group, match, command, value,
         "command":	None,
         "data":		{},
         "since":	since,		# time, 0, None (null)
-        "until":	cpppo.timer(),	# time (default, unless we return alarms)
+        "until":	misc.timer(),	# time (default, unless we return alarms)
         }
 
-    logging.debug( "Searching for %s/%s, since: %s (%s)",
+    log.debug( "Searching for %s/%s, since: %s (%s)",
             group, match, since, 
             None if since is None else time.ctime( since ))
 
@@ -349,7 +351,7 @@ def api_request( group, match, command, value,
                 except Exception as exc:
                     result["success"]	= False
                     result["message"]	= "%s.%s.%s=%r failed: %s" % ( grp, mch, command, value, exc )
-                    logging.warning( "%s.%s.%s=%s failed: %s\n%s" % ( grp, mch, command, value, exc,
+                    log.warning( "%s.%s.%s=%s failed: %s\n%s" % ( grp, mch, command, value, exc,
                                                                        traceback.format_exc() ))
 
             # Get all of target's attributes (except _*) advertised by its dir() results
@@ -541,7 +543,7 @@ def stats_for( peer ):
     stats			= connections.get( connkey )
     if stats is not None:
         return stats,connkey
-    stats			= cpppo.apidict( timeout=defaults.timeout )
+    stats			= apidict( timeout=defaults.timeout )
     connections[connkey]	= stats
     stats['requests']		= 0
     stats['received']		= 0
@@ -626,12 +628,12 @@ def enip_srv_udp( conn, name, enip_process, **kwds ):
     with parser.enip_machine( name=name, context='enip' ) as machine:
         while not kwds['server']['control']['done'] and not kwds['server']['control']['disable']:
             try:
-                source		= cpppo.rememberable()
-                data		= cpppo.dotdict()
+                source		= rememberable()
+                data		= dotdict()
 
                 # If no/partial EtherNet/IP header received, parsing will fail with a NonTerminal
                 # Exception (dfa exits in non-terminal state).  Build data.request.enip:
-                begun		= cpppo.timer() # waiting for next transaction
+                begun		= misc.timer() # waiting for next transaction
                 addr,stats	= None,None
                 with contextlib.closing( machine.run(
                         path='request', source=source, data=data )) as engine:
@@ -649,9 +651,9 @@ def enip_srv_udp( conn, name, enip_process, **kwds ):
                             # from a peer?  No go!
                             wait	= ( kwds['server']['control']['latency']
                                             if source.peek() is None else 0 )
-                            brx		= cpppo.timer()
+                            brx		= misc.timer()
                             msg,frm	= network.recvfrom( conn, timeout=wait )
-                            now		= cpppo.timer()
+                            now		= misc.timer()
                             if msg and log.isEnabledFor( logging.DETAIL ):
                                 log.detail( "Transaction receive after %7.3fs (%5s bytes in %7.3f/%7.3fs): %r",
                                         now - begun, len( msg ) if msg is not None else "None",
@@ -671,7 +673,7 @@ def enip_srv_udp( conn, name, enip_process, **kwds ):
                         stats['received']+= len( msg )
                         if log.isEnabledFor( logging.DETAIL ):
                             log.detail( "%s recv: %5d: %s", machine.name_centered(),
-                                        len( msg ), repr( msg ) if log.isEnabledFor( logging.INFO ) else cpppo.reprlib.repr( msg ))
+                                        len( msg ), repr( msg ) if log.isEnabledFor( logging.INFO ) else misc.reprlib.repr( msg ))
                         source.chain( msg )
 
                 # Terminal state and EtherNet/IP header recognized; process and return response
@@ -694,10 +696,10 @@ def enip_srv_udp( conn, name, enip_process, **kwds ):
                     rpy		= parser.enip_encode( data.response.enip )
                     if log.isEnabledFor( logging.DETAIL ):
                         log.detail( "%s send: %5d: %s", machine.name_centered(),
-                                    len( rpy ), repr( rpy ) if log.isEnabledFor( logging.INFO ) else cpppo.reprlib.repr( rpy ))
+                                    len( rpy ), repr( rpy ) if log.isEnabledFor( logging.INFO ) else misc.reprlib.repr( rpy ))
                     conn.sendto( rpy, addr )
 
-                log.detail( "Transaction complete after %7.3fs", cpppo.timer() - begun )
+                log.detail( "Transaction complete after %7.3fs", misc.timer() - begun )
 
                 stats['processed']	= source.sent
             except:
@@ -715,7 +717,7 @@ def enip_srv_udp( conn, name, enip_process, **kwds ):
 
 
 def enip_srv_tcp( conn, addr, name, enip_process, delay=None, **kwds ):
-    source			= cpppo.rememberable()
+    source			= rememberable()
     with parser.enip_machine( name=name, context='enip' ) as machine:
         # We can be provided a dotdict() to contain our stats.  If one has been passed in, then this
         # means that our stats for this connection will be available to the web API; it may set
@@ -730,12 +732,12 @@ def enip_srv_tcp( conn, addr, name, enip_process, delay=None, **kwds ):
             assert addr, "EtherNet/IP CIP server for TCP/IP must be provided a peer address"
             stats,connkey	= stats_for( addr )
             while not stats.eof:
-                data		= cpppo.dotdict()
+                data		= dotdict()
 
                 source.forget()
                 # If no/partial EtherNet/IP header received, parsing will fail with a NonTerminal
                 # Exception (dfa exits in non-terminal state).  Build data.request.enip:
-                begun		= cpppo.timer()
+                begun		= misc.timer()
                 with contextlib.closing( machine.run(
                         path='request', source=source, data=data )) as engine:
                     # PyPy compatibility; avoid deferred destruction of generators
@@ -751,9 +753,9 @@ def enip_srv_tcp( conn, addr, name, enip_process, delay=None, **kwds ):
                         while msg is None and not stats.eof:
                             wait=( kwds['server']['control']['latency']
                                    if source.peek() is None else 0 )
-                            brx = cpppo.timer()
+                            brx = misc.timer()
                             msg	= network.recv( conn, timeout=wait )
-                            now = cpppo.timer()
+                            now = misc.timer()
                             ( log.detail if msg else log.debug )(
                                 "Transaction receive after %7.3fs (%5s bytes in %7.3f/%7.3fs)",
                                 now - begun, len( msg ) if msg is not None else "None",
@@ -773,7 +775,7 @@ def enip_srv_tcp( conn, addr, name, enip_process, delay=None, **kwds ):
                                 stats['eof']	= stats['eof'] or not len( msg )
                                 if log.isEnabledFor( logging.DETAIL ):
                                     log.detail( "%s recv: %5d: %s", machine.name_centered(),
-                                                len( msg ), repr( msg ) if log.isEnabledFor( logging.INFO ) else cpppo.reprlib.repr( msg ))
+                                                len( msg ), repr( msg ) if log.isEnabledFor( logging.INFO ) else misc.reprlib.repr( msg ))
                                 source.chain( msg )
                             else:
                                 # No input.  If we have symbols available, no problem; continue.
@@ -786,7 +788,7 @@ def enip_srv_tcp( conn, addr, name, enip_process, delay=None, **kwds ):
                                 # We're at a None (can't proceed), and no input is available.  This
                                 # is where we implement "Blocking"; just loop.
 
-                log.detail( "Transaction parsed  after %7.3fs", cpppo.timer() - begun )
+                log.detail( "Transaction parsed  after %7.3fs", misc.timer() - begun )
                 # Terminal state and EtherNet/IP header recognized, or clean EOF (no partial
                 # message); process and return response
                 if 'request' in data:
@@ -809,7 +811,7 @@ def enip_srv_tcp( conn, addr, name, enip_process, delay=None, **kwds ):
                         rpy	= parser.enip_encode( data.response.enip )
                         if log.isEnabledFor( logging.DETAIL ):
                             log.detail( "%s send: %5d: %s %s", machine.name_centered(),
-                                        len( rpy ), repr( rpy ) if log.isEnabledFor( logging.INFO ) else cpppo.reprlib.repr( rpy ),
+                                        len( rpy ), repr( rpy ) if log.isEnabledFor( logging.INFO ) else misc.reprlib.repr( rpy ),
                                         ("delay: %r" % delay) if delay else "" )
                         if delay:
                             # A delay (anything with a delay.value attribute) == #[.#] (converible
@@ -836,11 +838,14 @@ def enip_srv_tcp( conn, addr, name, enip_process, delay=None, **kwds ):
                                         parser.enip_format( data ))
                         stats['eof'] = True
                     log.detail( "Transaction complete after %7.3fs (w/ %7.3fs delay)",
-                        cpppo.timer() - begun, delayseconds )
+                        misc.timer() - begun, delayseconds )
                 except:
                     # Session terminated spontaneously; empty data
-                    log.error( "Failed request: %s", parser.enip_format( data ))
-                    enip_process( addr, data=cpppo.dotdict() )
+                    try:
+                        log.error( "Failed request: %s", parser.enip_format( data ))
+                    except Exception as exc:
+                        log.error( "Failed request (exception %r): %r", exc, data )
+                    enip_process( addr, data=dotdict() )
                     raise
 
             stats['processed']	= source.sent
@@ -864,7 +869,10 @@ def enip_srv_tcp( conn, addr, name, enip_process, delay=None, **kwds ):
                         stats.requests,  " " if stats.requests == 1  else "s",
                         stats.processed, " " if stats.processed == 1 else "s", stats.received,
                         len( connections ))
-            sys.stdout.flush()
+            try:
+                sys.stdout.flush()
+            except:
+                pass
             conn.close()
 
 
@@ -892,7 +900,7 @@ def logrotate_perform():
     global logrotate_signalled
     if logrotate_signalled:
         logrotate_signalled	= False
-        logging.warning( "Rotating log files due to signal" )
+        log.warning( "Rotating log files due to signal" )
         for hdlr in logging.root.handlers:
             if isinstance( hdlr, logging.FileHandler ):
                 hdlr.close()
@@ -900,7 +908,8 @@ def logrotate_perform():
 # 
 # main		-- Run the EtherNet/IP Controller Simulation
 # 
-def main( argv=None, attribute_class=device.Attribute, idle_service=None, identity_class=None,
+def main( argv=None, attribute_class=device.Attribute, attribute_kwds=None,
+          idle_service=None, identity_class=None,
           UCMM_class=None, message_router_class=None, connection_manager_class=None, **kwds ):
     """Pass the desired argv (excluding the program name in sys.arg[0]; typically pass argv=None, which
     is equivalent to argv=sys.argv[1:], the default for argparse.  Requires at least one tag to be
@@ -955,11 +964,11 @@ def main( argv=None, attribute_class=device.Attribute, idle_service=None, identi
                      help="Enable TCP/IP server (default: True)" )
     ap.add_argument( '-T', '--no-tcp', dest="tcp", action='store_false',
                      help="Disable TCP/IP server" )
-    ap.add_argument( '--no-print', action='store_false', dest='print',
-                     help="Disable printing of summary of operations to stdout" )
     ap.add_argument( '-p', '--print', action='store_true',
                      default=False,
                      help="Print a summary of operations to stdout (default: False)" )
+    ap.add_argument( '--no-print', action='store_false', dest='print',
+                     help="Disable printing of summary of operations to stdout" )
     ap.add_argument( '-l', '--log',
                      help="Log file, if desired" )
     ap.add_argument( '-w', '--web',
@@ -982,6 +991,9 @@ def main( argv=None, attribute_class=device.Attribute, idle_service=None, identi
     ap.add_argument( '-P', '--profile',
                      default=None,
                      help="Output profiling data to a file (default: None)" )
+    ap.add_argument( '-D', '--defined-tags', # TODO: support decoding UDT STRUCTs
+                     default=None,
+                     help="A file containing JSON description of UDT STRUCTs, and associated Tags (default: None)" )
     ap.add_argument( 'tags', nargs="*",
                      help="Any tags, their type (default: INT), and number (default: 1), eg: tag=INT[1000]")
 
@@ -1001,7 +1013,7 @@ def main( argv=None, attribute_class=device.Attribute, idle_service=None, identi
         3: logging.INFO,
         4: logging.DEBUG,
         }
-    cpppo.log_cfg['level']	= ( levelmap[args.verbose] 
+    log_cfg['level']		= ( levelmap[args.verbose] 
                                     if args.verbose in levelmap
                                     else logging.DEBUG )
 
@@ -1011,31 +1023,31 @@ def main( argv=None, attribute_class=device.Attribute, idle_service=None, identi
     if args.log:
         # Output logging to a file, and handle UNIX-y log file rotation via 'logrotate', which sends
         # signals to indicate that a service's log file has been moved/renamed and it should re-open
-        cpppo.log_cfg['filename']= args.log
+        log_cfg['filename']	= args.log
         signal.signal( signal.SIGHUP, logrotate_request )
         idle_service.append( logrotate_perform )
 
     # Set up logging; also, handle the degenerate case where logging has *already* been set up (and
     # basicConfig is a NO-OP), by (also) setting the logging level and (optionally) log filename.
-    logging.basicConfig( **cpppo.log_cfg )
+    logging.basicConfig( **log_cfg )
     if args.verbose:
-        logging.getLogger().setLevel( cpppo.log_cfg['level'] )
+        logging.getLogger().setLevel( log_cfg['level'] )
 
     # Load config file(s), if not disabled, into the device.Object class-level 'config_loader'.
     if not args.no_config:
         loaded			= device.Object.config_loader.read( defaults.config_files + ( args.config or [] ) )
-        logging.normal( "Loaded config files: %r", loaded )
+        log.normal( "Loaded config files: %r", loaded )
 
     # Pull out a 'server.control...' supplied in the keywords, and make certain it's a
     # cpppo.apidict.  We'll use this to transmit control signals to the server thread.  Set the
     # current values to sane initial defaults/conditions.
     if 'server' in kwds:
         assert 'control' in kwds['server'], "A 'server' keyword provided without a 'control' attribute"
-        srv_ctl			= cpppo.dotdict( kwds.pop( 'server' ))
-        assert isinstance( srv_ctl['control'], cpppo.apidict ), "The server.control... must be a cpppo.apidict"
+        srv_ctl			= dotdict( kwds.pop( 'server' ))
+        assert isinstance( srv_ctl['control'], apidict ), "The server.control... must be a cpppo.apidict"
         log.detail( "External server.control in object %s", id( srv_ctl['control'] ))
     else:
-        srv_ctl.control		= cpppo.apidict( timeout=defaults.timeout )
+        srv_ctl.control		= apidict( timeout=defaults.timeout )
         log.detail( "Internal server.control in object %s", id( srv_ctl['control'] ))
 
     srv_ctl.control['done']	= False
@@ -1065,7 +1077,7 @@ def main( argv=None, attribute_class=device.Attribute, idle_service=None, identi
             except Exception as exc:
                 log.warning( "No delay=#[.#]-#[.#] range specified: %s", exc )
 
-    options.delay		= cpppo.dotdict()
+    options.delay		= dotdict()
     try:
         options.delay.value	= float( args.delay )
         if options.delay.value:
@@ -1096,12 +1108,14 @@ def main( argv=None, attribute_class=device.Attribute, idle_service=None, identi
 
         def __setitem__( self, key, value ):
             super( Attribute_print, self ).__setitem__( key, value )
-            print( "%20s[%5s-%-5s] <= %s" % (
+            print( "%20s[%5s-%-5s] <= %s " % (
                 self.name, 
                 key.indices( len( self ))[0]   if isinstance( key, slice ) else key,
                 key.indices( len( self ))[1]-1 if isinstance( key, slice ) else key,
                 value ))
 
+    # Iterate the specified Tag names=... in args.tags, deducing Tag names, CIP types, etc.  If no
+    # type is provided, defaults to CIP INT (or, whatever type_cls is specified in attribute_kwds).
     for t in args.tags:
         tag_name, rest		= t, ''
         if '=' in tag_name:
@@ -1129,7 +1143,8 @@ def main( argv=None, attribute_class=device.Attribute, idle_service=None, identi
             "SSTRING":	( parser.SSTRING, '' ),
             "STRING":	( parser.STRING, '' ),
         }
-        assert tag_type in typenames, "Invalid tag type %r; must be one of %r" % ( tag_type, list( typenames ))
+        assert tag_type in typenames, \
+            "Invalid tag type %r; must be one of %r" % ( tag_type, list( typenames ))
         tag_class,tag_default	= typenames[tag_type]
         try:
             tag_size		= int( tag_size )
@@ -1172,48 +1187,29 @@ def main( argv=None, attribute_class=device.Attribute, idle_service=None, identi
                         "Incompatible Attribute types for tags %r and %r" % ( tn, tag_name )
                     attribute	= te.attribute
                     break
-            '''
-            instance		= device.lookup( cls, ins )
-            if not instance:
-                # Create an Object-derived class w/ the appropriate class_id.  Find the existing
-                # meta-class for this class number, and use it's class; otherwise, whip one up
-                class_ins_0	= device.lookup( cls, 0 )
-                if class_ins_0:
-                    class_type	= class_ins_0.__class__
-                else:
-                    class_type	= type( 'Class 0x%04X' % cls, (device.Object,), {'class_id': cls} )
-                instance	= class_type( instance_id=ins )
-            attribute		= device.lookup( cls, ins, att )
-            '''
         if not attribute:
-            # No Attribute found
-            attribute		= ( Attribute_print if args.print else attribute_class )(
-                tag_name, tag_class, default=( tag_default if tag_size == 1 else [tag_default] * tag_size ))
-            '''
-            if tag_address:
-                # We're doing the Tag --> cls/ins/att assignment, and it didn't exist.  Place it in
-                # the Instance.
-                instance.attribute[str(att)] \
-				= attribute
-            '''
-        '''
-        if tag_address:
-            # A Tag@1/2/3 address was specified, and we have an Instance (perhaps just freshly
-            # created), and (now) have an Attribute.  Point this tag at this address.
-            device.redirect_tag( tag_name, {'class': cls, 'instance': ins, 'attribute': att })
-        '''
+            # No Attribute found.  Create an instance w/ the deduced name, type_cls, allowing
+            # overriding keyword values from the supplied attribute_kwds.
+            attr_cls		= Attribute_print if args.print else attribute_class
+            attr_kwds		= dict(
+                name	= tag_name,
+                type_cls= tag_class,
+                default	= tag_default if tag_size == 1 else [tag_default] * tag_size
+            )
+            if attribute_kwds: # caller may have provided name, type_cls, default, ...
+                attr_kwds.update( attribute_kwds )
+            attribute		= attr_cls( **attr_kwds )
 
         # Ready to create the tag and its Attribute (and error code to return, if any).  If tag_size
         # is 1, it will be a scalar Attribute.  Since the tag_name may contain '.', we don't want
         # the normal dotdict.__setitem__ resolution to parse it; use plain dict.__setitem__.
         log.normal( "New Tag: %-14s%-10s %10s[%4d]", tag_name, '@'+tag_address if tag_address else '',
                     attribute.parser.__class__.__name__, len( attribute ) )
-        tag_entry		= cpppo.dotdict()
+        tag_entry		= dotdict()
         tag_entry.attribute	= attribute	# The Attribute (may be shared by multiple tags)
         tag_entry.path		= path		# Desired Attribute path (may include element), or None
         tag_entry.error		= 0x00
         dict.__setitem__( tags, tag_name, tag_entry )
-
 
     # Use the Logix simulator and all the basic required default CIP message processing classes by
     # default (unless some other one was supplied as a keyword options to main(), loaded above into
@@ -1264,10 +1260,9 @@ def main( argv=None, attribute_class=device.Attribute, idle_service=None, identi
     http			= ( str( http[0] ) if http[0] else bind[0],
                                     int( http[1] ) if len( http ) > 1 and http[1] else 80 )
 
-
     if args.web:
         assert 'web' in sys.modules, "Failed to import web API module; --web option not available.  Run 'pip install web.py'"
-        logging.normal( "EtherNet/IP Simulator Web API Server: %r" % ( http, ))
+        log.normal( "EtherNet/IP Simulator Web API Server: %r" % ( http, ))
         webserver		= threading.Thread( target=web_api, kwargs={'http': http} )
         webserver.daemon	= True
         webserver.start()
@@ -1277,7 +1272,7 @@ def main( argv=None, attribute_class=device.Attribute, idle_service=None, identi
     # .disable) are also passed as the server= keyword.  We are using an cpppo.apidict with a long
     # timeout; this will block the web API for several seconds to allow all threads to respond to
     # the signals delivered via the web API.
-    logging.normal( "EtherNet/IP Simulator: %r" % ( bind, ))
+    log.normal( "EtherNet/IP Simulator: %r" % ( bind, ))
     kwargs			= dict( options, latency=defaults.latency, size=args.size, tags=tags, server=srv_ctl )
 
     tf				= network.server_thread
@@ -1290,7 +1285,7 @@ def main( argv=None, attribute_class=device.Attribute, idle_service=None, identi
     while not srv_ctl.control.done:
         if not srv_ctl.control.disable:
             if disabled:
-                logging.detail( "EtherNet/IP Server enabled" )
+                log.detail( "EtherNet/IP Server enabled" )
                 disabled= False
             log.debug( "Starting server on {bind}, with {idle_count} idle services".format(
                     bind=bind, idle_count=len( idle_service )))
@@ -1299,7 +1294,7 @@ def main( argv=None, attribute_class=device.Attribute, idle_service=None, identi
                                  udp=args.udp, tcp=args.tcp, thread_factory=tf, **tf_kwds )
         else:
             if not disabled:
-                logging.detail( "EtherNet/IP Server disabled" )
+                log.detail( "EtherNet/IP Server disabled" )
                 disabled= True
             time.sleep( defaults.latency )            # Still disabled; wait a bit
 

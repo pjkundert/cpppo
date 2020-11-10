@@ -5,6 +5,7 @@ try:
 except ImportError:
     pass
 
+import contextlib
 import json
 import logging
 import os
@@ -14,8 +15,6 @@ import random
 import socket
 import traceback
 
-is_pypy				= platform.python_implementation() == "PyPy"
-
 import cpppo
 from   cpppo        import misc
 from   cpppo.server import network, tnet, tnetstrings
@@ -24,30 +23,28 @@ from   cpppo.server import network, tnet, tnetstrings
 log				= logging.getLogger( "tnet.cli")
 #log.setLevel( logging.DEBUG )
 
-@pytest.mark.skipif( is_pypy, reason="Not yet supported under PyPy" )
 def test_tnet_machinery():
     # parsing integers
     path			= "machinery"
-    SIZE			= cpppo.integer_bytes( name="SIZE", context="size", terminal=True )
     data			= cpppo.dotdict()
     source			= cpppo.chainable( b'123:' )
-    with SIZE:
-        for m,s in SIZE.run( source=source, data=data, path=path ):
-            if s is None:
-                break
-    log.info( "After SIZE: %r", data )
-    assert SIZE.terminal
+    with cpppo.integer_bytes( name="SIZE", context="size", terminal=True ) as SIZE:
+        with contextlib.closing( SIZE.run( source=source, data=data, path=path )) as engine:
+            for m,s in engine:
+                if s is None:
+                    break
+        log.info( "After SIZE: %r", data )
+        assert SIZE.terminal
     assert data.machinery.size == 123
 
     # repeat, limited by parent context's 'value' in data
-    DATA			= tnet.data_parser(
-        name="DATA", context="data", repeat="..size" )
     source.chain( b"abc" * 123 )
-    with DATA:
-        for m,s in DATA.run( source=source, data=data, path=path ):
-            if s is None:
-                break
-    log.info( "After DATA: %r", data )
+    with tnet.data_parser( name="DATA", context="data", repeat="..size" ) as DATA:
+        with contextlib.closing( DATA.run( source=source, data=data, path=path )) as engine:
+            for m,s in engine:
+                if s is None:
+                    break
+        log.info( "After DATA: %r", data )
     
 
 def test_tnet_string():

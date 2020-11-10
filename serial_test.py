@@ -141,13 +141,20 @@ def simulated_modbus_rtu( tty ):
         } )
     ] )
 
+
 @pytest.fixture( scope="module" )
-def simulated_modbus_rtu_ttyS0():
-    return simulated_modbus_rtu( "/dev/ttyS0" )
+def simulated_modbus_rtu_ttyS0( request ):
+    command,address		= simulated_modbus_rtu( "/dev/ttyS0" )
+    request.addfinalizer( command.kill )
+    return command,address
+
 
 @pytest.fixture( scope="module" )
 def simulated_modbus_rtu_ttyS2():
-    return simulated_modbus_rtu( "/dev/ttyS2" )
+    command,address		= simulated_modbus_rtu( "/dev/ttyS2" )
+    request.addfinalizer( command.kill )
+    return command,address
+
 
 @pytest.mark.skipif( 'SERIAL_TEST' not in os.environ or not has_o_nonblock or not has_minimalmodbus or not has_pyserial,
                      reason="Needs SERIAL_TEST and fcntl/O_NONBLOCK and minimalmodbus and pyserial" )

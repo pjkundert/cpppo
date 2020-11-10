@@ -52,10 +52,11 @@ try:
 except ImportError:
     logging.warning( "Failed to import pymodbus module; skipping Modbus/TCP related tests; run 'pip install pymodbus'" )
 
+
 @pytest.fixture( scope="module" )
-def simulated_modbus_tcp():
+def simulated_modbus_tcp( request ):
     """Start a simulator over a range of ports; parse the port successfully bound."""
-    return start_modbus_simulator( options=[
+    command,address		= start_modbus_simulator( options=[
         '-vv', '--log', 'remote_test.modbus_sim.log.localhost:11502',
         '--evil', 'delay:.25',
         '--address', 'localhost:11502',
@@ -63,6 +64,8 @@ def simulated_modbus_tcp():
         '    1 -  1000 = 0',
         '40001 - 41000 = 0',
     ] )
+    request.addfinalizer( command.kill )
+    return command,address
 
 
 @pytest.mark.skipif( not has_pymodbus, reason="Needs pymodbus" )

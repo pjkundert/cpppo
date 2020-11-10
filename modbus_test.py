@@ -4,6 +4,7 @@ try:
 except ImportError:
     pass
 
+import atexit
 import errno
 import logging
 import os
@@ -13,13 +14,16 @@ import signal
 import subprocess
 import sys
 import time
+import traceback
+
+log				= logging.getLogger( 'mbs_test' )
 
 has_o_nonblock			= False
 try:
     import fcntl
     has_o_nonblock		= True
 except Exception:
-    logging.warning( "Failed to import fcntl; skipping simulated Modbus/TCP PLC tests" )
+    log.warning( "Failed to import fcntl; skipping simulated Modbus/TCP PLC tests" )
 
 from . import misc
 from .tools.waits import waitfor
@@ -38,49 +42,57 @@ class nonblocking_command( object ):
 
             try:
                 data 		= command.stdout.read()
-                logging.debug( "Received %d bytes from command, len( data ))
+                log.debug( "Received %d bytes from command, len( data ))
                 collect        += data
             except IOError as exc:
                 if exc.errno != errno.EAGAIN:
-                    logging.warning( "I/O Error reading data: %s" % traceback.format_exc() )
+                    log.warning( "I/O Error reading data: %s" % traceback.format_exc() )
                     command	= None
                 # Data not presently available; ignore
             except:
-                logging.warning( "Exception reading data: %s", traceback.format_exc() )
+                log.warning( "Exception reading data: %s", traceback.format_exc() )
                 command		= None
 
             # do other stuff in loop...
 
-    The command is killed when it goes out of scope.  Pass a file-like object for stderr if desired; None would
-    cause it to share the enclosing interpreter's stderr.
+    The command is killed when it goes out of scope.  Pass a file-like object for stderr if desired;
+    None would cause it to share the enclosing interpreter's stderr.
+
+    As a safety mechanism, arrange to use atexit.register to terminate the command (if it isn't
+    already dead).
+
     """
     def __init__( self, command, stderr=subprocess.STDOUT, stdin=None, bufsize=0, blocking=None ):
         shell			= type( command ) is not list
         self.command		= ' '.join( command ) if not shell else command
-        logging.info( "Starting command: %s", self.command )
+        log.info( "Starting command: %s", self.command )
         self.process		= subprocess.Popen(
             command, stdout=subprocess.PIPE, stderr=stderr, stdin=stdin,
             bufsize=bufsize, preexec_fn=os.setsid, shell=shell )
+        log.normal( 'Started Server PID [%d]: %s', self.process.pid, self.command )
         if not blocking:
             fd 			= self.process.stdout.fileno()
             fl			= fcntl.fcntl( fd, fcntl.F_GETFL )
             fcntl.fcntl( fd, fcntl.F_SETFL, fl | os.O_NONBLOCK )
+        # Really, really ensure we get terminated
+        atexit.register( self.kill )
 
     @property
     def stdout( self ):
         return self.process.stdout
 
     def kill( self ):
-        logging.info( 'Sending SIGTERM to PID [%d]: %s', self.process.pid, self.command )
+        log.normal( 'Sending SIGTERM to PID [%d]: %s, via: %s', self.process.pid, self.command,
+                        ''.join( traceback.format_stack() ) if log.isEnabledFor( logging.INFO ) else '' )
         try:
             os.killpg( self.process.pid, signal.SIGTERM )
         except OSError as exc:
-            logging.info( 'Failed to send SIGTERM to PID [%d]: %s', self.process.pid, exc )
+            log.info( 'Failed to send SIGTERM to PID [%d]: %s', self.process.pid, exc )
         else:
-            logging.info( "Waiting for command (PID [%d]) to terminate", self.process.pid )
+            log.info( "Waiting for command (PID [%d]) to terminate", self.process.pid )
             self.process.wait()
         # Process may exit with a non-numeric returncode (eg. None)
-        logging.info( "Command (PID [%d]) finished with status %r: %s",
+        log.info( "Command (PID [%d]) finished with status %r: %s",
                       self.process.pid, self.process.returncode, self.command )
 
     __del__			= kill
@@ -104,30 +116,30 @@ def start_modbus_simulator( options ):
         raw			= None
         try:
             raw			= command.stdout.read()
-            logging.debug( "Socket received: %r", raw)
+            log.debug( "Socket received: %r", raw)
             if raw:
                 data  	       += raw.decode( 'utf-8', 'backslashreplace' )
         except IOError as exc:
-            logging.debug( "Socket blocking...")
+            log.debug( "Socket blocking...")
             assert exc.errno == errno.EAGAIN, "Expected only Non-blocking IOError"
         except Exception as exc:
-            logging.warning("Socket read return Exception: %s", exc)
+            log.warning("Socket read return Exception: %s", exc)
         if not raw:
             time.sleep( RTU_LATENCY )
         while data.find( '\n' ) >= 0:
             line,data		= data.split( '\n', 1 )
-            logging.info( "%s", line )
+            log.info( "%s", line )
             m			= re.search( "address = (.*)", line )
             if m:
                 try:
                     host,port	= m.group(1).split( ':' )
                     address	= host,int(port)
-                    logging.normal( "Modbus/TCP Simulator started after %7.3fs on %s:%d",
+                    log.normal( "Modbus/TCP Simulator started after %7.3fs on %s:%d",
                                     misc.timer() - begun, address[0], address[1] )
                 except:
                     assert m.group(1).startswith( '/' )
                     address	= m.group(1)
-                    logging.normal( "Modbus/RTU Simulator started after %7.3fs on %s",
+                    log.normal( "Modbus/RTU Simulator started after %7.3fs on %s",
                                     misc.timer() - begun, address )
                 break
     return command,address
@@ -202,7 +214,7 @@ def run_plc_modbus_polls( plc ):
             r			= random.randint( base, base + extent )
         v			= plc.read( r )
         if v is not None:
-            logging.detail( "New reg %5d was already polled due to reach=%d", r, plc.reach )
+            log.detail( "New reg %5d was already polled due to reach=%d", r, plc.reach )
             regs[r]		= v
         regs[r]			= ( regs[r] ^ 1 if r in regs
                                 else random.randint( 0, 65535 ) if base > 40000
@@ -218,7 +230,7 @@ def run_plc_modbus_polls( plc ):
             assert success
             rolling		= misc.exponential_moving_average( rolling, elapsed, rolling_factor )
 
-        logging.normal( "%3d/%3d regs: polled %3d ranges w/in %7.3fs. Polled %5d == %5d w/in %7.3fs: avg. %7.3fs (load %3.2f, %3.2f, %3.2f)",
+        log.normal( "%3d/%3d regs: polled %3d ranges w/in %7.3fs. Polled %5d == %5d w/in %7.3fs: avg. %7.3fs (load %3.2f, %3.2f, %3.2f)",
                          len( regs ), total, len( plc.polling ), plc.duration,
                          r, regs[r], elapsed or 0.0, rolling or 0.0, *[misc.nan if load is None else load for load in plc.load] )
 
