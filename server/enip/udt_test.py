@@ -134,7 +134,7 @@ def test_logix_remote_udt( count=1 ):
     """
     #logging.getLogger().setLevel( logging.NORMAL )
     device.lookup_reset() # Flush out any existing CIP Objects for a fresh start
-    svraddr		        = ('localhost', 44818)
+    svraddr		        = ('localhost', 44838)
 
     tagname			= example_tagname
     tagaddr			= example_enip_addr
@@ -286,6 +286,8 @@ def logix_remote_udt_pylogix( count, svraddr, kwargs ):
         with pylogix.PLC() as comm:
             comm.SocketTimeout	= timeout
             comm.IPAddress	= svraddr[0]
+
+            comm.conn.Port	= int( svraddr[1] )
 
             # CIP Register, Forward Open
             start		= misc.timer()

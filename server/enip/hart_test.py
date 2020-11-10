@@ -100,8 +100,11 @@ def command_logging( command, buf='' ):
 
 
 @pytest.fixture( scope="module" )
-def simulated_hart_gateway():
-    return start_hart_simulator()
+def simulated_hart_gateway( request ):
+    command,address		= start_hart_simulator()
+    request.addfinalizer( command.kill )
+    return command,address
+
 
 hart_kwds			= dict(
     timeout		= 15.0,

@@ -14,6 +14,7 @@ import socket
 import sys
 import time
 import threading
+import traceback
 
 import pytest
 
@@ -94,8 +95,10 @@ def start_powerflex_simulator( *options, **kwds ):
 
 
 @pytest.fixture( scope="module" )
-def simulated_powerflex_gateway():
-    return start_powerflex_simulator( 'SCADA=INT[100]' )
+def simulated_powerflex_gateway( request ):
+    command,address		= start_powerflex_simulator( 'SCADA=INT[100]' )
+    request.addfinalizer( command.kill )
+    return command,address
 
 
 def test_powerflex_simple( simulated_powerflex_gateway ):

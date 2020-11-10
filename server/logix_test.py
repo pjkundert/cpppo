@@ -806,7 +806,7 @@ def test_logix_remote_pylogix( count=100 ):
     """
     #logging.getLogger().setLevel( logging.NORMAL )
     enip.lookup_reset() # Flush out any existing CIP Objects for a fresh start
-    svraddr		        = ('localhost', 44818)
+    svraddr		        = ('localhost', 44828)
     kwargs			= {
         'argv': [
             #'-v',
@@ -855,6 +855,8 @@ def logix_remote_pylogix( count, svraddr, kwargs ):
         comm.SocketTimeout	= timeout
         comm.IPAddress		= svraddr[0]
         comm.ConnectionSize	= 4000
+
+        comm.conn.Port		= int( svraddr[1] )
 
         # CIP Register, Forward Open
         start			= cpppo.timer()
