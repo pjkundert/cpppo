@@ -810,6 +810,15 @@ setup.lock			= threading.Lock()
 setup.ucmm			= None
 
 
+def setup_reset():
+    """Clear the C*Logix UCMM instance.  In order to reset the C*Logix subsystem, you'll also have to
+    find and destroy any of the known C*Logix support instances we create above, using
+    device:lookup_reset().
+
+    """
+    setup.ucmm			= None
+
+
 def process( addr, data, **kwds ):
     """Processes an incoming parsed EtherNet/IP encapsulated request in data.request.enip.input, and
     produces a response with a prepared encapsulated reply, in data.response.enip.input, ready for

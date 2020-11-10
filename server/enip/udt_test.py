@@ -132,8 +132,11 @@ def test_logix_remote_udt( count=1 ):
     """Performance of a client executing an operations on a CIP UDT.
 
     """
-    #logging.getLogger().setLevel( logging.NORMAL )
-    device.lookup_reset() # Flush out any existing CIP Objects for a fresh start
+
+    # Flush out any existing CIP Objects for a fresh start, including UCMM
+    device.lookup_reset()
+    logix.setup_reset()
+
     svraddr		        = ('localhost', 44838)
 
     tagname			= example_tagname
@@ -166,13 +169,14 @@ def test_logix_remote_udt( count=1 ):
     # Intercept all server requests, and collect requests/replies locally
     #
     server_txs			= []
+
     class UCMM_collector( ucmm.UCMM ):
         """Collect the data (request), and its modified response.  Returns the "proceed" flag (or
         re-raises Exception)
 
         """
         def request( self, data, addr=None ):
-            #log.normal( "UCMM request: {addr!r:24} {req:s}".format( addr=addr, req=reprlib.repr( data )))
+            #log.info( "UCMM collector: {addr!r:24} {req:s}".format( addr=addr, req=reprlib.repr( data )))
             req			= None
             try:
                 req		= copy.deepcopy( data )
@@ -230,7 +234,6 @@ def test_logix_remote_udt( count=1 ):
         kwargs		= kwargs,		# Allow client thread to shut enip_main server down
     )
 
-    log.normal( "test_logix_remote_udt w/ server.control in object %s", id( kwargs['server']['control'] ))
     try:
         for target in [
                 logix_remote_udt_pylogix
@@ -240,7 +243,10 @@ def test_logix_remote_udt( count=1 ):
             # performance measurement, we need to be running enip.main:main in the "Main" thread...
             kwargs['server']['control'].done = False
             kwargs['client'] = {}
-
+            log.normal( "test_logix_remote_udt w/ controls in object server: %s (txs %s, %d txs), client: %s",
+                        id( kwargs['server'] ),
+                        id( kwargs['server']['server_txs'] ), len( kwargs['server']['server_txs'] ),
+                        id( kwargs['client'] ))
             targetthread= threading.Thread(
                 target	= target,
                 kwargs	= targetthread_kwargs,
@@ -249,7 +255,7 @@ def test_logix_remote_udt( count=1 ):
             targetthread.start()
             log.normal( "Startup  of C*Logix client {client_name} complete".format( client_name=target.__name__ ))
 
-            # Run the server; each client will signal it to shut down when complete.
+            # Run the server; each client will signal it to shut down when finished transacting with it.
             enip_main( **kwargs )
 
             targetthread.join()
@@ -259,11 +265,11 @@ def test_logix_remote_udt( count=1 ):
             # We expect that it should have received the full STRUCT tag encoding, and successfully
             # completed its tests.
             client_got		= kwargs['client'].get( 'received', None )
-            client_ok		= kwargs['client'].get( 'successful', False )
+            client_ok		= kwargs['client'].get( 'successful', None )
             log.normal( "Client received {length}-byte: {got}".format(
                 length=len(client_got) if client_got else "(Unknown)", got=reprlib.repr( client_got )))
             assert client_got == tagencoding
-            assert client_ok
+            assert client_ok == True
     finally:
         # In case of Exception, ensure we've shut down the server...
         kwargs['server']['control'].done = True
@@ -274,11 +280,15 @@ def logix_remote_udt_pylogix( count, svraddr, kwargs ):
     """Pylogix access of UDT STRUCT. """
     tagname			= example_tagname
 
+    time.sleep( 1 ) # Wait for server to be established
+
     # We'll check our server transactions (that they're sensible), and also send back what we got...
     server_txs			= kwargs['server']['server_txs']
     server_txs_beg		= len( server_txs ) # in case the same server is used for many clients
-
-    time.sleep( 1 ) # Wait for server to be established
+    log.normal( "logix_remote_udt_pylogix w/ controls in object server: %s (txs %s, %d txs), client: %s",
+                        id( kwargs['server'] ),
+                        id( kwargs['server']['server_txs'] ), len( kwargs['server']['server_txs'] ),
+                        id( kwargs['client'] ))
     try:
         # Try to Register a real session, followed by commands
         timeout			= kwargs['server']['control'].timeout
@@ -310,6 +320,8 @@ def logix_remote_udt_pylogix( count, svraddr, kwargs ):
         # Check that server processed correct commands (first and last few), return what the client
         # got...  We'll see the EtherNet/IP register, Forward Open, Read Tag Fragmented w/ offset 0
         # status 6, and high offset, status 0, forward close, EtherNet/IP unregister.
+        kwargs['server']['control'].done = True
+
         cases			= [
             {
                 "enip.CIP.register.options": 0,
@@ -346,17 +358,24 @@ def logix_remote_udt_pylogix( count, svraddr, kwargs ):
                 "enip.CIP.unregister": True,
             }
         ]
-
+        log.normal( "Testing {server_txs_cnt} Server txs vs. {cases_cnt} test cases".format(
+            server_txs_cnt=len( server_txs ) - server_txs_beg, cases_cnt=len( cases )))
         for num,(addr,req,rpy) in enumerate( server_txs ):
             if num < server_txs_beg or server_txs_beg + 5 <= num <= len( server_txs ) - 5:
                 continue
-            log.detail( "req {num:3d}: {addr!r:24}: {req}".format( num=num, addr=addr, req=parser.enip_format( req )))
-            log.normal( "rpy {num:3d}: {addr!r:24}: {rpy}".format( num=num, addr=addr, rpy=parser.enip_format( rpy )))
             # See if this reply matches one of our cases; delete if so
             for i,c in enumerate( cases ):
                 if all( rpy.get( k ) == v for k,v in c.items() ):
                     del cases[i]
                     break
+        if cases:
+            log.warning( "Failed to find cases {cases!r}".format( cases=cases ))
+            for num,(addr,req,rpy) in enumerate( server_txs ):
+                if num < server_txs_beg or server_txs_beg + 5 <= num <= len( server_txs ) - 5:
+                    continue
+                log.detail( "UDT req {num:3d}: {addr!r:24}: {req}".format( num=num, addr=addr, req=parser.enip_format( req )))
+                log.normal( "UDT rpy {num:3d}: {addr!r:24}: {rpy}".format( num=num, addr=addr, rpy=parser.enip_format( rpy )))
+
         assert cases == []
         kwargs['client']['successful'] = True
 
