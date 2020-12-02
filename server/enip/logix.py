@@ -221,7 +221,7 @@ class Logix( Message_Router ):
         # data will be trimmed elsewhere, according to the actual byte offset requested in the Read
         # Tag Fragmented request.
         begadvance		= off // siz # Rounds down to the start of the element at offset
-        log.warning( "index: {index!r} beg: {beg}, cnt: {cnt}, elm: {elm}; endactual: {endactual}, begadvance: {begadvance}".format(
+        log.info( "index: {index!r} beg: {beg}, cnt: {cnt}, elm: {elm}; endactual: {endactual}, begadvance: {begadvance}".format(
             index=index, beg=beg, cnt=cnt, elm=elm, endactual=endactual, begadvance=begadvance ))
         beg		       += begadvance
         if data.service in (self.RD_TAG_RPY, self.RD_FRG_RPY):
@@ -239,7 +239,7 @@ class Logix( Message_Router ):
                 "Attribute %s capacity exceeded; writing %d elements beginning at index %d" % (
                     attribute, len( data[context].data ), beg )
         end			= min( endactual, endmax )
-        log.warning( "offset: {off:6d} siz: {siz:3d}, beg: {beg:3d}, end: {end:3d}, endmax: {endmax:3d}".format(
+        log.debug( "offset: {off:6d} siz: {siz:3d}, beg: {beg:3d}, end: {end:3d}, endmax: {endmax:3d}".format(
             off=off, siz=siz, beg=beg, end=end, endmax=endmax ))
         assert 0 <= beg < cnt, \
             "Attribute %r initial element invalid: %r" % ( attribute, (beg, end) )
