@@ -136,10 +136,12 @@ class Logix( Message_Router ):
 
     """
 
-    # TODO: MAX_BYTES is arbitrary.  We're supposed to be able to return data sufficient to fill the
+    # MAX_BYTES is arbitrary.  We're supposed to be able to return data sufficient to fill the
     # remaining reply package size, but how can we do that?  We'd have to be informed of the
-    # remaining packet size available, as an argument to the produce method...
-    MAX_BYTES			= 500
+    # remaining packet size available, as an argument to the produce method...  The user may alter
+    # this limit (eg. according to the capacity of Forward Open channel).  However, it is still
+    # quite fragile, especially when producing Multiple Service Packet requests/responses.
+    MAX_BYTES			= 488 # Wild guess; leave room for ENIP headers, etc. in reply
 
     RD_TAG_NAM			= "Read Tag"
     RD_TAG_CTX			= "read_tag"
@@ -192,8 +194,7 @@ class Logix( Message_Router ):
         off			= 0
         if data.service in (self.RD_FRG_RPY, self.WR_FRG_RPY):
             off			= data[context].get( 'offset' ) or 0 # nonexistent/None/0 --> 0
-        assert siz and off % siz == 0, \
-            "Requested byte offset %d is not on a %d-byte data element boundary" % ( off, siz )
+        max_size		= data[context].get( 'max_size' ) or self.MAX_BYTES
 
         # Compute the extents of the full reply, given no byte offset, unlimited reply size and
         # complete data.  If no 'elements' has been provided (only possible when hand-forming a
@@ -203,8 +204,6 @@ class Logix( Message_Router ):
         cnt			= len( attribute )
         elm			= data[context].get( 'elements', cnt - beg ) # Read/Write Tag defaults to all
         endactual		= beg + elm
-        assert 0 < endactual <= cnt, \
-            "Attribute %s ending element invalid: %r" % ( attribute, (beg, endactual) )
 
         # Maximum elements for read is the capacity of the reply message, for write is the number
         # actually provided in request.  Compute this from the beginning element deduced from the
@@ -213,26 +212,35 @@ class Logix( Message_Router ):
         # incomplete number of data elements provided.  The 'end' can only get smaller than the
         # (known valid) 'endactual'.
         # 
-        # TODO: This is not strictly correct; we must be able to return a response w/ an offset that
-        # starts mid-element!  Also, for STRUCT types, the size of each UDT element (eg. 600 bytes)
-        # can be greater than the maximum connection size, preventing even one complete element from
-        # being returned.  For now, always round up to return a complete element; this may prevent
-        # some clients from accepting the data (eg. if the elements are too big, and a Small Forward
-        # Open is used.
-        begadvance		= off // siz
-        log.detail( "index: {index!r} beg: {beg}, cnt: {cnt}, elm: {elm}; endactual: {endactual}, begadvance: {begadvance}".format(
+        # This is not strictly correct; we must be able to return a response w/ an offset that
+        # starts/ends arbitrarily mid-element!  Also, for STRUCT types, the size of each UDT element
+        # (eg. 600 bytes) can be greater than the maximum connection size, preventing even one
+        # complete element from being returned.  For this function, always round outwards to return
+        # complete element(s); this will prevent some clients from accepting the data (eg. if the
+        # elements are too big, and a Small Forward Open is used; it is assumed that the response
+        # data will be trimmed elsewhere, according to the actual byte offset requested in the Read
+        # Tag Fragmented request.
+        begadvance		= off // siz # Rounds down to the start of the element at offset
+        log.warning( "index: {index!r} beg: {beg}, cnt: {cnt}, elm: {elm}; endactual: {endactual}, begadvance: {begadvance}".format(
             index=index, beg=beg, cnt=cnt, elm=elm, endactual=endactual, begadvance=begadvance ))
-        assert begadvance * siz == off, \
-            "Fragment offset {off} is not on an element {siz}-byte boundary".format( off=off, siz=siz )
         beg		       += begadvance
         if data.service in (self.RD_TAG_RPY, self.RD_FRG_RPY):
-            endmax 		= beg + max( self.MAX_BYTES // siz, 1 )
+            # Return at least enough elements to satisfy max_size, beginning at offset 'off' We have
+            # a 'beg' Element that contains the first byte at offset 'off'; compute the endmax that
+            # contains the last byte at offset off+max_siz-1.  The data may specify the (remaining)
+            # .max_size payload available.
+            off_rem		= off - begadvance * siz # off is how many bytes into beg element?
+            endadvance		= max(( off_rem + max_size + siz - 1 ) // siz, 1 ) # rounds up
+            endmax 		= beg + endadvance
         else:
-            endmax		= beg + len( data[context].data )
+            endadvance		= len( data[context].data )
+            endmax		= beg + endadvance
             assert endmax <= endactual, \
                 "Attribute %s capacity exceeded; writing %d elements beginning at index %d" % (
                     attribute, len( data[context].data ), beg )
         end			= min( endactual, endmax )
+        log.warning( "offset: {off:6d} siz: {siz:3d}, beg: {beg:3d}, end: {end:3d}, endmax: {endmax:3d}".format(
+            off=off, siz=siz, beg=beg, end=end, endmax=endmax ))
         assert 0 <= beg < cnt, \
             "Attribute %r initial element invalid: %r" % ( attribute, (beg, end) )
         assert beg < end, \
@@ -384,19 +392,35 @@ class Logix( Message_Router ):
             data.status_ext	= {'size': 1, 'data': [ 0x2105 ]} # Number of elements beyond end of tag
 
             # Compute (beg,end] for this reply, given data.path...element, data.elements/offset.
-            # The end element of the full request (not the size/data-limited end) is in endactual
+            # The end element of the original request (not the size/data-limited end) is in
+            # endactual.  If a .offset (and optionally .max_size) is provided, these must be used to
+            # constrain the actual payload bytes returned; the [beg,end) should index elements
+            # containing the first byte to return (at .offset), up tothe last byte
+            # (.offset+.max_size-1).
             beg,end,endactual	= self.reply_elements( attribute, data, context )
             log.debug( "Replying w/ elements [%3d-%-3d/%3d] for %r", beg, end, endactual, data )
             if data.service in (self.RD_TAG_RPY, self.RD_FRG_RPY):
                 # Read Tag [Fragmented]
                 recs			= attribute[beg:end]
+                off			= data[context].get( 'offset' ) or 0 # nonexistent/None/0 --> 0
+                max_size		= data[context].get( 'max_size' ) or self.MAX_BYTES
                 if attribute.parser.tag_type == STRUCT.tag_type:
                     # Render the STRUCT UDTs to binary.  Assume that each record has its data.input
-                    # representation
+                    # representation.
                     input		= b''
                     for r in recs:
                         input	       += octets_encode( r.data.input )
-                    recs		= dict( input=input )
+                    # For STRUCTs *only*, we support arbitrary .offset and max_size; trim it
+                    # here. (For other basic data types, we'll simply return the designated
+                    # elements, which may be less than, or slightly more than the .max_size /
+                    # self.MAX_BYTES by some portion of one element size)  Trim it here.
+                    recs		= dict( input=input[off:off+max_size] )
+                else:
+                    # We don't presently support a non-zero .offset for indeterminately sized types
+                    # (eg. STRING/SSTRING, etc.), or a sub-element offset for basic data types.
+                    assert off == 0 or (
+                        attribute.parser.tag_type < STRING.tag_type
+                        and off % attribute.parser.struct_calcsize == 0 )
                 data[context].data	= recs
                 log.detail( "%s Reading %3d elements %3d-%3d from %s: %r",
                             self, end - beg, beg, end-1, attribute, data[context].data )
