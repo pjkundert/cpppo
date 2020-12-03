@@ -221,16 +221,16 @@ class Logix( Message_Router ):
         # data will be trimmed elsewhere, according to the actual byte offset requested in the Read
         # Tag Fragmented request.
         begadvance		= off // siz # Rounds down to the start of the element at offset
+        offremains		= off - begadvance * siz # off is how many bytes into beg element?
         log.info( "index: {index!r} beg: {beg}, cnt: {cnt}, elm: {elm}; endactual: {endactual}, begadvance: {begadvance}".format(
             index=index, beg=beg, cnt=cnt, elm=elm, endactual=endactual, begadvance=begadvance ))
         beg		       += begadvance
         if data.service in (self.RD_TAG_RPY, self.RD_FRG_RPY):
-            # Return at least enough elements to satisfy max_size, beginning at offset 'off' We have
-            # a 'beg' Element that contains the first byte at offset 'off'; compute the endmax that
-            # contains the last byte at offset off+max_siz-1.  The data may specify the (remaining)
-            # .max_size payload available.
-            off_rem		= off - begadvance * siz # off is how many bytes into beg element?
-            endadvance		= max(( off_rem + max_size + siz - 1 ) // siz, 1 ) # rounds up
+            # Return at least enough elements to satisfy max_size, beginning at offset 'off'.  We
+            # have a 'beg' Element that contains the first byte at offset 'off'; compute the endmax
+            # that contains the last byte at offset off+max_siz-1.  The data may specify the
+            # (remaining) .max_size payload available.
+            endadvance		= max(( offremains + max_size + siz - 1 ) // siz, 1 ) # rounds up
             endmax 		= beg + endadvance
         else:
             endadvance		= len( data[context].data )
@@ -239,13 +239,13 @@ class Logix( Message_Router ):
                 "Attribute %s capacity exceeded; writing %d elements beginning at index %d" % (
                     attribute, len( data[context].data ), beg )
         end			= min( endactual, endmax )
-        log.debug( "offset: {off:6d} siz: {siz:3d}, beg: {beg:3d}, end: {end:3d}, endmax: {endmax:3d}".format(
-            off=off, siz=siz, beg=beg, end=end, endmax=endmax ))
+        log.info( "offset: {off:6d} siz: {siz:3d}, beg: {beg:3d}, end: {end:3d}, endmax: {endmax:3d}, offremains: {offremains}".format(
+            off=off, siz=siz, beg=beg, end=end, endmax=endmax, offremains=offremains ))
         assert 0 <= beg < cnt, \
             "Attribute %r initial element invalid: %r" % ( attribute, (beg, end) )
         assert beg < end, \
             "Attribute %r ending element before beginning: %r" % ( attribute, (beg, end) )
-        return (beg,end,endactual)
+        return (beg,end,endactual,offremains,max_size)
 
     def request( self, data, addr=None ):
         """Any exception should result in a reply being generated with a non-zero status."""
@@ -396,14 +396,14 @@ class Logix( Message_Router ):
             # endactual.  If a .offset (and optionally .max_size) is provided, these must be used to
             # constrain the actual payload bytes returned; the [beg,end) should index elements
             # containing the first byte to return (at .offset), up tothe last byte
-            # (.offset+.max_size-1).
-            beg,end,endactual	= self.reply_elements( attribute, data, context )
+            # (.offset+.max_size-1).  Since we might have advances 'beg', we get back the adjusted
+            # 'offremains', as well the target 'max_size'.
+            beg,end,endactual,offremains,max_size \
+                                        = self.reply_elements( attribute, data, context )
             log.debug( "Replying w/ elements [%3d-%-3d/%3d] for %r", beg, end, endactual, data )
             if data.service in (self.RD_TAG_RPY, self.RD_FRG_RPY):
                 # Read Tag [Fragmented]
                 recs			= attribute[beg:end]
-                off			= data[context].get( 'offset' ) or 0 # nonexistent/None/0 --> 0
-                max_size		= data[context].get( 'max_size' ) or self.MAX_BYTES
                 if attribute.parser.tag_type == STRUCT.tag_type:
                     # Render the STRUCT UDTs to binary.  Assume that each record has its data.input
                     # representation.
@@ -413,19 +413,24 @@ class Logix( Message_Router ):
                     # For STRUCTs *only*, we support arbitrary .offset and max_size; trim it
                     # here. (For other basic data types, we'll simply return the designated
                     # elements, which may be less than, or slightly more than the .max_size /
-                    # self.MAX_BYTES by some portion of one element size)  Trim it here.
-                    recs		= dict( input=input[off:off+max_size] )
+                    # self.MAX_BYTES by some portion of one element size) Trim it here.  If we've
+                    # returned the end element of the request, and all of its bytes, we're complete.
+                    trimmed		= input[offremains:offremains+max_size]
+                    recs		= dict( input=trimmed )
+                    completed		= end == endactual and offremains+max_size >= len( input )
                 else:
                     # We don't presently support a non-zero .offset for indeterminately sized types
                     # (eg. STRING/SSTRING, etc.), or a sub-element offset for basic data types.
                     assert off == 0 or (
                         attribute.parser.tag_type < STRING.tag_type
                         and off % attribute.parser.struct_calcsize == 0 )
+                    completed		= end == endactual
                 data[context].data	= recs
-                log.detail( "%s Reading %3d elements %3d-%3d from %s: %r",
-                            self, end - beg, beg, end-1, attribute, data[context].data )
+                log.detail( "%s Reading %3d elements %3d-%3d %s from %s: %r",
+                            self, end - beg, beg, end-1, "(done)" if completed else "(more)",
+                            attribute, data[context].data )
                 # Final .status is 0x00 if all requested elements were shipped; 0x06 if not
-                data.status		= 0x00 if end == endactual else 0x06
+                data.status		= 0x00 if completed else 0x06
                 data.pop( 'status_ext' ) # non-empty dotdict level; use pop instead of del
             else:
                 # Write Tag [Fragmented].  We know the type is right.
