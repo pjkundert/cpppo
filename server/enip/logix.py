@@ -316,7 +316,7 @@ class Logix( Message_Router ):
             # We need to find the attribute for all requests, and it better be ours!
             data.status		= 0x05 # On Failure: Request Path destination unknown
             data.status_ext	= {'size': 1, 'data':[0x0000]}
-            clid, inid, atid	= resolve( data.path, attribute=True )
+            clid, inid, atid	= resolve( data.path, attribute=1 ) # eg. @<cls>/<ins>[<elm>] defaults to Attribute 1!
             attribute		= lookup( clid, inid, atid )
             assert clid == self.class_id and inid == self.instance_id, \
                 "Path %r processed by wrong Object %r" % ( data.path['segment'], self )
@@ -697,7 +697,7 @@ def setup_tag( key, val ):
         # doesn't exist.  Then, find the Attribute, ensuring it is consistent if it exists.
         cls,ins,att		= 0x02,1,None # The (Logix?) Message Router, by default
         if 'path' in val and val['path']:
-            cls,ins,att	= resolve( val['path'], attribute=True )
+            cls,ins,att	= resolve( val['path'], attribute=True ) # No default Attribute for new Tags
         # See if the tag's Instance exists.  If not, we'll need to create it.  If the Class'
         # "meta" Instance exists, we'll use it to create the Instance (its always at
         # Instance 0).  Otherwise, we'll create an Object class with the appropriate

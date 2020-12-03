@@ -684,7 +684,7 @@ def enip_format( data, sort_keys=False, indent=4 ):
                 beg,end		= 'bytearray(',')'
             else:
                 beg,end		= 'bytes(',')'
-            result	       += "{beg}hexload('''".format( beg=beg )
+            result	       += "{beg}hexload(r'''".format( beg=beg )
             result	       += ''.join( newline + prefix + row for row in misc.hexdumper( val ))
             result	       += newline + "'''){end},".format( end=end )
             continue

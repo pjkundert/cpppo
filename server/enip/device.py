@@ -201,8 +201,11 @@ def resolve( path, attribute=False ):
     Other valid paths segments (eg. {'port':...}, {'connection':...}) are not presently usable in
     our Controller communication simulation.
 
-    Call with attribute=True to force resolving to the Attribute level; otherwise, always returns
-    None for the attribute.
+    Call with attribute=<Truthy> to force resolving to the Attribute level; otherwise, always returns
+    None for the attribute.  If an attribute is required, but is not supplied in the path, then we
+    can default one.  This is an (unexpected) feature of the C*Logix PLCs; you can do a Read Tag
+    Fragmented asking for eg.  @0x6b/0x0008[0] (a Class, Instance and Element but no Attribute!).
+    Presumably there is an implied default Attribute number; we're guessing it's 1?  Undocumented.
 
     """
 
@@ -210,9 +213,16 @@ def resolve( path, attribute=False ):
     tag				= '' # developing symbolic tag "Symbol.Subsymbol"
 
     for term in path['segment']:
-        if ( result['class'] is not None and result['instance'] is not None
-             and ( not attribute or result['attribute'] is not None )):
-            break # All desired terms specified; done! (ie. ignore 'element')
+        if ( result['class'] is not None		# Got Class already
+             and result['instance'] is not None		# Got Instance already
+             and (
+                 result['attribute'] is not None	# Got Attribute already
+                 or not attribute			#   or no Attribute desired (must return None)
+                 or ( attribute is not True             #   or a default attribute is supplied
+                      and 'attribute' not in term )     #     and the term didn't contain a supplied one
+             )
+            ):
+            break # All desired terms specified; done! (ie. ignore subsequent 'element')
         working			= dict( term )
         while working:
             # Each term is something like {'class':5}, {'instance':1}, or (from symbol table):
@@ -240,6 +250,11 @@ def resolve( path, attribute=False ):
     assert not tag, \
         "Unrecognized symbolic name %r found in path %r" % ( tag, path['segment'] )
 
+    # Handle the case where a default Attribute value was provided, and none was supplied
+    if result['attribute'] is None and attribute and attribute is not True:
+        assert isinstance( attribute, int )
+        result['attribute']	= attribute
+    # Make sure we got everything we required
     assert ( result['class'] is not None and result['instance'] is not None
              and ( not attribute or result['attribute'] is not None )), \
         "Failed to resolve required Class (%r), Instance (%r) %s Attribute(%r) from path: %r" % (
