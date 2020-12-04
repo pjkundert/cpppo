@@ -334,7 +334,7 @@ def logix_remote_udt_pylogix( count, svraddr, kwargs ):
                 "enip.CIP.send_data.CPF.item[1].connection_data.request.read_frag.elements": 1,
                 "enip.CIP.send_data.CPF.item[1].connection_data.request.read_frag.type": 672,
                 "enip.CIP.send_data.CPF.item[1].connection_data.request.read_frag.structure_tag": 36345,
-                "enip.CIP.send_data.CPF.item[1].connection_data.request.status": 0,
+                "enip.CIP.send_data.CPF.item[1].connection_data.request.status": 6, 
             }, {
                 # Then, starts with a Read Tag
                 "enip.CIP.send_data.CPF.item[1].connection_data.request.path.segment[1].element": 0,
@@ -347,7 +347,7 @@ def logix_remote_udt_pylogix( count, svraddr, kwargs ):
                 "enip.CIP.send_data.CPF.item[1].connection_data.request.path.segment[0].symbolic": "ExampleSensor",
                 "enip.CIP.send_data.CPF.item[1].connection_data.request.path.segment[1].element": 0,
                 "enip.CIP.send_data.CPF.item[1].connection_data.request.read_frag.elements": 360,
-                "enip.CIP.send_data.CPF.item[1].connection_data.request.read_frag.offset": 215400,
+                "enip.CIP.send_data.CPF.item[1].connection_data.request.read_frag.offset": 215696, # w/ 488 byte MAX_BYTES
                 "enip.CIP.send_data.CPF.item[1].connection_data.request.read_frag.type": 672,
                 "enip.CIP.send_data.CPF.item[1].connection_data.request.read_frag.structure_tag": 36345,
                 "enip.CIP.send_data.CPF.item[1].connection_data.request.status": 0,
