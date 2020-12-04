@@ -82,7 +82,7 @@ def test_enip_format():
     'empty.sub':                    [],
     'empty.totally_null':           None,
     'empty.true_false':             (True, False),
-    'long_bytes':                   bytes(hexload('''
+    'long_bytes':                   bytes(hexload(r'''
         00000000:  6f 00 00 00 06 00 00 00  52 54 31 2d 31 37 00 00   |o.......RT1-17..|
         00000010:  00 00 00 00 00 00 00 00  00 00 00 00 00 00 00 00   |................|
         00000020:  00 00 00 00 00 00 00 00  00 00 00 00 00 00 00 00   |................|
@@ -122,7 +122,7 @@ def test_enip_format():
         00000240:  0c 00 00 00 07 00 00 00  0a 00 00 00 28 00 00 00   |............(...|
         00000250:  34 00 00 00 fe 58 0a 00                            |4....X..|
     ''')),
-    'short_bytes':                  bytes(hexload('''
+    'short_bytes':                  bytes(hexload(r'''
         00000000:  6f 00 00 00                                        |o...|
     ''')),
     'some_ascii':                   'The quick brown fox \\\\ jumped over the "lazy" dog',

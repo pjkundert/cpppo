@@ -37,7 +37,7 @@ if __name__ == "__main__":
     logging.basicConfig( **log_cfg )
 
 import cpppo
-from   cpppo.misc import hexdump
+from   cpppo.misc import hexdump, hexload
 from   cpppo.server import network, enip
 from   cpppo.server.enip import parser, device, logix, client, pccc
 from   cpppo.server.enip.main import main as enip_main
@@ -743,6 +743,30 @@ rfg_gg0_rpy			= bytes(bytearray([
     0x00, 0x00, 0x80, 0x3e, 0x00, 0x00, 0xf0, 0x55, 0x00, 0x00, 0xf0, 0x55, 0x00, 0x00, 0xf0, 0x55,
     0x00, 0x00, 0x00, 0x00, 0xe0, 0x40, 0x00, 0x00, 0x20, 0x41, 0x00, 0x00, 0x20, 0x41,
 ]))
+
+# A Symbolic unconnected_send.path is supplied:
+# 
+#    'enip.CIP.send_data.CPF.item[1].unconnected_send.service': 82,
+#    'enip.CIP.send_data.CPF.item[1].unconnected_send.priority': 104,
+#    'enip.CIP.send_data.CPF.item[1].unconnected_send.path.size': 13,
+#    'enip.CIP.send_data.CPF.item[1].unconnected_send.path.segment[0].symbolic': 'GasGuardSensorDATAARRAY',
+#
+# instead of the Connection Manager @6/1. This is a PLC misconfiguration, and isn't a valid request.
+# 
+#            "CPF.item[1].unconnected_send.service": 82, 
+#            "CPF.item[1].unconnected_send.priority": 5, 
+#            "CPF.item[1].unconnected_send.path.size": 2, 
+#            "CPF.item[1].unconnected_send.path.segment[0].class": 6,
+#            "CPF.item[1].unconnected_send.path.segment[1].instance": 1,
+rfg_gg1_req			= bytes(bytearray([
+                            0x6f, 0x00, 0x32, 0x00, 0x73, 0x6b, 0x0d, 0x31, 0x00, 0x00, 0x00, 0x00,
+    0xc0, 0xa8, 0x12, 0x02, 0x00, 0x00, 0x5c, 0x7a, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0xb2, 0x00, 0x22, 0x00, 0x52, 0x0d, 0x91, 0x17,
+    0x47, 0x61, 0x73, 0x47, 0x75, 0x61, 0x72, 0x64, 0x53, 0x65, 0x6e, 0x73, 0x6f, 0x72, 0x44, 0x41,
+    0x54, 0x41, 0x41, 0x52, 0x52, 0x41, 0x59, 0x00, 0x68, 0x01, 0x00, 0x00, 0x00, 0x00,
+]))
+
+
 eip_tests			= [
             ( b'', {} ),        # test that parsers handle/reject empty/EOF
             ( rss_004_request,	{ 'enip.command': 0x0065, 'enip.length': 4 }),
@@ -770,6 +794,7 @@ eip_tests			= [
             ( msp_001_reply,	{} ),
             ( rfg_gg0_req,	{} ),
             ( rfg_gg0_rpy,	{} ),
+            ( rfg_gg1_req,	{} ),
 ]
 
 def test_enip_header():
@@ -1847,7 +1872,21 @@ CIP_tests			= [
             ( 
                 # An empty request (usually indicates termination of session)
                 'empty_req', enip.Message_Router, {}
+            # ), (
+            #     # Not a valid unconnected_send.path (symbolic tag name, instead of @6/1); can't reconstruct...
+            #     'rfg_gg1_req', logix.Logix,
+            #     {
+            #         'enip.session_handle':          822963059,
+            #         'enip.sender_context.input':    array.array( cpppo.type_bytes_array_symbol, hexload(r'''
+            #             00000000:  c0 a8 12 02 00 00 5c 7a                            |......\z|
+            #         ''')),
+            #         "enip.options": 0,
+            #     }
             ), (
+                # This is a strange request; it's a Class/Instance request path of @0x006b/0x0008
+                # with a 16-bit Instance number (eg. vs. an 8-bit), and NO Attribute number, and an Element #0.  It must assume that the PLC defaults
+                # to a certain Attribute number?  This is a Read Tag Fragmented request for a UDT.
+                # We must be able to construct such numeric CIP addresses, eg. "@0x0086/0x0008[0]"?
                 'rfg_gg0_req', logix.Logix,
                 {
                     "enip.session_handle": 369295182,
@@ -1873,6 +1912,8 @@ CIP_tests			= [
                     "enip.CIP.send_data.CPF.count": 2,
                 }
             ), (
+                # Here's the response of partial data from the UDT, to the above request.  We don't know
+                # the Attribute number, of course, but the PLC replies.
                 'rfg_gg0_rpy', logix.Logix,
                 {
                     "enip.command": 112,
@@ -3481,6 +3522,27 @@ def test_enip_device_symbolic():
     }
     assert enip.device.resolve( path, attribute=True ) == (0x401,1,3)
 
+    # Attribute defaults for CIP addressing; default not used
+    path			= {
+        'segment':[{'class': 0x6B}, {'instance': 0x0008}, {'attribute':99}, {'element':4}]
+    }
+    assert enip.device.resolve( path, attribute=True ) == (0x6B,8,99)
+    assert enip.device.resolve( path ) == (0x6B,8,None)
+
+    # Attribute defaults for CIP addressing; no attribute in path, default used
+    path			= {
+        'segment':[{'class': 0x6B}, {'instance': 0x0008}, {'element':4}]
+    }
+    try:
+        result			= enip.device.resolve( path, attribute=True )
+        assert False, "Should not have succeeded: %r" % result
+    except AssertionError as exc:
+        assert "Invalid term" in str(exc)
+    assert enip.device.resolve( path ) == (0x6B,8,None)
+    assert enip.device.resolve( path, attribute=22 ) == (0x6B,8,22)
+    assert enip.device.resolve( path, attribute=1 ) == (0x6B,8,1)
+
+    # Erroneous requests
     try:
         result			= enip.device.resolve(
             {'segment':[{'class':5},{'symbolic':'SCADA'},{'element':4}]} )
