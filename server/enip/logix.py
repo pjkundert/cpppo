@@ -230,19 +230,21 @@ class Logix( Message_Router ):
             # have a 'beg' Element that contains the first byte at offset 'off'; compute the endmax
             # that contains the last byte at offset off+max_siz-1.  The data may specify the
             # (remaining) .max_size payload available.
-            endadvance		= max(( offremains + max_size + siz - 1 ) // siz, 1 ) # rounds up
-            endmax 		= beg + endadvance
+            endadv		= max(( offremains + max_size + siz - 1 ) // siz, 1 ) # rounds up
+            endmax 		= beg + endadv
         else:
-            endadvance		= len( data[context].data )
-            endmax		= beg + endadvance
+            endadv		= len( data[context].data )
+            endmax		= beg + endadv
             assert endmax <= endactual, \
                 "Attribute %s capacity exceeded; writing %d elements beginning at index %d" % (
                     attribute, len( data[context].data ), beg )
         end			= min( endactual, endmax )
-        log.info( "offset: {off:6d} siz: {siz:3d}, beg: {beg:3d}, end: {end:3d}, endmax: {endmax:3d}, offremains: {offremains}".format(
-            off=off, siz=siz, beg=beg, end=end, endmax=endmax, offremains=offremains ))
+        log.info( "offset: {off:6d} siz: {siz:3d}, beg: {beg:3d}, endadv: {endadv:3d}, end: {end:3d}, endmax: {endmax:3d}, offremains: {offremains}".format(
+            off=off, siz=siz, beg=beg, end=end, endadv=endadv, endmax=endmax, offremains=offremains ))
         assert 0 <= beg < cnt, \
             "Attribute %r initial element invalid: %r" % ( attribute, (beg, end) )
+        assert elm <= cnt, \
+            "Attribute %r elements requested invalid: %r" % ( attribute, elm )
         assert beg < end, \
             "Attribute %r ending element before beginning: %r" % ( attribute, (beg, end) )
         return (beg,end,endactual,offremains,max_size)
@@ -421,9 +423,9 @@ class Logix( Message_Router ):
                 else:
                     # We don't presently support a non-zero .offset for indeterminately sized types
                     # (eg. STRING/SSTRING, etc.), or a sub-element offset for basic data types.
-                    assert off == 0 or (
+                    assert offremains == 0 or (
                         attribute.parser.tag_type < STRING.tag_type
-                        and off % attribute.parser.struct_calcsize == 0 )
+                        and offremains % attribute.parser.struct_calcsize == 0 )
                     completed		= end == endactual
                 data[context].data	= recs
                 log.detail( "%s Reading %3d elements %3d-%3d %s from %s: %r",
