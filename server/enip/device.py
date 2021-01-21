@@ -325,8 +325,8 @@ def parse_path( path, elm=None ):
 def parse_path_elements( path, elm=None, cnt=None ):
     """Returns (<path>,<element>,<count>).  If an element is specified (eg. Tag[#]), then it will be
     added to the path (or replace any existing element segment at the end of the path) and returned,
-    otherwise None will be returned.  If a count is specified (eg. Tag[#-#] or ...*#), then it will be
-    returned; otherwise a None will be returned.
+    otherwise None will be returned.  If a count is specified (eg. Tag[#-#] or ...*#), then it will
+    be returned; otherwise a None will be returned.
 
     Any "."-separated EPATH component (except the last) including an element index must specify
     exactly None/one element, eg: "Tag.SubTag[5].AnotherTag[3-4]".

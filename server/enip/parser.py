@@ -863,6 +863,7 @@ class EPATH( dfa ):
         'element':	0x28,
         'port':		0x00,
     }
+
     def __init__( self, name=None, **kwds ):
         name 			= name or kwds.setdefault( 'context', self.__class__.__name__ )
 
@@ -1147,8 +1148,7 @@ class EPATH( dfa ):
                     assert False, "Invalid value for numeric EPATH segment %r == %d: %r" % (
                         segnam, segval, data )
                 break
-            if not found:
-                assert False, "Invalid EPATH segment %r found in %r" % ( segnam, data )
+            assert found, "Invalid EPATH segment %r found in %r" % ( segnam, data )
             assert len( result ) % 2 == 0, \
                 "Failed to retain even EPATH word length after %r in %r" % ( segnam, data )
 
