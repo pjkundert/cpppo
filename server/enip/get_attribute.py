@@ -107,6 +107,7 @@ def attribute_operations( paths, int_type=None, **kwds ):
             op['method'] = 'set_attribute_single' if 'data' in op else 'get_attribute_single'
         else:
             raise AssertionError( "Path invalid for Attribute services: %r", op['path'] )
+        log.detail( "CIP Operation: %s", parser.enip_format( op ))
         yield op
 
 
@@ -245,7 +246,8 @@ class proxy( object ):
     def __init__( self, host, port=44818, timeout=None, depth=None, multiple=None,
                   gateway_class=None, route_path=None, send_path=None,
                   priority_time_tick=None, timeout_ticks=None,
-                  identity_default=None, dialect=None, **gateway_kwds ):
+                  identity_default=None, dialect=None, operations_parser=None,
+                  **gateway_kwds ):
         """Capture the desired I/O parameters for the target CIP Device.
 
         By default, the CIP Device will be identified using a List Identity request each time a CIP
@@ -273,6 +275,7 @@ class proxy( object ):
         self.identity_default	= identity_default
         self.identity		= identity_default
         self.dialect		= dialect
+        self.operations_parser	= operations_parser
 
     def __str__( self ):
         return "%s at %s" % ( self.identity.product_name if self.identity else None, self.gateway )
@@ -545,7 +548,8 @@ class proxy( object ):
                     # No conversion of data type if None; use a Read Tag [Fragmented]; works only
                     # for [S]STRING/SINT/INT/DINT/REAL/BOOL.  Otherwise, conversion of data type
                     # desired; get raw data using Get Attribute Single.
-                    parser	= client.parse_operations if typ is None else attribute_operations
+                    parser	= self.operations_parser or ( client.parse_operations if typ is None
+                                                              else attribute_operations )
                     opp,	= parser( ( att, ), route_path=device.parse_route_path( self.route_path ),
                                           send_path=self.send_path, priority_time_tick=self.priority_time_tick,
                                           timeout_ticks=self.timeout_ticks )

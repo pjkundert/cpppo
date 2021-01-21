@@ -1439,6 +1439,51 @@
          sys.exit( 1 )
      #+END_EXAMPLE
 
+**** Forcing .read/write to use CIP Get/Set Attribute Single
+
+     If the target device understands only basic CIP I/O requests, or you wish to perform special
+     processing on the stream of operations generated from the supplied tags, you can specify the
+     =proxy= with a specific =operations_parser=.  The default is to use =client.parse_operations=
+     if data types are provided, and =get_attribute.attribute_operations= otherwise.
+
+     If we know we want to generate EtherNet/IP CIP Get/Set Attribute requests but we wish to pass
+     specific data types (eg. =INT=), create the =proxy_simple= device w/ an appropriate
+     =operations_parser= parameter:
+
+#+BEGIN_EXAMPLE python
+# 
+# Basic CIP I/O Test
+# 
+# Target Simulator:
+#     python3 -m cpppo.server.enip -S -vv SCADA@0x4/0x96/3=INT[18
+# 
+import cpppo
+from cpppo.server.enip.get_attribute import attribute_operations, proxy_simple as device
+from cpppo.server.enip import client
+
+import logging
+cpppo.log_cfg['level'] = logging.DEBUG
+logging.basicConfig( **cpppo.log_cfg )
+
+hostname = 'localhost'
+
+# Our target CIP Attribute contains a 36 bytes == 18 x INT value
+attribute = '@0x4/0x96/3'
+values = "512,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0"
+operations = [attribute + ' = (INT)' + values]
+print( "Raw operations: %r" % operations )
+
+operations_parser = attribute_operations
+operations_out = list( operations_parser( operations ))
+
+assert operations_out == [{'method': 'set_attribute_single', 'path': [{'class': 4}, {'instance': 150}, {'attribute': 3}], 'tag_type': 195, 'data': [512, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], 'elements': 18}]
+
+# Force basic CIP Get/Set Attribute I/O operations
+via = device( hostname, operations_parser=operations_parser )
+val, = via.write( operations )
+     
+#+END_EXAMPLE
+
 **** Using the =proxy= Context Manager API
 
      There is a simple mechanism provided to ensure that all of the above
