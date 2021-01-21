@@ -1455,10 +1455,11 @@
 # Basic CIP I/O Test
 # 
 # Target Simulator:
-#     python3 -m cpppo.server.enip -S -vv SCADA@0x4/0x96/3=INT[18
+#   python3 -m cpppo.server.enip -S -vv SCADA@0x4/0x96/3=INT[18]
 # 
 import cpppo
-from cpppo.server.enip.get_attribute import attribute_operations, proxy_simple as device
+from cpppo.server.enip.get_attribute import (
+    attribute_operations, proxy_simple as device )
 from cpppo.server.enip import client
 
 import logging
@@ -1476,7 +1477,13 @@ print( "Raw operations: %r" % operations )
 operations_parser = attribute_operations
 operations_out = list( operations_parser( operations ))
 
-assert operations_out == [{'method': 'set_attribute_single', 'path': [{'class': 4}, {'instance': 150}, {'attribute': 3}], 'tag_type': 195, 'data': [512, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], 'elements': 18}]
+assert operations_out == [{
+    'method': 'set_attribute_single', 
+    'path': [{'class': 4}, {'instance': 150}, {'attribute': 3}],
+    'tag_type': 195,
+    'data': [512, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+    'elements': 18
+}]
 
 # Force basic CIP Get/Set Attribute I/O operations
 via = device( hostname, operations_parser=operations_parser )
