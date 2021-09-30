@@ -13,3 +13,14 @@
 # WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
 # A PARTICULAR PURPOSE.  See the GNU General Public License for more details.
 #
+
+from __future__ import absolute_import, print_function, division
+
+__author__                      = "Perry Kundert"
+__email__                       = "perry@hardconsulting.com"
+__copyright__                   = "Copyright (c) 2021 Hard Consulting Corporation"
+__license__                     = "Dual License: GPLv3 (or later) and Commercial (see LICENSE)"
+
+__all__				= ['issue', 'check']
+
+from .verification import issue, check

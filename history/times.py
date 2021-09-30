@@ -1,4 +1,4 @@
-
+# -*- coding: utf-8 -*-
 # 
 # Cpppo -- Communication Protocol Python Parser and Originator
 # 
@@ -33,6 +33,7 @@ import calendar
 import datetime
 import logging
 import os
+import re
 import string
 import sys
 import threading
@@ -710,3 +711,229 @@ class timestamp( object ):
             self.value	       -= rhs
             self._str		= None
         return self
+
+
+
+
+#
+# duration -- parse/format human-readable durations, eg. 1w2d3h4m5.678s
+# 
+class duration( object ):
+    """The definition of a year is imprecise; we choose compatibility w/ the simplest 365.25 days/yr.
+    An actual year is about 365.242196 days =~= 31,556,925.7344 seconds.  The official "leap year"
+    calculation yields (365 + 1/4 - 1/100 + 1/400) * 86,400 == 31,556,952 seconds/yr.  We're
+    typically dealing with human-scale time periods with this data structure, so use the simpler
+    definition of a year, to avoid seemingly-random remainders when years are involved.
+
+    """
+    YR 				= 31557600
+    WK				=   604800
+    DY				=    86400
+    HR				=     3600
+    MN				=       60
+
+    @classmethod
+    def _format( cls, delta ):
+        seconds			= delta.days * cls.DY + delta.seconds
+        microseconds		= delta.microseconds
+        result			= ''
+
+        years			= seconds // cls.YR
+        if years: result       += "{years}y".format( years=years )
+        y_secs			= seconds % cls.YR
+
+        weeks			= y_secs // cls.WK
+        if weeks: result       += "{weeks}w".format( weeks=weeks )
+        w_secs			= y_secs % cls.WK
+
+        days			= w_secs // cls.DY
+        if days: result	       += "{days}d".format( days=days )
+        d_secs			= w_secs % cls.DY
+
+        hours			= d_secs // cls.HR
+        if hours: result       += "{hours}h".format( hours=hours )
+        h_secs			= d_secs % cls.HR
+
+        minutes			= h_secs // cls.MN
+        if hours: result       += "{minutes}m".format( minutes=minutes )
+
+        s			= h_secs % cls.MN
+        is_us			= microseconds  % 1000 > 0
+        is_ms			= microseconds // 1000 > 0
+        if is_ms and ( s > 0 or is_us ):
+            # s+us or both ms and us resolution; default to fractional
+            result	       += "{s}.{us:0>6}".format( us=microseconds, s=s ).rstrip( '0' ) + 's'
+        elif microseconds > 0 or s > 0:
+            # s or sub-seconds remain; auto-scale to s/ms/us; the finest precision w/ data.
+            if s: result       += "{s}s".format( s=s )
+            if is_us: result   += "{us}us".format( us=microseconds )
+            elif is_ms: result += "{ms}ms".format( ms=microseconds // 1000 )
+        elif microseconds == 0 and seconds == 0:
+            # A zero duration
+            result	       += "0s"
+        else:
+            # A non-empty duration w/ no remaining seconds output above; nothing left to do
+            pass
+        return result
+
+    DURSPEC_RE			= re.compile(
+        flags=re.IGNORECASE | re.VERBOSE,
+        pattern=r"""
+            ^
+            (?:\s*(?P<y>\d+)\s*y((((ea)?r)s?)?)?)? # y|yr|yrs|year|years
+            (?:\s*(?P<w>\d+)\s*w((((ee)?k)s?)?)?)?
+            (?:\s*(?P<d>\d+)\s*d((((a )?y)s?)?)?)?
+            (?:\s*(?P<h>\d+)\s*h((((ou)?r)s?)?)?)?
+            (?:\s*(?P<m>\d+)\s*m((in(ute)?)s?)?)?  # m|min|minute|mins|minutes
+            (?:
+              (?:\s* # seconds mantissa (optional) + fraction (required)
+                (?P<s_man>\d+)?
+                [.,](?P<s_fra>\d+)\s*             s((ec(ond)?)s?)?
+              )?
+            | (?:
+                (?:\s*(?P<s> \d+)\s*              s((ec(ond)?)s?)?)?
+                (?:\s*(?P<ms>\d+)\s*(m|(milli))   s((ec(ond)?)s?)?)?
+                (?:\s*(?P<us>\d+)\s*(u|μ|(micro)) s((ec(ond)?)s?)?)?
+                (?:\s*(?P<ns>\d+)\s*(n|(nano))    s((ec(ond)?)s?)?)?
+              )
+            )
+            \s*
+            $
+        """ )
+
+    @classmethod
+    def _parse( cls, durspec ):
+        """Parses a duration specifier, returning the matching timedelta"""
+        durmatch		= cls.DURSPEC_RE.match( durspec )
+        if not durmatch:
+            raise RuntimeError("Invalid duration specification: {durspec}".format( durpsec=durspec ))
+        seconds			= (
+            int( durmatch.group( 's' ) or durmatch.group( 's_man' ) or 0 )
+            + cls.MN * int( durmatch.group( 'm' ) or '0' )
+            + cls.HR * int( durmatch.group( 'h' ) or '0' )
+            + cls.DY * int( durmatch.group( 'd' ) or '0' )
+            + cls.WK * int( durmatch.group( 'w' ) or '0' )
+            + cls.YR * int( durmatch.group( 'y' ) or '0' )
+        )
+        microseconds		= (
+            int( "{:0<6}".format( durmatch.group( 's_fra' ) or '0' ))
+            + int( durmatch.group( 'ms' ) or '0' )  * 1000
+            + int( durmatch.group( 'us' ) or '0' )
+            + int( durmatch.group( 'ns' ) or '0' ) // 1000
+        )
+
+        return datetime.timedelta( seconds=seconds, microseconds=microseconds )
+
+
+    def __init__( self, value = None ):
+        if isinstance( value, str ):
+            self.timedelta	= self._parse( value )
+        elif isinstance( value, datetime.timedelta ):
+            self.timedelta	= value
+        else: # int/float number of seconds
+            self.timedelta	= datetime.timedelta( seconds = value or 0 )
+
+        
+    def __str__( self ):
+        return self._format( self.timedelta )
+
+    @property
+    def seconds( self ):
+        return self.timedelta.total_seconds()
+
+
+def parse_seconds( seconds ):
+    """Convert an <int>, <float>, "<float>", "HHH:MM[:SS]" or "1m30s" to a float number of seconds
+
+    """
+    try:	# '1.23'
+        return float( seconds )
+    except:
+        try:	# 'HHH:MM[:SS[.sss]]'
+            return math.fsum(
+                map(
+                    lambda p: p[0] * p[1],
+                    zip(
+                        [ 60*60, 60, 1 ],
+                        map(
+                            lambda i: float( i or 0 ),
+                            re.search( r'(\d+):(\d{2})(?::(\d{2}(?:\.\d+)?))?', seconds ).groups()
+                        )
+                    )
+                )
+            )
+        except:	# '1m30s'
+            return duration( seconds ).seconds
+
+
+# 
+# Some simpler datetime and duration handling functionality.
+# 
+# NOTE: Does *not* support the ambiguous timezone abbreviations! (eg. MST/MDT instead of Canada/Mountain)
+# 
+
+def parse_datetime( time, zone=None ):
+    """Interpret the time string "2019/01/20 10:00" as a naive local time, in the specified time zone,
+    eg. "Canada/Mountain" (default: "UTC").  Returns the datetime; default time zone: UTC.  If a
+    timezone name follows the datetime, use it instead of zone/'UTC'.
+
+    """
+    tz			= pytz.timezone( zone or 'UTC' )
+    # First, see if we can split out datetime and a specific timezone.  If not, just try
+    # patterns against the supplied time string, unmodified, and default tz to zone/UTC.
+    dtzmatch		= parse_datetime.DATETIME_RE.match( time )
+    if dtzmatch:
+        time		= dtzmatch.group( 'dt' )
+        zone		= dtzmatch.group( 'tz' )
+        if zone:
+            tz		= pytz.timezone( str( zone ))
+
+    # Then, try parsing some time formats w/ timezone data, and convert to the designated timezone
+    for fmt in [
+        "%Y-%m-%dT%H:%M:%S.%f%z",
+        "%Y-%m-%dT%H:%M:%S%z",
+        "%Y-%m-%d %H:%M:%S.%f%z",
+        "%Y-%m-%d %H:%M:%S%z",
+    ]:
+        try:    return datetime.datetime.strptime( time, fmt ).astimezone( tz )
+        except: pass
+
+    # Next, try parsing some naive datetimes, and then localize them to their designated timezone
+    for fmt in [
+        "%Y-%m-%dT%H:%M:%S.%f",
+        "%Y-%m-%dT%H:%M:%S",
+        "%Y-%m-%d %H:%M:%S.%f",
+        "%Y-%m-%d %H:%M:%S",
+        "%Y-%m-%d %H:%M",
+        "%Y-%m-%d",
+    ]:
+        try:    return tz.localize( datetime.datetime.strptime( time, fmt ))
+        except Exception as exc:
+            pass
+    raise RuntimeError("Couldn't parse datetime from {time!r} w/ time zone {tz!r}".format(
+        time=time, tz=tz ))
+
+parse_datetime.DATETIME_PAT	= r"""
+            # YYYY-MM-DDTHH:MM:SS.sss+ZZ:ZZ
+            (?P<dt>[0-9-]+([ T][0-9:\.\+\-]+)?)
+            # Optionally, whitespace followed by a Blah[/Blah] Timezone name, eg. Canada/Mountain
+            (?:\s+
+              (?P<tz>[a-z_-]+(/[a-z_-]*)*)
+            )?
+        """
+
+parse_datetime.DATETIME_RE	= re.compile(
+        flags=re.IGNORECASE | re.VERBOSE,
+        pattern=r"""
+            ^
+            \s*
+            {pattern}
+            \s*
+            $
+        """.format( pattern=parse_datetime.DATETIME_PAT ))
+
+
+def zulu_datetime( dt ):
+    """Format a datetime as a standard ZULU datetime string."""
+    return dt.astimezone( pytz.UTC ).strftime("%Y-%m-%dT%H:%M:%SZ")
+
