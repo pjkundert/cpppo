@@ -22,6 +22,7 @@ __email__                       = "perry@hardconsulting.com"
 __copyright__                   = "Copyright (c) 2021 Dominion Research & Development Corp."
 __license__                     = "Dual License: GPLv3 (or later) and Commercial (see LICENSE)"
 
+import binascii
 import collections
 import hashlib
 import json
@@ -85,9 +86,13 @@ class License( object ):
         self.start		= start
         self.length		= length
 
-    def __hash__( self ):
+    def hexdigest( self ):
+        """The SHA-256 hash of the License serialization, as a 256-bit (32-byte) hex string."""
+        return hashlib.sha256( str( self ).encode( 'utf-8' )).hexdigest()
+
+    def digest( self ):
         """The SHA-256 hash of the License serialization, as a 256-bit (32-byte) bytes string."""
-        return hashlib.sha256( str( self )).digest()
+        return hashlib.sha256( str( self ).encode( 'utf-8' )).digest()
 
     __keys			= ['author', 'product', 'dependencies', 'start', 'length']
     def keys( self ):
@@ -100,16 +105,46 @@ class License( object ):
         """
         if key in self.__keys:
             return str( getattr( self, key ))
-        return IndexError( key )
+        raise IndexError( key )
 
     def __str__( self ):
-        """A deterministic serialization of a License."""
+        """A deterministic Unicode serialization of a License."""
         return json.dumps( dict( self ), sort_keys=True )
 
 
 class LicenseProvenance( object ):
     """The hash and ed25519 signature for a License. """
-    pass
+    def __init__( self, lic, signer ):
+        """Given an ed25519 signing key (32-byte private + 32-byte public), produce the provenance
+        for the supplied License"""
+        self.license		= lic
+        self.digest		= lic.digest()
+
+        # Confirm the signing key.  1st 32 bytes are private key, then (derived) public key.
+        keypair			= ed25519.crypto_sign_keypair( signer[:32] )
+        if len( signer ) > 32:
+            assert signer == keypair.sk, \
+                "Invalid ed25519 signing key provided"
+        lic_ser			= str( lic ).encode( 'utf-8' )
+        lic_signed		= ed25519.crypto_sign( lic_ser, signer )
+        self.signature		= lic_signed[:64]
+
+    __keys			= ['license', 'digest', 'signature']
+    def keys( self ):
+        return self.__keys
+
+    def __getitem__( self, key ):
+        """The license can be displayed as a str, but bytes as hex strings"""
+        if key in self.__keys:
+            value		= getattr( self, key )
+            if isinstance( value, bytes ):
+                return binascii.hexlify( value ).decode( 'utf-8' )
+            return str( value )
+        raise IndexError( key )
+        
+    def __str__( self ):
+        """A deterministic Unicode serialization of a LicenseProvenance."""
+        return json.dumps( dict( self ), sort_keys=True )
 
 
 def issue( lic, author ):
