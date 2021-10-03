@@ -107,6 +107,11 @@ class Serializable( object ):
         return to_hex( self.digest() )
 
 
+
+class LicenseIncompatibility( Exception ):
+    pass
+
+
 class License( Serializable ):
     """Represents the details of a Licence.  If a header is supplied, it's signature is validated, or if
     a signer (private key) is supplied, a header with signature is produced.  Cannot be constructed
@@ -117,7 +122,8 @@ class License( Serializable ):
         "client": "Awesome Inc.",
         "dependencies": None,
         "product": "Cpppo",
-        "timespan": ("2021-01-01 00:00:00+00:00", "1y")
+        "start": "2021-01-01 00:00:00+00:00"
+        "length": "1y")
     }
 
     """
@@ -148,6 +154,44 @@ class License( Serializable ):
         self.start		= start
         self.length		= length
 
+    def overlap( self, *others ):
+        """Compute the overlapping start/length that is within the bounds of this and other license(s).
+        If they do not overlap, raises a LicenseIncompatibility Exception.
+
+        """
+        start, length		= self.start, self.length
+        for other in others:
+            if start is None:
+                # This license has no defined start time (it is perpetual); other license determines
+                start, length	= other.start, other.length
+                continue
+            if other.start is None:
+                # This license starts at a defined time, while the other doesn't
+                continue
+            # Both licenses have defined start times; latest defines beginning of overlap
+            latest		= max( start, other.start )
+            ending		= None
+            if length is None and other.length is None:
+                # But neither have duration
+                start		= latest
+                continue
+            elif other.length is None:
+                ending		= start + length.seconds
+            elif length is None:
+                ending		= other.start + other.length.seconds
+            else:
+                ending		= min( start + length.seconds, other.start + other.length.seconds )
+            if ending <= latest:
+                raise LicenseIncompatibility(
+                    "License {description} ({start}/{length}) incompatible with overlap {latest} - {ending}".format(
+                        description	= other.description,
+                        start		= start,
+                        length		= length,
+                        latest		= latest,
+                        ending		= ending ))
+            start, length	= latest, duration( ending - latest )
+        return start, length
+        
 
 class LicenseProvenance( Serializable ):
     """The hash and ed25519 signature for a License. """

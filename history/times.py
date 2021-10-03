@@ -704,6 +704,10 @@ class timestamp( object ):
         return self
     def __sub__( self, rhs ):
         if rhs:
+            if isinstance( rhs, timestamp ):
+                # <timestamp> - <timestamp> returns difference in seconds
+                return self.value - rhs.value
+            # <timestamp> - <int/float>
             return timestamp( self.value - rhs )
         return timestamp( self )
     def __isub__( self, rhs ):
