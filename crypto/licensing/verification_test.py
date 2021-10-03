@@ -21,5 +21,5 @@ def test_License():
     prov = LicenseProvenance( lic, keypair.sk )
 
     prov_str = str( prov )
-    assert prov_str == """{"digest": "358ca4db827c6e1712f8438f44b6b0d6baf1268a28d037c0044f1fdfa2194b1e", "license": "{\\"author\\": \\"Dominion Research & Development Corp.\\", \\"dependencies\\": \\"None\\", \\"length\\": \\"1y\\", \\"product\\": \\"Cpppo\\", \\"start\\": \\"2021-09-30 17:22:33.000\\"}", "signature": "6dfdd89a7cd1171a2b224db66817635f9ea23e25fbf6da76bf53822357dbf85d52d1619b59e820f0d4630e5e5d7eebbed72348e7d4f7c3af3b7ffab2372b800c"}"""
+    assert prov_str == """{"license": "{\\"author\\": \\"Dominion Research & Development Corp.\\", \\"dependencies\\": \\"None\\", \\"length\\": \\"1y\\", \\"product\\": \\"Cpppo\\", \\"start\\": \\"2021-09-30 17:22:33.000\\"}", "license_digest": "358ca4db827c6e1712f8438f44b6b0d6baf1268a28d037c0044f1fdfa2194b1e", "signature": "6dfdd89a7cd1171a2b224db66817635f9ea23e25fbf6da76bf53822357dbf85d52d1619b59e820f0d4630e5e5d7eebbed72348e7d4f7c3af3b7ffab2372b800c"}"""
     

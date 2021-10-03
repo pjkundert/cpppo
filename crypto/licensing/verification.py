@@ -22,7 +22,7 @@ __email__                       = "perry@hardconsulting.com"
 __copyright__                   = "Copyright (c) 2021 Dominion Research & Development Corp."
 __license__                     = "Dual License: GPLv3 (or later) and Commercial (see LICENSE)"
 
-import binascii
+import codecs
 import collections
 import hashlib
 import json
@@ -44,11 +44,70 @@ except ImportError:
         # Fall back to the very slow D.J.Bernstein Python reference implementation
         from .. import ed25519
 
-from collections import namedtuple
 
-Timespan			= namedtuple("Timespan", ('start', 'length'))
+def to_hex( binary ):
+    """Convert binary bytes data to UTF-8 hexadecimal, across most versions of Python 2/3.
 
-class License( object ):
+    """
+    assert isinstance( binary, bytes )
+    return codecs.getencoder( 'hex' )( binary )[0].decode( 'utf-8' )
+
+
+class Serializable( object ):
+    """A base-class that provides a deterministic Unicode JSON serialization of every __slots__
+    attribute, and a consistent dict representation of the same serialized data.  Access attributes
+    directly to obtain underlying types.
+
+    Uses __slots__ in derived classes to identify serialized attributes; traverses the class
+    hierarchy's MRO to identify all attributes to serialize.  Output serialization is always in
+    attribute-name sorted order.
+
+    If an attribute requires special serialization handling (other than simple conversion to 'str'),
+    then include it in the class' serializers dict, eg:
+
+        serializers		= dict( special = to_hex )
+
+    """
+
+    __slots__			= ()
+    serializers			= {}
+
+    def keys( self ):
+        for cls in type( self ).__mro__:
+            for key in getattr( cls, '__slots__', []):
+                yield key
+
+    def serializer( self, key ):
+        """Finds any custom serialization formatter specified for the given attribute."""
+        for cls in type( self ).__mro__:
+            try:
+                return cls.serializers[key]
+            except (AttributeError, KeyError):
+                pass
+        return str
+
+    def __getitem__( self, key ):
+        if key in self.keys():
+            value		= getattr( self, key )
+            return self.serializer( key )( value )
+        raise IndexError( key )
+
+    def __str__( self ):
+        return json.dumps( dict( self ), sort_keys=True )
+
+    def serialize( self ):
+        return str( self ).encode( 'utf-8' )
+    
+    def digest( self ):
+        """The SHA-256 hash of the serialization, as 32 bytes."""
+        return hashlib.sha256( self.serialize() ).digest()
+
+    def hexdigest( self ):
+        """The SHA-256 hash of the serialization, as a 256-bit (32 byte, 64 character) hex string."""
+        return to_hex( self.digest() )
+
+
+class License( Serializable ):
     """Represents the details of a Licence.  If a header is supplied, it's signature is validated, or if
     a signer (private key) is supplied, a header with signature is produced.  Cannot be constructed
     unless the supplied License details are valid with respect to any supplied License dependencies.
@@ -62,6 +121,9 @@ class License( object ):
     }
 
     """
+
+    __slots__			= ('author', 'product', 'dependencies', 'start', 'length')
+
     def __init__( self, author, product,  signer=None, dependencies=None, start=None, length=None ):
         self.author		= author
         self.product		= product
@@ -86,65 +148,26 @@ class License( object ):
         self.start		= start
         self.length		= length
 
-    def hexdigest( self ):
-        """The SHA-256 hash of the License serialization, as a 256-bit (32-byte) hex string."""
-        return hashlib.sha256( str( self ).encode( 'utf-8' )).hexdigest()
 
-    def digest( self ):
-        """The SHA-256 hash of the License serialization, as a 256-bit (32-byte) bytes string."""
-        return hashlib.sha256( str( self ).encode( 'utf-8' )).digest()
-
-    __keys			= ['author', 'product', 'dependencies', 'start', 'length']
-    def keys( self ):
-        return self.__keys
-
-    def __getitem__( self, key ):
-        """When accessing as a dict entry, return values as a str.  Access the attributes directly to
-        get their raw data types
-
-        """
-        if key in self.__keys:
-            return str( getattr( self, key ))
-        raise IndexError( key )
-
-    def __str__( self ):
-        """A deterministic Unicode serialization of a License."""
-        return json.dumps( dict( self ), sort_keys=True )
-
-
-class LicenseProvenance( object ):
+class LicenseProvenance( Serializable ):
     """The hash and ed25519 signature for a License. """
+
+    __slots__			= ('license', 'license_digest', 'signature')
+    serializers			= {'license_digest': to_hex, 'signature': to_hex }
+
     def __init__( self, lic, signer ):
         """Given an ed25519 signing key (32-byte private + 32-byte public), produce the provenance
         for the supplied License"""
         self.license		= lic
-        self.digest		= lic.digest()
+        self.license_digest	= lic.digest()
 
         # Confirm the signing key.  1st 32 bytes are private key, then (derived) public key.
         keypair			= ed25519.crypto_sign_keypair( signer[:32] )
         if len( signer ) > 32:
             assert signer == keypair.sk, \
                 "Invalid ed25519 signing key provided"
-        lic_ser			= str( lic ).encode( 'utf-8' )
-        lic_signed		= ed25519.crypto_sign( lic_ser, signer )
+        lic_signed		= ed25519.crypto_sign( lic.serialize(), signer )
         self.signature		= lic_signed[:64]
-
-    __keys			= ['license', 'digest', 'signature']
-    def keys( self ):
-        return self.__keys
-
-    def __getitem__( self, key ):
-        """The license can be displayed as a str, but bytes as hex strings"""
-        if key in self.__keys:
-            value		= getattr( self, key )
-            if isinstance( value, bytes ):
-                return binascii.hexlify( value ).decode( 'utf-8' )
-            return str( value )
-        raise IndexError( key )
-        
-    def __str__( self ):
-        """A deterministic Unicode serialization of a LicenseProvenance."""
-        return json.dumps( dict( self ), sort_keys=True )
 
 
 def issue( lic, author ):
