@@ -532,9 +532,10 @@ class timestamp( object ):
         else:
             raise ValueError( "Invalid timestamp of %s: %r", type( value ), value )
 
-    def render( self, tzinfo=None, ms=True ):
+    def render( self, tzinfo=None, ms=True, tzdetail=None ):
         """Render the time in the specified zone, optionally with milliseconds.  If the resultant
-        timezone is not UTC, include the timezone designation in the output.
+        timezone is not UTC, include the timezone abbreviation in the output by default (numeric if
+        tzdetail is Falsey, deterministic full timezone name if tzdetail is Truthy).
 
         Since we are "rounding" to (default) 3 places after the decimal, and since floating point
         values are not very precise for values that are not sums of fractions whose denominators are
@@ -608,8 +609,13 @@ class timestamp( object ):
         result			= dt.strftime( self._fmt )
         if subsecond:
             result	       += ( '%.*f' % ( subsecond, value ))[-subsecond-1:]
-        if dt.tzinfo is not self.UTC:
-            result	       += dt.strftime( ' %Z' )
+        if dt.tzinfo is not self.UTC or tzdetail is not None:
+            if tzdetail is None:
+                result	       += dt.strftime(' %Z' )	# default abbreviation for non-UTC
+            elif tzdetail:
+                result	       += " " + dt.tzinfo.zone	# full zone name if tzdetail is Truthy
+            else:
+                result	       += dt.strftime( '%z' )	# otherwise, append numeric tz offset
         return result
 
     def __float__( self ):

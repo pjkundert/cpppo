@@ -126,9 +126,15 @@ class License( Serializable ):
         "length": "1y")
     }
 
+    All times are expressed in the UTC timezone; if we used the local timezone (as computed using
+    get_localzone, wrapped to respect any TZ environment variable, and made available as
+    timestamp.LOC), then serializations (and hence signatures and signature tests) would be
+    inconsistent.
+
     """
 
     __slots__			= ('author', 'product', 'dependencies', 'start', 'length')
+    serializers			= {'start': lambda t: t.render( tzinfo=timestamp.UTC, ms=False, tzdetail=True )}
 
     def __init__( self, author, product,  signer=None, dependencies=None, start=None, length=None ):
         self.author		= author
@@ -183,12 +189,13 @@ class License( Serializable ):
                 ending		= min( start + length.seconds, other.start + other.length.seconds )
             if ending <= latest:
                 raise LicenseIncompatibility(
-                    "License {description} ({start}/{length}) incompatible with overlap {latest} - {ending}".format(
-                        description	= other.description,
-                        start		= start,
-                        length		= length,
-                        latest		= latest,
-                        ending		= ending ))
+                    "License for {author}'s {product!r} ({o_s} for {o_l}) incompatible with others ({s} for {l})".format(
+                        author	= other.author,
+                        product	= other.product,
+                        o_s	= other.start.render(tzinfo=timestamp.LOC, ms=False, tzdetail=True),
+                        o_l	= other.length,
+                        s	= start.render(tzinfo=timestamp.LOC, ms=False, tzdetail=True),
+                        l	= length ))
             start, length	= latest, duration( ending - latest )
         return start, length
         
