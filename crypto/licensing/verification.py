@@ -22,16 +22,22 @@ __email__                       = "perry@hardconsulting.com"
 __copyright__                   = "Copyright (c) 2021 Dominion Research & Development Corp."
 __license__                     = "Dual License: GPLv3 (or later) and Commercial (see LICENSE)"
 
+import ast
+import base64
 import codecs
 import collections
+import dns.resolver
 import hashlib
 import json
+import logging
 
 from datetime import datetime
 
 from ...misc		import timer
 from ...automata	import type_str_base
 from ...history.times	import parse_datetime, parse_seconds, timestamp, duration
+
+log				= logging.getLogger( "licensing" )
 
 # Try a globally installed ed25519ll possibly with a CTypes binding
 try:
@@ -48,9 +54,18 @@ except ImportError:
 def to_hex( binary ):
     """Convert binary bytes data to UTF-8 hexadecimal, across most versions of Python 2/3.
 
+    None remains None.
+
     """
-    assert isinstance( binary, bytes )
-    return codecs.getencoder( 'hex' )( binary )[0].decode( 'utf-8' )
+    if binary is not None:
+        assert isinstance( binary, bytes ), \
+            "Failed to convert {!r} to hex".format( binary )
+        return codecs.getencoder( 'hex' )( binary )[0].decode( 'utf-8' )
+
+def to_b64( binary ):
+    if binary is not None:
+        assert isinstance( binary, bytes )
+        return codecs.getencoder( 'base64' )( binary )[0].decode( 'utf-8' )
 
 
 class Serializable( object ):
@@ -78,34 +93,68 @@ class Serializable( object ):
                 yield key
 
     def serializer( self, key ):
-        """Finds any custom serialization formatter specified for the given attribute."""
+        """Finds any custom serialization formatter specified for the given attribute, defaults to None.
+
+        """
         for cls in type( self ).__mro__:
             try:
                 return cls.serializers[key]
             except (AttributeError, KeyError):
                 pass
-        return str
 
     def __getitem__( self, key ):
         if key in self.keys():
-            value		= getattr( self, key )
-            return self.serializer( key )( value )
+            try:
+                value		= getattr( self, key ) # IndexError
+                serialize	= self.serializer( key ) # (no Exceptions)
+                if serialize:
+                    return serialize( value ) # conversion failure Exceptions
+                return value
+            except Exception as exc:
+                log.info( "Failed to convert {class_name}.{key} with {serialize!r}".format(
+                    class_name = self.__class__.__name__, key=key, serialize=serialize ))
+                raise
         raise IndexError( key )
 
     def __str__( self ):
-        return json.dumps( dict( self ), sort_keys=True )
+        """Serialize to JSON, assuming any complex object has a sensible dict representation."""
+        return json.dumps( dict( self ), sort_keys=True, default=dict )
 
     def serialize( self ):
         return str( self ).encode( 'utf-8' )
-    
-    def digest( self ):
-        """The SHA-256 hash of the serialization, as 32 bytes."""
-        return hashlib.sha256( self.serialize() ).digest()
+
+    def digest( self, codec=None ):
+        """The SHA-256 hash of the serialization, as 32 bytes.  Optionally, encode w/ a named codec, eg
+        "hex" or "base64".  Often, these will require a subsequent .decode( 'utf-8' ) to become a
+        non-binary str.
+
+        """
+        binary			= hashlib.sha256( self.serialize() ).digest()
+        if codec is not None:
+            return codecs.getencoder( codec )( binary )[0]
+
+        return binary
 
     def hexdigest( self ):
         """The SHA-256 hash of the serialization, as a 256-bit (32 byte, 64 character) hex string."""
-        return to_hex( self.digest() )
+        return self.digest( 'hex' ).decode( 'utf-8' )
 
+    def b64digest( self ):
+        return self.digest( 'base64' ).decode( 'utf-8' )
+
+    def __copy__( self ):
+        """Create a new object by copying an existing object.
+
+        """
+        result			= self.__class__.__new__( self.__class__ )
+
+        for cls in type( self ).__mro__:
+            for key in getattr( cls, '__slots__', [] ):
+                log.info( "copy .{key:-16s} from {src:16s} to {dst:16s}".format(
+                    key=key, src=id(self), dst=id(result) ))
+                setattr( result, copy.copy( getattri( self, var )))
+
+        return result
 
 
 class LicenseIncompatibility( Exception ):
@@ -113,32 +162,69 @@ class LicenseIncompatibility( Exception ):
 
 
 class License( Serializable ):
-    """Represents the details of a Licence.  If a header is supplied, it's signature is validated, or if
-    a signer (private key) is supplied, a header with signature is produced.  Cannot be constructed
-    unless the supplied License details are valid with respect to any supplied License dependencies.
+    """Represents the details of a Licence from an author to a client (could be anyone, if no
+    client_pubkey provided).  Cannot be constructed unless the supplied License details are valid
+    with respect to any supplied License dependencies.
 
     {
         "author": "Dominion Research & Development Corp.",
+        "author_domain": "dominionrnd.com",
+        "author_service": "cpppo.licensing-1",
         "client": "Awesome Inc.",
+        "client_pubkey": "...",
         "dependencies": None,
         "product": "Cpppo",
         "start": "2021-01-01 00:00:00+00:00"
         "length": "1y")
     }
 
-    All times are expressed in the UTC timezone; if we used the local timezone (as computed using
-    get_localzone, wrapped to respect any TZ environment variable, and made available as
+    All start times are expressed in the UTC timezone; if we used the local timezone (as computed
+    using get_localzone, wrapped to respect any TZ environment variable, and made available as
     timestamp.LOC), then serializations (and hence signatures and signature tests) would be
     inconsistent.
 
+    Licenses are signed by the author using their signing key.  The corresponding public key is
+    expected to be found in a DKIM entry, eg.:
+
+        cpppo.licensing._domainkey.dominionrnd.com 300 IN TXT "v=DKIM1; k=ed25519; p=ICkF+6tTRKc8voK15Th4eTXMX3inp5jZwZSu4CH2FIc="
+
     """
 
-    __slots__			= ('author', 'product', 'dependencies', 'start', 'length')
-    serializers			= {'start': lambda t: t.render( tzinfo=timestamp.UTC, ms=False, tzdetail=True )}
+    __slots__			= (
+        'author', 'author_pubkey', 'author_domain', 'author_service', 'product',
+        'client', 'client_pubkey',
+        'dependencies',
+        'start', 'length'
+    )
+    serializers			= dict(
+        author_pubkey	= to_hex,
+        client_pubkey	= to_hex,
+        start		= lambda t: t.render( tzinfo=timestamp.UTC, ms=False, tzdetail=True ),
+        length		= str,
+    )
+    
+    try:
+        maketrans		= str.maketrans
+    except:
+        import string
+        maketrans		= string.maketrans
+        
+    service_trans		= maketrans( ' .', '-_' )
 
-    def __init__( self, author, product,  signer=None, dependencies=None, start=None, length=None ):
+    def __init__( self, author, product,
+                  author_domain=None, author_service=None, author_pubkey=None,
+                  client=None, client_pubkey=None,
+                  dependencies=None, start=None, length=None ):
         self.author		= author
+        self.author_domain	= author_domain
+        self.author_service	= author_service or '.'.join(
+            ( product.lower().translate( self.service_trans ), 'cpppo-licensing')
+        )
         self.product		= product
+
+        self.client		= client
+        self.client_pubkey	= client_pubkey
+
         self.dependencies	= dependencies
 
         # A License usually has a timespan of start timestamp and duration length.  These cannot
@@ -160,6 +246,59 @@ class License( Serializable ):
         self.start		= start
         self.length		= length
 
+        assert author_pubkey or ( self.author_domain and self.author_service ), \
+            "Either an author_pubkey, or an author_domain/service must be provided"
+        self.author_pubkey	= author_pubkey or self.author_pubkey_query()
+
+        # Only allow the construction of valid Licenses.
+        self.enforce()
+
+
+    def author_pubkey_query( self ):
+        """Obtain the author's public key.  This was either provided at License construction time, or can be
+        obtained from a DNS TXT "DKIM1" record.
+        
+        TODO: Cache
+
+        Query the DKIM1 record for an author public key.  May be split into multiple strings:
+
+            r = dns.resolver.query('default._domainkey.justicewall.com', 'TXT')
+            >>> for i in r:
+            ...  i.to_text()
+            ...
+            '"v=DKIM1; k=rsa; p=MIIBIjANBgkqhkiG9...Btx" "aPXTN/aI+cvS8...4KHoQqhS7IwIDAQAB;"'
+
+        Fortunately, the Python AST for string literals handles this quite nicely:
+
+            >>> ast.literal_eval('"abc" "123"')
+            'abc123'
+        """
+        dkim_path		= '.'.join( (self.author_service, '_domainkey', self.author_domain) )
+        log.info("Querying {domain} for DKIM service {service}: {dkim_path}".format(
+            domain=self.author_domain, service=self.author_service, dkim_path=dkim_path ))
+        records			= list( rr.to_text() for rr in dns.resolver.query( dkim_path, 'TXT' ))
+        assert len( records ) == 1, \
+            "Failed to obtain a single TXT record from {dkim_path}".format( dkim_path=dkim_path )
+        # Parse the "..." "..." strings.  There should be no escaped quotes.
+        dkim			= ast.literal_eval( records[0] )
+        log.info("Parsing DKIM1 record: {dkim!r}".format( dkim=dkim ))
+        p			= None
+        for pair in dkim.split( ';' ):
+            log.debug("Parsing DKIM1 record pair: {pair!r}".format( pair=pair ))
+            key,val 		= pair.strip().split( '=', 1 )
+            if key.strip().lower() == "v":
+                assert val.upper() == "DKIM1", \
+                    "Failed to find DKIM1 record; instead found record of type/version {val}".format( val=val )
+            if key.strip().lower() == "k":
+                assert val.lower() == "ed25519", \
+                    "Failed to find Ed25519 public key; instead was of type {val!r}".format( val=val )
+            if key.strip().lower() == "p":
+                p		= val.strip()
+        assert p, \
+            "Failed to locate public key in TXT DKIM record: {dkim}".format( dkim=dkim )
+        
+        return codecs.getdecoder( 'base64' )( codecs.getencoder( 'utf-8' )( p )[0] )[0]
+        
     def overlap( self, *others ):
         """Compute the overlapping start/length that is within the bounds of this and other license(s).
         If they do not overlap, raises a LicenseIncompatibility Exception.
@@ -198,40 +337,81 @@ class License( Serializable ):
                         l	= length ))
             start, length	= latest, duration( ending - latest )
         return start, length
+
+    def enforce( self, **constraints ):
+        """Confirm that the License is valid:
+        - Complies with the bounds of any License dependencies
+        - Allows any constraints supplied.
+
+        If it does, a License is returned which encodes the supplied constraints.
+        """
+        success			= None #License( dependencies
         
+        return success
+
 
 class LicenseProvenance( Serializable ):
-    """The hash and ed25519 signature for a License. """
+    """An ed25519 signed License.  Only a LicenseProvenance proves that a License was actually issued by
+    the purported author.  
 
-    __slots__			= ('license', 'license_digest', 'signature')
-    serializers			= {'license_digest': to_hex, 'signature': to_hex }
+    The public key of the author must be verified through other means.  One typical means is by
+    publication on the author's domain:
 
-    def __init__( self, lic, signer ):
+        cpppo._domainkey.itverx.com.ve.86400 IN TXT "v=DKIM1\; g=*\; k=rsa\; p=MIGfM
+A0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQDqFGebZAOHfSGy9CWtA4Uads0zaXAy8TWtW9uIFbyIkFNC67fQVFVjsxlmcEg1oFNp2CrTYF1YNh2gB144c+XY5GVM2fGEYAKx3iBxajWTzsx3SvpQtAZ2Bvf2mV+Te+JtlbpxVuiuiW2Alqwhk1ytTWspf/S3bM73XssV+/mh9wIDAQAB"
+
+"""
+
+    __slots__			= ('signature', 'license')
+    serializers			= dict(
+        signature	= to_hex,
+    )
+
+    def __init__( self, lic, author_sigkey ):
         """Given an ed25519 signing key (32-byte private + 32-byte public), produce the provenance
         for the supplied License"""
         self.license		= lic
-        self.license_digest	= lic.digest()
 
         # Confirm the signing key.  1st 32 bytes are private key, then (derived) public key.
-        keypair			= ed25519.crypto_sign_keypair( signer[:32] )
-        if len( signer ) > 32:
-            assert signer == keypair.sk, \
+        keypair			= ed25519.crypto_sign_keypair( author_sigkey[:32] )
+        if len( author_sigkey ) > 32:
+            assert author_sigkey == keypair.sk, \
                 "Invalid ed25519 signing key provided"
-        lic_signed		= ed25519.crypto_sign( lic.serialize(), signer )
+        assert keypair.vk == lic.author_pubkey, \
+            "Incorrect Author signing key; doesn't match License.author_pubkey {author_pubkey}".format(
+                author_pubkey	= to_hex( lic.author_pubkey ))
+        lic_signed		= ed25519.crypto_sign( lic.serialize(), author_sigkey )
         self.signature		= lic_signed[:64]
 
 
-def issue( lic, author ):
+
+def issue( lic, author_sigkey ):
     """If possible, issue the license signed with the supplied signing key.  Ensures that the license
     is allowed to be issued, by verifying the signatures of the tree of dependent license(s) if any.
 
     The holder of an author secret key can issue any license they wish (so long as it is compatible
     with any License dependencies).
 
+    Generally, a license may be issued if it is more "specific" (less general) than any License
+    dependencies.  For example, a License could specify that it can be used on *any* 1 installation.
+    The holder of the license may then issue a License specifying a certain computer and
+    installation path.  The software then confirms successfully that the License is allocated to
+    *this* computer, and that the software is installed at the specified location.
+
+    Of course, this is all administrative; any sufficiently dedicated programmer can simply remove
+    the License checks from the software.  However, such people are *not* Clients: they are simply
+    thieves.  The issuance and checking of Licenses is to help support ethical Clients in confirming
+    that they are following the rules of the software author.
+
     """
-    prov			= None
+    prov			= LicenseProvenance( lic, author_sigkey )
     return prov
 
 
-def check( lic, prov ):
-    pass
+def check( prov ):
+    """Check that the supplied LicenseProvenance contains a valid signature, and that the License
+    follows the rules in any of its License dependencies.
+
+    """
+    ed25519.crypto_sign_open( prov.signature + prov.license.serialized(), prov.license.author_pubkey )
+    
