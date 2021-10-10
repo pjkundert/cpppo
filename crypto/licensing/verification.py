@@ -202,14 +202,14 @@ class License( Serializable ):
         start		= lambda t: t.render( tzinfo=timestamp.UTC, ms=False, tzdetail=True ),
         length		= str,
     )
-    
+
+    # Translate some symbols seen in names to be valid DNS service names (incomplete)
     try:
         maketrans		= str.maketrans
     except:
         import string
         maketrans		= string.maketrans
-        
-    service_trans		= maketrans( ' .', '-_' )
+    service_trans		= maketrans( ' ._/', '----' )
 
     def __init__( self, author, product,
                   author_domain=None, author_service=None, author_pubkey=None,
@@ -350,8 +350,8 @@ class License( Serializable ):
         return success
 
 
-class LicenseProvenance( Serializable ):
-    """An ed25519 signed License.  Only a LicenseProvenance proves that a License was actually issued by
+class LicenseSigned( Serializable ):
+    """An ed25519 signed License.  Only a LicenseSigned proves that a License was actually issued by
     the purported author.  
 
     The public key of the author must be verified through other means.  One typical means is by
@@ -384,7 +384,6 @@ A0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQDqFGebZAOHfSGy9CWtA4Uads0zaXAy8TWtW9uIFbyIkFNC6
         self.signature		= lic_signed[:64]
 
 
-
 def issue( lic, author_sigkey ):
     """If possible, issue the license signed with the supplied signing key.  Ensures that the license
     is allowed to be issued, by verifying the signatures of the tree of dependent license(s) if any.
@@ -404,12 +403,12 @@ def issue( lic, author_sigkey ):
     that they are following the rules of the software author.
 
     """
-    prov			= LicenseProvenance( lic, author_sigkey )
+    prov			= LicenseSigned( lic, author_sigkey )
     return prov
 
 
 def check( prov ):
-    """Check that the supplied LicenseProvenance contains a valid signature, and that the License
+    """Check that the supplied LicenseSigned contains a valid signature, and that the License
     follows the rules in any of its License dependencies.
 
     """
