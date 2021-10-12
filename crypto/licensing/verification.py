@@ -132,12 +132,15 @@ def bytes_from_text( text, codecs=('base64','hex'), ignore_invalid=True ):
 
     """
     if text is not None:
-        text_enc		= text.encode( 'utf-8' )
-        for c in codecs:
-            try:
-                return codecs.getdecoder( c )( text_enc )[0]
-            except:
-                pass
+        try:
+            text_enc		= text.encode( 'utf-8' )
+            for c in codecs:
+                try:
+                    return codecs.getdecoder( c )( text_enc )[0]
+                except:
+                    pass
+        except:
+            pass
         if not ignore_invalid:
             raise RuntimeError( "Could not decode as {}".format( ', '.join( codecs ), text ))
 
@@ -321,7 +324,7 @@ class License( Serializable ):
 
         assert author_pubkey or self.author_domain, \
             "Either an author_pubkey, or an author_domain/service must be provided"
-        self.author_pubkey	= bytes_from_text( author_pubkey ) or self.author_pubkey_query()
+        self.author_pubkey	= bytes_from_text( author_pubkey ) or author_pubkey or self.author_pubkey_query()
 
         # Only allow the construction of valid Licenses.
         self.enforce()
@@ -349,6 +352,7 @@ class License( Serializable ):
         dkim_path, _dkim_rr	= domainkey( self.product, self.author_domain, author_service=self.author_service )
         log.info("Querying {domain} for DKIM service {service}: {dkim_path}".format(
             domain=self.author_domain, service=self.author_service, dkim_path=dkim_path ))
+        # Python2/3 compatibility; use query vs. resolve
         records			= list( rr.to_text() for rr in dns.resolver.query( dkim_path, 'TXT' ))
         assert len( records ) == 1, \
             "Failed to obtain a single TXT record from {dkim_path}".format( dkim_path=dkim_path )

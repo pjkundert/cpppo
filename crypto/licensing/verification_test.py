@@ -120,7 +120,7 @@ def test_LicenseSigned():
         author	= "Awesome, Inc.",
         product	= "EtherNet/IP Tool",
         author_domain = "awesome-inc.com",
-        author_pubkey = awesome_keypair.vk,
+        author_pubkey = awesome_keypair.vk, # Avoid the dns.resolver.NXDOMAIN by providing the pubkey
         dependencies = [ lic_prov ],
         start	= "2022-09-29 11:22:33 Canada/Mountain",
         length	= "1y" )
