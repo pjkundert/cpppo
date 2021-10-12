@@ -7,7 +7,7 @@ import json
 from dns.exception import DNSException
 from .verification import (
     License, LicenseSigned, LicenseIncompatibility,
-    author, domainkey, issue, check, to_b64,
+    author, domainkey, issue, check, into_b64,
 )
 from .. import ed25519ll as ed25519
 
@@ -113,7 +113,7 @@ def test_LicenseSigned():
     awesome_keypair = author( seed=awesome_sigkey[:32] )
 
     print("Awesome, Inc. ed25519 keypair; Signing: {sk}".format( sk=binascii.hexlify( awesome_keypair.sk )))
-    print("Awesome, Inc. ed25519 keypair; Public:  {pk}".format( pk=to_b64( awesome_keypair.vk )))
+    print("Awesome, Inc. ed25519 keypair; Public:  {pk}".format( pk=into_b64( awesome_keypair.vk )))
 
     # Almost at the end of their Cpppo license, they issue a new License.
     drv = License(

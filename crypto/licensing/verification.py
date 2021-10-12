@@ -102,14 +102,14 @@ def domainkey( product, author_domain, author_service=None, author_pubkey=None )
         dkim			= '; '.join( "{k}={v}".format(k=k, v=v) for k,v in (
             ('v', 'DKIM1'),
             ('k', 'ed25519'),
-            ('p', to_b64( author_pubkey )),
+            ('p', into_b64( author_pubkey )),
         ))
 
     return (path, dkim)
 domainkey.idna_encoder		= codecs.getencoder( 'idna' )
 
 
-def to_hex( binary ):
+def into_hex( binary ):
     """Convert binary bytes data to UTF-8 hexadecimal, across most versions of Python 2/3.
 
     None remains None.
@@ -120,10 +120,26 @@ def to_hex( binary ):
             "Failed to convert {!r} to hex".format( binary )
         return codecs.getencoder( 'hex' )( binary )[0].decode( 'utf-8' )
 
-def to_b64( binary ):
+def into_b64( binary ):
     if binary is not None:
         assert isinstance( binary, bytes )
         return codecs.getencoder( 'base64' )( binary )[0].decode( 'utf-8' ).strip() # trailing '\n'
+
+
+def bytes_from_text( text, codecs=('base64','hex'), ignore_invalid=True ):
+    """Try to decode base-64 or hex bytes from the provided UTF-8 text.  Must work in Python 2, which
+    is non-deterministic; a str may contain bytes or text.
+
+    """
+    if text is not None:
+        text_enc		= text.encode( 'utf-8' )
+        for c in codecs:
+            try:
+                return codecs.getdecoder( c )( text_enc )[0]
+            except:
+                pass
+        if not ignore_invalid:
+            raise RuntimeError( "Could not decode as {}".format( ', '.join( codecs ), text ))
 
 
 class Serializable( object ):
@@ -138,7 +154,10 @@ class Serializable( object ):
     If an attribute requires special serialization handling (other than simple conversion to 'str'),
     then include it in the class' serializers dict, eg:
 
-        serializers		= dict( special = to_hex )
+        serializers		= dict( special = into_hex )
+
+    It is expected that derived class' constructors will deserialize when presented with keywords
+    representing all __slots__.
 
     """
 
@@ -261,19 +280,11 @@ class License( Serializable ):
         'start', 'length'
     )
     serializers			= dict(
-        author_pubkey	= to_hex,
-        client_pubkey	= to_hex,
+        author_pubkey	= into_hex,
+        client_pubkey	= into_hex,
         start		= lambda t: t.render( tzinfo=timestamp.UTC, ms=False, tzdetail=True ),
         length		= str,
     )
-
-    # Translate some symbols seen in names to be valid DNS service names (incomplete)
-    try:
-        maketrans		= str.maketrans
-    except:
-        import string
-        maketrans		= string.maketrans
-    service_trans		= maketrans( ' ._/', '----' )
 
     def __init__( self, author, product,
                   author_domain=None, author_service=None, author_pubkey=None,
@@ -285,7 +296,7 @@ class License( Serializable ):
         self.product		= product
 
         self.client		= client
-        self.client_pubkey	= client_pubkey
+        self.client_pubkey	= bytes_from_text( client_pubkey ) or client_pubkey
 
         self.dependencies	= dependencies
 
@@ -310,7 +321,7 @@ class License( Serializable ):
 
         assert author_pubkey or self.author_domain, \
             "Either an author_pubkey, or an author_domain/service must be provided"
-        self.author_pubkey	= author_pubkey or self.author_pubkey_query()
+        self.author_pubkey	= bytes_from_text( author_pubkey ) or self.author_pubkey_query()
 
         # Only allow the construction of valid Licenses.
         self.enforce()
@@ -425,7 +436,7 @@ class LicenseSigned( Serializable ):
 
     __slots__			= ('signature', 'license')
     serializers			= dict(
-        signature	= to_hex,
+        signature	= into_hex,
     )
 
     def __init__( self, lic, author_sigkey ):
@@ -440,7 +451,7 @@ class LicenseSigned( Serializable ):
                 "Invalid ed25519 signing key provided"
         assert keypair.vk == lic.author_pubkey, \
             "Incorrect Author signing key; doesn't match License.author_pubkey {author_pubkey}".format(
-                author_pubkey	= to_hex( lic.author_pubkey ))
+                author_pubkey	= into_hex( lic.author_pubkey ))
         lic_signed		= ed25519.crypto_sign( lic.serialize(), author_sigkey )
         self.signature		= lic_signed[:64]
 
@@ -449,7 +460,7 @@ def author( seed=None ):
     """Prepare to author Licenses, by creating an Ed25519 keypair."""
     keypair			= ed25519.crypto_sign_keypair( seed )
     log.warning("Created Ed25519 signing keypair w/ Public key: {vk_b64}".format(
-        vk_b64=to_b64( keypair.vk )))
+        vk_b64=into_b64( keypair.vk )))
     return keypair
 
 
