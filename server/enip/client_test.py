@@ -55,6 +55,10 @@ def test_parse_path():
         == ([{"symbolic": "Boo" }, {"element": 123}],123,None)
     assert enip.client.parse_path_elements( "Boo[123-456]" ) \
         == ([{"symbolic": "Boo" }, {"element": 123}],123,334)
+    assert enip.client.parse_path_elements( "Boo[-456]" ) \
+        == ([{"symbolic": "Boo" }],None,457)
+    assert enip.client.parse_path_elements( "Boo[-]" ) \
+        == ([{"symbolic": "Boo" }],None,None)
 
     # CIP + element addressing combined
     assert enip.client.parse_path_elements( "@0x22/1/2[123-456]" ) \

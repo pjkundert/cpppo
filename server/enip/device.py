@@ -345,12 +345,14 @@ def parse_path_component( path, elm=None, cnt=None ):
         elm,rem			= elm.split( ']' )
         assert not rem, "Garbage after [...]: %r" % ( rem )
         lst			= None
+        # [-] indicates all elements
         if '-' in elm:
             elm,lst		= elm.split( '-' )
-            lst			= int( lst )
-        elm			= int( elm )
+            lst			= int( lst ) if lst else None
+        elm			= int( elm ) if elm else None
         if lst is not None:
-            cnt			= lst + 1 - elm
+            # [-100] --> [0-100]
+            cnt			= lst + 1 - ( elm or 0 )
             assert cnt > 0, "Invalid element range %d-%d" % ( elm, lst )
 
     segments			= []
@@ -377,6 +379,8 @@ def parse_path_component( path, elm=None, cnt=None ):
             segments.append( {} )
         segments[-1]['element']	= elm
 
+    log.debug( "Parsed from {path} --> {segments!r}, cnt: {cnt} ".format(
+        path=path, segments=segments, cnt=cnt ))
     return segments,elm,cnt
 
 
