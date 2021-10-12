@@ -1,4 +1,4 @@
-
+# -*- coding: utf-8 -*-
 #
 # Cpppo -- Communication Protocol Python Parser and Originator
 #
@@ -30,6 +30,7 @@ import dns.resolver
 import hashlib
 import json
 import logging
+import encodings.idna
 
 from datetime import datetime
 
@@ -50,6 +51,63 @@ except ImportError:
         # Fall back to the very slow D.J.Bernstein Python reference implementation
         from .. import ed25519
 
+try:
+    maketrans			= str.maketrans
+except: # Python2
+    import string
+    maketrans			= string.maketrans
+
+def domainkey_service( product ):
+    author_service		= product.lower().translate( domainkey_service.trans )
+    author_service		= domainkey.idna_encoder( author_service )[0].decode( 'utf-8' )
+    return author_service
+domainkey_service.trans		= maketrans( ' ._/', '----' )
+
+
+def domainkey( product, author_domain, author_service=None, author_pubkey=None ):
+    """Compute and return the DNS path for the given product and domain.  Optionally, also returns the
+    appropriate DKIM1 TXT RR record containing the author's public key (base-64 encoded), as per the
+    RFC: https://www.rfc-editor.org/rfc/rfc6376.html
+
+        >>> from .verification import author, domainkey
+        >>> path, dkim_rr = domainkey( "Some Product", "example.com" )
+        >>> path
+        "some-product.cpppo-licensing._domainkey.example.com."
+        >>> dkim_rr
+        None
+    
+        # An Awesome, Inc. product, (oddly) with a Runic name
+        >>> author_keypair = author( seed=b'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA' )
+        >>> path, dkim_rr = domainkey( ""ᛞᚩᛗᛖᛋ᛫ᚻᛚᛇᛏᚪᚾ᛬", "awesome-inc.com", author_pubkey=author_keypair )
+        >>> path
+        "abc"
+        >>> dkim_rr
+        ""
+
+    """
+    if author_service is None:
+        author_service		= domainkey_service( product )
+
+    domain_name			= dns.name.from_text( author_domain )
+    service_name		= dns.name.Name( [author_service, 'cpppo-licensing', '_domainkey'] )
+    path_name			= service_name + domain_name
+    path			= path_name.to_text()
+    
+    dkim			= None
+    if author_pubkey:
+        try:
+            author_pubkey	= author_pubkey.vk
+        except AttributeError:
+            pass
+        dkim			= '; '.join( "{k}={v}".format(k=k, v=v) for k,v in (
+            ('v', 'DKIM1'),
+            ('k', 'ed25519'),
+            ('p', to_b64( author_pubkey )),
+        ))
+
+    return (path, dkim)
+domainkey.idna_encoder		= codecs.getencoder( 'idna' )
+
 
 def to_hex( binary ):
     """Convert binary bytes data to UTF-8 hexadecimal, across most versions of Python 2/3.
@@ -65,7 +123,7 @@ def to_hex( binary ):
 def to_b64( binary ):
     if binary is not None:
         assert isinstance( binary, bytes )
-        return codecs.getencoder( 'base64' )( binary )[0].decode( 'utf-8' )
+        return codecs.getencoder( 'base64' )( binary )[0].decode( 'utf-8' ).strip() # trailing '\n'
 
 
 class Serializable( object ):
@@ -118,9 +176,16 @@ class Serializable( object ):
 
     def __str__( self ):
         """Serialize to JSON, assuming any complex object has a sensible dict representation."""
-        return json.dumps( dict( self ), sort_keys=True, default=dict )
+        def endict( x ):
+            try:
+                return dict( x )
+            except Exception as exc:
+                log.warning("Failed to JSON serialize {!r}".format( x ))
+                raise
+        return json.dumps( self, sort_keys=True, default=endict )
 
     def serialize( self ):
+        """Return a binary 'bytes' serialization of the present object."""
         return str( self ).encode( 'utf-8' )
 
     def digest( self, codec=None ):
@@ -131,8 +196,7 @@ class Serializable( object ):
         """
         binary			= hashlib.sha256( self.serialize() ).digest()
         if codec is not None:
-            return codecs.getencoder( codec )( binary )[0]
-
+            return codecs.getencoder( codec )( binary )[0].strip()
         return binary
 
     def hexdigest( self ):
@@ -143,7 +207,7 @@ class Serializable( object ):
         return self.digest( 'base64' ).decode( 'utf-8' )
 
     def __copy__( self ):
-        """Create a new object by copying an existing object.
+        """Create a new object by copying an existing object, taking __slots__ into account.
 
         """
         result			= self.__class__.__new__( self.__class__ )
@@ -217,9 +281,7 @@ class License( Serializable ):
                   dependencies=None, start=None, length=None ):
         self.author		= author
         self.author_domain	= author_domain
-        self.author_service	= author_service or '.'.join(
-            ( product.lower().translate( self.service_trans ), 'cpppo-licensing')
-        )
+        self.author_service	= author_service or domainkey_service( product )
         self.product		= product
 
         self.client		= client
@@ -246,7 +308,7 @@ class License( Serializable ):
         self.start		= start
         self.length		= length
 
-        assert author_pubkey or ( self.author_domain and self.author_service ), \
+        assert author_pubkey or self.author_domain, \
             "Either an author_pubkey, or an author_domain/service must be provided"
         self.author_pubkey	= author_pubkey or self.author_pubkey_query()
 
@@ -273,7 +335,7 @@ class License( Serializable ):
             >>> ast.literal_eval('"abc" "123"')
             'abc123'
         """
-        dkim_path		= '.'.join( (self.author_service, '_domainkey', self.author_domain) )
+        dkim_path, _dkim_rr	= domainkey( self.product, self.author_domain, author_service=self.author_service )
         log.info("Querying {domain} for DKIM service {service}: {dkim_path}".format(
             domain=self.author_domain, service=self.author_service, dkim_path=dkim_path ))
         records			= list( rr.to_text() for rr in dns.resolver.query( dkim_path, 'TXT' ))
@@ -351,16 +413,15 @@ class License( Serializable ):
 
 
 class LicenseSigned( Serializable ):
-    """An ed25519 signed License.  Only a LicenseSigned proves that a License was actually issued by
-    the purported author.  
+    """An ed25519 signed License.  Only a LicenseSigned (and verification of the public key) proves
+    that a License was actually issued by the purported author.
 
     The public key of the author must be verified through other means.  One typical means is by
-    publication on the author's domain:
+    publication on the author's domain, eg.:
 
-        cpppo._domainkey.itverx.com.ve.86400 IN TXT "v=DKIM1\; g=*\; k=rsa\; p=MIGfM
-A0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQDqFGebZAOHfSGy9CWtA4Uads0zaXAy8TWtW9uIFbyIkFNC67fQVFVjsxlmcEg1oFNp2CrTYF1YNh2gB144c+XY5GVM2fGEYAKx3iBxajWTzsx3SvpQtAZ2Bvf2mV+Te+JtlbpxVuiuiW2Alqwhk1ytTWspf/S3bM73XssV+/mh9wIDAQAB"
+        default._domainkey.example.com 86400 IN TXT "v=DKIM1; g=*; k=rsa; p=MIGfM....+/mh9wIDAQAB"
 
-"""
+    """
 
     __slots__			= ('signature', 'license')
     serializers			= dict(
@@ -384,6 +445,14 @@ A0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQDqFGebZAOHfSGy9CWtA4Uads0zaXAy8TWtW9uIFbyIkFNC6
         self.signature		= lic_signed[:64]
 
 
+def author( seed=None ):
+    """Prepare to author Licenses, by creating an Ed25519 keypair."""
+    keypair			= ed25519.crypto_sign_keypair( seed )
+    log.warning("Created Ed25519 signing keypair w/ Public key: {vk_b64}".format(
+        vk_b64=to_b64( keypair.vk )))
+    return keypair
+
+
 def issue( lic, author_sigkey ):
     """If possible, issue the license signed with the supplied signing key.  Ensures that the license
     is allowed to be issued, by verifying the signatures of the tree of dependent license(s) if any.
@@ -403,6 +472,10 @@ def issue( lic, author_sigkey ):
     that they are following the rules of the software author.
 
     """
+    try:
+        author_sigkey		= author_sigkey.sk
+    except AttributeError:
+        pass
     prov			= LicenseSigned( lic, author_sigkey )
     return prov
 
@@ -412,5 +485,5 @@ def check( prov ):
     follows the rules in any of its License dependencies.
 
     """
-    ed25519.crypto_sign_open( prov.signature + prov.license.serialized(), prov.license.author_pubkey )
+    ed25519.crypto_sign_open( prov.signature + prov.license.serialize(), prov.license.author_pubkey )
     
