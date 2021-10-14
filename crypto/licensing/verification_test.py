@@ -7,7 +7,7 @@ import json
 from dns.exception import DNSException
 from .verification import (
     License, LicenseSigned, LicenseIncompatibility,
-    author, domainkey, issue, check, into_b64,
+    domainkey, author, issue, verify, into_b64,
 )
 from .. import ed25519ll as ed25519
 
@@ -72,8 +72,8 @@ def test_License():
     # Multiple licenses, some which truncate the duration of the initial License. Non-timezone
     # timestamps are assumed to be UTC.
     start, length = lic.overlap(
-        License( author = "A", product = 'a', author_pubkey=keypair.vk, start = "2021-09-29 00:00:00", length = "1w" ),
-        License( author = "B", product = 'b', author_pubkey=keypair.vk, start = "2021-09-30 00:00:00", length = "1w" ))
+        License( author = "A", product = 'a', author_domain='a-inc.com', author_pubkey=keypair.vk, start = "2021-09-29 00:00:00", length = "1w" ),
+        License( author = "B", product = 'b', author_domain='b-inc.com', author_pubkey=keypair.vk, start = "2021-09-30 00:00:00", length = "1w" ))
     # Default rendering of a timestamp is w/ milliseconds, and no tz info for UTC
     assert str( start ) == "2021-09-30 17:22:33.000"
     assert str( length ) == "5d6h37m27s"
@@ -82,8 +82,8 @@ def test_License():
     # rendering; force by setting environment variable TZ=Canada/Mountain for this test!
     with pytest.raises( LicenseIncompatibility ) as exc_info:
         start, length = lic.overlap(
-            License( author = "A", product = 'a', author_pubkey=keypair.vk, start = "2021-09-29 00:00:00", length = "1w" ),
-            License( author = "B", product = 'b', author_pubkey=keypair.vk, start = "2021-10-07 00:00:00", length = "1w" ))
+            License( author = "A", product = 'a', author_domain='a-inc.com', author_pubkey=keypair.vk, start = "2021-09-29 00:00:00", length = "1w" ),
+            License( author = "B", product = 'b', author_domain='b-inc.com', author_pubkey=keypair.vk, start = "2021-10-07 00:00:00", length = "1w" ))
     assert str( exc_info.value ).endswith( "License for B's 'b' (2021-10-06 18:00:00 Canada/Mountain for 1w) incompatible with others (2021-09-30 11:22:33 Canada/Mountain for 5d6h37m27s)" )
 
 
@@ -123,7 +123,9 @@ def test_LicenseSigned():
         author_pubkey = awesome_keypair.vk, # Avoid the dns.resolver.NXDOMAIN by providing the pubkey
         dependencies = [ lic_prov ],
         start	= "2022-09-29 11:22:33 Canada/Mountain",
-        length	= "1y" )
+        length	= "1y",
+        confirm = False,
+    )
     drv_prov = issue( drv, awesome_keypair.sk )
     drv_prov_str = str( drv_prov )
     assert drv_prov_str == """\

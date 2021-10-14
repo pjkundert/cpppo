@@ -64,6 +64,80 @@ def domainkey_service( product ):
 domainkey_service.trans		= maketrans( ' ._/', '----' )
 
 
+def into_hex( binary ):
+    """Convert binary bytes data to UTF-8 hexadecimal, across most versions of Python 2/3.
+
+    None remains None.
+
+    """
+    if binary is not None:
+        assert isinstance( binary, bytes ), \
+            "Failed to convert {!r} to hex".format( binary )
+        return codecs.getencoder( 'hex' )( binary )[0].decode( 'utf-8' )
+
+def into_b64( binary ):
+    if binary is not None:
+        assert isinstance( binary, bytes )
+        return codecs.getencoder( 'base64' )( binary )[0].decode( 'utf-8' ).strip() # trailing '\n'
+
+
+def bytes_from_text( text, encodings=('hex', 'base64'), ignore_invalid=True ):
+    """Try to decode base-64 or hex bytes from the provided UTF-8 text.  Must work in Python 2, which
+    is non-deterministic; a str may contain bytes or text.
+
+    So, start with the most strict codecs
+    """
+    if text is not None:
+        # First, see if the text looks like hex- or base64-encoded ASCII/UTF-8
+        try:
+            text_enc		= text.encode( 'utf-8' )
+            for c in encodings:
+                try:
+                    binary	= codecs.getdecoder( c )( text_enc )[0]
+                    log.debug( "Successfully decoded {} bytes from: {!r}".format( c, text_enc ))
+                    return binary
+                except Exception as exc:
+                    log.debug( "Couldn't decode as {}: {!r}; {}".format( c, text_enc, exc ))
+                    pass
+        except Exception as exc:
+            log.debug( "Couldn't encode as UTF-8: {!r}; {}".format( text, exc ))
+            pass
+        # Finally, check if the text is already bytes (*possibly* bytes in Python2, as str ===
+        # bytes; so this cannot be done before the decoding attempts, above)
+        if isinstance( text, bytes ):
+            log.debug( "Successfully returned bytes from: {!r}".format( text ))
+            return text
+        if not ignore_invalid:
+            raise RuntimeError( "Could not decode as {} or raw bytes: {!r}".format(
+                ', '.join( encodings ), text ))
+
+
+def keys( keypair ):
+    """Return whatever Ed25519 (signing, public) keys are available in the provided Keypair or
+     32/64-byte key material.
+
+    """
+    try:
+        # May be a Keypair namedtuple
+        return keypair.sk, keypair.vk
+    except AttributeError:
+        pass
+    # Not a Keypair.  First, see if it's a serialized public/private key
+    deserialized	= bytes_from_text( keypair )
+    if deserialized:
+        keypair		= deserialized
+    # Finally, see if we've recovered a signing or public key
+    if isinstance( keypair, bytes ):
+        if len( keypair ) == 64:
+            # Must be a 64-byte signing key, which also contains the public key
+            return keypair[0:64], keypair[32:64]
+        elif len( keypair ) == 32:
+            # Can only contain a 32-byte public key
+            return None, keypair[:32]
+    # Unknown key material.
+    return None, None
+    
+
 def domainkey( product, author_domain, author_service=None, author_pubkey=None ):
     """Compute and return the DNS path for the given product and domain.  Optionally, also returns the
     appropriate DKIM1 TXT RR record containing the author's public key (base-64 encoded), as per the
@@ -95,10 +169,7 @@ def domainkey( product, author_domain, author_service=None, author_pubkey=None )
     
     dkim			= None
     if author_pubkey:
-        try:
-            author_pubkey	= author_pubkey.vk
-        except AttributeError:
-            pass
+        _, author_pubkey	= keys( author_pubkey )
         dkim			= '; '.join( "{k}={v}".format(k=k, v=v) for k,v in (
             ('v', 'DKIM1'),
             ('k', 'ed25519'),
@@ -107,42 +178,6 @@ def domainkey( product, author_domain, author_service=None, author_pubkey=None )
 
     return (path, dkim)
 domainkey.idna_encoder		= codecs.getencoder( 'idna' )
-
-
-def into_hex( binary ):
-    """Convert binary bytes data to UTF-8 hexadecimal, across most versions of Python 2/3.
-
-    None remains None.
-
-    """
-    if binary is not None:
-        assert isinstance( binary, bytes ), \
-            "Failed to convert {!r} to hex".format( binary )
-        return codecs.getencoder( 'hex' )( binary )[0].decode( 'utf-8' )
-
-def into_b64( binary ):
-    if binary is not None:
-        assert isinstance( binary, bytes )
-        return codecs.getencoder( 'base64' )( binary )[0].decode( 'utf-8' ).strip() # trailing '\n'
-
-
-def bytes_from_text( text, codecs=('base64','hex'), ignore_invalid=True ):
-    """Try to decode base-64 or hex bytes from the provided UTF-8 text.  Must work in Python 2, which
-    is non-deterministic; a str may contain bytes or text.
-
-    """
-    if text is not None:
-        try:
-            text_enc		= text.encode( 'utf-8' )
-            for c in codecs:
-                try:
-                    return codecs.getdecoder( c )( text_enc )[0]
-                except:
-                    pass
-        except:
-            pass
-        if not ignore_invalid:
-            raise RuntimeError( "Could not decode as {}".format( ', '.join( codecs ), text ))
 
 
 class Serializable( object ):
@@ -289,17 +324,21 @@ class License( Serializable ):
         length		= str,
     )
 
-    def __init__( self, author, product,
-                  author_domain=None, author_service=None, author_pubkey=None,
-                  client=None, client_pubkey=None,
-                  dependencies=None, start=None, length=None ):
+    def __init__( self, author, product, author_domain,
+                  author_service=None,			# Normally, derived from product name
+                  author_pubkey=None,			# Normally, obtained from domain's DKIM1 TXT RR
+                  client=None, client_pubkey=None,	# The client may be identified
+                  dependencies=None,			# Any sub-Licenses
+                  start=None, length=None,		# License may not be perpetual
+                  confirm=True,				# Validate License dependencies' author_pubkey from DNS
+                 ):
         self.author		= author
         self.author_domain	= author_domain
         self.author_service	= author_service or domainkey_service( product )
         self.product		= product
 
         self.client		= client
-        self.client_pubkey	= bytes_from_text( client_pubkey ) or client_pubkey
+        _, self.client_pubkey	= keys( client_pubkey )
 
         self.dependencies	= dependencies
 
@@ -322,13 +361,16 @@ class License( Serializable ):
         self.start		= start
         self.length		= length
 
+        # Obtain confirmation of the Author's public key; either given through the API, or obtained
+        # from their domain's DKIM1 entry.
         assert author_pubkey or self.author_domain, \
             "Either an author_pubkey, or an author_domain/service must be provided"
-        self.author_pubkey	= bytes_from_text( author_pubkey ) or author_pubkey or self.author_pubkey_query()
+        _, self.author_pubkey	= keys( author_pubkey )
+        if self.author_pubkey is None:
+            self.author_pubkey	= self.author_pubkey_query()
 
         # Only allow the construction of valid Licenses.
-        self.enforce()
-
+        self.verify( confirm=confirm )
 
     def author_pubkey_query( self ):
         """Obtain the author's public key.  This was either provided at License construction time, or can be
@@ -415,26 +457,74 @@ class License( Serializable ):
             start, length	= latest, duration( ending - latest )
         return start, length
 
-    def enforce( self, **constraints ):
-        """Confirm that the License is valid:
-        - Complies with the bounds of any License dependencies
-        - Allows any constraints supplied.
+    def verify( self, confirm=None, **constraints ):
+        """Verify that the License is valid:
 
-        If it does, a License is returned which encodes the supplied constraints.
+            - Has properly signed License dependencies
+              - Each public key can be confirmed, if desired
+            - Complies with the bounds of any License dependencies
+            - Allows any constraints supplied.
+
+        If it does, a License is returned which encodes the supplied constraints.  If no additional
+        constraints are supplied, this may be the original License (self), or a copy with further
+        restrictions.
+
         """
-        success			= None #License( dependencies
-        
+        success			= None
+
+        # Verify any License dependencies are valid
+        for ls in ( LicenseSigned( **d ) for d in self.dependencies or [] ):
+            # That it is properly signed
+            if confirm:
+                avkey	 	= ls.license.author_pubkey_query()
+                if avkey != ls.license.author_pubkey:
+                    raise LicenseIncompatibilty(
+                        "License for {auth}'s {prod!r}; sub-License for {dep_auth}'s {dep_prod!r} author key {found} != {claim}".format(
+                            auth	= self.author,
+                            prod	= self.product,
+                            dep_auth	= ls.license.author,
+                            dep_prod	= ls.license.product,
+                            found	= akey,
+                            claim	= ls.license.author_pubkey,
+                        ))
+            try:
+                ls.verify( confirm=confirm )
+            except Exception as exc:
+                raise LicenaseIncompatibility(
+                    "License for {auth}'s {prod!r}; sub-License for {dep_auth}'s {dep_prod!r} signature invalid: {exc}".format(
+                        auth		= self.author,
+                        prod		= self.product,
+                        dep_auth	= ls.license.author,
+                        dep_prod	= ls.license.product,
+                        exc		= exc,
+                    ))
+            # And, that the signed sub-license is (itself) valid
+            ls.license.verify( confirm=confirm )
+
+        # Verify all sub-license start/length durations comply with this License' duration
+        try:
+            self.overlap( *( ls.license for ls in self.dependencies or [] ))
+        except LicenseIncompatibility as exc:
+            raise LicenseIncompatibility(
+                "License for {auth}'s {prodt!r}; sub-{exc}".format(
+                    auth	= self.author,
+                    prod	= self.product,
+                    exc		= exc,
+                ))
+
+        success			= self
+        # TODO: apply any constraints
         return success
 
 
 class LicenseSigned( Serializable ):
-    """An ed25519 signed License.  Only a LicenseSigned (and verification of the public key) proves
+    """An ed25519 signed License.  Only a LicenseSigned (and confirmation of the public key) proves
     that a License was actually issued by the purported author.
 
-    The public key of the author must be verified through other means.  One typical means is by
-    publication on the author's domain, eg.:
+    The public key of the author must be confirmed through other means.  One typical means is by
+    checking publication on the author's domain, eg.:
 
-        default._domainkey.example.com 86400 IN TXT "v=DKIM1; g=*; k=rsa; p=MIGfM....+/mh9wIDAQAB"
+        default._domainkey.example.com 86400 IN TXT "v=DKIM1; k=ed25519; p=MIGfM....+/mh9wIDAQAB"
 
     """
 
@@ -443,21 +533,69 @@ class LicenseSigned( Serializable ):
         signature	= into_hex,
     )
 
-    def __init__( self, lic, author_sigkey ):
+    def __init__( self, license, author_sigkey=None, signature=None, confirm=None ):
         """Given an ed25519 signing key (32-byte private + 32-byte public), produce the provenance
-        for the supplied License"""
-        self.license		= lic
+        for the supplied License. 
 
-        # Confirm the signing key.  1st 32 bytes are private key, then (derived) public key.
-        keypair			= ed25519.crypto_sign_keypair( author_sigkey[:32] )
-        if len( author_sigkey ) > 32:
-            assert author_sigkey == keypair.sk, \
-                "Invalid ed25519 signing key provided"
-        assert keypair.vk == lic.author_pubkey, \
-            "Incorrect Author signing key; doesn't match License.author_pubkey {author_pubkey}".format(
-                author_pubkey	= into_hex( lic.author_pubkey ))
-        lic_signed		= ed25519.crypto_sign( lic.serialize(), author_sigkey )
-        self.signature		= lic_signed[:64]
+        Normal constructor calling convention is:
+
+            LicenseSigned( <License>, <Keypair> )
+
+        """
+        self.license		= license
+
+        assert signature or author_sigkey, \
+            "Require either signature, or the means to produce one via the author's signing key"
+        if author_sigkey:
+            # Verify the signing key matches the declared public key.  1st 32 bytes are private key,
+            # followed by the (derived) public key.  Supports receiving either a raw 64-byte binary
+            # signing key, or a Keypair.  Re-derive the Keypair.
+            author_sigkey, _	= keys( author_sigkey )
+            keypair		= ed25519.crypto_sign_keypair( author_sigkey[:32] )
+            if len( author_sigkey ) > 32:
+                assert author_sigkey == keypair.sk, \
+                    "Invalid ed25519 signing key provided"
+            assert keypair.vk == license.author_pubkey, \
+                "Incorrect Author signing key; doesn't match License.author_pubkey {author_pubkey}".format(
+                    author_pubkey= into_hex( license.author_pubkey ))
+            license_signed	= ed25519.crypto_sign( license.serialize(), author_sigkey )
+            self.signature	= license_signed[:64]
+        elif signature:
+            # Could be a hex-encoded signature on deserialization, or a 64-byte signature
+            self.signature	= bytes_from_text( signature, ignore_invalid=False )
+
+        self.verify( author_pubkey=author_sigkey, confirm=confirm )
+
+    def verify( self, author_pubkey=None, confirm=None, **constraints ):
+        """Verify the License payload with some signature and some author public key (default to the
+        ones provided in self.license/self.author_pubkey).  Any supplied author_pubkey must
+        match the one stated in the License.
+
+        Apply any additional constraints.
+        """
+        if author_pubkey:
+            _, author_pubkey	= keys( author_pubkey )
+            assert author_pubkey, "Unrecognized author_pubkey provided"
+
+        if author_pubkey and author_pubkey != self.license.author_pubkey:
+            raise LicenseIncompatibility( 
+                "License for {auth}'s {prod!r} public key mismatch".format(
+                    auth	= self.license.author,
+                    prod	= self.license.product,
+                ))
+        try:
+            ed25519.crypto_sign_open(
+                self.signature + self.license.serialize(), self.license.author_pubkey )
+        except Exception as exc:
+            raise LicenseIncompatibility( 
+                "License for {auth}'s {prod!r} signature mismatch: {sig!r}; {exc}".format(
+                    auth	= self.license.author,
+                    prod	= self.license.product,
+                    sig		= self.signature,
+                    exc		= exc,
+                ))
+        # finally, verify the License itself.
+        return self.license.verify( confirm=confirm, **constraints )
 
 
 def author( seed=None ):
@@ -468,7 +606,7 @@ def author( seed=None ):
     return keypair
 
 
-def issue( lic, author_sigkey ):
+def issue( license, author_sigkey ):
     """If possible, issue the license signed with the supplied signing key.  Ensures that the license
     is allowed to be issued, by verifying the signatures of the tree of dependent license(s) if any.
 
@@ -491,14 +629,15 @@ def issue( lic, author_sigkey ):
         author_sigkey		= author_sigkey.sk
     except AttributeError:
         pass
-    prov			= LicenseSigned( lic, author_sigkey )
-    return prov
+    provenance			= LicenseSigned( license, author_sigkey )
+    return provenance
 
 
-def check( prov ):
-    """Check that the supplied LicenseSigned contains a valid signature, and that the License
-    follows the rules in any of its License dependencies.
+def verify( provenance, confirm=None, **constraints ):
+    """Verify that the supplied LicenseSigned contains a valid signature, and that the License follows
+    the rules in all of its License dependencies.  Optionally, confirm the validity of any public
+    keys, and apply any additional constraints, returning a License satisfying them.
 
     """
-    ed25519.crypto_sign_open( prov.signature + prov.license.serialize(), prov.license.author_pubkey )
+    return provenance.verify( confirm=confirm, **constraints )
     
