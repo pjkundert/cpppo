@@ -64,57 +64,72 @@ def domainkey_service( product ):
 domainkey_service.trans		= maketrans( ' ._/', '----' )
 
 
-def into_hex( binary ):
-    """Convert binary bytes data to UTF-8 hexadecimal, across most versions of Python 2/3.
+def into_hex( binary, encoding='ASCII' ):
+    return into_text( binary, 'hex', encoding )
 
-    None remains None.
+
+def into_b64( binary, encoding='ASCII' ):
+    return into_text( binary, 'base64', encoding )
+
+
+def into_text( binary, decoding='hex', encoding='ASCII' ):
+    """Convert binary bytes data to the specified decoding, (by default encoded to ASCII text), across
+    most versions of Python 2/3.  If no encoding, resultant decoding symbols remains as un-encoded
+    bytes.
+
+    A supplied None remains None.
 
     """
     if binary is not None:
         assert isinstance( binary, bytes ), \
-            "Failed to convert {!r} to hex".format( binary )
-        return codecs.getencoder( 'hex' )( binary )[0].decode( 'utf-8' )
+            "Cannot convert to {}: {!r}".format( decoding, binary )
+        binary			= codecs.getencoder( decoding )( binary )[0]
+        binary			= binary.replace( b'\n', b'' ) # some decodings contain line-breaks
+        if encoding is not None:
+            return binary.decode( encoding )
+        return binary
 
-def into_b64( binary ):
-    if binary is not None:
-        assert isinstance( binary, bytes )
-        return codecs.getencoder( 'base64' )( binary )[0].decode( 'utf-8' ).strip() # trailing '\n'
 
-
-def bytes_from_text( text, encodings=('hex', 'base64'), ignore_invalid=True ):
-    """Try to decode base-64 or hex bytes from the provided UTF-8 text.  Must work in Python 2, which
+def bytes_from_text( text, decodings=('hex', 'base64'), encoding='ASCII', ignore_invalid=True ):
+    """Try to decode base-64 or hex bytes from the provided ASCII text.  Must work in Python 2, which
     is non-deterministic; a str may contain bytes or text.
 
-    So, start with the most strict codecs
+    So, assume ASCII encoding, start with the most strict (least valid symbols) decoding codec
+    first.  Then, try as simple bytes.
+
     """
-    if text is not None:
-        # First, see if the text looks like hex- or base64-encoded ASCII/UTF-8
-        try:
-            text_enc		= text.encode( 'utf-8' )
-            for c in encodings:
-                try:
-                    binary	= codecs.getdecoder( c )( text_enc )[0]
-                    log.debug( "Successfully decoded {} bytes from: {!r}".format( c, text_enc ))
-                    return binary
-                except Exception as exc:
-                    log.debug( "Couldn't decode as {}: {!r}; {}".format( c, text_enc, exc ))
-                    pass
-        except Exception as exc:
-            log.debug( "Couldn't encode as UTF-8: {!r}; {}".format( text, exc ))
-            pass
-        # Finally, check if the text is already bytes (*possibly* bytes in Python2, as str ===
-        # bytes; so this cannot be done before the decoding attempts, above)
-        if isinstance( text, bytes ):
-            log.debug( "Successfully returned bytes from: {!r}".format( text ))
-            return text
-        if not ignore_invalid:
-            raise RuntimeError( "Could not decode as {} or raw bytes: {!r}".format(
-                ', '.join( encodings ), text ))
+    if not text:
+        return None
+    # First, see if the text looks like hex- or base64-encoded ASCII
+    try:
+        # Python3 'bytes' doesn't have .encode, Python2 binary data will raise UnicodeDecodeError
+        text_enc		= text.encode( encoding )
+        for c in decodings:
+            try:
+                binary		= codecs.getdecoder( c )( text_enc )[0]
+                log.debug( "Decoded {} {} bytes from: {!r}".format( len( binary ), c, text_enc ))
+                return binary
+            except Exception as exc:
+                #log.debug( "Couldn't decode as {}: {!r}; {}".format( c, text_enc, exc ))
+                pass
+    except Exception as exc:
+        #log.debug( "Couldn't encode as {}: {!r}; {!r}".format( encoding, text, exc ))
+        pass
+    # Finally, check if the text is already bytes (*possibly* bytes in Python2, as str ===
+    # bytes; so this cannot be done before the decoding attempts, above)
+    if isinstance( text, bytes ):
+        return text
+    if not ignore_invalid:
+        raise RuntimeError( "Could not encode as {}, decode as {} or raw bytes: {!r}".format(
+            encoding, ', '.join( decodings ), text ))
 
 
-def keys( keypair ):
+def into_keys( keypair ):
     """Return whatever Ed25519 (signing, public) keys are available in the provided Keypair or
      32/64-byte key material.
+
+    Supports deserialization of keys from hex or base-64 encode public (32-byte) or secret/signing
+    (64-byte) datas.
 
     """
     try:
@@ -122,7 +137,7 @@ def keys( keypair ):
         return keypair.sk, keypair.vk
     except AttributeError:
         pass
-    # Not a Keypair.  First, see if it's a serialized public/private key
+    # Not a Keypair.  First, see if it's a serialized public/private key.
     deserialized	= bytes_from_text( keypair )
     if deserialized:
         keypair		= deserialized
@@ -169,7 +184,7 @@ def domainkey( product, author_domain, author_service=None, author_pubkey=None )
     
     dkim			= None
     if author_pubkey:
-        _, author_pubkey	= keys( author_pubkey )
+        _, author_pubkey	= into_keys( author_pubkey )
         dkim			= '; '.join( "{k}={v}".format(k=k, v=v) for k,v in (
             ('v', 'DKIM1'),
             ('k', 'ed25519'),
@@ -220,8 +235,8 @@ class Serializable( object ):
     def __getitem__( self, key ):
         if key in self.keys():
             try:
-                value		= getattr( self, key ) # IndexError
                 serialize	= self.serializer( key ) # (no Exceptions)
+                value		= getattr( self, key ) # IndexError
                 if serialize:
                     return serialize( value ) # conversion failure Exceptions
                 return value
@@ -232,36 +247,67 @@ class Serializable( object ):
         raise IndexError( key )
 
     def __str__( self ):
-        """Serialize to JSON, assuming any complex object has a sensible dict representation."""
+        return self.serialize( indent=4, encoding=None )
+
+    def serialize( self, indent=None, encoding='UTF-8' ):
+        """Return a binary 'bytes' serialization of the present object.  Serialize to JSON, assuming any
+        complex sub-objects (eg. License, LicenseSigned) have a sensible dict representation.
+
+        The default serialization (ie. with indent=None) will be the one used to create the digest
+        """
         def endict( x ):
             try:
                 return dict( x )
             except Exception as exc:
                 log.warning("Failed to JSON serialize {!r}".format( x ))
                 raise
-        return json.dumps( self, sort_keys=True, default=endict )
+        # Unfortunately, Python2 json.dumps w/ indent emits trailing whitespace after "," making
+        # tests fail.  Make the JSON separators whitespace-free, so the only difference between the
+        # signed serialization and an pretty-printed indented serialization is the presence of
+        # whitespace.
+        separators		= (',', ':')
+        text			= json.dumps(
+            self, sort_keys=True, indent=indent, separators=separators, default=endict )
+        if encoding:
+            return text.encode( encoding )
+        return text
 
-    def serialize( self ):
-        """Return a binary 'bytes' serialization of the present object."""
-        return str( self ).encode( 'utf-8' )
+    def sign( self, author_sigkey, author_pubkey=None ):
+        """Sign our default serialization, and (optionally) confirm that the supplied public key (which will
+        be used to check the signature) is correct, by re-deriving the public key.
 
-    def digest( self, codec=None ):
+        """
+        sigkey, pubkey	= into_keys( author_sigkey )
+        assert sigkey, \
+            "Invalid ed25519 signing key provided"
+        if author_pubkey:
+            # Re-derive and confirm supplied public key matches supplied signing key
+            keypair		= ed25519.crypto_sign_keypair( sigkey[:32] )
+            assert keypair.vk == author_pubkey, \
+                "Mismatched ed25519 signing/public keys"
+        signed			= ed25519.crypto_sign( self.serialize(), sigkey )
+        signature		= signed[:64]
+        return signature
+
+    def digest( self, encoding=None, decoding=None ):
         """The SHA-256 hash of the serialization, as 32 bytes.  Optionally, encode w/ a named codec, eg
-        "hex" or "base64".  Often, these will require a subsequent .decode( 'utf-8' ) to become a
+        "hex" or "base64".  Often, these will require a subsequent .decode( 'ASCII' ) to become a
         non-binary str.
 
         """
         binary			= hashlib.sha256( self.serialize() ).digest()
-        if codec is not None:
-            return codecs.getencoder( codec )( binary )[0].strip()
+        if encoding is not None:
+            binary		= codecs.getencoder( encoding )( binary )[0].replace(b'\n', b'')
+            if decoding is not None:
+                return binary.decode( decoding )
         return binary
 
     def hexdigest( self ):
         """The SHA-256 hash of the serialization, as a 256-bit (32 byte, 64 character) hex string."""
-        return self.digest( 'hex' ).decode( 'utf-8' )
+        return self.digest( 'hex', 'ASCII' )
 
     def b64digest( self ):
-        return self.digest( 'base64' ).decode( 'utf-8' )
+        return self.digest( 'base64', 'ASCII' )
 
     def __copy__( self ):
         """Create a new object by copying an existing object, taking __slots__ into account.
@@ -318,8 +364,8 @@ class License( Serializable ):
         'start', 'length'
     )
     serializers			= dict(
-        author_pubkey	= into_hex,
-        client_pubkey	= into_hex,
+        author_pubkey	= into_b64,
+        client_pubkey	= into_b64,
         start		= lambda t: t.render( tzinfo=timestamp.UTC, ms=False, tzdetail=True ),
         length		= str,
     )
@@ -338,7 +384,7 @@ class License( Serializable ):
         self.product		= product
 
         self.client		= client
-        _, self.client_pubkey	= keys( client_pubkey )
+        _, self.client_pubkey	= into_keys( client_pubkey )
 
         self.dependencies	= dependencies
 
@@ -365,7 +411,7 @@ class License( Serializable ):
         # from their domain's DKIM1 entry.
         assert author_pubkey or self.author_domain, \
             "Either an author_pubkey, or an author_domain/service must be provided"
-        _, self.author_pubkey	= keys( author_pubkey )
+        _, self.author_pubkey	= into_keys( author_pubkey )
         if self.author_pubkey is None:
             self.author_pubkey	= self.author_pubkey_query()
 
@@ -403,7 +449,6 @@ class License( Serializable ):
         log.info("Parsing DKIM1 record: {dkim!r}".format( dkim=dkim ))
         p			= None
         for pair in dkim.split( ';' ):
-            log.debug("Parsing DKIM1 record pair: {pair!r}".format( pair=pair ))
             key,val 		= pair.strip().split( '=', 1 )
             if key.strip().lower() == "v":
                 assert val.upper() == "DKIM1", \
@@ -415,8 +460,9 @@ class License( Serializable ):
                 p		= val.strip()
         assert p, \
             "Failed to locate public key in TXT DKIM record: {dkim}".format( dkim=dkim )
-        
-        return codecs.getdecoder( 'base64' )( codecs.getencoder( 'utf-8' )( p )[0] )[0]
+        p_binary		= bytes_from_text( p, ('base64',), 'ASCII' )
+        return p_binary
+        #return codecs.getdecoder( 'base64' )( codecs.getencoder( 'utf-8' )( p )[0] )[0]
         
     def overlap( self, *others ):
         """Compute the overlapping start/length that is within the bounds of this and other license(s).
@@ -530,7 +576,7 @@ class LicenseSigned( Serializable ):
 
     __slots__			= ('signature', 'license')
     serializers			= dict(
-        signature	= into_hex,
+        signature	= into_b64,
     )
 
     def __init__( self, license, author_sigkey=None, signature=None, confirm=None ):
@@ -547,19 +593,8 @@ class LicenseSigned( Serializable ):
         assert signature or author_sigkey, \
             "Require either signature, or the means to produce one via the author's signing key"
         if author_sigkey:
-            # Verify the signing key matches the declared public key.  1st 32 bytes are private key,
-            # followed by the (derived) public key.  Supports receiving either a raw 64-byte binary
-            # signing key, or a Keypair.  Re-derive the Keypair.
-            author_sigkey, _	= keys( author_sigkey )
-            keypair		= ed25519.crypto_sign_keypair( author_sigkey[:32] )
-            if len( author_sigkey ) > 32:
-                assert author_sigkey == keypair.sk, \
-                    "Invalid ed25519 signing key provided"
-            assert keypair.vk == license.author_pubkey, \
-                "Incorrect Author signing key; doesn't match License.author_pubkey {author_pubkey}".format(
-                    author_pubkey= into_hex( license.author_pubkey ))
-            license_signed	= ed25519.crypto_sign( license.serialize(), author_sigkey )
-            self.signature	= license_signed[:64]
+            # Sign our default serialization, also confirming that the public key matches
+            self.signature	= license.sign( author_sigkey, license.author_pubkey )
         elif signature:
             # Could be a hex-encoded signature on deserialization, or a 64-byte signature
             self.signature	= bytes_from_text( signature, ignore_invalid=False )
@@ -574,7 +609,7 @@ class LicenseSigned( Serializable ):
         Apply any additional constraints.
         """
         if author_pubkey:
-            _, author_pubkey	= keys( author_pubkey )
+            _, author_pubkey	= into_keys( author_pubkey )
             assert author_pubkey, "Unrecognized author_pubkey provided"
 
         if author_pubkey and author_pubkey != self.license.author_pubkey:
