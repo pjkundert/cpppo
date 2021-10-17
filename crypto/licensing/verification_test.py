@@ -3,6 +3,7 @@ import binascii
 import codecs
 import pytest
 import json
+import os
 
 from dns.exception import DNSException
 from .verification import (
@@ -55,12 +56,13 @@ def test_License():
     "client_pubkey":null,
     "dependencies":null,
     "length":"1y",
+    "machine":null,
     "product":"Cpppo Test",
     "start":"2021-09-30 17:22:33 UTC"
 }"""
-    assert lic.digest() == b'\xa1\x0ek\xcbDa\xde\xd4\xa0;\xb0\xa5\xa8\xab0c\xc9\xbc\xafo\x12\xa9%\xf2w\xbc\xec^m\rfi'
-    assert lic.digest('hex', 'ASCII' ) == 'a10e6bcb4461ded4a03bb0a5a8ab3063c9bcaf6f12a925f277bcec5e6d0d6669'
-    assert lic.digest('base64', 'ASCII' ) == 'oQ5ry0Rh3tSgO7ClqKswY8m8r28SqSXyd7zsXm0NZmk='
+    assert lic.digest() == b'\xb9\x99\xe0{\n\x1f\x1f\xcd-R;~_\x1aX\xcb\xdb\xa9[4\x91\xc4\xd5v\xa5\xf4\x06z\xee\x9c\nE'
+    assert lic.digest('hex', 'ASCII' ) == 'b999e07b0a1f1fcd2d523b7e5f1a58cbdba95b3491c4d576a5f4067aee9c0a45'
+    assert lic.digest('base64', 'ASCII' ) == 'uZngewofH80tUjt+XxpYy9upWzSRxNV2pfQGeu6cCkU='
     keypair = ed25519.crypto_sign_keypair( dominion_sigkey[:32] )
     assert keypair.sk == dominion_sigkey
     assert lic.author_pubkey == b'\xa9\x91\x11\x9e0\xd9e9\xa7\x0c\xd3I\x83\xdd\x00qBY\xf8\xb6\n!c\xbd\xb7H\xf3\xfc\x0c\xf06\xc9'
@@ -68,6 +70,10 @@ def test_License():
     #print("ed25519 keypair: {sk}".format( sk=binascii.hexlify( keypair.sk )))
     prov = LicenseSigned( lic, keypair.sk )
 
+    machine_uuid = lic.machine_uuid( machine_id_path=__file__.replace(".py", ".machine-id" ))
+    assert machine_uuid.hex == "000102030405460788090a0b0c0d0e0f"
+    assert machine_uuid.version == 4
+    
     prov_str = str( prov )
     assert prov_str == """\
 {
@@ -80,10 +86,11 @@ def test_License():
         "client_pubkey":null,
         "dependencies":null,
         "length":"1y",
+        "machine":null,
         "product":"Cpppo Test",
         "start":"2021-09-30 17:22:33 UTC"
     },
-    "signature":"67kACxXGVDfuJS+uuV8xDvMPjtORzTZ8WO18biDqPO6KUvZNrONGBjvDyx5fOnzPQSS/O+HP946XSLOxoi0PDg=="
+    "signature":"bw58LSvuadS76jFBCWxkK+KkmAqLrfuzEv7ly0Y3lCLSE2Y01EiPyZjxirwSjHoUf9kz9meeEEziwk358jthBw=="
 }"""
     # Multiple licenses, some which truncate the duration of the initial License. Non-timezone
     # timestamps are assumed to be UTC.
@@ -164,15 +171,21 @@ def test_LicenseSigned():
                     "client_pubkey":null,
                     "dependencies":null,
                     "length":"1y",
+                    "machine":null,
                     "product":"Cpppo Test",
                     "start":"2021-09-30 17:22:33 UTC"
                 },
-                "signature":"67kACxXGVDfuJS+uuV8xDvMPjtORzTZ8WO18biDqPO6KUvZNrONGBjvDyx5fOnzPQSS/O+HP946XSLOxoi0PDg=="
+                "signature":"bw58LSvuadS76jFBCWxkK+KkmAqLrfuzEv7ly0Y3lCLSE2Y01EiPyZjxirwSjHoUf9kz9meeEEziwk358jthBw=="
             }
         ],
         "length":"1y",
+        "machine":null,
         "product":"EtherNet/IP Tool",
         "start":"2022-09-29 17:22:33 UTC"
     },
-    "signature":"2cGLHbL9DZ4YYOfhLJ0e0xpOhGxbw7TEVCpwKYtQaj2Pv9UfElfsXQgKlFqBYzjtq4tJIZKpfsQfwlOz9v9/BQ=="
+    "signature":"5haJmI3WQBkz6njAT1VxtvsqJsnJl96XwxPWS6ANOP38EzK14+QGnHt4/pHVyVnLqjZWQlu0ZPXlz8mrH1C/Dg=="
 }"""
+
+def test_LicenseAPI():
+    """Test the cpppo.crypto.licensing API, as used in applications.  A LicenseSigned is saved to an
+    <application>.cpppo-licensing file in the Application's configuration directory path."""

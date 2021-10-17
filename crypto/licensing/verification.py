@@ -27,10 +27,11 @@ import base64
 import codecs
 import collections
 import dns.resolver
+import encodings.idna
 import hashlib
 import json
 import logging
-import encodings.idna
+import uuid
 
 from datetime import datetime
 
@@ -329,21 +330,40 @@ class LicenseIncompatibility( Exception ):
 
 
 class License( Serializable ):
-    """Represents the details of a Licence from an author to a client (could be anyone, if no
+    """Represents the details of a Licence from an author to a client (could be any client, if no
     client_pubkey provided).  Cannot be constructed unless the supplied License details are valid
     with respect to any supplied License dependencies.
 
     {
         "author": "Dominion Research & Development Corp.",
         "author_domain": "dominionrnd.com",
-        "author_service": "cpppo.licensing-1",
+        "author_service": "cpppo",
         "client": "Awesome Inc.",
         "client_pubkey": "...",
         "dependencies": None,
         "product": "Cpppo",
-        "start": "2021-01-01 00:00:00+00:00"
-        "length": "1y")
+        "length": "1y",
+        "machine": None,
+        "start": "2021-01-01 00:00:00+00:00")
     }
+
+    Verifying a License
+    -------------------
+
+    A signed license is a claim by an Author that the License is valid; it is up to a recipient to
+    check that the License also actually satisfies the constraints of any License dependencies.  A
+    nefarious Author could create a License and properly sign it -- but not satisfy the License
+    constraints.  License.verify(confirm=True) will do do this, as well as (optionally) retrieve and
+    verify from DNS the public keys of the (claimed) signed License dependencies.
+
+    Checking your License
+    ---------------------
+
+    Each module that uses cpppo.crypto.licensing checks that the final product's License or contains
+    valid license(s) for itself, somewhere within the License dependencies tree.
+
+    
+
 
     All start times are expressed in the UTC timezone; if we used the local timezone (as computed
     using get_localzone, wrapped to respect any TZ environment variable, and made available as
@@ -361,13 +381,15 @@ class License( Serializable ):
         'author', 'author_pubkey', 'author_domain', 'author_service', 'product',
         'client', 'client_pubkey',
         'dependencies',
-        'start', 'length'
+        'start', 'length',
+        'machine',
     )
     serializers			= dict(
         author_pubkey	= into_b64,
         client_pubkey	= into_b64,
         start		= lambda t: t.render( tzinfo=timestamp.UTC, ms=False, tzdetail=True ),
-        length		= str,
+        length		= lambda l: None if l is None else str( l ),
+        machine		= lambda m: None if m is None else str( m ),
     )
 
     def __init__( self, author, product, author_domain,
@@ -376,6 +398,7 @@ class License( Serializable ):
                   client=None, client_pubkey=None,	# The client may be identified
                   dependencies=None,			# Any sub-Licenses
                   start=None, length=None,		# License may not be perpetual
+                  machine=None,				# A specific host may be specified
                   confirm=True,				# Validate License dependencies' author_pubkey from DNS
                  ):
         self.author		= author
@@ -406,6 +429,12 @@ class License( Serializable ):
 
         self.start		= start
         self.length		= length
+
+        if machine is not None:
+            if not isinstance( machine, uuid.UUID ):
+                machine		= uuid.UUID( machine )
+            assert machine.version == 4
+        self.machine		= machine
 
         # Obtain confirmation of the Author's public key; either given through the API, or obtained
         # from their domain's DKIM1 entry.
@@ -503,6 +532,34 @@ class License( Serializable ):
             start, length	= latest, duration( ending - latest )
         return start, length
 
+    def machine_uuid( self, machine_id_path="/etc/machine-id" ):
+        """Identify the machine-id as an RFC 4122 UUID v4. On Linux systems w/ systemd, get from
+        /etc/machine-id, as a UUID v4: https://www.man7.org/linux/man-pages/man5/machine-id.5.html.
+        On MacOS and Windows, use uuid.getnode(), which derives from host-specific data (eg. MAC
+        addresses, serial number, ...).
+
+        This UUID should be reasonably unique across hosts, but is not guaranteed to be.
+
+        """
+        try:
+            with open( machine_id_path, 'r' ) as m_id:
+                machine_id		= m_id.read().strip()
+        except Exception as exc:
+            # Node number is typically a much shorter integer; fill to required UUID length.
+            machine_id			= "{:0>32}".format( hex( uuid.getnode())[2:] )
+        try:
+            machine_id			= bytes_from_text( machine_id, ('hex', ) )
+            assert isinstance( machine_id, bytes ) and len( machine_id ) == 16
+        except Exception as exc:
+            raise RuntimeError( "Invalid Machine ID found: {!r}: {}".format( machine_id, exc ))
+        machine_id			= bytearray( machine_id )
+        machine_id[6]		       &= 0x0F
+        machine_id[6]		       |= 0x40
+        machine_id[8]		       &= 0x3F
+        machine_id[8]		       |= 0x80
+        machine_id			= bytes( machine_id )
+        return uuid.UUID( into_hex( machine_id ))
+
     def verify( self, confirm=None, **constraints ):
         """Verify that the License is valid:
 
@@ -547,7 +604,15 @@ class License( Serializable ):
             # And, that the signed sub-license is (itself) valid
             ls.license.verify( confirm=confirm )
 
-        # Verify all sub-license start/length durations comply with this License' duration
+        # Verify all sub-license start/length durations comply with this License' duration.
+        # Remember, these start/length specify the validity period of the License to be sub-licensed,
+        # not the execution time of the installation!
+        #
+        # TODO: Implement License expiration date, to allow a software deployment to time out and
+        # refuse to run after a License as expired, forcing the software owner to obtain a new
+        # License with a future expiration.  Typically, Cpppo installations are perpetual; if
+        # installed with a valid License, they will continue to work without expiration.  However,
+        # other software authors may want to sell software that requires issuance of new Licenses.
         try:
             self.overlap( *( ls.license for ls in self.dependencies or [] ))
         except LicenseIncompatibility as exc:
@@ -558,6 +623,19 @@ class License( Serializable ):
                     exc		= exc,
                 ))
 
+        # Verify that any host-specific constraints are valid.
+        if self.machine is not None:
+            machine_uuid	= self.machine_uuid()
+            if self.machine != machine_uuid:
+                raise LicenseIncompatibility(
+                    "License for {auth}'s {prod!r} specifies Machine ID {required}; found {detected}".format(
+                        auth	= self.author,
+                        prod	= self.product,
+                        required= self.machine,
+                        detected= machine_uuid
+                    ))
+            
+        
         success			= self
         # TODO: apply any constraints
         return success
