@@ -460,6 +460,7 @@ class License( Serializable ):
                   dependencies=None,			# Any sub-Licenses
                   start=None, length=None,		# License may not be perpetual
                   machine=None,				# A specific host may be specified
+                  machine_id_path=None,
                   confirm=True,				# Validate License dependencies' author_pubkey from DNS
                  ):
         self.author		= author
@@ -484,9 +485,14 @@ class License( Serializable ):
                 start		= timestamp( start )
             assert isinstance( start, timestamp )
         if length is not None:
-            length		= parse_seconds( length )
-            assert isinstance( length, (int, float) )
-            length		= duration( length )
+            try:
+                length		= parse_seconds( length )
+                assert isinstance( length, (int, float) )
+                length		= duration( length )
+            except Exception as exc:
+                raise LicenseIncompatibility(
+                    "License length invalid: {length!r}".format( length=length ))
+
 
         self.start		= start
         self.length		= length
@@ -506,7 +512,7 @@ class License( Serializable ):
             self.author_pubkey	= self.author_pubkey_query()
 
         # Only allow the construction of valid Licenses.
-        self.verify( confirm=confirm )
+        self.verify( confirm=confirm, machine_id_path=machine_id_path )
 
     def author_pubkey_query( self ):
         """Obtain the author's public key.  This was either provided at License construction time, or can be

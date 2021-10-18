@@ -838,7 +838,10 @@ class duration( object ):
 
 
     def __init__( self, value = None ):
-        if isinstance( value, str ):
+        if isinstance( value, duration ):
+            self.timedelta	= datetime.timedelta(
+                days=value.timedelta.days, seconds=value.timedelta.seconds, microseconds=value.timedelta.microseconds )
+        elif isinstance( value, str ):
             self.timedelta	= self._parse( value )
         elif isinstance( value, datetime.timedelta ):
             self.timedelta	= value
@@ -855,27 +858,36 @@ class duration( object ):
 
 
 def parse_seconds( seconds ):
-    """Convert an <int>, <float>, "<float>", "HHH:MM[:SS]" or "1m30s" to a float number of seconds
+    """Convert an <int>, <float>, "<float>", "HHH:MM[:SS]", "1m30s" or a duration to a float number of seconds
 
     """
+    #if isinstance( seconds, duration ):
+    #    return seconds.seconds
     try:	# '1.23'
         return float( seconds )
     except:
-        try:	# 'HHH:MM[:SS[.sss]]'
-            return math.fsum(
-                map(
-                    lambda p: p[0] * p[1],
-                    zip(
-                        [ 60*60, 60, 1 ],
-                        map(
-                            lambda i: float( i or 0 ),
-                            re.search( r'(\d+):(\d{2})(?::(\d{2}(?:\.\d+)?))?', seconds ).groups()
-                        )
+        pass
+    try:	# 'HHH:MM[:SS[.sss]]'
+        return math.fsum(
+            map(
+                lambda p: p[0] * p[1],
+                zip(
+                    [ 60*60, 60, 1 ],
+                    map(
+                        lambda i: float( i or 0 ),
+                        parse_seconds.HHMMSS_RE.search( seconds ).groups()
                     )
                 )
             )
-        except:	# '1m30s'
-            return duration( seconds ).seconds
+        )
+    except:	# '1m30s'
+        pass
+    return duration( seconds ).seconds
+
+parse_seconds.HHMMSS_PAT= r'(\d+):(\d{2})(?::(\d{2}(?:\.\d+)?))?'
+
+parse_seconds.HHMMSS_RE	= re.compile(
+        flags=re.IGNORECASE | re.VERBOSE, pattern=parse_seconds.HHMMSS_PAT )
 
 
 # 

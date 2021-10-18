@@ -18,6 +18,7 @@ from ...history import parse_datetime, timestamp, parse_seconds, duration
 dominion_sigkey = binascii.unhexlify( '431f3fb4339144cb5bdeb77db3148a5d340269fa3bc0bf2bf598ce0625750fdca991119e30d96539a70cd34983dd00714259f8b60a2163bdb748f3fc0cf036c9' )
 awesome_sigkey = binascii.unhexlify(  '4e4d27b26b6f4db69871709d68da53854bd61aeee70e63e3b3ff124379c1c6147321ce7a2fb87395fe0ff9e2416bc31b9a25475aa2e2375d70f4c326ffd47eb4' )
 
+machine_id_path=__file__.replace(".py", ".machine-id" )
 
 def test_License_domainkey():
     """Ensure we can handle arbitrary UTF-8 domains, and compute the proper DKIM1 RR path"""
@@ -94,7 +95,7 @@ def test_License():
     #print("ed25519 keypair: {sk}".format( sk=binascii.hexlify( keypair.sk )))
     prov = LicenseSigned( lic, keypair.sk )
 
-    machine_uuid = lic.machine_uuid( machine_id_path=__file__.replace(".py", ".machine-id" ))
+    machine_uuid = lic.machine_uuid( machine_id_path=machine_id_path )
     assert machine_uuid.hex == "000102030405460788090a0b0c0d0e0f"
     assert machine_uuid.version == 4
     
@@ -225,8 +226,37 @@ def test_LicenseSigned():
     #    - This will not be a LicenseSigned
     # 4) Save to <application>.cpppo-licensing in application's config path
 
-    lic_host_dict = verify( drv_prov ) # no confirm; invalid domain
-    lic_host = License( **lic_host_dict )
+    lic_host_dict = verify( drv_prov, machine_id_path=machine_id_path ) # no confirm; invalid domain
+    lic_host = License( machine_id_path=machine_id_path, **lic_host_dict )
     lic_host_str = str( lic_host )
-    assert lic_host_str == """
-"""
+    assert lic_host_str == """\
+{
+    "author":"Awesome, Inc.",
+    "author_domain":"awesome-inc.com",
+    "author_pubkey":"cyHOei+4c5X+D/niQWvDG5olR1qi4jddcPTDJv/UfrQ=",
+    "author_service":"ethernet-ip-tool",
+    "client":null,
+    "client_pubkey":null,
+    "dependencies":[
+        {
+            "license":{
+                "author":"Dominion Research & Development Corp.",
+                "author_domain":"dominionrnd.com",
+                "author_pubkey":"qZERnjDZZTmnDNNJg90AcUJZ+LYKIWO9t0jz/AzwNsk=",
+                "author_service":"cpppo-test",
+                "client":null,
+                "client_pubkey":null,
+                "dependencies":null,
+                "length":"1y",
+                "machine":null,
+                "product":"Cpppo Test",
+                "start":"2021-09-30 17:22:33 UTC"
+            },
+            "signature":"bw58LSvuadS76jFBCWxkK+KkmAqLrfuzEv7ly0Y3lCLSE2Y01EiPyZjxirwSjHoUf9kz9meeEEziwk358jthBw=="
+        }
+    ],
+    "length":"1d6h0m",
+    "machine":"00010203-0405-4607-8809-0a0b0c0d0e0f",
+    "product":"EtherNet/IP Tool",
+    "start":"2022-09-29 17:22:33 UTC"
+}"""
