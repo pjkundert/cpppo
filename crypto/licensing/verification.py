@@ -152,7 +152,21 @@ def into_keys( keypair ):
             return None, keypair[:32]
     # Unknown key material.
     return None, None
-    
+
+
+def into_str( maybe ):
+    if maybe is not None:
+        return str( maybe )
+
+
+def into_str_UTC( ts, tzinfo=timestamp.UTC ):
+    if ts is not None:
+        return ts.render( tzinfo=tzinfo, ms=False, tzdetail=True )
+
+
+def into_str_LOC( ts ):
+    return into_str_UTC( ts, tzinfo=timestamp.LOC )
+
 
 def domainkey( product, author_domain, author_service=None, author_pubkey=None ):
     """Compute and return the DNS path for the given product and domain.  Optionally, also returns the
@@ -329,6 +343,53 @@ class LicenseIncompatibility( Exception ):
     pass
 
 
+Timespan = collections.namedtuple( 'Timespan', ('start', 'length') )
+
+def overlap_intersect( start, length, other ):
+    """Accepts a start/length, and either a License or a Timespan (something w/ start and length), and
+    compute the intersecting start/length, and its begin and (if known) ended timestamps.
+    
+        start,length,begun,ended = overlap_intersect( start, length, other )
+
+    """
+    # Detect the situation where there is no computable overlap, and start, length is defined by one
+    # pair or the other.
+    if start is None:
+        # This license has no defined start time (it is perpetual); other license determines
+        assert length is None, "Cannot specify a length without a start timestamp"
+        if other.start is None:
+            # Neither specifies start at a defined time
+            assert other.length is None, "Cannot specify a length without a start timestamp"
+            return None,None,None,None
+        if other.length is None:
+            return other.start,other.length,other.start,None
+        return other.start,other.length,other.start,other.start + other.length.seconds
+    elif other.start is None:
+        assert other.length is None, "Cannot specify a length without a start timestamp"
+        if length is None:
+            return start,length,start,None
+        return start,length,start,start + length.seconds
+
+    # Both have defined start times; begun defines beginning of potential overlap If the computed
+    # ended time is <= begun, then there is no (zero) overlap!
+    begun 		= max( start, other.start )
+    ended		= None
+    if length is None and other.length is None:
+        # But neither have duration
+        return start,length,begun,None
+
+    # At least one length; ended is computable, as well as the overlap start/length
+    if other.length is None:
+        ended		= start + length.seconds
+    elif length is None:
+        ended		= other.start + other.length.seconds
+    else:
+        ended		= min( start + length.seconds, other.start + other.length.seconds )
+    start		= begun
+    length		= duration( 0 if ended <= begun else ended - begun )
+    return start,length,begun,ended
+
+
 class License( Serializable ):
     """Represents the details of a Licence from an author to a client (could be any client, if no
     client_pubkey provided).  Cannot be constructed unless the supplied License details are valid
@@ -387,9 +448,9 @@ class License( Serializable ):
     serializers			= dict(
         author_pubkey	= into_b64,
         client_pubkey	= into_b64,
-        start		= lambda t: t.render( tzinfo=timestamp.UTC, ms=False, tzdetail=True ),
-        length		= lambda l: None if l is None else str( l ),
-        machine		= lambda m: None if m is None else str( m ),
+        start		= into_str_UTC,
+        length		= into_str,
+        machine		= into_str,
     )
 
     def __init__( self, author, product, author_domain,
@@ -492,7 +553,7 @@ class License( Serializable ):
         p_binary		= bytes_from_text( p, ('base64',), 'ASCII' )
         return p_binary
         #return codecs.getdecoder( 'base64' )( codecs.getencoder( 'utf-8' )( p )[0] )[0]
-        
+
     def overlap( self, *others ):
         """Compute the overlapping start/length that is within the bounds of this and other license(s).
         If they do not overlap, raises a LicenseIncompatibility Exception.
@@ -500,6 +561,10 @@ class License( Serializable ):
         """
         start, length		= self.start, self.length
         for other in others:
+            # If we determine a 0-length overlap, we have failed.
+            start,length,begun,ended \
+                		= overlap_intersect( start, length, other )	
+            '''
             if start is None:
                 # This license has no defined start time (it is perpetual); other license determines
                 start, length	= other.start, other.length
@@ -520,19 +585,19 @@ class License( Serializable ):
                 ending		= other.start + other.length.seconds
             else:
                 ending		= min( start + length.seconds, other.start + other.length.seconds )
-            if ending <= latest:
+            '''
+            if length is not None and length.seconds == 0:
+                # Overlap was computable, and was zero
                 raise LicenseIncompatibility(
-                    "License for {author}'s {product!r} ({o_s} for {o_l}) incompatible with others ({s} for {l})".format(
+                    "License for {author}'s {product!r} from {start} for {length} incompatible with others".format(
                         author	= other.author,
                         product	= other.product,
-                        o_s	= other.start.render(tzinfo=timestamp.LOC, ms=False, tzdetail=True),
-                        o_l	= other.length,
-                        s	= start.render(tzinfo=timestamp.LOC, ms=False, tzdetail=True),
-                        l	= length ))
-            start, length	= latest, duration( ending - latest )
+                        start	= into_str_LOC( other.start ),
+                        length	= other.length,
+                    ))
         return start, length
 
-    def machine_uuid( self, machine_id_path="/etc/machine-id" ):
+    def machine_uuid( self, machine_id_path=None):
         """Identify the machine-id as an RFC 4122 UUID v4. On Linux systems w/ systemd, get from
         /etc/machine-id, as a UUID v4: https://www.man7.org/linux/man-pages/man5/machine-id.5.html.
         On MacOS and Windows, use uuid.getnode(), which derives from host-specific data (eg. MAC
@@ -540,7 +605,10 @@ class License( Serializable ):
 
         This UUID should be reasonably unique across hosts, but is not guaranteed to be.
 
+        TODO: Include root disk UUID?
         """
+        if machine_id_path is None:
+            machine_id_path		= "/etc/machine-id" 
         try:
             with open( machine_id_path, 'r' ) as m_id:
                 machine_id		= m_id.read().strip()
@@ -575,21 +643,8 @@ class License( Serializable ):
         """
         success			= None
 
-        # Verify any License dependencies are valid
+        # Verify any License dependencies are valid; signed w/ DKIM1 specified key, License OK
         for ls in ( LicenseSigned( **d ) for d in self.dependencies or [] ):
-            # That it is properly signed
-            if confirm:
-                avkey	 	= ls.license.author_pubkey_query()
-                if avkey != ls.license.author_pubkey:
-                    raise LicenseIncompatibilty(
-                        "License for {auth}'s {prod!r}; sub-License for {dep_auth}'s {dep_prod!r} author key {found} != {claim}".format(
-                            auth	= self.author,
-                            prod	= self.product,
-                            dep_auth	= ls.license.author,
-                            dep_prod	= ls.license.product,
-                            found	= akey,
-                            claim	= ls.license.author_pubkey,
-                        ))
             try:
                 ls.verify( confirm=confirm )
             except Exception as exc:
@@ -601,12 +656,12 @@ class License( Serializable ):
                         dep_prod	= ls.license.product,
                         exc		= exc,
                     ))
-            # And, that the signed sub-license is (itself) valid
-            ls.license.verify( confirm=confirm )
+
+        # Enforce all constraints, returning a dict suitable for creating a specialized License
 
         # Verify all sub-license start/length durations comply with this License' duration.
-        # Remember, these start/length specify the validity period of the License to be sub-licensed,
-        # not the execution time of the installation!
+        # Remember, these start/length specify the validity period of the License to be
+        # sub-licensed, not the execution time of the installation!
         #
         # TODO: Implement License expiration date, to allow a software deployment to time out and
         # refuse to run after a License as expired, forcing the software owner to obtain a new
@@ -614,30 +669,41 @@ class License( Serializable ):
         # installed with a valid License, they will continue to work without expiration.  However,
         # other software authors may want to sell software that requires issuance of new Licenses.
         try:
-            self.overlap( *( ls.license for ls in self.dependencies or [] ))
+            start, length	= self.overlap( *( ls.license for ls in self.dependencies or [] ))
         except LicenseIncompatibility as exc:
             raise LicenseIncompatibility(
-                "License for {auth}'s {prodt!r}; sub-{exc}".format(
+                "License for {auth}'s {prod!r}; sub-{exc}".format(
                     auth	= self.author,
                     prod	= self.product,
                     exc		= exc,
                 ))
 
-        # Verify that any host-specific constraints are valid.
+        # Apply any supplied start/length constraints to the computed License start/length
+        if constraints.get('start') is not None or constraints.get('overlap') is not None:
+            start, length, _, _	= overlap_intersect( start, length, Timespan(
+                contraints.pop( 'start', None), contraints.pop( 'length', None )))
+        # Default 'machine' constraints to the local machine-id
+        machine			= constraints.pop( 'machine', None )
+        machine_id_path		= constraints.pop( 'machine_id_path', None )
+        if machine is None:
+            machine		= self.machine_uuid( machine_id_path=machine_id_path )
         if self.machine is not None:
-            machine_uuid	= self.machine_uuid()
-            if self.machine != machine_uuid:
+            if self.machine != machine:
                 raise LicenseIncompatibility(
                     "License for {auth}'s {prod!r} specifies Machine ID {required}; found {detected}".format(
                         auth	= self.author,
                         prod	= self.product,
                         required= self.machine,
-                        detected= machine_uuid
+                        detected= machine,
                     ))
-            
-        
-        success			= self
-        # TODO: apply any constraints
+
+        success			= dict( self )
+        success.update( constraints )
+        success.update(
+            start	= start,
+            length	= length,
+            machine	= machine,
+        )
         return success
 
 
@@ -684,7 +750,9 @@ class LicenseSigned( Serializable ):
         ones provided in self.license/self.author_pubkey).  Any supplied author_pubkey must
         match the one stated in the License.
 
-        Apply any additional constraints.
+        Apply any additional constraints, returning a dict suitable for constructing a sub-license
+        satisfying all License dependencies and any additional supplied constraints.
+
         """
         if author_pubkey:
             _, author_pubkey	= into_keys( author_pubkey )
@@ -696,18 +764,31 @@ class LicenseSigned( Serializable ):
                     auth	= self.license.author,
                     prod	= self.license.product,
                 ))
+        # Verify that the License's stated public key matches the one in the domain's DKIM
+        if confirm:
+            avkey	 	= self.license.author_pubkey_query()
+            if avkey != self.license.author_pubkey:
+                raise LicenseIncompatibilty(
+                    "License for {auth}'s {prod!r}: author key from DKIM {found} != {claim}".format(
+                        auth	= self.author,
+                        prod	= self.product,
+                        found	= akey,
+                        claim	= self.license.author_pubkey,
+                    ))
+        # Verify that the License is indeed signed by the signing key corresponding to the
+        # provided public key
         try:
             ed25519.crypto_sign_open(
                 self.signature + self.license.serialize(), self.license.author_pubkey )
         except Exception as exc:
             raise LicenseIncompatibility( 
-                "License for {auth}'s {prod!r} signature mismatch: {sig!r}; {exc}".format(
+                "License for {auth}'s {prod!r}: signature mismatch: {sig!r}; {exc}".format(
                     auth	= self.license.author,
                     prod	= self.license.product,
                     sig		= self.signature,
                     exc		= exc,
                 ))
-        # finally, verify the License itself.
+        # Finally, verify the License itself, including any supplied constraints.
         return self.license.verify( confirm=confirm, **constraints )
 
 

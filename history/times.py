@@ -26,12 +26,14 @@ __copyright__                   = "Copyright (c) 2013 Hard Consulting Corporatio
 __license__                     = "Dual License: GPLv3 (or later) and Commercial (see LICENSE)"
 
 __all__				= ["timestamp", "get_localzone", "zone_names", "timedelta_total_seconds",
-                                   "parse_offset", "format_offset", "AmbiguousTimeZoneError", "TZ_wrapper"]
+                                   "parse_offset", "format_offset", "AmbiguousTimeZoneError", "TZ_wrapper",
+                                   "duration", "parse_datetime", "parse_seconds"]
 
 import bisect
 import calendar
 import datetime
 import logging
+import math
 import os
 import re
 import string

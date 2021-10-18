@@ -7,11 +7,13 @@ import os
 
 from dns.exception import DNSException
 from .verification import (
-    License, LicenseSigned, LicenseIncompatibility,
-    domainkey, author, issue, verify, into_b64,
+    License, LicenseSigned, LicenseIncompatibility, Timespan,
+    domainkey, author, issue, verify, into_b64, overlap_intersect,
+    into_str, into_str_UTC,
 )
 from .. import ed25519ll as ed25519
 
+from ...history import parse_datetime, timestamp, parse_seconds, duration
 
 dominion_sigkey = binascii.unhexlify( '431f3fb4339144cb5bdeb77db3148a5d340269fa3bc0bf2bf598ce0625750fdca991119e30d96539a70cd34983dd00714259f8b60a2163bdb748f3fc0cf036c9' )
 awesome_sigkey = binascii.unhexlify(  '4e4d27b26b6f4db69871709d68da53854bd61aeee70e63e3b3ff124379c1c6147321ce7a2fb87395fe0ff9e2416bc31b9a25475aa2e2375d70f4c326ffd47eb4' )
@@ -28,6 +30,28 @@ def test_License_domainkey():
     assert dkim_rr == 'v=DKIM1; k=ed25519; p=25lf4lFp0UHKubu6krqgH58uHs599MsqwFGQ83/MH50='
 
 
+def test_License_overlap():
+    other = Timespan(
+        timestamp( parse_datetime( '2021-01-01 00:00:00 Canada/Pacific' )),
+        duration( parse_seconds( '1w' ))
+    )
+    start,length,begun,ended = overlap_intersect( None, None, other )
+    assert into_str_UTC( start ) == "2021-01-01 08:00:00 UTC"
+    assert into_str( length ) == "1w"
+    assert into_str_UTC( begun ) == "2021-01-01 08:00:00 UTC"
+    assert into_str_UTC( ended ) == "2021-01-08 08:00:00 UTC"
+
+    start = timestamp( parse_datetime( '2021-01-01 00:00:00 Canada/Pacific' ))
+    length = duration( parse_seconds( "1w" ))
+    start,length,begun,ended = overlap_intersect( start, length, Timespan( None, None ))
+    assert into_str_UTC( start ) == "2021-01-01 08:00:00 UTC"
+    assert into_str( length ) == "1w"
+    assert into_str_UTC( begun ) == "2021-01-01 08:00:00 UTC"
+    assert into_str_UTC( ended ) == "2021-01-08 08:00:00 UTC"
+
+
+    
+    
 def test_License():
     try:
         lic = License(
@@ -95,8 +119,10 @@ def test_License():
     # Multiple licenses, some which truncate the duration of the initial License. Non-timezone
     # timestamps are assumed to be UTC.
     start, length = lic.overlap(
-        License( author = "A", product = 'a', author_domain='a-inc.com', author_pubkey=keypair.vk, start = "2021-09-29 00:00:00", length = "1w" ),
-        License( author = "B", product = 'b', author_domain='b-inc.com', author_pubkey=keypair.vk, start = "2021-09-30 00:00:00", length = "1w" ))
+        License( author = "A", product = 'a', author_domain='a-inc.com', author_pubkey=keypair.vk,
+                 start = "2021-09-29 00:00:00", length = "1w" ),
+        License( author = "B", product = 'b', author_domain='b-inc.com', author_pubkey=keypair.vk,
+                 start = "2021-09-30 00:00:00", length = "1w" ))
     # Default rendering of a timestamp is w/ milliseconds, and no tz info for UTC
     assert str( start ) == "2021-09-30 17:22:33.000"
     assert str( length ) == "5d6h37m27s"
@@ -105,9 +131,12 @@ def test_License():
     # rendering; force by setting environment variable TZ=Canada/Mountain for this test!
     with pytest.raises( LicenseIncompatibility ) as exc_info:
         start, length = lic.overlap(
-            License( author = "A", product = 'a', author_domain='a-inc.com', author_pubkey=keypair.vk, start = "2021-09-29 00:00:00", length = "1w" ),
-            License( author = "B", product = 'b', author_domain='b-inc.com', author_pubkey=keypair.vk, start = "2021-10-07 00:00:00", length = "1w" ))
-    assert str( exc_info.value ).endswith( "License for B's 'b' (2021-10-06 18:00:00 Canada/Mountain for 1w) incompatible with others (2021-09-30 11:22:33 Canada/Mountain for 5d6h37m27s)" )
+            License( author = "A", product = 'a', author_domain='a-inc.com', author_pubkey=keypair.vk,
+                     start = "2021-09-29 00:00:00", length = "1w" ),
+            License( author = "B", product = 'b', author_domain='b-inc.com', author_pubkey=keypair.vk,
+                     start = "2021-10-07 00:00:00", length = "1w" ))
+    assert str( exc_info.value ).endswith(
+        "License for B's 'b' from 2021-10-06 18:00:00 Canada/Mountain for 1w incompatible with others" )
 
 
 def test_LicenseSigned():
@@ -186,6 +215,18 @@ def test_LicenseSigned():
     "signature":"5haJmI3WQBkz6njAT1VxtvsqJsnJl96XwxPWS6ANOP38EzK14+QGnHt4/pHVyVnLqjZWQlu0ZPXlz8mrH1C/Dg=="
 }"""
 
-def test_LicenseAPI():
-    """Test the cpppo.crypto.licensing API, as used in applications.  A LicenseSigned is saved to an
-    <application>.cpppo-licensing file in the Application's configuration directory path."""
+    # Test the cpppo.crypto.licensing API, as used in applications.  A LicenseSigned is saved to an
+    # <application>.cpppo-licensing file in the Application's configuration directory path.  The
+    # process for deploying an application to a new host:
+    #
+    # 1) Install software to target directory
+    # 2) Obtain serialized LicenseSigned containing necessary License(s)
+    # 3) Derive a new License, specialized for the host's machine-id UUID
+    #    - This will not be a LicenseSigned
+    # 4) Save to <application>.cpppo-licensing in application's config path
+
+    lic_host_dict = verify( drv_prov ) # no confirm; invalid domain
+    lic_host = License( **lic_host_dict )
+    lic_host_str = str( lic_host )
+    assert lic_host_str == """
+"""
