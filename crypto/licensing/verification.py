@@ -856,7 +856,7 @@ def author( seed=None ):
     return keypair
 
 
-def issue( license, author_sigkey ):
+def issue( license, author_sigkey, signature=None, confirm=None, machine_id_path=None ):
     """If possible, issue the license signed with the supplied signing key.  Ensures that the license
     is allowed to be issued, by verifying the signatures of the tree of dependent license(s) if any.
 
@@ -875,7 +875,8 @@ def issue( license, author_sigkey ):
     that they are following the rules of the software author.
 
     """
-    return LicenseSigned( license, author_sigkey )
+    return LicenseSigned( license, author_sigkey,
+                          signature=signature, confirm=confirm, machine_id_path=machine_id_path )
 
 
 def verify( provenance, author_pubkey=None, signature=None, confirm=None, machine_id_path=None,

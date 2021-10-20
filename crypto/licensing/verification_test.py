@@ -8,7 +8,7 @@ import os
 from dns.exception import DNSException
 from .verification import (
     License, LicenseSigned, LicenseIncompatibility, Timespan,
-    domainkey, author, issue, verify, into_b64, overlap_intersect,
+    domainkey, author, issue, verify, into_b64, into_hex, overlap_intersect,
     into_str, into_str_UTC, into_JSON,
 )
 from .. import ed25519ll as ed25519
@@ -163,9 +163,8 @@ def test_LicenseSigned():
     # ethernet-ip-tool.cpppo-licensing._domainkey.awesome.com 300 IN TXT "v=DKIM1; k=ed25519; p=
 
     awesome_keypair = author( seed=awesome_sigkey[:32] )
-
     print("Awesome, Inc. ed25519 keypair; Signing: {sk}".format( sk=binascii.hexlify( awesome_keypair.sk )))
-    print("Awesome, Inc. ed25519 keypair; Public:  {pk}".format( pk=into_b64( awesome_keypair.vk )))
+    print("Awesome, Inc. ed25519 keypair; Public:  {pk_hex} == {pk}".format( pk_hex=into_hex( awesome_keypair.vk ), pk=into_b64( awesome_keypair.vk )))
 
     # Almost at the end of their Cpppo license, they issue a new License.
     drv = License(
@@ -231,56 +230,63 @@ def test_LicenseSigned():
     assert len( lic_host_dict['dependencies'] ) == 1
 
     enduser_keypair = author( seed=enduser_seed )
+    print("End User, LLC ed25519 keypair; Signing: {sk}".format( sk=into_hex( enduser_keypair.sk )))
+    print("End User, LLC ed25519 keypair; Public:  {pk_hex} == {pk}".format( pk_hex=into_hex( enduser_keypair.vk ), pk=into_b64( enduser_keypair.vk )))
 
     lic_host = License( author="End User", product="application", author_pubkey=enduser_keypair,
                         confirm=False, machine_id_path=machine_id_path,
                         **lic_host_dict )
-    lic_host_str = str( lic_host )
+    lic_host_prov = issue( lic_host, enduser_keypair, confirm=False, machine_id_path=machine_id_path )
+    lic_host_str = str( lic_host_prov )
+    #print( lic_host_str )
     assert lic_host_str == """\
 {
-    "author":"End User",
-    "author_domain":null,
-    "author_pubkey":"O2onvM62pC1io6jQKm8Nc2UyFXcd4kOmOsBIoYtZ2ik=",
-    "author_service":"application",
-    "client":null,
-    "client_pubkey":null,
-    "dependencies":[
-        {
-            "license":{
-                "author":"Awesome, Inc.",
-                "author_domain":"awesome-inc.com",
-                "author_pubkey":"cyHOei+4c5X+D/niQWvDG5olR1qi4jddcPTDJv/UfrQ=",
-                "author_service":"ethernet-ip-tool",
-                "client":null,
-                "client_pubkey":null,
-                "dependencies":[
-                    {
-                        "license":{
-                            "author":"Dominion Research & Development Corp.",
-                            "author_domain":"dominionrnd.com",
-                            "author_pubkey":"qZERnjDZZTmnDNNJg90AcUJZ+LYKIWO9t0jz/AzwNsk=",
-                            "author_service":"cpppo-test",
-                            "client":null,
-                            "client_pubkey":null,
-                            "dependencies":null,
-                            "length":"1y",
-                            "machine":null,
-                            "product":"Cpppo Test",
-                            "start":"2021-09-30 17:22:33 UTC"
-                        },
-                        "signature":"bw58LSvuadS76jFBCWxkK+KkmAqLrfuzEv7ly0Y3lCLSE2Y01EiPyZjxirwSjHoUf9kz9meeEEziwk358jthBw=="
-                    }
-                ],
-                "length":"1y",
-                "machine":null,
-                "product":"EtherNet/IP Tool",
-                "start":"2022-09-29 17:22:33 UTC"
-            },
-            "signature":"5haJmI3WQBkz6njAT1VxtvsqJsnJl96XwxPWS6ANOP38EzK14+QGnHt4/pHVyVnLqjZWQlu0ZPXlz8mrH1C/Dg=="
-        }
-    ],
-    "length":null,
-    "machine":"00010203-0405-4607-8809-0a0b0c0d0e0f",
-    "product":"application",
-    "start":null
+    "license":{
+        "author":"End User",
+        "author_domain":null,
+        "author_pubkey":"O2onvM62pC1io6jQKm8Nc2UyFXcd4kOmOsBIoYtZ2ik=",
+        "author_service":"application",
+        "client":null,
+        "client_pubkey":null,
+        "dependencies":[
+            {
+                "license":{
+                    "author":"Awesome, Inc.",
+                    "author_domain":"awesome-inc.com",
+                    "author_pubkey":"cyHOei+4c5X+D/niQWvDG5olR1qi4jddcPTDJv/UfrQ=",
+                    "author_service":"ethernet-ip-tool",
+                    "client":null,
+                    "client_pubkey":null,
+                    "dependencies":[
+                        {
+                            "license":{
+                                "author":"Dominion Research & Development Corp.",
+                                "author_domain":"dominionrnd.com",
+                                "author_pubkey":"qZERnjDZZTmnDNNJg90AcUJZ+LYKIWO9t0jz/AzwNsk=",
+                                "author_service":"cpppo-test",
+                                "client":null,
+                                "client_pubkey":null,
+                                "dependencies":null,
+                                "length":"1y",
+                                "machine":null,
+                                "product":"Cpppo Test",
+                                "start":"2021-09-30 17:22:33 UTC"
+                            },
+                            "signature":"bw58LSvuadS76jFBCWxkK+KkmAqLrfuzEv7ly0Y3lCLSE2Y01EiPyZjxirwSjHoUf9kz9meeEEziwk358jthBw=="
+                        }
+                    ],
+                    "length":"1y",
+                    "machine":null,
+                    "product":"EtherNet/IP Tool",
+                    "start":"2022-09-29 17:22:33 UTC"
+                },
+                "signature":"5haJmI3WQBkz6njAT1VxtvsqJsnJl96XwxPWS6ANOP38EzK14+QGnHt4/pHVyVnLqjZWQlu0ZPXlz8mrH1C/Dg=="
+            }
+        ],
+        "length":null,
+        "machine":"00010203-0405-4607-8809-0a0b0c0d0e0f",
+        "product":"application",
+        "start":null
+    },
+    "signature":"ou+m6sNi0J4Kx260zUHFKYnuIdmh54C68W7G56pKsQLThztf1FJ8Znm8QY+Ak/+M4dVlbHUX25StikiKBIVqAw=="
 }"""
