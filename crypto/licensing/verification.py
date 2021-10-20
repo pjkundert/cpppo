@@ -168,9 +168,28 @@ def into_str_LOC( ts ):
     return into_str_UTC( ts, tzinfo=timestamp.LOC )
 
 
+def into_JSON( thing, indent=None, encoding='UTF-8' ):
+    def endict( x ):
+        try:
+            return dict( x )
+        except Exception as exc:
+            log.warning("Failed to JSON serialize {!r}".format( x ))
+            raise
+    # Unfortunately, Python2 json.dumps w/ indent emits trailing whitespace after "," making
+    # tests fail.  Make the JSON separators whitespace-free, so the only difference between the
+    # signed serialization and an pretty-printed indented serialization is the presence of
+    # whitespace.
+    separators			= (',', ':')
+    text			= json.dumps(
+        thing, sort_keys=True, indent=indent, separators=separators, default=endict )
+    if encoding:
+        return text.encode( encoding )
+    return text
+
+
 def domainkey( product, author_domain, author_service=None, author_pubkey=None ):
     """Compute and return the DNS path for the given product and domain.  Optionally, also returns the
-    appropriate DKIM1 TXT RR record containing the author's public key (base-64 encoded), as per the
+    appropriate DKIM TXT RR record containing the author's public key (base-64 encoded), as per the
     RFC: https://www.rfc-editor.org/rfc/rfc6376.html
 
         >>> from .verification import author, domainkey
@@ -248,6 +267,7 @@ class Serializable( object ):
                 pass
 
     def __getitem__( self, key ):
+        """Returns the serialization of the requested key, passing thru values without a serializer."""
         if key in self.keys():
             try:
                 serialize	= self.serializer( key ) # (no Exceptions)
@@ -270,22 +290,7 @@ class Serializable( object ):
 
         The default serialization (ie. with indent=None) will be the one used to create the digest
         """
-        def endict( x ):
-            try:
-                return dict( x )
-            except Exception as exc:
-                log.warning("Failed to JSON serialize {!r}".format( x ))
-                raise
-        # Unfortunately, Python2 json.dumps w/ indent emits trailing whitespace after "," making
-        # tests fail.  Make the JSON separators whitespace-free, so the only difference between the
-        # signed serialization and an pretty-printed indented serialization is the presence of
-        # whitespace.
-        separators		= (',', ':')
-        text			= json.dumps(
-            self, sort_keys=True, indent=indent, separators=separators, default=endict )
-        if encoding:
-            return text.encode( encoding )
-        return text
+        return into_JSON( self, indent=indent, encoding=encoding )
 
     def sign( self, author_sigkey, author_pubkey=None ):
         """Sign our default serialization, and (optionally) confirm that the supplied public key (which will
@@ -453,9 +458,10 @@ class License( Serializable ):
         machine		= into_str,
     )
 
-    def __init__( self, author, product, author_domain,
-                  author_service=None,			# Normally, derived from product name
+    def __init__( self, author, product,
+                  author_domain=None,			# Needed for DKIM if no author_pubkey provided
                   author_pubkey=None,			# Normally, obtained from domain's DKIM1 TXT RR
+                  author_service=None,			# Normally, derived from product name
                   client=None, client_pubkey=None,	# The client may be identified
                   dependencies=None,			# Any sub-Licenses
                   start=None, length=None,		# License may not be perpetual
@@ -471,7 +477,11 @@ class License( Serializable ):
         self.client		= client
         _, self.client_pubkey	= into_keys( client_pubkey )
 
-        self.dependencies	= dependencies
+        # Reconstitute LicenseSigned provenance from any dicts provided
+        self.dependencies	= None if dependencies is None else list(
+            LicenseSigned( **prov ) if isinstance( prov, dict ) else prov
+            for prov in dependencies
+        )
 
         # A License usually has a timespan of start timestamp and duration length.  These cannot
         # exceed the timespan of any License dependencies.  First, get any supplied start time as a
@@ -504,7 +514,7 @@ class License( Serializable ):
         self.machine		= machine
 
         # Obtain confirmation of the Author's public key; either given through the API, or obtained
-        # from their domain's DKIM1 entry.
+        # from their domain's DKIM entry.
         assert author_pubkey or self.author_domain, \
             "Either an author_pubkey, or an author_domain/service must be provided"
         _, self.author_pubkey	= into_keys( author_pubkey )
@@ -516,11 +526,11 @@ class License( Serializable ):
 
     def author_pubkey_query( self ):
         """Obtain the author's public key.  This was either provided at License construction time, or can be
-        obtained from a DNS TXT "DKIM1" record.
+        obtained from a DNS TXT "DKIM" record.
         
         TODO: Cache
 
-        Query the DKIM1 record for an author public key.  May be split into multiple strings:
+        Query the DKIM record for an author public key.  May be split into multiple strings:
 
             r = dns.resolver.query('default._domainkey.justicewall.com', 'TXT')
             >>> for i in r:
@@ -542,13 +552,13 @@ class License( Serializable ):
             "Failed to obtain a single TXT record from {dkim_path}".format( dkim_path=dkim_path )
         # Parse the "..." "..." strings.  There should be no escaped quotes.
         dkim			= ast.literal_eval( records[0] )
-        log.info("Parsing DKIM1 record: {dkim!r}".format( dkim=dkim ))
+        log.info("Parsing DKIM record: {dkim!r}".format( dkim=dkim ))
         p			= None
         for pair in dkim.split( ';' ):
             key,val 		= pair.strip().split( '=', 1 )
             if key.strip().lower() == "v":
                 assert val.upper() == "DKIM1", \
-                    "Failed to find DKIM1 record; instead found record of type/version {val}".format( val=val )
+                    "Failed to find DKIM record; instead found record of type/version {val}".format( val=val )
             if key.strip().lower() == "k":
                 assert val.lower() == "ed25519", \
                     "Failed to find Ed25519 public key; instead was of type {val!r}".format( val=val )
@@ -634,41 +644,83 @@ class License( Serializable ):
         machine_id			= bytes( machine_id )
         return uuid.UUID( into_hex( machine_id ))
 
-    def verify( self, confirm=None, **constraints ):
+    def verify( self, signature=None, confirm=None, author_pubkey=None, machine_id_path=None,
+                **constraints ):
         """Verify that the License is valid:
 
             - Has properly signed License dependencies
               - Each public key can be confirmed, if desired
             - Complies with the bounds of any License dependencies
+              - A sub-License must be issued while all License dependencies are active
             - Allows any constraints supplied.
 
-        If it does, a License is returned which encodes the supplied constraints.  If no additional
-        constraints are supplied, this may be the original License (self), or a copy with further
-        restrictions.
+        If it does, the constraints are returned, including this LicenseSigned added to the
+        dependencies.  If no additional constraints are supplied, this will simply return the empty
+        constraints dict on success.  The returned constraints would be usable in constructing a new
+        License (assuming at least the necessary author, author_domain and product were defined).
 
         """
         success			= None
 
-        # Verify any License dependencies are valid; signed w/ DKIM1 specified key, License OK
-        for ls in ( LicenseSigned( **d ) for d in self.dependencies or [] ):
+        if author_pubkey:
+            _, author_pubkey	= into_keys( author_pubkey )
+            assert author_pubkey, "Unrecognized author_pubkey provided"
+
+        if author_pubkey and author_pubkey != self.author_pubkey:
+            raise LicenseIncompatibility( 
+                "License for {auth}'s {prod!r} public key mismatch".format(
+                    auth	= self.author,
+                    prod	= self.product,
+                ))
+        # Verify that the License's stated public key matches the one in the domain's DKIM
+        if confirm:
+            avkey	 	= self.author_pubkey_query()
+            if avkey != self.author_pubkey:
+                raise LicenseIncompatibilty(
+                    "License for {auth}'s {prod!r}: author key from DKIM {found} != {claim}".format(
+                        auth	= self.author,
+                        prod	= self.product,
+                        found	= akey,
+                        claim	= self.author_pubkey,
+                    ))
+        # Verify that the License signature was indeed produced by the signing key corresponding to the
+        # provided public key
+        if signature:
             try:
-                ls.verify( confirm=confirm )
+                ed25519.crypto_sign_open( signature + self.serialize(), self.author_pubkey )
             except Exception as exc:
-                raise LicenaseIncompatibility(
+                raise LicenseIncompatibility( 
+                    "License for {auth}'s {prod!r}: signature mismatch: {sig!r}; {exc}".format(
+                        auth	= self.author,
+                        prod	= self.product,
+                        sig	= signature,
+                        exc	= exc,
+                    ))
+
+        # Verify any License dependencies are valid; signed w/ DKIM specified key, License OK.
+        # When verifying License dependencies, we don't supply the constraints, because we're not
+        # interested in sub-Licensing these Licenses, only verifying them.
+        for prov in ( LicenseSigned( **d ) for d in self.dependencies or [] ):
+            try:
+                prov.verify( confirm=confirm )
+            except Exception as exc:
+                raise LicenseIncompatibility(
                     "License for {auth}'s {prod!r}; sub-License for {dep_auth}'s {dep_prod!r} signature invalid: {exc}".format(
                         auth		= self.author,
                         prod		= self.product,
-                        dep_auth	= ls.license.author,
-                        dep_prod	= ls.license.product,
+                        dep_auth	= prov.license.author,
+                        dep_prod	= prov.license.product,
                         exc		= exc,
                     ))
 
-        # Enforce all constraints, returning a dict suitable for creating a specialized License
+        # Enforce all constraints, returning a dict suitable for creating a specialized License, if
+        # a signature was provided; if not, we cannot produce a specialized sub-License, and must
+        # fail.  
 
         # Verify all sub-license start/length durations comply with this License' duration.
         # Remember, these start/length specify the validity period of the License to be
         # sub-licensed, not the execution time of the installation!
-        #
+
         # TODO: Implement License expiration date, to allow a software deployment to time out and
         # refuse to run after a License as expired, forcing the software owner to obtain a new
         # License with a future expiration.  Typically, Cpppo installations are perpetual; if
@@ -684,38 +736,68 @@ class License( Serializable ):
                     exc		= exc,
                 ))
 
-        # Apply any supplied start/length constraints to the computed License start/length
-        if constraints.get('start') is not None or constraints.get('overlap') is not None:
+        # Apply any supplied start/length constraints to the computed License start/length in order
+        # to validate their consistency with the sub-License start/lengths.
+        if constraints.get('start') is not None or constraints.get('length') is not None:
             start, length, _, _	= overlap_intersect( start, length, Timespan(
-                contraints.pop( 'start', None), contraints.pop( 'length', None )))
-        # Default 'machine' constraints to the local machine-id
-        machine			= constraints.pop( 'machine', None )
-        machine_id_path		= constraints.pop( 'machine_id_path', None )
-        if machine is None:
-            machine		= self.machine_uuid( machine_id_path=machine_id_path )
-        if self.machine is not None:
-            if self.machine != machine:
+                contraints.get( 'start' ), contraints.get( 'length' )))
+        log.normal( "License for {auth}'s {prod!r} is active from {start} for {length}".format(
+            auth	= self.author,
+            prod	= self.product,
+            start	= into_str_LOC( start ),
+            length	= length,
+        ))
+
+        # Default 'machine' constraints to the local machine UUID.  If no constraints and
+        # self.machine is None, we don't need to do anything, because the License is good for any
+        # machine.  Use machine=True to force constraints to include the current machine UUID.
+        machine			= None
+        if self.machine or constraints.get( 'machine' ):
+            # Either License or constraints specify a machine (so we have to verify).
+            machine_uuid	= self.machine_uuid( machine_id_path=machine_id_path )
+            if self.machine not in (None, True) and self.machine != machine_uuid:
                 raise LicenseIncompatibility(
                     "License for {auth}'s {prod!r} specifies Machine ID {required}; found {detected}".format(
                         auth	= self.author,
                         prod	= self.product,
                         required= self.machine,
-                        detected= machine,
+                        detected= machine_uuid,
                     ))
+            machine_const	= constraints.get( 'machine' )
+            if machine_const not in (None, True) and machine_const != machine_uuid:
+                raise LicenseIncompatibility(
+                    "Constraints on {auth}'s {prod!r} specifies Machine ID {required}; found {detected}".format(
+                        auth	= self.author,
+                        prod	= self.product,
+                        required= machine_const,
+                        detected= machine_uuid,
+                    ))
+            # Finally, unless the supplied 'machine' constraint was explicitly None (indicating that
+            # the caller desires a machine-agnostic sub-License), default to constrain the License to
+            # this machine.
+            if machine_const is not None:
+                constraints['machine'] = machine_uuid
 
-        success			= dict( self )
-        success.update( constraints )
-        success.update(
-            start	= start,
-            length	= length,
-            machine	= machine,
-        )
-        return success
+        log.normal( "License for {auth}'s {prod!r} is valid on machine {machine}".format(
+            auth	= self.author,
+            prod	= self.product,
+            machine	= into_str( machine ) or into_str( constraints.get( 'machine' )) or '(any)',
+        ))
+
+        # Finally, now that the License, all License dependencies and any supplied constraints have
+        # been verified, augment the constraints with this License provenance as a dependency.
+        if constraints:
+            assert signature is not None, \
+                "Attempt to issue a sub-License of an un-signed License"
+            constraints.setdefault( 'dependencies', [] )
+            constraints['dependencies'].append( dict( LicenseSigned( license=self, signature=signature )))
+
+        return constraints
 
 
 class LicenseSigned( Serializable ):
-    """An ed25519 signed License.  Only a LicenseSigned (and confirmation of the public key) proves
-    that a License was actually issued by the purported author.
+    """An ed25519 signed License provenance.  Only a LicenseSigned (and confirmation of the public key)
+    proves that a License was actually issued by the purported author.
 
     The public key of the author must be confirmed through other means.  One typical means is by
     checking publication on the author's domain, eg.:
@@ -724,12 +806,12 @@ class LicenseSigned( Serializable ):
 
     """
 
-    __slots__			= ('signature', 'license')
+    __slots__			= ('license', 'signature')
     serializers			= dict(
         signature	= into_b64,
     )
 
-    def __init__( self, license, author_sigkey=None, signature=None, confirm=None ):
+    def __init__( self, license, author_sigkey=None, signature=None, confirm=None, machine_id_path=None ):
         """Given an ed25519 signing key (32-byte private + 32-byte public), produce the provenance
         for the supplied License. 
 
@@ -738,64 +820,32 @@ class LicenseSigned( Serializable ):
             LicenseSigned( <License>, <Keypair> )
 
         """
-        self.license		= license
+        assert isinstance( license, (License, dict) ), \
+            "Require a License or its serialization dict, not a {!r}".format( license )
+        self.license		= License( **license ) if isinstance( license, dict ) else license
 
         assert signature or author_sigkey, \
             "Require either signature, or the means to produce one via the author's signing key"
-        if author_sigkey:
+        if author_sigkey and not signature:
             # Sign our default serialization, also confirming that the public key matches
-            self.signature	= license.sign( author_sigkey, license.author_pubkey )
+            self.signature	= self.license.sign( author_sigkey, self.license.author_pubkey )
         elif signature:
-            # Could be a hex-encoded signature on deserialization, or a 64-byte signature
+            # Could be a hex-encoded signature on deserialization, or a 64-byte signature.  If both
+            # signature and author_sigkey, we'll just be confirming the supplied signature, below.
             self.signature	= bytes_from_text( signature, ignore_invalid=False )
 
-        self.verify( author_pubkey=author_sigkey, confirm=confirm )
+        self.verify(
+            author_pubkey	= author_sigkey,
+            confirm		= confirm,
+            machine_id_path	= machine_id_path )
 
-    def verify( self, author_pubkey=None, confirm=None, **constraints ):
-        """Verify the License payload with some signature and some author public key (default to the
-        ones provided in self.license/self.author_pubkey).  Any supplied author_pubkey must
-        match the one stated in the License.
-
-        Apply any additional constraints, returning a dict suitable for constructing a sub-license
-        satisfying all License dependencies and any additional supplied constraints.
-
-        """
-        if author_pubkey:
-            _, author_pubkey	= into_keys( author_pubkey )
-            assert author_pubkey, "Unrecognized author_pubkey provided"
-
-        if author_pubkey and author_pubkey != self.license.author_pubkey:
-            raise LicenseIncompatibility( 
-                "License for {auth}'s {prod!r} public key mismatch".format(
-                    auth	= self.license.author,
-                    prod	= self.license.product,
-                ))
-        # Verify that the License's stated public key matches the one in the domain's DKIM
-        if confirm:
-            avkey	 	= self.license.author_pubkey_query()
-            if avkey != self.license.author_pubkey:
-                raise LicenseIncompatibilty(
-                    "License for {auth}'s {prod!r}: author key from DKIM {found} != {claim}".format(
-                        auth	= self.author,
-                        prod	= self.product,
-                        found	= akey,
-                        claim	= self.license.author_pubkey,
-                    ))
-        # Verify that the License is indeed signed by the signing key corresponding to the
-        # provided public key
-        try:
-            ed25519.crypto_sign_open(
-                self.signature + self.license.serialize(), self.license.author_pubkey )
-        except Exception as exc:
-            raise LicenseIncompatibility( 
-                "License for {auth}'s {prod!r}: signature mismatch: {sig!r}; {exc}".format(
-                    auth	= self.license.author,
-                    prod	= self.license.product,
-                    sig		= self.signature,
-                    exc		= exc,
-                ))
-        # Finally, verify the License itself, including any supplied constraints.
-        return self.license.verify( confirm=confirm, **constraints )
+    def verify( self, author_pubkey=None, signature=None, confirm=None, machine_id_path=None, **constraints ):
+        return self.license.verify(
+            author_pubkey	= author_pubkey or self.license.author_pubkey,
+            signature		= signature or self.signature,
+            confirm		= confirm,
+            machine_id_path	= machine_id_path,
+            **constraints )
 
 
 def author( seed=None ):
@@ -825,19 +875,27 @@ def issue( license, author_sigkey ):
     that they are following the rules of the software author.
 
     """
-    try:
-        author_sigkey		= author_sigkey.sk
-    except AttributeError:
-        pass
-    provenance			= LicenseSigned( license, author_sigkey )
-    return provenance
+    return LicenseSigned( license, author_sigkey )
 
 
-def verify( provenance, confirm=None, **constraints ):
-    """Verify that the supplied LicenseSigned contains a valid signature, and that the License follows
-    the rules in all of its License dependencies.  Optionally, confirm the validity of any public
-    keys, and apply any additional constraints, returning a License satisfying them.
+def verify( provenance, author_pubkey=None, signature=None, confirm=None, machine_id_path=None,
+            **constraints ):
+    """Verify that the supplied License or LicenseSigned contains a valid signature, and that the
+    License follows the rules in all of its License dependencies.  Optionally, confirm the validity
+    of any public keys.
+
+    Apply any additional constraints, returning a License serialization dict satisfying them.  If
+    you plan to issue a new LicenseSigned, it is recommended to include your author, author_domain
+    and product names, and perhaps also the client and client_pubkey of the intended License
+    recipient.
+
+    Works with either a License and signature= keyword parameter, or a LicenseSigned provenance.
 
     """
-    return provenance.verify( confirm=confirm, **constraints )
+    return provenance.verify(
+        author_pubkey	= author_pubkey,
+        signature	= signature or provenance.signature,
+        confirm		= confirm,
+        machine_id_path	= machine_id_path,
+        **constraints )
     

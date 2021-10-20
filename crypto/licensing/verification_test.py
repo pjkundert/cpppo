@@ -9,7 +9,7 @@ from dns.exception import DNSException
 from .verification import (
     License, LicenseSigned, LicenseIncompatibility, Timespan,
     domainkey, author, issue, verify, into_b64, overlap_intersect,
-    into_str, into_str_UTC,
+    into_str, into_str_UTC, into_JSON,
 )
 from .. import ed25519ll as ed25519
 
@@ -17,6 +17,7 @@ from ...history import parse_datetime, timestamp, parse_seconds, duration
 
 dominion_sigkey = binascii.unhexlify( '431f3fb4339144cb5bdeb77db3148a5d340269fa3bc0bf2bf598ce0625750fdca991119e30d96539a70cd34983dd00714259f8b60a2163bdb748f3fc0cf036c9' )
 awesome_sigkey = binascii.unhexlify(  '4e4d27b26b6f4db69871709d68da53854bd61aeee70e63e3b3ff124379c1c6147321ce7a2fb87395fe0ff9e2416bc31b9a25475aa2e2375d70f4c326ffd47eb4' )
+enduser_seed = binascii.unhexlify( '00' * 32 )
 
 machine_id_path=__file__.replace(".py", ".machine-id" )
 
@@ -51,8 +52,6 @@ def test_License_overlap():
     assert into_str_UTC( ended ) == "2021-01-08 08:00:00 UTC"
 
 
-    
-    
 def test_License():
     try:
         lic = License(
@@ -120,9 +119,9 @@ def test_License():
     # Multiple licenses, some which truncate the duration of the initial License. Non-timezone
     # timestamps are assumed to be UTC.
     start, length = lic.overlap(
-        License( author = "A", product = 'a', author_domain='a-inc.com', author_pubkey=keypair.vk,
+        License( author = "A", product = 'a', author_domain='a-inc.com', author_pubkey=keypair.vk, confirm=False,
                  start = "2021-09-29 00:00:00", length = "1w" ),
-        License( author = "B", product = 'b', author_domain='b-inc.com', author_pubkey=keypair.vk,
+        License( author = "B", product = 'b', author_domain='b-inc.com', author_pubkey=keypair.vk, confirm=False,
                  start = "2021-09-30 00:00:00", length = "1w" ))
     # Default rendering of a timestamp is w/ milliseconds, and no tz info for UTC
     assert str( start ) == "2021-09-30 17:22:33.000"
@@ -132,9 +131,9 @@ def test_License():
     # rendering; force by setting environment variable TZ=Canada/Mountain for this test!
     with pytest.raises( LicenseIncompatibility ) as exc_info:
         start, length = lic.overlap(
-            License( author = "A", product = 'a', author_domain='a-inc.com', author_pubkey=keypair.vk,
+            License( author = "A", product = 'a', author_domain='a-inc.com', author_pubkey=keypair.vk, confirm=False,
                      start = "2021-09-29 00:00:00", length = "1w" ),
-            License( author = "B", product = 'b', author_domain='b-inc.com', author_pubkey=keypair.vk,
+            License( author = "B", product = 'b', author_domain='b-inc.com', author_pubkey=keypair.vk, confirm=False,
                      start = "2021-10-07 00:00:00", length = "1w" ))
     assert str( exc_info.value ).endswith(
         "License for B's 'b' from 2021-10-06 18:00:00 Canada/Mountain for 1w incompatible with others" )
@@ -226,37 +225,62 @@ def test_LicenseSigned():
     #    - This will not be a LicenseSigned
     # 4) Save to <application>.cpppo-licensing in application's config path
 
-    lic_host_dict = verify( drv_prov, machine_id_path=machine_id_path ) # no confirm; invalid domain
-    lic_host = License( machine_id_path=machine_id_path, **lic_host_dict )
+    # Lets specialize the license for a specific machine.  
+    lic_host_dict = verify( drv_prov, confirm=False, machine=True, machine_id_path=machine_id_path )
+    assert into_str( lic_host_dict['machine'] ) == "00010203-0405-4607-8809-0a0b0c0d0e0f"
+    assert len( lic_host_dict['dependencies'] ) == 1
+
+    enduser_keypair = author( seed=enduser_seed )
+
+    lic_host = License( author="End User", product="application", author_pubkey=enduser_keypair,
+                        confirm=False, machine_id_path=machine_id_path,
+                        **lic_host_dict )
     lic_host_str = str( lic_host )
     assert lic_host_str == """\
 {
-    "author":"Awesome, Inc.",
-    "author_domain":"awesome-inc.com",
-    "author_pubkey":"cyHOei+4c5X+D/niQWvDG5olR1qi4jddcPTDJv/UfrQ=",
-    "author_service":"ethernet-ip-tool",
+    "author":"End User",
+    "author_domain":null,
+    "author_pubkey":"O2onvM62pC1io6jQKm8Nc2UyFXcd4kOmOsBIoYtZ2ik=",
+    "author_service":"application",
     "client":null,
     "client_pubkey":null,
     "dependencies":[
         {
             "license":{
-                "author":"Dominion Research & Development Corp.",
-                "author_domain":"dominionrnd.com",
-                "author_pubkey":"qZERnjDZZTmnDNNJg90AcUJZ+LYKIWO9t0jz/AzwNsk=",
-                "author_service":"cpppo-test",
+                "author":"Awesome, Inc.",
+                "author_domain":"awesome-inc.com",
+                "author_pubkey":"cyHOei+4c5X+D/niQWvDG5olR1qi4jddcPTDJv/UfrQ=",
+                "author_service":"ethernet-ip-tool",
                 "client":null,
                 "client_pubkey":null,
-                "dependencies":null,
+                "dependencies":[
+                    {
+                        "license":{
+                            "author":"Dominion Research & Development Corp.",
+                            "author_domain":"dominionrnd.com",
+                            "author_pubkey":"qZERnjDZZTmnDNNJg90AcUJZ+LYKIWO9t0jz/AzwNsk=",
+                            "author_service":"cpppo-test",
+                            "client":null,
+                            "client_pubkey":null,
+                            "dependencies":null,
+                            "length":"1y",
+                            "machine":null,
+                            "product":"Cpppo Test",
+                            "start":"2021-09-30 17:22:33 UTC"
+                        },
+                        "signature":"bw58LSvuadS76jFBCWxkK+KkmAqLrfuzEv7ly0Y3lCLSE2Y01EiPyZjxirwSjHoUf9kz9meeEEziwk358jthBw=="
+                    }
+                ],
                 "length":"1y",
                 "machine":null,
-                "product":"Cpppo Test",
-                "start":"2021-09-30 17:22:33 UTC"
+                "product":"EtherNet/IP Tool",
+                "start":"2022-09-29 17:22:33 UTC"
             },
-            "signature":"bw58LSvuadS76jFBCWxkK+KkmAqLrfuzEv7ly0Y3lCLSE2Y01EiPyZjxirwSjHoUf9kz9meeEEziwk358jthBw=="
+            "signature":"5haJmI3WQBkz6njAT1VxtvsqJsnJl96XwxPWS6ANOP38EzK14+QGnHt4/pHVyVnLqjZWQlu0ZPXlz8mrH1C/Dg=="
         }
     ],
-    "length":"1d6h0m",
+    "length":null,
     "machine":"00010203-0405-4607-8809-0a0b0c0d0e0f",
-    "product":"EtherNet/IP Tool",
-    "start":"2022-09-29 17:22:33 UTC"
+    "product":"application",
+    "start":null
 }"""
