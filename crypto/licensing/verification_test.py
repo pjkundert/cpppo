@@ -9,7 +9,7 @@ from dns.exception import DNSException
 from .verification import (
     License, LicenseSigned, LicenseIncompatibility, Timespan,
     domainkey, author, issue, verify, into_b64, into_hex, overlap_intersect,
-    into_str, into_str_UTC, into_JSON,
+    into_str, into_str_UTC, into_JSON, into_keys,
 )
 from .. import ed25519ll as ed25519
 
@@ -141,11 +141,19 @@ def test_License():
 
 def test_LicenseSigned():
     """Tests Licenses derived from other License dependencies."""
+    awesome_keypair = author( seed=awesome_sigkey[:32] )
+    _, awesome_pubkey = into_keys( awesome_keypair )
+    
+    print("Awesome, Inc. ed25519 keypair; Signing: {sk}".format( sk=binascii.hexlify( awesome_keypair.sk )))
+    print("Awesome, Inc. ed25519 keypair; Public:  {pk_hex} == {pk}".format( pk_hex=into_hex( awesome_keypair.vk ), pk=into_b64( awesome_keypair.vk )))
+
     try:
         lic = License(
             author	= "Dominion Research & Development Corp.",
             product	= "Cpppo Test",
             author_domain = "dominionrnd.com",
+            client	= "Awesome, Inc.",
+            client_pubkey = awesome_pubkey,
             start	= "2021-09-30 11:22:33 Canada/Mountain",
             length	= "1y" )
     except DNSException:
@@ -154,6 +162,8 @@ def test_LicenseSigned():
             product	= "Cpppo Test",
             author_domain = "dominionrnd.com",
             author_pubkey = dominion_sigkey[32:],
+            client	= "Awesome, Inc.",
+            client_pubkey = awesome_pubkey,
             start	= "2021-09-30 11:22:33 Canada/Mountain",
             length	= "1y" )
     # Obtain a signed Cpppo license for 2021-09-30 + 1y
@@ -162,16 +172,19 @@ def test_LicenseSigned():
     # Create a signing key for Awesome, Inc.; securely hide it, and publish the base-64 encoded public key as a TXT RR at:
     # ethernet-ip-tool.cpppo-licensing._domainkey.awesome.com 300 IN TXT "v=DKIM1; k=ed25519; p=
 
-    awesome_keypair = author( seed=awesome_sigkey[:32] )
-    print("Awesome, Inc. ed25519 keypair; Signing: {sk}".format( sk=binascii.hexlify( awesome_keypair.sk )))
-    print("Awesome, Inc. ed25519 keypair; Public:  {pk_hex} == {pk}".format( pk_hex=into_hex( awesome_keypair.vk ), pk=into_b64( awesome_keypair.vk )))
+    enduser_keypair = author( seed=enduser_seed )
+    enduser_sigkey, enduser_pubkey = into_keys( enduser_keypair )
+    print("End User, LLC ed25519 keypair; Signing: {sk}".format( sk=into_hex( enduser_keypair.sk )))
+    print("End User, LLC ed25519 keypair; Public:  {pk_hex} == {pk}".format( pk_hex=into_hex( enduser_keypair.vk ), pk=into_b64( enduser_keypair.vk )))
 
-    # Almost at the end of their Cpppo license, they issue a new License.
+    # Almost at the end of their Cpppo license, they issue a new License to End User, LLC
     drv = License(
         author	= "Awesome, Inc.",
         product	= "EtherNet/IP Tool",
         author_domain = "awesome-inc.com",
         author_pubkey = awesome_keypair.vk, # Avoid the dns.resolver.NXDOMAIN by providing the pubkey
+        client = "End User, LLC",
+        client_pubkey = enduser_pubkey,
         dependencies = [ lic_prov ],
         start	= "2022-09-29 11:22:33 Canada/Mountain",
         length	= "1y",
@@ -186,8 +199,8 @@ def test_LicenseSigned():
         "author_domain":"awesome-inc.com",
         "author_pubkey":"cyHOei+4c5X+D/niQWvDG5olR1qi4jddcPTDJv/UfrQ=",
         "author_service":"ethernet-ip-tool",
-        "client":null,
-        "client_pubkey":null,
+        "client":"End User, LLC",
+        "client_pubkey":"O2onvM62pC1io6jQKm8Nc2UyFXcd4kOmOsBIoYtZ2ik=",
         "dependencies":[
             {
                 "license":{
@@ -195,15 +208,15 @@ def test_LicenseSigned():
                     "author_domain":"dominionrnd.com",
                     "author_pubkey":"qZERnjDZZTmnDNNJg90AcUJZ+LYKIWO9t0jz/AzwNsk=",
                     "author_service":"cpppo-test",
-                    "client":null,
-                    "client_pubkey":null,
+                    "client":"Awesome, Inc.",
+                    "client_pubkey":"cyHOei+4c5X+D/niQWvDG5olR1qi4jddcPTDJv/UfrQ=",
                     "dependencies":null,
                     "length":"1y",
                     "machine":null,
                     "product":"Cpppo Test",
                     "start":"2021-09-30 17:22:33 UTC"
                 },
-                "signature":"bw58LSvuadS76jFBCWxkK+KkmAqLrfuzEv7ly0Y3lCLSE2Y01EiPyZjxirwSjHoUf9kz9meeEEziwk358jthBw=="
+                "signature":"TNVGYQjdGFFBJMIviAOLhPPuOefv+451OslLY4DJEK77LCS9LeJIaomv5sS8KHDkOE12eFOxi5aFXOw5O4jOCA=="
             }
         ],
         "length":"1y",
@@ -211,7 +224,7 @@ def test_LicenseSigned():
         "product":"EtherNet/IP Tool",
         "start":"2022-09-29 17:22:33 UTC"
     },
-    "signature":"5haJmI3WQBkz6njAT1VxtvsqJsnJl96XwxPWS6ANOP38EzK14+QGnHt4/pHVyVnLqjZWQlu0ZPXlz8mrH1C/Dg=="
+    "signature":"egUZM9vlF2y4DBCTtWNv3UC7nBRxSz4LZ12nOR+WSUktOrBbESsBuwQzjobNvPR2G+EZASRkY00bm/XqTzKsCg=="
 }"""
 
     # Test the cpppo.crypto.licensing API, as used in applications.  A LicenseSigned is saved to an
@@ -228,10 +241,6 @@ def test_LicenseSigned():
     lic_host_dict = verify( drv_prov, confirm=False, machine=True, machine_id_path=machine_id_path )
     assert into_str( lic_host_dict['machine'] ) == "00010203-0405-4607-8809-0a0b0c0d0e0f"
     assert len( lic_host_dict['dependencies'] ) == 1
-
-    enduser_keypair = author( seed=enduser_seed )
-    print("End User, LLC ed25519 keypair; Signing: {sk}".format( sk=into_hex( enduser_keypair.sk )))
-    print("End User, LLC ed25519 keypair; Public:  {pk_hex} == {pk}".format( pk_hex=into_hex( enduser_keypair.vk ), pk=into_b64( enduser_keypair.vk )))
 
     lic_host = License( author="End User", product="application", author_pubkey=enduser_keypair,
                         confirm=False, machine_id_path=machine_id_path,
@@ -255,8 +264,8 @@ def test_LicenseSigned():
                     "author_domain":"awesome-inc.com",
                     "author_pubkey":"cyHOei+4c5X+D/niQWvDG5olR1qi4jddcPTDJv/UfrQ=",
                     "author_service":"ethernet-ip-tool",
-                    "client":null,
-                    "client_pubkey":null,
+                    "client":"End User, LLC",
+                    "client_pubkey":"O2onvM62pC1io6jQKm8Nc2UyFXcd4kOmOsBIoYtZ2ik=",
                     "dependencies":[
                         {
                             "license":{
@@ -264,15 +273,15 @@ def test_LicenseSigned():
                                 "author_domain":"dominionrnd.com",
                                 "author_pubkey":"qZERnjDZZTmnDNNJg90AcUJZ+LYKIWO9t0jz/AzwNsk=",
                                 "author_service":"cpppo-test",
-                                "client":null,
-                                "client_pubkey":null,
+                                "client":"Awesome, Inc.",
+                                "client_pubkey":"cyHOei+4c5X+D/niQWvDG5olR1qi4jddcPTDJv/UfrQ=",
                                 "dependencies":null,
                                 "length":"1y",
                                 "machine":null,
                                 "product":"Cpppo Test",
                                 "start":"2021-09-30 17:22:33 UTC"
                             },
-                            "signature":"bw58LSvuadS76jFBCWxkK+KkmAqLrfuzEv7ly0Y3lCLSE2Y01EiPyZjxirwSjHoUf9kz9meeEEziwk358jthBw=="
+                            "signature":"TNVGYQjdGFFBJMIviAOLhPPuOefv+451OslLY4DJEK77LCS9LeJIaomv5sS8KHDkOE12eFOxi5aFXOw5O4jOCA=="
                         }
                     ],
                     "length":"1y",
@@ -280,7 +289,7 @@ def test_LicenseSigned():
                     "product":"EtherNet/IP Tool",
                     "start":"2022-09-29 17:22:33 UTC"
                 },
-                "signature":"5haJmI3WQBkz6njAT1VxtvsqJsnJl96XwxPWS6ANOP38EzK14+QGnHt4/pHVyVnLqjZWQlu0ZPXlz8mrH1C/Dg=="
+                "signature":"egUZM9vlF2y4DBCTtWNv3UC7nBRxSz4LZ12nOR+WSUktOrBbESsBuwQzjobNvPR2G+EZASRkY00bm/XqTzKsCg=="
             }
         ],
         "length":null,
@@ -288,5 +297,5 @@ def test_LicenseSigned():
         "product":"application",
         "start":null
     },
-    "signature":"ou+m6sNi0J4Kx260zUHFKYnuIdmh54C68W7G56pKsQLThztf1FJ8Znm8QY+Ak/+M4dVlbHUX25StikiKBIVqAw=="
+    "signature":"f64wAgeIr1gPmRviu8lfDS1vP3L5/xG6Yf2HentNwQHR7tf4pgjY4Elx0uf9kmO0OtDlPWZP4gLPYiek1wQiAg=="
 }"""

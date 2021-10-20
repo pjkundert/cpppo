@@ -703,9 +703,14 @@ class License( Serializable ):
         for prov in ( LicenseSigned( **d ) for d in self.dependencies or [] ):
             try:
                 prov.verify( confirm=confirm )
+                assert prov.license.client_pubkey is None or prov.license.client_pubkey == self.author_pubkey, \
+                    "sub-License public key {client_pubkey} doesn't match Licence's public key {author_pubkey}".format(
+                        client_pubkey	= to_b64( prov.license.client_pubkey ),
+                        author_pubkey	= to_b64( self.author_pubkey ),
+                    )
             except Exception as exc:
                 raise LicenseIncompatibility(
-                    "License for {auth}'s {prod!r}; sub-License for {dep_auth}'s {dep_prod!r} signature invalid: {exc}".format(
+                    "License for {auth}'s {prod!r}; sub-License for {dep_auth}'s {dep_prod!r} invalid: {exc}".format(
                         auth		= self.author,
                         prod		= self.product,
                         dep_auth	= prov.license.author,
