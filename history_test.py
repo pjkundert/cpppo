@@ -40,7 +40,9 @@ if has_pytz:
         from cpppo.history import (
             timestamp, parse_offset, format_offset, timedelta_total_seconds,
             AmbiguousTimeZoneError, HistoryExhausted, IframeError, DataError, 
-            opener, loader, reader, logger )
+            opener, loader, reader, logger,
+            parse_seconds,
+        )
         got_localzone		= True
     except pytz.UnknownTimeZoneError as exc:
         logging.warning( "Failed to determine local timezone; platform requires tzlocal; run 'pip install tzlocal'" )
@@ -696,6 +698,14 @@ if 'TRACEMALLOC' in os.environ:
             for line in stat.traceback.format():
                 print(line)
     
+
+
+@pytest.mark.skipif( not has_pytz or not got_localzone, reason="Needs pytz and localzone" )
+def test_parse_seconds():
+    assert parse_seconds( '1w' ) == 604800
+    assert parse_seconds( u'1w' ) == 604800
+
+
 @pytest.mark.skipif( not has_pytz or not got_localzone, reason="Needs pytz and localzone" )
 def test_history_performance():
     try:

@@ -8,8 +8,9 @@ import os
 from dns.exception import DNSException
 from .verification import (
     License, LicenseSigned, LicenseIncompatibility, Timespan,
-    domainkey, domainkey_service, author, issue, verify, overlap_intersect,
+    domainkey, domainkey_service, overlap_intersect,
     into_b64, into_hex, into_str, into_str_UTC, into_JSON, into_keys,
+    author, issue, verify, load,
 )
 from .. import ed25519ll as ed25519
 
@@ -56,6 +57,13 @@ def test_License_overlap():
     assert into_str_UTC( ended ) == "2021-01-08 08:00:00 UTC"
 
 
+    
+def test_License_serialization():
+    provenance = load( 'verification_test', extra=[os.path.dirname( __file__ )], confirm=False )
+    with open( os.path.join( os.path.dirname( __file__ ), "verification_test.cpppo-licensing" )) as f:
+        assert str( provenance ) == f.read()
+
+    
 def test_License():
     try:
         lic = License(

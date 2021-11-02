@@ -841,7 +841,7 @@ class duration( object ):
         if isinstance( value, duration ):
             self.timedelta	= datetime.timedelta(
                 days=value.timedelta.days, seconds=value.timedelta.seconds, microseconds=value.timedelta.microseconds )
-        elif isinstance( value, str ):
+        elif isinstance( value, type_str_base ): # str, unicode
             self.timedelta	= self._parse( value )
         elif isinstance( value, datetime.timedelta ):
             self.timedelta	= value

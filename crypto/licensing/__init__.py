@@ -23,7 +23,7 @@ __license__                     = "Dual License: GPLv3 (or later) and Commercial
 __all__				= [
     'Serializable', 'LicenseIncompatibility', 'License', 'LicenseSigned',
     'into_hex', 'into_b64', 'into_text', 'into_bytes', 'into_keys',
-    'domainkey', 'author', 'issue', 'verify',
+    'domainkey', 'author', 'issue', 'verify', 'load',
 ]
 
 from .verification import *

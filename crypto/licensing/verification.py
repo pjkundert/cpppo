@@ -32,6 +32,7 @@ import hashlib
 import json
 import logging
 import uuid
+import os
 import sys
 
 from datetime import datetime
@@ -39,6 +40,7 @@ from datetime import datetime
 from ...misc		import timer
 from ...automata	import type_str_base
 from ...history.times	import parse_datetime, parse_seconds, timestamp, duration
+from ...server.enip.defaults import config_open
 
 log				= logging.getLogger( "licensing" )
 
@@ -871,14 +873,17 @@ class LicenseSigned( Serializable ):
     
     Licenses are typically stored in files, in the configuration directory path of the application.
 
+        import json
+        # Locate, open, read 
+        #with config_open( "application.cpppo-licencing", 'r' ) as provenance_file:
+        #    provenance_ser = provenance_file.read()
+        >>> provenance_dict = json.loads( provenance_ser )
 
     Validating Licenses
     -------------------
 
     Somewhere in the product's code, the License is loaded and validated.
 
-        import json
-        >>> provenance_dict = json.loads( provenance_ser )
         >>> provenance_load = LicenseSigned( confirm=False, **provenance_dict )
         >>> print( provenance_load )
         {
@@ -1005,4 +1010,29 @@ def verify( provenance, author_pubkey=None, signature=None, confirm=None, machin
         confirm		= confirm,
         machine_id_path	= machine_id_path,
         **constraints )
+
+
+def load( basename=None, mode=None, confirm=None, **kwds ):
+    """Open and load a Cpppo Licensing file, containing a LicenseSigned provenance record.  By default,
+    use our base __package__'s name, or the executable __file__'s basename.  Append
+    .cpppo-licensing, if no suffix provided.
+
+    """
+    if basename is None:
+        if __package__ is None:
+            basename		= os.path.basename( __file__ ) # eg. '/a/b/c/d.py' --> 'd.py'
+            if '.' in basename:
+                basename	= basename[:basename.rfind( '.' )]
+            log.info( "Got Cpppo Licensing basename from __file__: {!r}".format( __file__ ))
+        else:
+            basename		= __package__
+            log.info( "Got Cpppo Licensing basename from __package__: {!r}".format( __package__ ))
+    if '.' not in basename:
+        basename	       += '.cpppo-licensing'
+    log.info( "Attempting to locate {!r} Cpppo Licensing file".format( basename ))
+    with config_open( basename, mode=mode or 'r', **kwds ) as f:
+        provenance_ser		= f.read()
+    provenance_dict		= json.loads( provenance_ser )
+    return LicenseSigned( confirm=confirm, **provenance_dict )
     
+

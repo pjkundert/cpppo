@@ -47,13 +47,34 @@ send_path_default		= '@6/1'	# Connection Manager
 priority_time_tick		= 5		#  2**5 == 32ms/tick See: Vol 3.15, 3-5.5.1.4 Connection Timing
 timeout_ticks			= 157		#  157 * 32 == 5.024s
 
-config_name			= 'cpppo.cfg'
-config_files			= [
-    os.path.join( os.path.dirname( __file__ ), '..', '..', config_name ),# cpppo install dir
-    os.path.join( os.getenv( 'APPDATA', os.sep + 'etc' ), config_name ),# global app data
-    os.path.join( os.path.expanduser( '~' ), '.' + config_name ),	# user home dir
-    config_name,							# current dir
-]
+# Define the default paths used for configuration files, etc.
+config_name			= 'cpppo.cfg'	# Default Cpppo application configuration file
+
+def config_paths( filename, extra=None ):
+    yield os.path.join( os.path.dirname( __file__ ), '..', '..', filename )# cpppo install dir
+    yield os.path.join( os.getenv( 'APPDATA', os.sep + 'etc' ), filename )# global app data
+    yield os.path.join( os.path.expanduser( '~' ), '.' + filename )	# user home dir
+    yield filename							# current dir
+    for e in extra or []:
+        yield os.path.join( e, filename )
+    
+config_files			= list( config_paths( config_name ))
+
+try:
+    FileNotFoundError
+except NameError:
+    FileNotFoundError		= IOError
+
+def config_open( filename, mode=None, paths=None, extra=None, **kwds ):
+    """Find and open a filename on the standard or provided configuration file paths (plus any extra)"""
+    for f in ( paths + ( extra or [] )) if paths else config_paths( filename, extra=extra ):
+        try:
+            return open( f, mode=mode or 'r', **kwds )
+        except FileNotFoundError:
+            pass
+    raise FileNotFoundError(
+        "Could not locate {!r} in any Cpppo configuration directory".format( filename )
+    )
 
 # Forward Open has Connection Path and Path (in addition to the Send RR Data's Route Path and Send Path)
 forward_open_default		= dotdict({
