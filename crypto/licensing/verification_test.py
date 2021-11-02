@@ -8,8 +8,8 @@ import os
 from dns.exception import DNSException
 from .verification import (
     License, LicenseSigned, LicenseIncompatibility, Timespan,
-    domainkey, author, issue, verify, into_b64, into_hex, overlap_intersect,
-    into_str, into_str_UTC, into_JSON, into_keys,
+    domainkey, domainkey_service, author, issue, verify, overlap_intersect,
+    into_b64, into_hex, into_str, into_str_UTC, into_JSON, into_keys,
 )
 from .. import ed25519ll as ed25519
 
@@ -21,9 +21,13 @@ enduser_seed = binascii.unhexlify( '00' * 32 )
 
 machine_id_path=__file__.replace(".py", ".machine-id" )
 
+
 def test_License_domainkey():
     """Ensure we can handle arbitrary UTF-8 domains, and compute the proper DKIM1 RR path"""
-    path, dkim_rr = domainkey( "Some Product", "example.com" )
+    assert domainkey_service( u"π" ) == 'xn--1xa'
+    assert domainkey_service( u"π/1" ) ==  'xn---1-lbc'
+
+    path, dkim_rr = domainkey( u"Some Product", "example.com" )
     assert path == 'some-product.cpppo-licensing._domainkey.example.com.'
     assert dkim_rr == None
     author_keypair = author( seed=b'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA' )
@@ -190,7 +194,7 @@ def test_LicenseSigned():
         length	= "1y",
         confirm = False,
     )
-    drv_prov = issue( drv, awesome_keypair.sk )
+    drv_prov = issue( drv, awesome_keypair.sk, confirm=False )
     drv_prov_str = str( drv_prov )
     assert drv_prov_str == """\
 {

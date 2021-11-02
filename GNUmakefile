@@ -35,6 +35,9 @@ PY3=python3
 #     LC_ALL=en_CA.UTF-8
 # 
 
+# Some tests assume the local time-zone is:
+TZ=Canada/Mountain
+
 # To see all pytest output, uncomment --capture=no
 PYTESTOPTS=-v # --capture=no
 
@@ -73,9 +76,17 @@ test2:
 	$(PY2TEST)
 test3:
 	$(PY3TEST)
-test23:
-	$(PY2TEST)
-	$(PY3TEST)
+test23: test2 test3
+
+
+doctest:
+	cd crypto/licensing && $(PY_TEST) --doctest-modules
+doctest2:
+	cd crypto/licensing && $(PY2TEST) --doctest-modules
+doctest3:
+	cd crypto/licensing && $(PY3TEST) --doctest-modules
+doctest23: doctest2 doctest3
+
 
 install:
 	$(PY) setup.py install

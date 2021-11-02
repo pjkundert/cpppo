@@ -32,6 +32,7 @@ import hashlib
 import json
 import logging
 import uuid
+import sys
 
 from datetime import datetime
 
@@ -53,18 +54,30 @@ except ImportError:
         from .. import ed25519
 
 try:
-    maketrans			= str.maketrans
+    str_maketrans		= str.maketrans
 except: # Python2
     import string
-    maketrans			= string.maketrans
+    str_maketrans		= string.maketrans
+
 
 def domainkey_service( product ):
-    """Convert a UTF-8 product name into a DNS Domainkey service name."""
-    author_service		= product.lower().translate( domainkey_service.trans )
-    author_service		= domainkey_service.idna_encoder( author_service )[0].decode( 'utf-8' )
+    """Convert a UTF-8 product name into a ASCII DNS Domainkey service name, with 
+    replacement for some symbols invalid in DNS names (TODO: incomplete).
+
+        >>> domainkey_service( "Something Awesome v1.0" )
+        'something-awesome-v1-0'
+
+    """
+    author_service		= product
+    author_service		= domainkey_service.idna_encoder( author_service )[0]
+    if sys.version_info[0] >= 3:
+        author_service		= author_service.decode( 'ASCII' )
+    author_service		= author_service.translate( domainkey_service.dns_trans )
+    author_service		= author_service.lower()
     return author_service
-domainkey_service.trans		= maketrans( ' ._/', '----' )
+domainkey_service.dns_trans	= str_maketrans( ' ._/', '----' )
 domainkey_service.idna_encoder	= codecs.getencoder( 'idna' )
+assert "a/b.c_d e".translate( domainkey_service.dns_trans ) == 'a-b-c-d-e'
 
 
 def into_hex( binary, encoding='ASCII' ):
@@ -197,17 +210,17 @@ def domainkey( product, author_domain, author_service=None, author_pubkey=None )
         >>> from .verification import author, domainkey
         >>> path, dkim_rr = domainkey( "Some Product", "example.com" )
         >>> path
-        "some-product.cpppo-licensing._domainkey.example.com."
+        'some-product.cpppo-licensing._domainkey.example.com.'
         >>> dkim_rr
-        None
+
     
-        # An Awesome, Inc. product, (oddly) with a Runic name
+        # An Awesome, Inc. product
         >>> author_keypair = author( seed=b'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA' )
-        >>> path, dkim_rr = domainkey( ""ᛞᚩᛗᛖᛋ᛫ᚻᛚᛇᛏᚪᚾ᛬", "awesome-inc.com", author_pubkey=author_keypair )
+        >>> path, dkim_rr = domainkey( "Something Awesome v1.0", "awesome-inc.com", author_pubkey=author_keypair )
         >>> path
-        "abc"
+        'something-awesome-v1-0.cpppo-licensing._domainkey.awesome-inc.com.'
         >>> dkim_rr
-        ""
+        'v=DKIM1; k=ed25519; p=25lf4lFp0UHKubu6krqgH58uHs599MsqwFGQ83/MH50='
 
     """
     if author_service is None:
@@ -217,7 +230,7 @@ def domainkey( product, author_domain, author_service=None, author_pubkey=None )
     service_name		= dns.name.Name( [author_service, 'cpppo-licensing', '_domainkey'] )
     path_name			= service_name + domain_name
     path			= path_name.to_text()
-    
+
     dkim			= None
     if author_pubkey:
         _, author_pubkey	= into_keys( author_pubkey )
@@ -468,7 +481,7 @@ class License( Serializable ):
                   start=None, length=None,		# License may not be perpetual
                   machine=None,				# A specific host may be specified
                   machine_id_path=None,
-                  confirm=True,				# Validate License dependencies' author_pubkey from DNS
+                  confirm=None,				# Validate License dependencies' author_pubkey from DNS
                  ):
         self.author		= author
         self.author_domain	= author_domain
@@ -480,7 +493,7 @@ class License( Serializable ):
 
         # Reconstitute LicenseSigned provenance from any dicts provided
         self.dependencies	= None if dependencies is None else list(
-            LicenseSigned( **prov ) if isinstance( prov, dict ) else prov
+            LicenseSigned( confirm=confirm, **prov ) if isinstance( prov, dict ) else prov
             for prov in dependencies
         )
 
@@ -534,7 +547,7 @@ class License( Serializable ):
         Query the DKIM record for an author public key.  May be split into multiple strings:
 
             r = dns.resolver.query('default._domainkey.justicewall.com', 'TXT')
-            >>> for i in r:
+            for i in r:
             ...  i.to_text()
             ...
             '"v=DKIM1; k=rsa; p=MIIBIjANBgkqhkiG9...Btx" "aPXTN/aI+cvS8...4KHoQqhS7IwIDAQAB;"'
@@ -673,8 +686,9 @@ class License( Serializable ):
                     auth	= self.author,
                     prod	= self.product,
                 ))
-        # Verify that the License's stated public key matches the one in the domain's DKIM
-        if confirm:
+        # Verify that the License's stated public key matches the one in the domain's DKIM.  Default
+        # to True when confirm is None.
+        if confirm or confirm is None:
             avkey	 	= self.author_pubkey_query()
             if avkey != self.author_pubkey:
                 raise LicenseIncompatibilty(
@@ -701,7 +715,7 @@ class License( Serializable ):
         # Verify any License dependencies are valid; signed w/ DKIM specified key, License OK.
         # When verifying License dependencies, we don't supply the constraints, because we're not
         # interested in sub-Licensing these Licenses, only verifying them.
-        for prov in ( LicenseSigned( **d ) for d in self.dependencies or [] ):
+        for prov in ( LicenseSigned( confirm=confirm, **d ) for d in self.dependencies or [] ):
             try:
                 prov.verify( confirm=confirm )
                 assert prov.license.client_pubkey is None or prov.license.client_pubkey == self.author_pubkey, \
@@ -792,20 +806,99 @@ class License( Serializable ):
             assert signature is not None, \
                 "Attempt to issue a sub-License of an un-signed License"
             constraints.setdefault( 'dependencies', [] )
-            constraints['dependencies'].append( dict( LicenseSigned( license=self, signature=signature )))
+            constraints['dependencies'].append( dict(
+                LicenseSigned( license=self, signature=signature, confirm=confirm )
+            ))
 
         return constraints
 
 
 class LicenseSigned( Serializable ):
-    """An ed25519 signed License provenance.  Only a LicenseSigned (and confirmation of the public key)
-    proves that a License was actually issued by the purported author.  It is expected that authors
-    will only sign a valid License.
+    """A License and its Ed25519 Signature provenance.  Only a LicenseSigned (and confirmation of the
+    author's public key) proves that a License was actually issued by the purported author.  It is
+    expected that authors will only sign a valid License.
 
     The public key of the author must be confirmed through independent means.  One typical means is by
-    checking publication on the author's domain (the default w/ confirm=None), eg.:
+    checking publication on the author's domain (the default behaviour w/ confirm=None), eg.:
 
-        default._domainkey.example.com 86400 IN TXT "v=DKIM1; k=ed25519; p=MIGfM....+/mh9wIDAQAB"
+        awesome-tool.cpppo-licensing._domainkey.awesome-inc.com 86400 IN TXT "v=DKIM1; k=ed25519; p=PW847sz.../M+/GZc="
+
+
+    Authoring a License
+    -------------------
+    
+    A software issuer (or end-user, in the case of machine-specific or numerically limited Licenses)
+    must create new Licenses.
+    
+        >>> from cpppo.crypto.licensing import author, issue, verify
+    
+    First, create a Keypair, including both signing (private, .sk) and verifying (public, .vk) keys:
+
+        >>> signing_keypair = author( seed=b'our secret 32-byte seed material' )
+
+    Then, create a License, identifying the author by their public key, and the product.  This
+    example is a perpetual license (no start/length), for any machine.
+
+        >>> license = License( author = "Awesome, Inc.", product = "Awesome Tool", \
+                author_domain = "awesome-inc.com", author_pubkey = signing_keypair.vk, \
+                confirm=False ) # since awesome-inc.com doesn't actually exist...
+
+    Finally, issue the LicenseSigned containing the License and its Ed25519 Signature provenance:
+
+        >>> provenance = issue( license, signing_keypair, confirm=False )
+        >>> provenance_ser = provenance.serialize( indent=4 )
+        >>> print( provenance_ser.decode( 'utf-8' ) )
+        {
+            "license":{
+                "author":"Awesome, Inc.",
+                "author_domain":"awesome-inc.com",
+                "author_pubkey":"PW847szICqnQBzbdr5TAoGO26RwGxG95e3Vd/M+/GZc=",
+                "author_service":"awesome-tool",
+                "client":null,
+                "client_pubkey":null,
+                "dependencies":null,
+                "length":null,
+                "machine":null,
+                "product":"Awesome Tool",
+                "start":null
+            },
+            "signature":"MiOGUpkv6/RWzI/C/VP1Ncn7N4WZa0lpiVzETZ4CJsLSo7qGLxIx+X+4tal16CcT+BUW1cDwJtcTftI5z+RHAQ=="
+        }
+
+
+    De/Serializing Licenses
+    -----------------------
+    
+    Licenses are typically stored in files, in the configuration directory path of the application.
+
+
+    Validating Licenses
+    -------------------
+
+    Somewhere in the product's code, the License is loaded and validated.
+
+        import json
+        >>> provenance_dict = json.loads( provenance_ser )
+        >>> provenance_load = LicenseSigned( confirm=False, **provenance_dict )
+        >>> print( provenance_load )
+        {
+            "license":{
+                "author":"Awesome, Inc.",
+                "author_domain":"awesome-inc.com",
+                "author_pubkey":"PW847szICqnQBzbdr5TAoGO26RwGxG95e3Vd/M+/GZc=",
+                "author_service":"awesome-tool",
+                "client":null,
+                "client_pubkey":null,
+                "dependencies":null,
+                "length":null,
+                "machine":null,
+                "product":"Awesome Tool",
+                "start":null
+            },
+            "signature":"MiOGUpkv6/RWzI/C/VP1Ncn7N4WZa0lpiVzETZ4CJsLSo7qGLxIx+X+4tal16CcT+BUW1cDwJtcTftI5z+RHAQ=="
+        }
+        >>> verify( provenance_load, confirm=False )
+        {}
 
     """
 
@@ -818,14 +911,19 @@ class LicenseSigned( Serializable ):
         """Given an ed25519 signing key (32-byte private + 32-byte public), produce the provenance
         for the supplied License. 
 
-        Normal constructor calling convention is:
+        Normal constructor calling convention to take a License and a signing key and create
+        a signed provenance:
 
             LicenseSigned( <License>, <Keypair> )
+
+        To reconstruct from a dict (eg. recovered from a .cpppo-license file):
+
+            LicenseSigned( **provenance_dict )
 
         """
         assert isinstance( license, (License, dict) ), \
             "Require a License or its serialization dict, not a {!r}".format( license )
-        self.license		= License( **license ) if isinstance( license, dict ) else license
+        self.license		= License( confirm=confirm, **license ) if isinstance( license, dict ) else license
 
         assert signature or author_sigkey, \
             "Require either signature, or the means to produce one via the author's signing key"
