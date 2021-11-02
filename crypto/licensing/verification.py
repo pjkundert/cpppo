@@ -59,10 +59,12 @@ except: # Python2
     maketrans			= string.maketrans
 
 def domainkey_service( product ):
+    """Convert a UTF-8 product name into a DNS Domainkey service name."""
     author_service		= product.lower().translate( domainkey_service.trans )
-    author_service		= domainkey.idna_encoder( author_service )[0].decode( 'utf-8' )
+    author_service		= domainkey_service.idna_encoder( author_service )[0].decode( 'utf-8' )
     return author_service
 domainkey_service.trans		= maketrans( ' ._/', '----' )
+domainkey_service.idna_encoder	= codecs.getencoder( 'idna' )
 
 
 def into_hex( binary, encoding='ASCII' ):
@@ -91,7 +93,7 @@ def into_text( binary, decoding='hex', encoding='ASCII' ):
         return binary
 
 
-def bytes_from_text( text, decodings=('hex', 'base64'), encoding='ASCII', ignore_invalid=True ):
+def into_bytes( text, decodings=('hex', 'base64'), encoding='ASCII', ignore_invalid=True ):
     """Try to decode base-64 or hex bytes from the provided ASCII text.  Must work in Python 2, which
     is non-deterministic; a str may contain bytes or text.
 
@@ -108,7 +110,7 @@ def bytes_from_text( text, decodings=('hex', 'base64'), encoding='ASCII', ignore
         for c in decodings:
             try:
                 binary		= codecs.getdecoder( c )( text_enc )[0]
-                log.debug( "Decoded {} {} bytes from: {!r}".format( len( binary ), c, text_enc ))
+                #log.debug( "Decoded {} {} bytes from: {!r}".format( len( binary ), c, text_enc ))
                 return binary
             except Exception as exc:
                 #log.debug( "Couldn't decode as {}: {!r}; {}".format( c, text_enc, exc ))
@@ -130,7 +132,7 @@ def into_keys( keypair ):
      32/64-byte key material.
 
     Supports deserialization of keys from hex or base-64 encode public (32-byte) or secret/signing
-    (64-byte) datas.
+    (64-byte) data.
 
     """
     try:
@@ -139,7 +141,7 @@ def into_keys( keypair ):
     except AttributeError:
         pass
     # Not a Keypair.  First, see if it's a serialized public/private key.
-    deserialized	= bytes_from_text( keypair )
+    deserialized	= into_bytes( keypair )
     if deserialized:
         keypair		= deserialized
     # Finally, see if we've recovered a signing or public key
@@ -226,7 +228,6 @@ def domainkey( product, author_domain, author_service=None, author_pubkey=None )
         ))
 
     return (path, dkim)
-domainkey.idna_encoder		= codecs.getencoder( 'idna' )
 
 
 class Serializable( object ):
@@ -566,7 +567,7 @@ class License( Serializable ):
                 p		= val.strip()
         assert p, \
             "Failed to locate public key in TXT DKIM record: {dkim}".format( dkim=dkim )
-        p_binary		= bytes_from_text( p, ('base64',), 'ASCII' )
+        p_binary		= into_bytes( p, ('base64',), 'ASCII' )
         return p_binary
         #return codecs.getdecoder( 'base64' )( codecs.getencoder( 'utf-8' )( p )[0] )[0]
 
@@ -632,7 +633,7 @@ class License( Serializable ):
             # Node number is typically a much shorter integer; fill to required UUID length.
             machine_id			= "{:0>32}".format( hex( uuid.getnode())[2:] )
         try:
-            machine_id			= bytes_from_text( machine_id, ('hex', ) )
+            machine_id			= into_bytes( machine_id, ('hex', ) )
             assert isinstance( machine_id, bytes ) and len( machine_id ) == 16
         except Exception as exc:
             raise RuntimeError( "Invalid Machine ID found: {!r}: {}".format( machine_id, exc ))
@@ -746,12 +747,6 @@ class License( Serializable ):
         if constraints.get('start') is not None or constraints.get('length') is not None:
             start, length, _, _	= overlap_intersect( start, length, Timespan(
                 contraints.get( 'start' ), contraints.get( 'length' )))
-        log.normal( "License for {auth}'s {prod!r} is active from {start} for {length}".format(
-            auth	= self.author,
-            prod	= self.product,
-            start	= into_str_LOC( start ),
-            length	= length,
-        ))
 
         # Default 'machine' constraints to the local machine UUID.  If no constraints and
         # self.machine is None, we don't need to do anything, because the License is good for any
@@ -783,14 +778,16 @@ class License( Serializable ):
             if machine_const is not None:
                 constraints['machine'] = machine_uuid
 
-        log.normal( "License for {auth}'s {prod!r} is valid on machine {machine}".format(
+        log.normal( "License for {auth}'s {prod!r} is valid from {start} for {length} on machine {machine}".format(
             auth	= self.author,
             prod	= self.product,
+            start	= into_str_LOC( start ),
+            length	= length,
             machine	= into_str( machine ) or into_str( constraints.get( 'machine' )) or '(any)',
         ))
 
         # Finally, now that the License, all License dependencies and any supplied constraints have
-        # been verified, augment the constraints with this License provenance as a dependency.
+        # been verified, augment the constraints with this LicenseSigned as one of the dependencies.
         if constraints:
             assert signature is not None, \
                 "Attempt to issue a sub-License of an un-signed License"
@@ -802,10 +799,11 @@ class License( Serializable ):
 
 class LicenseSigned( Serializable ):
     """An ed25519 signed License provenance.  Only a LicenseSigned (and confirmation of the public key)
-    proves that a License was actually issued by the purported author.
+    proves that a License was actually issued by the purported author.  It is expected that authors
+    will only sign a valid License.
 
-    The public key of the author must be confirmed through other means.  One typical means is by
-    checking publication on the author's domain, eg.:
+    The public key of the author must be confirmed through independent means.  One typical means is by
+    checking publication on the author's domain (the default w/ confirm=None), eg.:
 
         default._domainkey.example.com 86400 IN TXT "v=DKIM1; k=ed25519; p=MIGfM....+/mh9wIDAQAB"
 
@@ -837,14 +835,15 @@ class LicenseSigned( Serializable ):
         elif signature:
             # Could be a hex-encoded signature on deserialization, or a 64-byte signature.  If both
             # signature and author_sigkey, we'll just be confirming the supplied signature, below.
-            self.signature	= bytes_from_text( signature, ignore_invalid=False )
+            self.signature	= into_bytes( signature, ignore_invalid=False )
 
         self.verify(
             author_pubkey	= author_sigkey,
             confirm		= confirm,
             machine_id_path	= machine_id_path )
 
-    def verify( self, author_pubkey=None, signature=None, confirm=None, machine_id_path=None, **constraints ):
+    def verify( self, author_pubkey=None, signature=None, confirm=None, machine_id_path=None,
+                **constraints ):
         return self.license.verify(
             author_pubkey	= author_pubkey or self.license.author_pubkey,
             signature		= signature or self.signature,
@@ -880,8 +879,12 @@ def issue( license, author_sigkey, signature=None, confirm=None, machine_id_path
     that they are following the rules of the software author.
 
     """
-    return LicenseSigned( license, author_sigkey,
-                          signature=signature, confirm=confirm, machine_id_path=machine_id_path )
+    return LicenseSigned(
+        license,
+        author_sigkey,
+        signature	= signature,
+        confirm		= confirm,
+        machine_id_path	= machine_id_path )
 
 
 def verify( provenance, author_pubkey=None, signature=None, confirm=None, machine_id_path=None,
