@@ -836,7 +836,6 @@ class duration( object ):
 
         return datetime.timedelta( seconds=seconds, microseconds=microseconds )
 
-
     def __init__( self, value = None ):
         if isinstance( value, duration ):
             self.timedelta	= datetime.timedelta(
@@ -847,7 +846,6 @@ class duration( object ):
             self.timedelta	= value
         else: # int/float number of seconds
             self.timedelta	= datetime.timedelta( seconds = value or 0 )
-
         
     def __str__( self ):
         return self._format( self.timedelta )

@@ -28,7 +28,7 @@ enip.defaults -- System-wide default (global) values
 __all__				= [ 'latency', 'timeout', 'address',
                                     'route_path_default', 'send_path_default',
                                     'priority_time_tick', 'timeout_ticks',
-                                    'config_name', 'config_files',
+                                    'config_name', 'config_files', 'config_open', 'config_open_deduced',
                                     'forward_open_default' ]
 
 import os
@@ -51,6 +51,16 @@ timeout_ticks			= 157		#  157 * 32 == 5.024s
 config_name			= 'cpppo.cfg'	# Default Cpppo application configuration file
 
 def config_paths( filename, extra=None ):
+    """Yield the Cpppo configuration search paths in *reverse* order of precedence (furthest or most
+    general, to nearest or most specific).
+
+    This is the order that is required by configparser; settings in "later"
+    files override those in "earlier" ones.
+
+    For other purposes (eg. loading complete files), the order is likely reversed!  The caller must
+    do this manually.
+
+    """
     yield os.path.join( os.path.dirname( __file__ ), '..', '..', filename )# cpppo install dir
     yield os.path.join( os.getenv( 'APPDATA', os.sep + 'etc' ), filename )# global app data
     yield os.path.join( os.path.expanduser( '~' ), '.' + filename )	# user home dir
@@ -58,23 +68,56 @@ def config_paths( filename, extra=None ):
     for e in extra or []:
         yield os.path.join( e, filename )
     
+# Default Cpppo configuration files path, In 'configparser' expected order (most general to most specific)
 config_files			= list( config_paths( config_name ))
 
 try:
     FileNotFoundError
 except NameError:
-    FileNotFoundError		= IOError
+    FileNotFoundError		= IOError # Python2 compatibility
 
-def config_open( filename, mode=None, paths=None, extra=None, **kwds ):
-    """Find and open a filename on the standard or provided configuration file paths (plus any extra)"""
-    for f in ( paths + ( extra or [] )) if paths else config_paths( filename, extra=extra ):
+def config_open( filename, mode=None, extra=None, **kwds ):
+    """Find and open a filename on the standard or provided configuration file paths (plus any extra),
+    in most general to most specific order.
+    
+    We traverse these in reverse order: nearest and most specific, to furthest and most general.
+
+    By default, we assume the target files is a text file, and default to open in 'r' mode.
+    """
+    search			= list( config_paths( filename, extra=extra ))
+    for f in reversed( search ):
         try:
             return open( f, mode=mode or 'r', **kwds )
         except FileNotFoundError:
             pass
     raise FileNotFoundError(
-        "Could not locate {!r} in any Cpppo configuration directory".format( filename )
+        "Could not locate {!r} in any Cpppo config dir.: {}".format(
+            filename, ', '.join( search ))
     )
+
+
+def config_open_deduced( basename=None, mode=None, extension=None, filename=None, package=None, **kwds ):
+    """Find a configuration file, optionally deducing the basename from the provided __file__ filename
+    or __package__ name, returning the open file or raising a FileNotFoundError (or IOError in Python2).
+
+    """
+    assert basename or ( filename or package ), \
+        "Cannot deduce basename without either __file__ or __package__"
+    if basename is None:
+        if package is None:
+            basename		= os.path.basename( filename ) # eg. '/a/b/c/d.py' --> 'd.py'
+            if '.' in basename:
+                basename	= basename[:basename.rfind( '.' )] # up to last '.'
+        else:
+            basename		= package
+            if '.' in basename:
+                basename	= basename[:basename.find( '.' )] # up to first '.'
+    if extension and '.' not in basename:
+        if extension[0] != '.':
+            basename	       += '.'
+        basename	       += extension
+    return config_open( basename, mode=mode or 'r', **kwds )
+
 
 # Forward Open has Connection Path and Path (in addition to the Send RR Data's Route Path and Send Path)
 forward_open_default		= dotdict({

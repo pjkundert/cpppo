@@ -40,11 +40,11 @@ from datetime import datetime
 from ...misc		import timer
 from ...automata	import type_str_base
 from ...history.times	import parse_datetime, parse_seconds, timestamp, duration
-from ...server.enip.defaults import config_open
+from ...server.enip.defaults import config_open_deduced
 
 log				= logging.getLogger( "licensing" )
 
-# Try a globally installed ed25519ll possibly with a CTypes binding
+# Get Ed25519 support. Try a globally installed ed25519ll possibly with a CTypes binding
 try:
     import ed25519ll as ed25519
 except ImportError:
@@ -55,11 +55,16 @@ except ImportError:
         # Fall back to the very slow D.J.Bernstein Python reference implementation
         from .. import ed25519
 
+# Optionally, we can provide ChaCha20Poly1305 to support KeypairEncrypted
 try:
-    str_maketrans		= str.maketrans
-except: # Python2
-    import string
-    str_maketrans		= string.maketrans
+    from chacha20poly1305 import ChaCha20Poly1305
+except ImportError:
+    pass
+
+
+class LicenseIncompatibility( Exception ):
+    """Something is wrong with the License, or supporting infrastructure."""
+    pass
 
 
 def domainkey_service( product ):
@@ -77,7 +82,11 @@ def domainkey_service( product ):
     author_service		= author_service.translate( domainkey_service.dns_trans )
     author_service		= author_service.lower()
     return author_service
-domainkey_service.dns_trans	= str_maketrans( ' ._/', '----' )
+try:
+    domainkey_service.dns_trans	= str.maketrans( ' ._/', '----' )
+except: # Python2
+    import string
+    domainkey_service.dns_trans	= string.maketrans( ' ._/', '----' )
 domainkey_service.idna_encoder	= codecs.getencoder( 'idna' )
 assert "a/b.c_d e".translate( domainkey_service.dns_trans ) == 'a-b-c-d-e'
 
@@ -99,6 +108,8 @@ def into_text( binary, decoding='hex', encoding='ASCII' ):
 
     """
     if binary is not None:
+        if isinstance( binary, bytearray ):
+            binary		= bytes( binary )
         assert isinstance( binary, bytes ), \
             "Cannot convert to {}: {!r}".format( decoding, binary )
         binary			= codecs.getencoder( decoding )( binary )[0]
@@ -108,9 +119,9 @@ def into_text( binary, decoding='hex', encoding='ASCII' ):
         return binary
 
 
-def into_bytes( text, decodings=('hex', 'base64'), encoding='ASCII', ignore_invalid=True ):
-    """Try to decode base-64 or hex bytes from the provided ASCII text.  Must work in Python 2, which
-    is non-deterministic; a str may contain bytes or text.
+def into_bytes( text, decodings=('hex', 'base64'), ignore_invalid=None ):
+    """Try to decode base-64 or hex bytes from the provided ASCII text, pass thru binary data as bytes.
+    Must work in Python 2, which is non-deterministic; a str may contain bytes or text.
 
     So, assume ASCII encoding, start with the most strict (least valid symbols) decoding codec
     first.  Then, try as simple bytes.
@@ -118,36 +129,45 @@ def into_bytes( text, decodings=('hex', 'base64'), encoding='ASCII', ignore_inva
     """
     if not text:
         return None
-    # First, see if the text looks like hex- or base64-encoded ASCII
+    if isinstance( text, bytearray ):
+        return bytes( text )
+    # First, see if the text looks like hex- or base64-decoded utf-8-encoded ASCII
+    encoding,is_ascii		= 'utf-8',lambda c: 32 <= c <= 127
     try:
-        # Python3 'bytes' doesn't have .encode, Python2 binary data will raise UnicodeDecodeError
+        # Python3 'bytes' doesn't have .encode (so will skip this code), and Python2 non-ASCII
+        # binary data will raise an AssertionError.
         text_enc		= text.encode( encoding )
+        assert all( is_ascii( c ) for c in bytearray( text_enc )), \
+            "Non-ASCII symbols found: {!r}".format( text_enc )
         for c in decodings:
             try:
                 binary		= codecs.getdecoder( c )( text_enc )[0]
-                #log.debug( "Decoded {} {} bytes from: {!r}".format( len( binary ), c, text_enc ))
+                #log.debug( "Decoding {} {} bytes from: {!r}".format( len( binary ), c, text_enc ))
                 return binary
             except Exception as exc:
                 #log.debug( "Couldn't decode as {}: {!r}; {}".format( c, text_enc, exc ))
                 pass
     except Exception as exc:
-        #log.debug( "Couldn't encode as {}: {!r}; {!r}".format( encoding, text, exc ))
+        #log.debug( "Couldn't encode {}/ASCII: {!r}; {}".format( encoding, text, exc ))
         pass
     # Finally, check if the text is already bytes (*possibly* bytes in Python2, as str ===
     # bytes; so this cannot be done before the decoding attempts, above)
     if isinstance( text, bytes ):
+        #log.debug( "Passthru {} {} bytes from: {!r}".format( len( text ), 'native', text ))
         return text
     if not ignore_invalid:
-        raise RuntimeError( "Could not encode as {}, decode as {} or raw bytes: {!r}".format(
+        raise RuntimeError( "Could not encode as {}, decode as {} or native bytes: {!r}".format(
             encoding, ', '.join( decodings ), text ))
 
 
 def into_keys( keypair ):
-    """Return whatever Ed25519 (signing, public) keys are available in the provided Keypair or
-     32/64-byte key material.
+    """Return whatever Ed25519 (public, signing) keys are available in the provided Keypair or
+    32/64-byte key material.  This destructuring ordering is consistent with the Keypair
+    namedtuple.
 
     Supports deserialization of keys from hex or base-64 encode public (32-byte) or secret/signing
-    (64-byte) data.
+    (64-byte) data.  To avoid nondeterminism, we will assume that all Ed25519 key material is encoded in
+    base64 (never hex).
 
     """
     try:
@@ -156,17 +176,17 @@ def into_keys( keypair ):
     except AttributeError:
         pass
     # Not a Keypair.  First, see if it's a serialized public/private key.
-    deserialized	= into_bytes( keypair )
+    deserialized	= into_bytes( keypair, ('base64',), ignore_invalid=True )
     if deserialized:
         keypair		= deserialized
     # Finally, see if we've recovered a signing or public key
     if isinstance( keypair, bytes ):
         if len( keypair ) == 64:
             # Must be a 64-byte signing key, which also contains the public key
-            return keypair[0:64], keypair[32:64]
+            return keypair[32:64], keypair[0:64]
         elif len( keypair ) == 32:
             # Can only contain a 32-byte public key
-            return None, keypair[:32]
+            return keypair[:32], None
     # Unknown key material.
     return None, None
 
@@ -235,7 +255,7 @@ def domainkey( product, author_domain, author_service=None, author_pubkey=None )
 
     dkim			= None
     if author_pubkey:
-        _, author_pubkey	= into_keys( author_pubkey )
+        author_pubkey, _	= into_keys( author_pubkey )
         dkim			= '; '.join( "{k}={v}".format(k=k, v=v) for k,v in (
             ('v', 'DKIM1'),
             ('k', 'ed25519'),
@@ -313,7 +333,7 @@ class Serializable( object ):
         be used to check the signature) is correct, by re-deriving the public key.
 
         """
-        sigkey, pubkey	= into_keys( author_sigkey )
+        pubkey, sigkey		= into_keys( author_sigkey )
         assert sigkey, \
             "Invalid ed25519 signing key provided"
         if author_pubkey:
@@ -358,10 +378,6 @@ class Serializable( object ):
                 setattr( result, copy.copy( getattri( self, var )))
 
         return result
-
-
-class LicenseIncompatibility( Exception ):
-    pass
 
 
 Timespan = collections.namedtuple( 'Timespan', ('start', 'length') )
@@ -491,7 +507,7 @@ class License( Serializable ):
         self.product		= product
 
         self.client		= client
-        _, self.client_pubkey	= into_keys( client_pubkey )
+        self.client_pubkey, _	= into_keys( client_pubkey )
 
         # Reconstitute LicenseSigned provenance from any dicts provided
         self.dependencies	= None if dependencies is None else list(
@@ -533,7 +549,7 @@ class License( Serializable ):
         # from their domain's DKIM entry.
         assert author_pubkey or self.author_domain, \
             "Either an author_pubkey, or an author_domain/service must be provided"
-        _, self.author_pubkey	= into_keys( author_pubkey )
+        self.author_pubkey, _	= into_keys( author_pubkey )
         if self.author_pubkey is None:
             self.author_pubkey	= self.author_pubkey_query()
 
@@ -582,9 +598,8 @@ class License( Serializable ):
                 p		= val.strip()
         assert p, \
             "Failed to locate public key in TXT DKIM record: {dkim}".format( dkim=dkim )
-        p_binary		= into_bytes( p, ('base64',), 'ASCII' )
+        p_binary		= into_bytes( p, ('base64',) )
         return p_binary
-        #return codecs.getdecoder( 'base64' )( codecs.getencoder( 'utf-8' )( p )[0] )[0]
 
     def overlap( self, *others ):
         """Compute the overlapping start/length that is within the bounds of this and other license(s).
@@ -649,7 +664,7 @@ class License( Serializable ):
             machine_id			= "{:0>32}".format( hex( uuid.getnode())[2:] )
         try:
             machine_id			= into_bytes( machine_id, ('hex', ) )
-            assert isinstance( machine_id, bytes ) and len( machine_id ) == 16
+            assert len( machine_id ) == 16
         except Exception as exc:
             raise RuntimeError( "Invalid Machine ID found: {!r}: {}".format( machine_id, exc ))
         machine_id			= bytearray( machine_id )
@@ -679,7 +694,7 @@ class License( Serializable ):
         success			= None
 
         if author_pubkey:
-            _, author_pubkey	= into_keys( author_pubkey )
+            author_pubkey, _	= into_keys( author_pubkey )
             assert author_pubkey, "Unrecognized author_pubkey provided"
 
         if author_pubkey and author_pubkey != self.author_pubkey:
@@ -938,7 +953,7 @@ class LicenseSigned( Serializable ):
         elif signature:
             # Could be a hex-encoded signature on deserialization, or a 64-byte signature.  If both
             # signature and author_sigkey, we'll just be confirming the supplied signature, below.
-            self.signature	= into_bytes( signature, ignore_invalid=False )
+            self.signature	= into_bytes( signature, ('base64',) )
 
         self.verify(
             author_pubkey	= author_sigkey,
@@ -955,11 +970,140 @@ class LicenseSigned( Serializable ):
             **constraints )
 
 
-def author( seed=None ):
+class KeypairPlaintext( Serializable ):
+    """De/serialize the plaintext Ed25519 private and public key material"""
+    __slots__			= ('sk', 'vk')
+    serializers			= dict(
+        sk		= into_b64,
+        vk		= into_b64,
+    )
+
+    def __init__( self, sk=None, vk=None ):
+        """Support sk and optionally vk to derive and verify the Keypair.  At minimum, the first 256
+        bits of private key material must be supplied; the remainder of the 512-bit signing key is a
+        copy of the public key.
+
+        """
+        assert sk, \
+            "Cannot recover Plaintext Keypair without private key material"
+        self.sk			= into_bytes( sk, ('base64',) )
+        assert len( self.sk ) in (32, 64), \
+            "Expected 256-bit or 512-bit Ed25519 Private Key, not {}-bit {!r}".format(
+                len( self.sk ) * 8, self.sk )
+        if vk:
+            self.vk		= into_bytes( vk, ('base64',) )
+            assert len( self.vk ) == 32, \
+                "Expected 256-bit Ed25519 Public Key, not {}-bit {!r}".format(
+                    len( self.vk ) * 8, self.vk )
+            assert len( self.sk ) != 64 or self.vk == self.sk[32:], \
+                "Inconsistent Ed25519 signing / public keys in supplied data"
+        elif len( self.sk ) == 64:
+            self.vk		= self.sk[32:]
+        else:
+            self.vk		= None
+        # We know into_keypair is *only* going to use the self.sk[:32] (and optionally self.vk to
+        # verify), so we've recovered enough to call it.
+        self.vk, self.sk	= self.into_keypair()
+
+    def into_keypair( self, **kwds ):
+        """No additional data required to obtain Keypair; just the leading 256-bit private key material
+        of the private key.
+
+        """
+        keypair			= author( seed=self.sk[:32], why="provided plaintext signing key" )
+        if self.vk:
+            assert keypair.vk == self.vk, \
+                "Failed to derive matching Ed25519 signing key from supplied data"
+        return keypair
+
+
+class KeypairEncrypted( Serializable):
+    """De/serialize the keypair encrypted derivation seed, and the salt used in combination with the
+    supplied username and password to derive the symmetric encryption key for encrypting the seed.
+    The supported derivation(s):
+
+        sha256:		hash of salt + username + password
+
+    The 256-bit Ed25519 Keypair seed is encrypted using ChaCha20Poly1305 w/ the salt and derived
+    key.  The salt and seed are always serialized in hex, to illustrate that it is not Ed25519
+    Keypair data.
+
+    """
+    __slots__			= ('salt', 'seed')
+    serializers			= dict(
+        salt		= into_hex,
+        seed		= into_hex,
+    )
+
+    def __init__( self, salt=None, seed=None, username=None, password=None, vk=None, sk=None ):
+        assert ( seed and salt ) or ( sk and password and username ), \
+            "Insufficient data to create an Encrypted Keypair"
+        if salt:
+            self.salt		= into_bytes( salt, ('hex',) )
+        else:
+            self.salt		= os.urandom( 12 )
+        assert len( self.salt ) == 12, \
+            "Expected 96-bit salt, not {!r}".format( self.salt )
+        if seed:
+            # We are provided with the encrypted seed (tag + ciphertext).  Done!  But, we don't know
+            # the original Keypair, here, so we can't verify below.
+            self.seed		= into_bytes( seed, ('hex',) )
+            assert len( self.seed ) * 8 == 384, \
+                "Expected 384-bit ChaCha20Poly1305-encrypted seed, not a {}-bit {!r}".format(
+                    len( self.seed ) * 8, self.seed )
+            keypair		= None
+        else:
+            # We are provided with the unencrypted signing key.  We must encrypt the 256-bit private
+            # key material to produce the seed.  Remember, the Ed25519 private signing key always
+            # includes the 256-bit public key appended to the raw 256-bit private key material.
+            sk			= into_bytes( sk, ('base64',) )
+            seed		= sk[:32]
+            keypair		= author( seed=seed, why="provided unencrypted signing key" )
+            if vk:
+                vk		= into_bytes( vk, ('base64',) )
+                assert keypair.vk == vk, \
+                    "Failed to derive Ed25519 signing key from supplied data"
+            key			= self.key( username=username, password=password )
+            cipher		= ChaCha20Poly1305( key )
+            plaintext		= bytearray( seed )
+            nonce		= self.salt
+            ciphertext		= cipher.encrypt( nonce, plaintext )
+            self.seed		= ciphertext
+        if username and password:
+            # Verify MAC by decrypting w/ username and password, if provided
+            keypair_rec		= self.into_keypair( username=username, password=password )
+            assert keypair is None or keypair_rec == keypair, \
+                "Failed to recover original key after decryption"
+
+    def key( self, username, password ):
+        # TODO: The username, which is often an email address, should not be case-sensitive?
+        #username		= username.lower()
+        username		= username.encode( 'utf-8' )
+        password		= password.encode( 'utf-8' )
+        m			= hashlib.sha256()
+        m.update( self.salt )
+        m.update( username )
+        m.update( password )
+        return m.digest()
+
+    def into_keypair( self, username=None, password=None ):
+        """Recover the original signing Keypair by decrypting with the supplied data."""
+        assert username and password, \
+            "Cannot recover Encrypted Keypair without username and password"
+        key			= self.key( username=username, password=password )
+        cipher			= ChaCha20Poly1305( key )
+        nonce			= self.salt
+        ciphertext		= bytearray( self.seed )
+        plaintext		= cipher.decrypt( nonce, ciphertext )
+        keypair			= author( seed=plaintext, why="decrypted w/ {}'s password".format( username ))
+        return keypair
+
+
+def author( seed=None, why=None ):
     """Prepare to author Licenses, by creating an Ed25519 keypair."""
     keypair			= ed25519.crypto_sign_keypair( seed )
-    log.warning("Created Ed25519 signing keypair w/ Public key: {vk_b64}".format(
-        vk_b64=into_b64( keypair.vk )))
+    log.normal( "Created Ed25519 signing keypair  w/ Public key: {vk_b64}{why}".format(
+        vk_b64=into_b64( keypair.vk ), why=" ({})".format( why ) if why else "" ))
     return keypair
 
 
@@ -1011,28 +1155,101 @@ def verify( provenance, author_pubkey=None, signature=None, confirm=None, machin
         machine_id_path	= machine_id_path,
         **constraints )
 
-
-def load( basename=None, mode=None, confirm=None, **kwds ):
+    
+def load( basename=None, mode=None, extension=None, confirm=None,
+          filename=None, package=None,
+          **kwds ):
     """Open and load a Cpppo Licensing file, containing a LicenseSigned provenance record.  By default,
-    use our base __package__'s name, or the executable __file__'s basename.  Append
-    .cpppo-licensing, if no suffix provided.
+    use the provided package's (your __package__) name, or the executable filename's (your __file__)
+    basename.  Append .cpppo-licensing, if no suffix provided.
 
     """
-    if basename is None:
-        if __package__ is None:
-            basename		= os.path.basename( __file__ ) # eg. '/a/b/c/d.py' --> 'd.py'
-            if '.' in basename:
-                basename	= basename[:basename.rfind( '.' )]
-            log.info( "Got Cpppo Licensing basename from __file__: {!r}".format( __file__ ))
-        else:
-            basename		= __package__
-            log.info( "Got Cpppo Licensing basename from __package__: {!r}".format( __package__ ))
-    if '.' not in basename:
-        basename	       += '.cpppo-licensing'
-    log.info( "Attempting to locate {!r} Cpppo Licensing file".format( basename ))
-    with config_open( basename, mode=mode or 'r', **kwds ) as f:
+    with config_open_deduced(
+            basename=basename, mode=mode, extension=extension or 'cpppo-licensing',
+            filename=filename, package=package,
+            **kwds ) as f:
         provenance_ser		= f.read()
     provenance_dict		= json.loads( provenance_ser )
     return LicenseSigned( confirm=confirm, **provenance_dict )
     
 
+def load_keypair( basename=None, mode=None, extension=None,
+                  filename=None, package=None,
+                  username=None, password=None,
+                  **kwds ):
+    """Load Ed25519 signing Keypair from file;:
+
+    - Read the plaintext Keypair's public/private keys.
+    
+      WARNING: Only perform this on action on a secured computer: this file contains your private
+      signing key material in plain text form!
+
+    - Load the encrypted seed (w/ a random salt), and:
+      - Derive the decryption symmetric cipher key from the salt + username + password
+
+        The plaintext 256-bit Ed25519 private key seed is encrypted using ChaCha20Poly1305 with the
+        symmetric cipher key using the (same) salt as a Nonce.  Since the random salt is only (ever)
+        used to encrypt one thing, it satisfies the requirement that the same None only ever be used
+        once to encrypt something using a certain key.
+
+    - TODO: use a second Keypair's private key to derive a shared secret key
+
+      Optionally, this Signing Keypair's derivation seed can be protected by a symmetric cipher
+      key derived from the *public* key of this signing key, and the *private* key of another
+      Ed25519 key using the diffie-hellman.  For example, one derived via Argon2 from an email +
+      password + salt.
+
+    Therefore, the following deserialized Keypair dicts are supported:
+
+    Unencrypted Keypair:
+
+        {
+            "sk":"bw58LSvuadS76jFBCWxkK+KkmAqLrfuzEv7ly0Y3lCLSE2Y01EiPyZjxirwSjHoUf9kz9meeEEziwk358jthBw=="
+            "vk":"qZERnjDZZTmnDNNJg90AcUJZ+LYKIWO9t0jz/AzwNsk="
+        }
+
+    Unencrypted Keypair from just 256-bit seed (which is the first half of a full .sk signing key),
+    and optional public key .vk to verify:
+
+        {
+            "seed":"bw58LSvuadS76jFBCWxkK+KkmAqLrfuzEv7ly0Y3lC=",
+            "vk":"qZERnjDZZTmnDNNJg90AcUJZ+LYKIWO9t0jz/AzwNsk="
+        }
+
+    384-bit ChaCha20Poly1503-Encrypted seed:
+        {
+            "salt":"cyHOei+4c5X+D/niQWvDG5olR1qi4jddcPTDJv/UfrQ=",
+            "seed":"6XvQl2fIOPYKe8wzSPxXIhUKKwf38qGWS9iOeN7hzriJ38gv5X7xJnGQl0hHDgMX"
+        }
+
+    NOTE: For encrypted Keypairs, we do not need to save the "derivation" we use to arrive at
+    the cryptographic key from the salt + username + password, since the encryption used includes a
+    MAC; we try each supported derivation.
+
+    """
+    with config_open_deduced(
+            basename=basename, mode=mode, extension=extension or 'cpppo-keypair',
+            filename=filename, package=package,
+            **kwds ) as f:
+        keypair_filename        = f.name
+        keypair_ser		= f.read()
+    keypair_dict		= json.loads( keypair_ser )
+    # Attempt to recover the different Keypair...() types, from most stringent requirements to least.
+    try:
+        encrypted		= KeypairEncrypted( username=username, password=password, **keypair_dict )
+        keypair			= encrypted.into_keypair( username=username, password=password )
+        log.info( "Recover Ed25519 KeypairEncrypted w/ Public key: {} (from {})".format(
+            into_b64( keypair.vk ), keypair_filename ))
+        return keypair
+    except Exception as exc:
+        pass
+    try:
+        plaintext		= KeypairPlaintext( **keypair_dict )
+        keypair			= plaintext.into_keypair()
+        log.info( "Recover Ed25519 KeypairPlaintext w/ Public key: {} (from {})".format(
+            into_b64( keypair.vk ), keypair_filename ))
+        return keypair
+    except Exception as exc:
+        pass
+    raise LicenseIncompatibility( "Cannot load Keypair from file {} providing {}".format(
+        keypair_filename, ', '.join( keypair_dict.keys() )))

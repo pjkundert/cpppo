@@ -1,24 +1,30 @@
 # -*- coding: utf-8 -*-
 import binascii
 import codecs
-import pytest
 import json
 import os
+import pytest
 
 from dns.exception import DNSException
 from .verification import (
     License, LicenseSigned, LicenseIncompatibility, Timespan,
+    KeypairPlaintext, KeypairEncrypted,
     domainkey, domainkey_service, overlap_intersect,
     into_b64, into_hex, into_str, into_str_UTC, into_JSON, into_keys,
-    author, issue, verify, load,
+    author, issue, verify, load, load_keypair,
 )
 from .. import ed25519ll as ed25519
 
 from ...history import parse_datetime, timestamp, parse_seconds, duration
 
-dominion_sigkey = binascii.unhexlify( '431f3fb4339144cb5bdeb77db3148a5d340269fa3bc0bf2bf598ce0625750fdca991119e30d96539a70cd34983dd00714259f8b60a2163bdb748f3fc0cf036c9' )
-awesome_sigkey = binascii.unhexlify(  '4e4d27b26b6f4db69871709d68da53854bd61aeee70e63e3b3ff124379c1c6147321ce7a2fb87395fe0ff9e2416bc31b9a25475aa2e2375d70f4c326ffd47eb4' )
-enduser_seed = binascii.unhexlify( '00' * 32 )
+dominion_sigkey			= binascii.unhexlify(
+    '431f3fb4339144cb5bdeb77db3148a5d340269fa3bc0bf2bf598ce0625750fdca991119e30d96539a70cd34983dd00714259f8b60a2163bdb748f3fc0cf036c9' )
+awesome_sigkey			= binascii.unhexlify(
+    '4e4d27b26b6f4db69871709d68da53854bd61aeee70e63e3b3ff124379c1c6147321ce7a2fb87395fe0ff9e2416bc31b9a25475aa2e2375d70f4c326ffd47eb4' )
+enduser_seed			= binascii.unhexlify( '00' * 32 )
+
+username			= 'a@b.c'
+password			= 'password'
 
 machine_id_path=__file__.replace(".py", ".machine-id" )
 
@@ -57,13 +63,73 @@ def test_License_overlap():
     assert into_str_UTC( ended ) == "2021-01-08 08:00:00 UTC"
 
 
-    
+def test_KeypairPlaintext_smoke():
+    enduser_keypair		= author( seed=enduser_seed, why="from enduser seed" )
+    kp_p			= KeypairPlaintext( sk=into_b64( enduser_seed ), vk=into_b64( enduser_keypair.vk ))
+    kp_p_ser			= str( kp_p )
+    assert kp_p_ser == """\
+{
+    "sk":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA7aie8zrakLWKjqNAqbw1zZTIVdx3iQ6Y6wEihi1naKQ==",
+    "vk":"O2onvM62pC1io6jQKm8Nc2UyFXcd4kOmOsBIoYtZ2ik="
+}"""
+    kp_p_rec			= KeypairPlaintext( **json.loads( kp_p_ser ))
+    assert str( kp_p_rec ) == kp_p_ser
+
+    # We can also recover with various subsets of sk, vk
+    kp_p2			 = KeypairPlaintext( sk=kp_p.sk[:32] )
+    kp_p3			 = KeypairPlaintext( sk=kp_p.sk[:64] )
+    kp_p4			 = KeypairPlaintext( sk=kp_p.sk[:64], vk=kp_p.vk )
+    assert str( kp_p2 ) == str( kp_p3 ) == str( kp_p4 )
+
+
+def test_KeypairEncrypted_smoke():
+    enduser_keypair		= author( seed=enduser_seed, why="from enduser seed" )
+    salt			= b'\x00' * 12
+    kp_e			= KeypairEncrypted( salt=salt, sk=enduser_keypair.sk,
+                                                    username=username, password=password )
+    assert kp_e.into_keypair( username=username, password=password ) == enduser_keypair
+
+    kp_e_ser			= str( kp_e )
+    assert kp_e_ser == """\
+{
+    "salt":"000000000000000000000000",
+    "seed":"d211f72ba97e9cdb68d864e362935a5170383e70ea10e2307118c6d955b814918ad7e28415e2bfe66a5b34dddf12d275"
+}"""
+    kp_r			= KeypairEncrypted( **json.loads( kp_e_ser ))
+    assert str( kp_r ) == kp_e_ser
+
+    # We can also reconstruct form just seed and salt
+    kp_e2			= KeypairEncrypted( salt=salt, seed=kp_e.seed )
+    assert str( kp_e2 ) == kp_e_ser
+    assert kp_e.into_keypair( username=username, password=password ) \
+        == kp_r.into_keypair( username=username, password=password ) \
+        == kp_e2.into_keypair( username=username, password=password )
+
+try:
+    import chacha20poly1305
+except:
+    chacha20poly1305		= None
+
+@pytest.mark.skipif( not chacha20poly1305, reason="Needs ChaCha20Poly1504" )
+def test_KeypairEncrypted_load_keypair():
+    enduser_keypair		= author( seed=enduser_seed, why="from enduser seed" )
+    keypair			= load_keypair( username=username, password=password,
+                                                extra=[os.path.dirname( __file__ )], filename=__file__ )
+    assert keypair == enduser_keypair
+
+def test_KeypairPlaintext_load_keypair():
+    enduser_keypair		= author( seed=enduser_seed, why="from enduser seed" )
+    keypair			= load_keypair( extension="cpppo-keypair-plaintext",
+                                                extra=[os.path.dirname( __file__ )], filename=__file__ )
+    assert keypair == enduser_keypair
+
 def test_License_serialization():
-    provenance = load( 'verification_test', extra=[os.path.dirname( __file__ )], confirm=False )
+    # Deduce the basename from our __file__
+    provenance = load( extra=[os.path.dirname( __file__ )], filename=__file__, confirm=False )
     with open( os.path.join( os.path.dirname( __file__ ), "verification_test.cpppo-licensing" )) as f:
         assert str( provenance ) == f.read()
 
-    
+
 def test_License():
     try:
         lic = License(
@@ -103,7 +169,6 @@ def test_License():
     assert keypair.sk == dominion_sigkey
     assert lic.author_pubkey == b'\xa9\x91\x11\x9e0\xd9e9\xa7\x0c\xd3I\x83\xdd\x00qBY\xf8\xb6\n!c\xbd\xb7H\xf3\xfc\x0c\xf06\xc9'
     assert codecs.getencoder( 'base64' )( keypair.vk ) == (b'qZERnjDZZTmnDNNJg90AcUJZ+LYKIWO9t0jz/AzwNsk=\n', 32)
-    #print("ed25519 keypair: {sk}".format( sk=binascii.hexlify( keypair.sk )))
     prov = LicenseSigned( lic, keypair.sk )
 
     machine_uuid = lic.machine_uuid( machine_id_path=machine_id_path )
@@ -154,7 +219,7 @@ def test_License():
 def test_LicenseSigned():
     """Tests Licenses derived from other License dependencies."""
     awesome_keypair = author( seed=awesome_sigkey[:32] )
-    _, awesome_pubkey = into_keys( awesome_keypair )
+    awesome_pubkey, _ = into_keys( awesome_keypair )
     
     print("Awesome, Inc. ed25519 keypair; Signing: {sk}".format( sk=binascii.hexlify( awesome_keypair.sk )))
     print("Awesome, Inc. ed25519 keypair; Public:  {pk_hex} == {pk}".format( pk_hex=into_hex( awesome_keypair.vk ), pk=into_b64( awesome_keypair.vk )))
@@ -184,8 +249,8 @@ def test_LicenseSigned():
     # Create a signing key for Awesome, Inc.; securely hide it, and publish the base-64 encoded public key as a TXT RR at:
     # ethernet-ip-tool.cpppo-licensing._domainkey.awesome.com 300 IN TXT "v=DKIM1; k=ed25519; p=
 
-    enduser_keypair = author( seed=enduser_seed )
-    enduser_sigkey, enduser_pubkey = into_keys( enduser_keypair )
+    enduser_keypair		= author( seed=enduser_seed, why="from enduser seed" )
+    enduser_pubkey, enduser_sigkey = into_keys( enduser_keypair )
     print("End User, LLC ed25519 keypair; Signing: {sk}".format( sk=into_hex( enduser_keypair.sk )))
     print("End User, LLC ed25519 keypair; Public:  {pk_hex} == {pk}".format( pk_hex=into_hex( enduser_keypair.vk ), pk=into_b64( enduser_keypair.vk )))
 
@@ -259,7 +324,6 @@ def test_LicenseSigned():
                         **lic_host_dict )
     lic_host_prov = issue( lic_host, enduser_keypair, confirm=False, machine_id_path=machine_id_path )
     lic_host_str = str( lic_host_prov )
-    #print( lic_host_str )
     assert lic_host_str == """\
 {
     "license":{
