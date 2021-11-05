@@ -667,7 +667,7 @@ class proxy( object ):
                             if len( typ_dat ) == 1:
                                 continue
                             break
-                typ_types	= [t for t,_ in typ_dat] if typ_is_list else typ_dat[0][0]
+                typ_types	= [td[0] for td in typ_dat] if typ_is_list else typ_dat[0][0]
                 yield res,(sts,(att,typ_types,uni))
           finally:
             log.info( "Releasing gateway %r connection, after polling  %7.3fs", self.gateway, cpppo.timer() - polling )

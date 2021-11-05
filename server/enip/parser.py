@@ -673,7 +673,7 @@ def enip_format( data, sort_keys=False, indent=4 ):
                 pass
             # Probably binary data in bytes; fall thru...
         try:
-            binary		= octets_encode( val )
+            octets_encode( val )
         except:
             pass
         else:
@@ -2031,7 +2031,7 @@ class typed_data( dfa ):
                                                 destination='.structure_tag' )
         strt[None]		= move_if( 	'mov_struct',	source='.STRUCT.data',
                                                 destination='.STRUCT',
-                                    initializer=lambda **kwds: dict( input=array.array( type_bytes_array_sumbol, [] )))
+                                    initializer=lambda **kwds: dict( input=array.array( type_bytes_array_symbol, [] )))
         strt[None]		= move_if( 	'mov_struct',	source='.STRUCT',
                                                 destination='.data' )
 

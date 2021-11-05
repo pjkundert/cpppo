@@ -322,7 +322,7 @@ class HART( Message_Router ):
                     data.query.reply_data      += [ b for b in bytearray( REAL_network.produce( cur )) ]
                     data.query.reply_data      += [ b for b in bytearray( REAL_network.produce( pct )) ]
                 elif self.hart_command and self.hart_command[0] == 3 and data.query.status == 0:
-                    insnam	= "HART_{channel}_Data".format( channel=self.instance_id - 1 )
+                    #insnam	= "HART_{channel}_Data".format( channel=self.instance_id - 1 )
                     for v in ('PV', 'SV', 'TV', 'FV'):
                         attribute= fldnam_attribute( REAL, v, random.uniform( 0, 1 ))
                         val	= attribute[0]

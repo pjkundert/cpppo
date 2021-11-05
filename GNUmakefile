@@ -39,7 +39,7 @@ PY3=python3
 TZ=Canada/Mountain
 
 # To see all pytest output, uncomment --capture=no
-PYTESTOPTS=-v # --capture=no
+PYTESTOPTS=-vv # --capture=no
 
 PY_TEST=TZ=$(TZ) $(PY)  -m pytest $(PYTESTOPTS)
 PY2TEST=TZ=$(TZ) $(PY2) -m pytest $(PYTESTOPTS)

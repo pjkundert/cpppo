@@ -156,7 +156,7 @@ def scan_backplane( address, slots=16 ):
                 identity,	= via.read( via.parameter_substitution( "Identity" ))
             if identity:
                 yield route_path,identity
-    except Exception as exc:
+    except Exception:
         # No joy.  A simple non-routing device?
         with proxy_simple( host=address[0], port=address[1] ) as via:
             identity,		= via.read( via.parameter_substitution( "Identity" ))

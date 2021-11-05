@@ -150,7 +150,7 @@ def simulated_modbus_rtu_ttyS0( request ):
 
 
 @pytest.fixture( scope="module" )
-def simulated_modbus_rtu_ttyS2():
+def simulated_modbus_rtu_ttyS2( request ):
     command,address		= simulated_modbus_rtu( "/dev/ttyS2" )
     request.addfinalizer( command.kill )
     return command,address

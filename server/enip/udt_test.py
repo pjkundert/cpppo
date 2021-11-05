@@ -75,8 +75,8 @@ def parse_check_tag_records( tagdata, tagname, tagtype ):
     with open( example_vals_json ) as f:
         original		= json.loads( f.read() )
 
-    elmcoder			= udt.tag_struct()
-    elmtype			= tagtype["data_type"] 
+    #elmcoder			= udt.tag_struct()
+    #elmtype			= tagtype["data_type"] 
     rec_cnt			= tagtype["dimensions"][0]
     rec_siz			= tagtype["data_type"]["template"]["structure_size"]
 

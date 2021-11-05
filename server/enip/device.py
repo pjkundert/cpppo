@@ -2548,7 +2548,7 @@ def __forward_close():
     ovnd[True]		= oser	= UDINT(		context='forward_close', extension='.O_serial' )
     # 10 bytes from Path to start of Connection Path Size; a pad byte is required for Connection Path
     # to begin on a Word boundary.
-    oser[True]		= cpth	= EPATH_padded(	 	context='forward_close', extension='.connection_path',
+    oser[True]			= EPATH_padded(	 	context='forward_close', extension='.connection_path',
                                                     terminal=True )
     return srvc
 

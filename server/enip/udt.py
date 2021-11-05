@@ -146,7 +146,7 @@ class tag_struct( object ):
                 try:
                     parser_cls	= getattr( parser, type_name ) 	# eg. "DINT"
                     count	= internal_tag.get( "array" )	# None/0 --> scalar
-                    size	= ( count or 1 ) * parser_cls.struct_calcsize
+                    #size	= ( count or 1 ) * parser_cls.struct_calcsize
                 except:
                     log.info( ''.join( traceback.format_exception( *sys.exc_info() )))
                     raise

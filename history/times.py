@@ -930,7 +930,7 @@ def parse_datetime( time, zone=None ):
         "%Y-%m-%d",
     ]:
         try:    return tz.localize( datetime.datetime.strptime( time, fmt ))
-        except Exception as exc:
+        except Exception:
             pass
     raise RuntimeError("Couldn't parse datetime from {time!r} w/ time zone {tz!r}".format(
         time=time, tz=tz ))

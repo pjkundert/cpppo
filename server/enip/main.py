@@ -34,7 +34,7 @@ USAGE
 
 """
 
-__all__				= ['main', 'options', 'connections', 'tags', 'svr_ctl']
+__all__				= ['main', 'options', 'connections', 'tags']
 
 import argparse
 import contextlib

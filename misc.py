@@ -540,12 +540,9 @@ def hexdumper( src, offset=0, length=16, sep='.', quote='|' ):
 
     @note Full support for python2 and python3 !
     '''
-    result = []
-
     for i in xrange(0, len(src), length):
         subSrc = src[i:i+length];
         hexa = '';
-        isMiddle = False;
         for h in xrange(0,len(subSrc)):
             if h == length/2:
                 hexa += ' ';

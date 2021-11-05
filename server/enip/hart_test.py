@@ -152,7 +152,6 @@ def test_hart_simple( simulated_hart_gateway ):
         ]
 
         # Now, use the underlying client.connector to issue a HART "Read Dynamic Variable" Service Code
-        simout			= ''
         with hio:
             results		= []
             failures		= 0
@@ -201,7 +200,7 @@ def test_hart_pass_thru_simulated( simulated_hart_gateway ):
         ]
 
         # Now, use the underlying client.connector to issue a HART "Read Dynamic Variable" Service Code
-        cmdbuf			= ''
+        #cmdbuf			= ''
         with hio:
             results		= []
             failures		= 0

@@ -154,8 +154,6 @@ def main( argv=None ):
                          iface=address[0], port=address[1] ))
     args			= ap.parse_args( argv )
 
-    idle_service		= []
-
     # Set up logging level (-v...) and --log <file>, handling log-file rotation
     levelmap 			= {
         0: logging.WARNING,

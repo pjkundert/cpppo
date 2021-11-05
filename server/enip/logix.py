@@ -44,7 +44,7 @@ from .device import ( Object, Attribute,
                       Message_Router, Connection_Manager, Identity, TCPIP, Logical_Segments,
                       resolve_element, resolve_tag, resolve, redirect_tag, lookup )
 from . import ucmm
-from .parser import ( BOOL, ULINT, LINT, UDINT, DINT, UINT, INT, USINT, SINT, STRUCT,
+from .parser import ( BOOL, ULINT, LINT, UDINT, DINT, UINT, INT, USINT, SINT, STRUCT, STRING,
                       LREAL, REAL, EPATH, typed_data, octets_encode,
                       move_if, octets_drop, octets_noop, enip_format, status )
 
