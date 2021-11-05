@@ -92,7 +92,12 @@ def test_KeypairPlaintext_smoke():
     kp_c1			= copy.copy( kp_p4 )
     assert str( kp_c1 ) == str( kp_p4 )
 
+try:
+    import chacha20poly1305
+except:
+    chacha20poly1305		= None
 
+@pytest.mark.skipif( not chacha20poly1305, reason="Needs ChaCha20Poly1504" )
 def test_KeypairEncrypted_smoke():
     enduser_keypair		= author( seed=enduser_seed, why="from enduser seed" )
     salt			= b'\x00' * 12
@@ -116,10 +121,6 @@ def test_KeypairEncrypted_smoke():
         == kp_r.into_keypair( username=username, password=password ) \
         == kp_e2.into_keypair( username=username, password=password )
 
-try:
-    import chacha20poly1305
-except:
-    chacha20poly1305		= None
 
 @pytest.mark.skipif( not chacha20poly1305, reason="Needs ChaCha20Poly1504" )
 def test_KeypairEncrypted_load_keypair():
