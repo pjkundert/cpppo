@@ -111,8 +111,7 @@ def test_crypto():
                 #ed25519.checkvalid(fs,fm,pk)
                 ed25519.crypto_sign_open(fs+fm,pk)
                 forgedsuccess = 1
-            except Exception as exc:
-                #print("Forged failed:  {}".format( exc ))
+            except Exception:
                 pass
             assert not forgedsuccess
             

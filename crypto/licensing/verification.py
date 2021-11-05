@@ -25,6 +25,7 @@ __license__                     = "Dual License: GPLv3 (or later) and Commercial
 import ast
 import base64
 import codecs
+import copy
 import collections
 import dns.resolver
 import encodings.idna
@@ -131,8 +132,8 @@ def into_bytes( text, decodings=('hex', 'base64'), ignore_invalid=None ):
         return None
     if isinstance( text, bytearray ):
         return bytes( text )
-    # First, see if the text looks like hex- or base64-decoded utf-8-encoded ASCII
-    encoding,is_ascii		= 'utf-8',lambda c: 32 <= c <= 127
+    # First, see if the text looks like hex- or base64-decoded UTF-8-encoded ASCII
+    encoding,is_ascii		= 'UTF-8',lambda c: 32 <= c <= 127
     try:
         # Python3 'bytes' doesn't have .encode (so will skip this code), and Python2 non-ASCII
         # binary data will raise an AssertionError.
@@ -144,11 +145,9 @@ def into_bytes( text, decodings=('hex', 'base64'), ignore_invalid=None ):
                 binary		= codecs.getdecoder( c )( text_enc )[0]
                 #log.debug( "Decoding {} {} bytes from: {!r}".format( len( binary ), c, text_enc ))
                 return binary
-            except Exception as exc:
-                #log.debug( "Couldn't decode as {}: {!r}; {}".format( c, text_enc, exc ))
+            except Exception:
                 pass
-    except Exception as exc:
-        #log.debug( "Couldn't encode {}/ASCII: {!r}; {}".format( encoding, text, exc ))
+    except Exception:
         pass
     # Finally, check if the text is already bytes (*possibly* bytes in Python2, as str ===
     # bytes; so this cannot be done before the decoding attempts, above)
@@ -162,8 +161,8 @@ def into_bytes( text, decodings=('hex', 'base64'), ignore_invalid=None ):
 
 def into_keys( keypair ):
     """Return whatever Ed25519 (public, signing) keys are available in the provided Keypair or
-    32/64-byte key material.  This destructuring ordering is consistent with the Keypair
-    namedtuple.
+    32/64-byte key material.  This destructuring ordering is consistent with the
+    namedtuple('Keypair', ('vk', 'sk')).
 
     Supports deserialization of keys from hex or base-64 encode public (32-byte) or secret/signing
     (64-byte) data.  To avoid nondeterminism, we will assume that all Ed25519 key material is encoded in
@@ -172,7 +171,7 @@ def into_keys( keypair ):
     """
     try:
         # May be a Keypair namedtuple
-        return keypair.sk, keypair.vk
+        return keypair.vk, keypair.sk
     except AttributeError:
         pass
     # Not a Keypair.  First, see if it's a serialized public/private key.
@@ -205,13 +204,15 @@ def into_str_LOC( ts ):
     return into_str_UTC( ts, tzinfo=timestamp.LOC )
 
 
-def into_JSON( thing, indent=None, encoding='UTF-8' ):
+def into_JSON( thing, indent=None, default=None ):
     def endict( x ):
         try:
             return dict( x )
         except Exception as exc:
-            log.warning("Failed to JSON serialize {!r}".format( x ))
-            raise
+            if default:
+                return default( x )
+            log.warning("Failed to JSON serialize {!r}: {}".format( x, exc ))
+            raise exc
     # Unfortunately, Python2 json.dumps w/ indent emits trailing whitespace after "," making
     # tests fail.  Make the JSON separators whitespace-free, so the only difference between the
     # signed serialization and an pretty-printed indented serialization is the presence of
@@ -219,9 +220,32 @@ def into_JSON( thing, indent=None, encoding='UTF-8' ):
     separators			= (',', ':')
     text			= json.dumps(
         thing, sort_keys=True, indent=indent, separators=separators, default=endict )
-    if encoding:
-        return text.encode( encoding )
     return text
+
+
+def into_timestamp( ts ):
+    """Convert to a timestamp, retaining None.  We don't need/want to support ambiguous local timezone
+    abbreviations, here, so use the simpler parse_datetime interface, instead of letting timestamp
+    parse it.
+
+    """
+    if ts is not None:
+        if isinstance( ts, type_str_base ):
+            ts			= parse_datetime( ts )
+        if isinstance( ts, datetime ):
+            ts			= timestamp( ts )
+        assert isinstance( ts, timestamp )
+        return ts
+
+
+def into_duration( dur ):
+    """Convert to a duration, retaining None"""
+    if dur is not None:
+        if not isinstance( dur, duration ):
+            dur			= parse_seconds( dur )
+            assert isinstance( dur, (int, float) )
+            dur			= duration( dur )
+        return dur
 
 
 def domainkey( product, author_domain, author_service=None, author_pubkey=None ):
@@ -312,21 +336,29 @@ class Serializable( object ):
                     return serialize( value ) # conversion failure Exceptions
                 return value
             except Exception as exc:
-                log.info( "Failed to convert {class_name}.{key} with {serialize!r}".format(
-                    class_name = self.__class__.__name__, key=key, serialize=serialize ))
+                log.info( "Failed to convert {class_name}.{key} with {serialize!r}: {exc}".format(
+                    class_name = self.__class__.__name__, key=key, serialize=serialize, exc=exc ))
                 raise
         raise IndexError( key )
 
     def __str__( self ):
-        return self.serialize( indent=4, encoding=None )
+        return self.serialize( indent=4, encoding=None ) # remains as UTF-8 text
 
-    def serialize( self, indent=None, encoding='UTF-8' ):
+    def serialize( self, indent=None, encoding='UTF-8', default=None ):
         """Return a binary 'bytes' serialization of the present object.  Serialize to JSON, assuming any
         complex sub-objects (eg. License, LicenseSigned) have a sensible dict representation.
 
-        The default serialization (ie. with indent=None) will be the one used to create the digest
+        The default serialization (ie. with indent=None) will be the one used to create the digest.
+
+        If there are objects to be serialized that require special handling, the must not have a
+        'dict' interface (be convertible to a dict), and then a default may be supplied to serialize
+        them (eg. str).
+
         """
-        return into_JSON( self, indent=indent, encoding=encoding )
+        stream			= into_JSON( self, indent=indent, default=default )
+        if encoding:
+            stream		= stream.encode( encoding )
+        return stream
 
     def sign( self, author_sigkey, author_pubkey=None ):
         """Sign our default serialization, and (optionally) confirm that the supplied public key (which will
@@ -373,9 +405,9 @@ class Serializable( object ):
 
         for cls in type( self ).__mro__:
             for key in getattr( cls, '__slots__', [] ):
-                log.info( "copy .{key:-16s} from {src:16s} to {dst:16s}".format(
+                log.info( "copy .{key:<16s} from {src:16d} to {dst:16d}".format(
                     key=key, src=id(self), dst=id(result) ))
-                setattr( result, copy.copy( getattri( self, var )))
+                setattr( result, key, copy.copy( getattr( self, key )))
 
         return result
 
@@ -517,27 +549,13 @@ class License( Serializable ):
 
         # A License usually has a timespan of start timestamp and duration length.  These cannot
         # exceed the timespan of any License dependencies.  First, get any supplied start time as a
-        # cpppo.history.timestamp, and any duration length as a number of seconds.  We don't
-        # need/want to support ambiguous local timezone abbreviations, here, so use the simpler
-        # parse_datetime interface, instead of letting timestamp parse it.
-        if start is not None:
-            if isinstance( start, type_str_base ):
-                start		= parse_datetime( start )
-            if isinstance( start, datetime ):
-                start		= timestamp( start )
-            assert isinstance( start, timestamp )
-        if length is not None:
-            try:
-                length		= parse_seconds( length )
-                assert isinstance( length, (int, float) )
-                length		= duration( length )
-            except Exception as exc:
-                raise LicenseIncompatibility(
-                    "License length invalid: {length!r}".format( length=length ))
-
-
-        self.start		= start
-        self.length		= length
+        # cpppo.history.timestamp, and any duration length as a number of seconds.
+        try:
+            self.start, self.length = into_timestamp( start ), into_duration( length ) # both retain None
+        except Exception as exc:
+            raise LicenseIncompatibility(
+                    "License start: {start!r} or length: {length!r} invalid: {exc}".format(
+                        start=start, length=length, exc=exc ))
 
         if machine is not None:
             if not isinstance( machine, uuid.UUID ):
@@ -605,40 +623,21 @@ class License( Serializable ):
         """Compute the overlapping start/length that is within the bounds of this and other license(s).
         If they do not overlap, raises a LicenseIncompatibility Exception.
 
+        Any other thing that doesn't have a .product, .author defaults to *this* License's
+        attributes (eg. we're applying further Timespan constraints to this License).
+
         """
         start, length		= self.start, self.length
         for other in others:
             # If we determine a 0-length overlap, we have failed.
-            start,length,begun,ended \
+            start, length, begun, ended \
                 		= overlap_intersect( start, length, other )	
-            '''
-            if start is None:
-                # This license has no defined start time (it is perpetual); other license determines
-                start, length	= other.start, other.length
-                continue
-            if other.start is None:
-                # This license starts at a defined time, while the other doesn't
-                continue
-            # Both licenses have defined start times; latest defines beginning of overlap
-            latest		= max( start, other.start )
-            ending		= None
-            if length is None and other.length is None:
-                # But neither have duration
-                start		= latest
-                continue
-            elif other.length is None:
-                ending		= start + length.seconds
-            elif length is None:
-                ending		= other.start + other.length.seconds
-            else:
-                ending		= min( start + length.seconds, other.start + other.length.seconds )
-            '''
             if length is not None and length.seconds == 0:
                 # Overlap was computable, and was zero
                 raise LicenseIncompatibility(
                     "License for {author}'s {product!r} from {start} for {length} incompatible with others".format(
-                        author	= other.author,
-                        product	= other.product,
+                        author	= getattr( other, 'author', self.author ),
+                        product	= getattr( other, 'product', self.product ),
                         start	= into_str_LOC( other.start ),
                         length	= other.length,
                     ))
@@ -691,8 +690,6 @@ class License( Serializable ):
         License (assuming at least the necessary author, author_domain and product were defined).
 
         """
-        success			= None
-
         if author_pubkey:
             author_pubkey, _	= into_keys( author_pubkey )
             assert author_pubkey, "Unrecognized author_pubkey provided"
@@ -708,12 +705,12 @@ class License( Serializable ):
         if confirm or confirm is None:
             avkey	 	= self.author_pubkey_query()
             if avkey != self.author_pubkey:
-                raise LicenseIncompatibilty(
+                raise LicenseIncompatibility(
                     "License for {auth}'s {prod!r}: author key from DKIM {found} != {claim}".format(
                         auth	= self.author,
                         prod	= self.product,
-                        found	= akey,
-                        claim	= self.author_pubkey,
+                        found	= into_b64( avkey ),
+                        claim	= into_b64( self.author_pubkey ),
                     ))
         # Verify that the License signature was indeed produced by the signing key corresponding to the
         # provided public key
@@ -736,9 +733,9 @@ class License( Serializable ):
             try:
                 prov.verify( confirm=confirm )
                 assert prov.license.client_pubkey is None or prov.license.client_pubkey == self.author_pubkey, \
-                    "sub-License public key {client_pubkey} doesn't match Licence's public key {author_pubkey}".format(
-                        client_pubkey	= to_b64( prov.license.client_pubkey ),
-                        author_pubkey	= to_b64( self.author_pubkey ),
+                    "sub-License client public key {client_pubkey} doesn't match Licence author's public key {author_pubkey}".format(
+                        client_pubkey	= into_b64( prov.license.client_pubkey ),
+                        author_pubkey	= into_b64( self.author_pubkey ),
                     )
             except Exception as exc:
                 raise LicenseIncompatibility(
@@ -757,14 +754,14 @@ class License( Serializable ):
         # Verify all sub-license start/length durations comply with this License' duration.
         # Remember, these start/length specify the validity period of the License to be
         # sub-licensed, not the execution time of the installation!
-
-        # TODO: Implement License expiration date, to allow a software deployment to time out and
-        # refuse to run after a License as expired, forcing the software owner to obtain a new
-        # License with a future expiration.  Typically, Cpppo installations are perpetual; if
-        # installed with a valid License, they will continue to work without expiration.  However,
-        # other software authors may want to sell software that requires issuance of new Licenses.
         try:
-            start, length	= self.overlap( *( ls.license for ls in self.dependencies or [] ))
+            # Collect any things with .start/.length; all sub-Licenses dependencies, and a Timespan
+            # representing any supplied start/length constraints in order to validate their
+            # consistency with the sub-License start/lengths.
+            others		= list( ls.license for ls in self.dependencies or [] )
+            others.append( Timespan( into_timestamp( constraints.get( 'start' )),
+                                     into_duration( constraints.get( 'length' ))))
+            start, length	= self.overlap( *others )
         except LicenseIncompatibility as exc:
             raise LicenseIncompatibility(
                 "License for {auth}'s {prod!r}; sub-{exc}".format(
@@ -773,11 +770,11 @@ class License( Serializable ):
                     exc		= exc,
                 ))
 
-        # Apply any supplied start/length constraints to the computed License start/length in order
-        # to validate their consistency with the sub-License start/lengths.
-        if constraints.get('start') is not None or constraints.get('length') is not None:
-            start, length, _, _	= overlap_intersect( start, length, Timespan(
-                contraints.get( 'start' ), contraints.get( 'length' )))
+        # TODO: Implement License expiration date, to allow a software deployment to time out and
+        # refuse to run after a License as expired, forcing the software owner to obtain a new
+        # License with a future expiration.  Typically, Cpppo installations are perpetual; if
+        # installed with a valid License, they will continue to work without expiration.  However,
+        # other software authors may want to sell software that requires issuance of new Licenses.
 
         # Default 'machine' constraints to the local machine UUID.  If no constraints and
         # self.machine is None, we don't need to do anything, because the License is good for any
@@ -864,7 +861,7 @@ class LicenseSigned( Serializable ):
 
         >>> provenance = issue( license, signing_keypair, confirm=False )
         >>> provenance_ser = provenance.serialize( indent=4 )
-        >>> print( provenance_ser.decode( 'utf-8' ) )
+        >>> print( provenance_ser.decode( 'UTF-8' ) )
         {
             "license":{
                 "author":"Awesome, Inc.",
@@ -1067,7 +1064,7 @@ class KeypairEncrypted( Serializable):
             cipher		= ChaCha20Poly1305( key )
             plaintext		= bytearray( seed )
             nonce		= self.salt
-            ciphertext		= cipher.encrypt( nonce, plaintext )
+            ciphertext		= bytes( cipher.encrypt( nonce, plaintext ))
             self.seed		= ciphertext
         if username and password:
             # Verify MAC by decrypting w/ username and password, if provided
@@ -1078,8 +1075,8 @@ class KeypairEncrypted( Serializable):
     def key( self, username, password ):
         # TODO: The username, which is often an email address, should not be case-sensitive?
         #username		= username.lower()
-        username		= username.encode( 'utf-8' )
-        password		= password.encode( 'utf-8' )
+        username		= username.encode( 'UTF-8' )
+        password		= password.encode( 'UTF-8' )
         m			= hashlib.sha256()
         m.update( self.salt )
         m.update( username )
@@ -1094,7 +1091,7 @@ class KeypairEncrypted( Serializable):
         cipher			= ChaCha20Poly1305( key )
         nonce			= self.salt
         ciphertext		= bytearray( self.seed )
-        plaintext		= cipher.decrypt( nonce, ciphertext )
+        plaintext		= bytes( cipher.decrypt( nonce, ciphertext ))
         keypair			= author( seed=plaintext, why="decrypted w/ {}'s password".format( username ))
         return keypair
 
@@ -1235,6 +1232,7 @@ def load_keypair( basename=None, mode=None, extension=None,
         keypair_ser		= f.read()
     keypair_dict		= json.loads( keypair_ser )
     # Attempt to recover the different Keypair...() types, from most stringent requirements to least.
+    issues			= []
     try:
         encrypted		= KeypairEncrypted( username=username, password=password, **keypair_dict )
         keypair			= encrypted.into_keypair( username=username, password=password )
@@ -1242,7 +1240,7 @@ def load_keypair( basename=None, mode=None, extension=None,
             into_b64( keypair.vk ), keypair_filename ))
         return keypair
     except Exception as exc:
-        pass
+        issues.append( exc )
     try:
         plaintext		= KeypairPlaintext( **keypair_dict )
         keypair			= plaintext.into_keypair()
@@ -1250,6 +1248,6 @@ def load_keypair( basename=None, mode=None, extension=None,
             into_b64( keypair.vk ), keypair_filename ))
         return keypair
     except Exception as exc:
-        pass
-    raise LicenseIncompatibility( "Cannot load Keypair from file {} providing {}".format(
-        keypair_filename, ', '.join( keypair_dict.keys() )))
+        issues.append( exc )
+    raise LicenseIncompatibility( "Cannot load Keypair from file {} providing {}: ".format(
+        keypair_filename, ', '.join( keypair_dict.keys() ), ', '.join( map( str, issues ))))

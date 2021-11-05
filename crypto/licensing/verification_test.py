@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 import binascii
 import codecs
+import copy
 import json
 import os
 import pytest
@@ -11,6 +12,7 @@ from .verification import (
     KeypairPlaintext, KeypairEncrypted,
     domainkey, domainkey_service, overlap_intersect,
     into_b64, into_hex, into_str, into_str_UTC, into_JSON, into_keys,
+    into_timestamp, into_duration,
     author, issue, verify, load, load_keypair,
 )
 from .. import ed25519ll as ed25519
@@ -26,7 +28,7 @@ enduser_seed			= binascii.unhexlify( '00' * 32 )
 username			= 'a@b.c'
 password			= 'password'
 
-machine_id_path=__file__.replace(".py", ".machine-id" )
+machine_id_path			= __file__.replace( ".py", ".machine-id" )
 
 
 def test_License_domainkey():
@@ -44,6 +46,10 @@ def test_License_domainkey():
 
 
 def test_License_overlap():
+    """A License can only issued while all the sub-Licenses are valid.  The start/length should "close"
+    to encompass the start/length of any dependencies sub-Licenses, and any supplied constraints.
+
+    """
     other = Timespan(
         timestamp( parse_datetime( '2021-01-01 00:00:00 Canada/Pacific' )),
         duration( parse_seconds( '1w' ))
@@ -54,8 +60,8 @@ def test_License_overlap():
     assert into_str_UTC( begun ) == "2021-01-01 08:00:00 UTC"
     assert into_str_UTC( ended ) == "2021-01-08 08:00:00 UTC"
 
-    start = timestamp( parse_datetime( '2021-01-01 00:00:00 Canada/Pacific' ))
-    length = duration( parse_seconds( "1w" ))
+    start = into_timestamp( '2021-01-01 00:00:00 Canada/Pacific' )
+    length = into_duration( "1w" )
     start,length,begun,ended = overlap_intersect( start, length, Timespan( None, None ))
     assert into_str_UTC( start ) == "2021-01-01 08:00:00 UTC"
     assert into_str( length ) == "1w"
@@ -76,10 +82,15 @@ def test_KeypairPlaintext_smoke():
     assert str( kp_p_rec ) == kp_p_ser
 
     # We can also recover with various subsets of sk, vk
-    kp_p2			 = KeypairPlaintext( sk=kp_p.sk[:32] )
-    kp_p3			 = KeypairPlaintext( sk=kp_p.sk[:64] )
-    kp_p4			 = KeypairPlaintext( sk=kp_p.sk[:64], vk=kp_p.vk )
+    kp_p2			= KeypairPlaintext( sk=kp_p.sk[:32] )
+    kp_p3			= KeypairPlaintext( sk=kp_p.sk[:64] )
+    kp_p4			= KeypairPlaintext( sk=kp_p.sk[:64], vk=kp_p.vk )
+
     assert str( kp_p2 ) == str( kp_p3 ) == str( kp_p4 )
+
+    # And see if we can copy Serializable things properly
+    kp_c1			= copy.copy( kp_p4 )
+    assert str( kp_c1 ) == str( kp_p4 )
 
 
 def test_KeypairEncrypted_smoke():
@@ -215,7 +226,6 @@ def test_License():
     assert str( exc_info.value ).endswith(
         "License for B's 'b' from 2021-10-06 18:00:00 Canada/Mountain for 1w incompatible with others" )
 
-
 def test_LicenseSigned():
     """Tests Licenses derived from other License dependencies."""
     awesome_keypair = author( seed=awesome_sigkey[:32] )
@@ -225,6 +235,23 @@ def test_LicenseSigned():
     print("Awesome, Inc. ed25519 keypair; Public:  {pk_hex} == {pk}".format( pk_hex=into_hex( awesome_keypair.vk ), pk=into_b64( awesome_keypair.vk )))
 
     try:
+        # If we're connected to the Internet and can check DNS, lets try to confirm that DKIM public
+        # key checking works properly.  First, lets try to create a License with the *wrong* public
+        # key (doesn't match DKIM record in DNS).
+
+        with pytest.raises( LicenseIncompatibility ) as exc_info:
+            License(
+                author	= "Dominion Research & Development Corp.",
+                product	= "Cpppo Test",
+                author_domain = "dominionrnd.com",
+                author_pubkey = awesome_pubkey, # Purposely *wrong*; will not match cpppo-test.cpppo-licensing.. DKIM entry
+                client	= "Awesome, Inc.",
+                client_pubkey = awesome_pubkey,
+                start	= "2021-09-30 11:22:33 Canada/Mountain",
+                length	= "1y" )
+        assert str( exc_info.value ).endswith(
+            """License for Dominion Research & Development Corp.'s 'Cpppo Test': author key from DKIM qZERnjDZZTmnDNNJg90AcUJZ+LYKIWO9t0jz/AzwNsk= != cyHOei+4c5X+D/niQWvDG5olR1qi4jddcPTDJv/UfrQ=""" )
+
         lic = License(
             author	= "Dominion Research & Development Corp.",
             product	= "Cpppo Test",
@@ -234,11 +261,12 @@ def test_LicenseSigned():
             start	= "2021-09-30 11:22:33 Canada/Mountain",
             length	= "1y" )
     except DNSException:
+        # No DNS; OK, let the test pass anyway.
         lic = License(
             author	= "Dominion Research & Development Corp.",
             product	= "Cpppo Test",
             author_domain = "dominionrnd.com",
-            author_pubkey = dominion_sigkey[32:],
+            author_pubkey = dominion_sigkey[32:], # This is the correct key, which matches the DKIM entry
             client	= "Awesome, Inc.",
             client_pubkey = awesome_pubkey,
             start	= "2021-09-30 11:22:33 Canada/Mountain",
@@ -314,17 +342,58 @@ def test_LicenseSigned():
     #    - This will not be a LicenseSigned
     # 4) Save to <application>.cpppo-licensing in application's config path
 
-    # Lets specialize the license for a specific machine.  
-    lic_host_dict = verify( drv_prov, confirm=False, machine=True, machine_id_path=machine_id_path )
-    assert into_str( lic_host_dict['machine'] ) == "00010203-0405-4607-8809-0a0b0c0d0e0f"
-    assert len( lic_host_dict['dependencies'] ) == 1
+    # Lets specialize the license for a specific machine, and with a specific start time
+    lic_host_dict = verify( drv_prov, confirm=False, machine=True, machine_id_path=machine_id_path,
+                            start="2022-09-28 08:00:00 Canada/Mountain" )
+    #print( into_JSON( lic_host_dict, indent=4, default=str ))
+    assert """\
+{
+    "dependencies":[
+        {
+            "license":{
+                "author":"Awesome, Inc.",
+                "author_domain":"awesome-inc.com",
+                "author_pubkey":"cyHOei+4c5X+D/niQWvDG5olR1qi4jddcPTDJv/UfrQ=",
+                "author_service":"ethernet-ip-tool",
+                "client":"End User, LLC",
+                "client_pubkey":"O2onvM62pC1io6jQKm8Nc2UyFXcd4kOmOsBIoYtZ2ik=",
+                "dependencies":[
+                    {
+                        "license":{
+                            "author":"Dominion Research & Development Corp.",
+                            "author_domain":"dominionrnd.com",
+                            "author_pubkey":"qZERnjDZZTmnDNNJg90AcUJZ+LYKIWO9t0jz/AzwNsk=",
+                            "author_service":"cpppo-test",
+                            "client":"Awesome, Inc.",
+                            "client_pubkey":"cyHOei+4c5X+D/niQWvDG5olR1qi4jddcPTDJv/UfrQ=",
+                            "dependencies":null,
+                            "length":"1y",
+                            "machine":null,
+                            "product":"Cpppo Test",
+                            "start":"2021-09-30 17:22:33 UTC"
+                        },
+                        "signature":"TNVGYQjdGFFBJMIviAOLhPPuOefv+451OslLY4DJEK77LCS9LeJIaomv5sS8KHDkOE12eFOxi5aFXOw5O4jOCA=="
+                    }
+                ],
+                "length":"1y",
+                "machine":null,
+                "product":"EtherNet/IP Tool",
+                "start":"2022-09-29 17:22:33 UTC"
+            },
+            "signature":"egUZM9vlF2y4DBCTtWNv3UC7nBRxSz4LZ12nOR+WSUktOrBbESsBuwQzjobNvPR2G+EZASRkY00bm/XqTzKsCg=="
+        }
+    ],
+    "machine":"00010203-0405-4607-8809-0a0b0c0d0e0f",
+    "start":"2022-09-28 08:00:00 Canada/Mountain"
+}""" == into_JSON( lic_host_dict, indent=4, default=str )
+    
 
     lic_host = License( author="End User", product="application", author_pubkey=enduser_keypair,
                         confirm=False, machine_id_path=machine_id_path,
                         **lic_host_dict )
     lic_host_prov = issue( lic_host, enduser_keypair, confirm=False, machine_id_path=machine_id_path )
     lic_host_str = str( lic_host_prov )
-    assert lic_host_str == """\
+    assert """\
 {
     "license":{
         "author":"End User",
@@ -371,7 +440,7 @@ def test_LicenseSigned():
         "length":null,
         "machine":"00010203-0405-4607-8809-0a0b0c0d0e0f",
         "product":"application",
-        "start":null
+        "start":"2022-09-28 14:00:00 UTC"
     },
-    "signature":"f64wAgeIr1gPmRviu8lfDS1vP3L5/xG6Yf2HentNwQHR7tf4pgjY4Elx0uf9kmO0OtDlPWZP4gLPYiek1wQiAg=="
-}"""
+    "signature":"ZwmkT16aNshp2yjXCN2OMP+EiKrQ8Rs9zjpcDwWhPzBmUwEI8PGP0CmaK0oy1fmtrdJe9BHYXyCAck66nP+9DQ=="
+}""" == lic_host_str
