@@ -28,7 +28,7 @@ enip.defaults -- System-wide default (global) values
 __all__				= [ 'latency', 'timeout', 'address',
                                     'route_path_default', 'send_path_default',
                                     'priority_time_tick', 'timeout_ticks',
-                                    'config_name', 'config_files', 'config_open', 'config_open_deduced',
+                                    'config_name', 'config_files', 'config_open', 'config_open_deduced', 'ConfigNotFoundError',
                                     'forward_open_default' ]
 
 import os
@@ -72,9 +72,9 @@ def config_paths( filename, extra=None ):
 config_files			= list( config_paths( config_name ))
 
 try:
-    FileNotFoundError
+    ConfigNotFoundError		= FileNotFoundError
 except NameError:
-    FileNotFoundError		= IOError # Python2 compatibility
+    ConfigNotFoundError		= IOError # Python2 compatibility
 
 def config_open( filename, mode=None, extra=None, **kwds ):
     """Find and open a filename on the standard or provided configuration file paths (plus any extra),
@@ -88,9 +88,9 @@ def config_open( filename, mode=None, extra=None, **kwds ):
     for f in reversed( search ):
         try:
             return open( f, mode=mode or 'r', **kwds )
-        except FileNotFoundError:
+        except ConfigNotFoundError:
             pass
-    raise FileNotFoundError(
+    raise ConfigNotFoundError(
         "Could not locate {!r} in any Cpppo config dir.: {}".format(
             filename, ', '.join( search ))
     )
@@ -98,7 +98,8 @@ def config_open( filename, mode=None, extra=None, **kwds ):
 
 def config_open_deduced( basename=None, mode=None, extension=None, filename=None, package=None, **kwds ):
     """Find a configuration file, optionally deducing the basename from the provided __file__ filename
-    or __package__ name, returning the open file or raising a FileNotFoundError (or IOError in Python2).
+    or __package__ name, returning the open file or raising a ConfigNotFoundError (or
+    FileNotFoundError, or IOError in Python2).
 
     """
     assert basename or ( filename or package ), \

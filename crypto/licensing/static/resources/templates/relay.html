@@ -1,0 +1,191 @@
+$def with (content)
+<title>$content["title"]</title>
+<div class="container">
+    <h1 class="page-header">$content["title"]</h1>
+    <div class="row-fluid">
+        <table id='relay-table' />
+    </div>
+</div>
+
+<!-- The rest of this is verbatim Javascript; must escape all dollar-signs by doubling -->
+<script type="text/javascript">
+
+    var query           = null;         // querying relay states (one in flight)
+    var post            = {};           // posting updates to relays (potentially several in flight)
+    var populate        = true;         // Build tables first time thru
+
+    function to_id( s )
+    {
+        return s.toLowerCase().split(' ').join('-')
+    }
+
+    /*
+     * When the state of a switch is changed by the user (ie. NOT simply updated by updateRelays, as
+     * the result of a new set of data via an AJAX request), we want to post the new status.
+     */
+    function capture_toggle_onChange( description )
+    {
+        var key         = to_id( description )
+        console.log([ "Relay toggle setup for", description, "key ==", key ])
+        return function ( $$el, status, e ) {
+            $$('#'+key+'-magic-text').text("Status of " + description + " is: " + status + "; posting...");
+            postRelay( status, description );
+        }
+    }
+
+    function createToggles( data )
+    {
+        var table               = $$('<table/>')
+            .addClass('table table-striped table-condensed table-bordered]')
+        , col1                  = $$('<col/>')
+            .addClass( 'toggle-column' )
+        , col2                  = $$('<col/>')
+            .addClass( 'toggle-description' )
+        , thead                 = $$('<thead/>')
+        , tbody                 = $$('<tbody/>');
+
+        for ( var i = 0; i < data.list.length; ++i ) {
+            var s               = data.list[i]
+            , key               = to_id( s.description )
+            console.log([ "Relay table build for", s.description, key, "==", s.value ])
+
+            var desc            = $$('<td/>').text( s.description )
+            , toggle            = $$('<input/>')
+                .attr( 'type', 'checkbox' )
+                .attr( 'id', key+'-toggle-button' )
+            tbody.append(
+                $$('<tr/>').append(
+                    $$('<td/>')
+                        .append( toggle ),
+                    $$('<td/>')
+                        .text( s.description )
+                )
+            )
+            /*
+            tbody.append(
+                $$('<tr/>')
+                    .append(
+                        $$('<td/>')
+                            .attr( 'colspan', 2 )
+                            .append(
+                                $$('<div/>')
+                                    .attr( 'id', key+'-magic-text')
+                                    .text( s.description + ": " + key )
+                            )
+                    )
+            )
+            */
+        }
+        $$('#relay-table').append( col1, col2, thead, tbody )
+
+        for ( var i = 0; i < data.list.length; ++i ) {
+            // Each ...-toggle-button triggers a post to its "key" Relay.
+            // However, for the initial creation, trigger the setState with the
+            // current value, without triggering the onChange, with skipOnChange
+            // = true.
+            
+            var s		= data.list[i]
+            , key		= to_id( s.description )
+            , indeterminate	= ( s.value === null || isNaN( s.value ))
+            , update		= !! parseInt( s.value );
+            $$('#'+key+'-toggle-button')
+                .on( 'switchChange.bootstrapSwitch', capture_toggle_onChange( s.description ))
+                .bootstrapSwitch( 'state', update, true )
+                .bootstrapSwitch( 'indeterminate', indeterminate )
+                .bootstrapSwitch( 'disabled', s.attribute.lastIndexOf( "sensed", 0 ) === 0 );
+        }
+    }
+
+    function updateRelays( data )
+    {
+        if ( populate ) {
+            createToggles( data );
+            populate = false;
+        }
+
+        // For each .../api/relay/_____ data item, see if we map its
+        // name to a toggle-button; if so, go ahead and update it.
+        for (var i = 0; i < data.list.length; ++i ) {
+            var s		= data.list[i]
+            , key		= to_id( s.description );
+            console.log([ "Relay state data for", s.description, key, "==", s.value ]);
+
+            // This relay has a ...-toggle-button.  The current relay value will be 0/1;
+            // compare it with the toggle and update if necessary.
+            var toggle		= $$('#'+key+'-toggle-button')
+            , indeterminate	= ( s.value === null || isNaN( s.value ))
+            , update		= !! parseInt( s.value )
+            , current		= toggle.bootstrapSwitch( 'state' )
+            , changed		= ( ! update != ! current )
+            , label		= ( changed ? " !=  " : " == " );
+            $$('#'+key+'-magic-text').text( "Status is: " + current + label + update );
+            console.log([ "Status of", key, "(from: ", s.value, ") is:", current, label, update ]);
+            if ( changed )
+                toggle
+                    .bootstrapSwitch( 'disabled', false ) // have to enable, or no changes show...
+                    .bootstrapSwitch( 'state', update, true )
+                    .bootstrapSwitch( 'indeterminate', indeterminate )
+                    .bootstrapSwitch( 'disabled', s.attribute.lastIndexOf( "sensed", 0 ) === 0 );
+        }
+    }
+
+    // Dispatches a new AJAX query.  Kills any one yet running
+    function queryRelays()
+    {
+        if ( query )
+            query.abort()
+        query = $$.ajax({
+                timeout:    4000,
+                url:        '$content["query"]',
+                dataType:   'jsonp',
+                success:    function( d ) {
+                    query	= null
+                    new updateRelays( d )
+                },
+                error:      function( jxr, s, m ) {
+                    query	= null
+                    console.log( "Relay state query failed: " + m )
+                },
+            })
+    }
+
+    function postRelay( value, key )
+    {
+        console.log(["Posting to ", key, " <== ", value ])
+        if ( post[key] )
+            post[key].abort();
+        if ( query )
+            query.abort();
+        post[key] = $$.ajax({
+                type:       'POST',
+                url:        '/api/relay/'+key,
+                dataType:   'jsonp',
+                data:       { state: value }, // may be undefined
+                success:    function( d ) {
+                    post[key]	= null;
+                    updateRelays( d );
+                    queryRelays();
+                },
+                error:      function( jxr, s, m ) {
+                    post[key]	= null;
+                    console.log( "Relay state change failed: " + m );
+                    queryRelays();
+                },
+            })
+    }
+
+    function toggle_buttons_loaded()
+    {
+        setInterval( queryRelays, 5000 );
+        queryRelays()
+    }
+
+    yepnope([{
+        load: '/static/js/bootstrap-switch.min.js',
+        complete: function() {
+            if (window.toggle_buttons_loaded)
+                window.toggle_buttons_loaded();
+        }
+    }]);
+
+</script>

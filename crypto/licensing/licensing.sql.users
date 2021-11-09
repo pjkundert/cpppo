@@ -1,0 +1,5 @@
+INSERT INTO "users" VALUES(0,0,'perry',3541,2,'dining sleeping foyer library summer upstairs dormer gathering bedroom garage den');
+INSERT INTO "users" VALUES(1,0,'derek',3883,2,'dining sleeping foyer library summer upstairs dormer gathering bedroom garage den');
+INSERT INTO "users" VALUES(2,1,'bernice',2165,1,'dining sleeping den');
+INSERT INTO "users" VALUES(3,1,'grace',1992,1,'upstairs dormer');
+INSERT INTO "users" VALUES(3,1,'someone',1234,1,'upstairs dormer foyer');

@@ -12,7 +12,6 @@
 
 # System generated files
 .DS_Store
-*.png
 
 *.tex
 auto/

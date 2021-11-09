@@ -1,0 +1,137 @@
+$def with (content)
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, minimal-ui" />
+        <meta name="apple-mobile-web-app-capable" content="yes">
+        <title>Cpppo Crypto Licensing</title>
+        <link rel="stylesheet"
+              href="/static/bootstrap-3.3.1-dist/css/bootstrap.min.css"
+              type="text/css" />
+        <link rel="stylesheet"
+              href="/static/css/bootstrap-switch.css"
+              type="text/css" />
+        <link rel="stylesheet"
+              href="/static/css/style.css"
+              type="text/css" />
+	<link rel="icon" type="image/x-icon"                href="/static/images/favicon.ico">
+	<link rel="icon" type="image/png" sizes="96x96"     href="/static/images/favicon-96x96.png">
+        <link rel="apple-touch-icon"      sizes="180x180"   href="/static/images/apple-icon-180x180.png">
+    </head>
+    <body>
+        <nav
+            $if not session.login:
+                class="navbar navbar-inverse navbar-fixed-top"
+            $else:
+                class="navbar navbar-default navbar-fixed-top"
+            >
+            <div class="container-fluid">
+                <div class="navbar-header">
+                    <button type="button" class="navbar-toggle collapsed" data-toggle="collapse" data-target="#navbar">
+                        <span class="sr-only">Toggle navigation</span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                    </button>
+                    <a class="navbar-brand" href="/">
+                    $if session.login:
+                        Welcome, $session.name.capitalize()
+                    $else:
+                        Cpppo Crypto Licensing
+                    </a>
+                </div>
+                <div id="navbar" class="navbar-collapse collapse">
+                    <ul class="nav navbar-nav">
+                        <li><a href="/thermostat">Thermostat</a></li>
+                        <li class="dropdown" role="menu">
+                            <a href="#" class="dropdown-toggle" data-toggle="dropdown" role="button" aria-expanded="false">Manual <span class="caret"></span></a>
+                            <ul class="dropdown-menu" role="menu">
+                                <li><a href="/lighting">Lighting</a></li>
+                                <li><a href="/pumping">Pumping</a></li>
+                                <li><a href="/heating">Heating</a></li>
+                                <li><a href="/storage">Storage</a></li>
+                            </ul>
+                        </li>
+                        <li class="dropdown" role="menu">
+                            <a href="#" class="dropdown-toggle" data-toggle="dropdown" role="button" aria-expanded="false">Sensors <span class="caret"></span></a>
+                            <ul class="dropdown-menu" role="menu">
+                                <li><a href="/api/sensor/Aggregate">Aggregate</a></li>
+                                <li><a href="/api/sensor/Lighting">Lighting</a></li>
+                                <li><a href="/api/sensor/Heating">Heating</a></li>
+                                <li><a href="/api/sensor/Solar">Solar</a></li>
+                                <li><a href="/api/sensor/Big Tank">Big</a></li>
+                                <li><a href="/api/sensor/Air">Air</a></li>
+                                <li><a href="/api/sensor/Slab">Slab</a></li>
+                                <li><a href="/api/sensor/Wall">Wall</a></li>
+                            </ul>
+                        </li>
+                        <li><a href="/api/zone">Zones</a></li>
+                        <li><a href="/login">Login</a></li>
+                    $if session.login:
+                        <li><a href="/logout">Logout</a></li>
+                    </ul>
+                </div> <!-- /.navbar-collapse -->
+            </div> <!-- /.container-fluid -->
+        </nav>
+        <script type="text/javascript">
+
+        $# Unfiltered inlining of some js; relative to the calling python file
+        $:inline( "static/js/yepnope.1.5.4-min.js" )
+    
+        // A fake $$(document).ready( f ), 'til jquery is loaded.
+        var docready=[];
+        $$=function() {
+            return {
+                ready : function(fn) {
+                    docready.push(fn);
+                }
+            };
+        };
+        function jquery_loaded() {
+            $$=window.jQuery;
+            for(n in docready) 
+                $$(document).ready(docready[n]);
+        }
+    
+        // These window. globals are available 
+        //     window.base_url		-- the HTTP URL used to access the Web interface
+        window.base_url			= window.location.protocol + "//" + window.location.host
+        
+        yepnope([{
+            load: 'timeout=2500!http://ajax.googleapis.com/ajax/libs/jquery/2.1.3/jquery.min.js',
+            complete: function () {
+                if (!window.jQuery) {
+                    yepnope({
+                        load: '/static/js/jquery-2.1.3.min.js',
+                        complete: function() {
+                            console.log( 'local jquery' );
+                            jquery_loaded();
+                        }
+                    });
+        	} else {
+                    console.log( 'remote jquery' );
+                    jquery_loaded()
+                }
+            }
+        }, {
+            load: 'timeout=2500!http://netdna.bootstrapcdn.com/bootstrap/3.3.1/js/bootstrap.min.js',
+            complete: function () {
+                if (!$$.fn.button) { // just picked a random element from the bootstrap to test
+                    yepnope({
+                        load: '/static/bootstrap-3.3.1-dist/js/bootstrap.min.js',
+                        complete: function() {
+                            console.log( 'local twitter js' );
+                        }
+                    });
+                } else {
+                    console.log( 'remote twitter js' );
+                }
+            }
+            }]);
+        </script>
+
+        $:content
+
+    </body>
+</html>

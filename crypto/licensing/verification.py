@@ -2,7 +2,7 @@
 #
 # Cpppo -- Communication Protocol Python Parser and Originator
 #
-# Copyright (c) 2021, Hard Consulting Corporation.
+# Copyright (c) 2021, Dominion Research & Development Corp.
 #
 # Cpppo is free software: you can redistribute it and/or modify it under the
 # terms of the GNU General Public License as published by the Free Software
@@ -938,6 +938,8 @@ class LicenseSigned( Serializable ):
             LicenseSigned( **provenance_dict )
 
         """
+        if isinstance( license, type_str_base ):
+            license		= json.loads( license ) # Deserialize License, if necessary
         assert isinstance( license, (License, dict) ), \
             "Require a License or its serialization dict, not a {!r}".format( license )
         self.license		= License( confirm=confirm, **license ) if isinstance( license, dict ) else license

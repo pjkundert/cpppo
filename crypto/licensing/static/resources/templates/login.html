@@ -1,0 +1,105 @@
+$def with (content)
+
+$def children_list( child ):
+    $if child:
+        <ul>
+        $for name,user_id in child:
+            <li>
+                    <label class="btn btn-primary">
+                        <input type="checkbox" id="delete-$name-$user_id" name="delete-$name-$user_id">
+                        $name
+                    </label>
+            </li>
+            
+            $:children_list( child[(name,user_id)] )
+        </ul>
+
+<div class="container-fluid">
+    <form id="loginform" method="post">
+        <h1 class="page-header">
+            $content["title"]
+            $if session.login > 1:
+                (Admin)
+        </h1>
+        <!-- If not logged in, the "name" name will be used to select user -->
+        $if session.login:
+            <span class="help-block">Set PIN for yourself:</span>
+        $else:
+            <input class="form-control" name="name" type="text" pattern="[a-zA-Z][a-zA-Z0-9_]*"
+                   placeholder="name" value="$session.name" />
+        <div class="input-group">
+            <input class="form-control" name="pin" id="pin" type="number" pattern="[0-9]*"
+                $if session.login:
+                    placeholder="Set PIN"
+                $else:
+                    placeholder="PIN"
+                autofocus="autofocus" />
+            <!-- If logging in, we'll see the "go" button in the POST
+                 If change PIN, we'll see the "change" button in the POST -->
+            <span class="input-group-btn">
+            $if session.login:
+                <button name="change" type="submit" class="btn btn-default">Set PIN</button>
+            $else:
+                <button name="go"     type="submit" class="btn btn-default">Login</button>
+            </span>
+        </div>
+
+        <!-- If adding new user, we'll see the "add" button in the POST
+             and the "name" input will be used to identify the new user
+             A user may delegate any of his zones to the new user -->
+        $if session.login:
+            <span class="help-block">Or, Set PIN and Add
+            $if session.login > 1:
+                (or Update)
+            new user, and delegate zones:</span>
+            <div class="btn-group" data-toggle="buttons">
+            $for zone in session.zones.split():
+                <label class="btn btn-primary">
+                    <input type="checkbox" name="$zone" id="$zone" value="1" />
+                    $zone.capitalize()
+                </label>
+            </div>
+            <select name="login" class="form-control">
+                <option value="0">Disable</option>
+                <option value="1" selected>Normal</option>
+            $if session.login > 1:
+                <option value="2">Admin</option>
+            </select>
+            <div class="input-group">
+                <input class="form-control" name="name" type="text" pattern="[a-zA-Z][a-zA-Z0-9_]*"
+                       placeholder="New user" />
+                <span class=" input-group-btn">
+                    <button name="add" type="submit" class="btn btn-default">
+                    $if session.login > 1:
+                        Add/Update
+                    $else:
+                        Add
+                    User
+                    </button>
+                </span>
+            </div>
+        $if session.login and 'children' in content:
+            <span class="help-block">Or, delete users (also deletes all of
+            their delegated users):</span>
+
+            $:children_list( content['children'] )
+
+            <button name="delete" type="submit" class="btn btn-default">Delete Users</button>
+        <!-- Hidden inputs, returned with form-->
+        <input name="redirect" class="hidden" value="$content['redirect']" />
+    </form>
+</div>
+
+<script>
+
+    $$(document).ready( function() {
+        console.log("Setting up form");
+        $$('#pin').on( 'keyup', function(e) {
+            if (e.type === 'keyup' && e.keyCode !== 10 && e.keyCode !== 13)
+                return;
+            $$(this).closest('form').submit();
+        });
+    });
+
+</script>
+

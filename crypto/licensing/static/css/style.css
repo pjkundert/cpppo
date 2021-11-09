@@ -1,0 +1,51 @@
+
+/*
+ * If this style.css is loaded between boostrap.css and
+ * bootstrap-responsive.css, then this body padding will be applied only on
+ * regular sized (ie. ones *not* redefined in ...-responsive)
+ */ 
+body {
+  height: 100%;
+  padding-top: 50px;
+}
+html {
+  height: 100%;
+}
+
+/*
+ * Tables
+ */
+
+.toggle-column {
+  width: 0%;
+}
+.toggle-description {
+  width: 100%;
+  margin-left: 10px;
+  vertical-align: middle;
+}
+
+/*
+ * Loading icon
+ */
+.loading {
+  background-image: url(/static/images/loading.gif);
+  background-repeat: no-repeat;
+  background-position: center center;
+}
+.thermostat-temperature {
+  font-size: 45pt;
+  text-align: center;
+}
+.thermostat-disabled {
+  stroke-opacity: 0.25;
+}
+
+.editableTable { border:solid 1px; width:100%; }
+.editableTable td { border:solid 1px; }
+.editableTable .cellEditing { padding-top: 2px; padding-bottom: 2px; /* padding-left: 6px; */ }
+.editableTable .cellEditing input[type=text]{
+  width:100%;
+  background-color:rgb(255,253,210);
+}
+

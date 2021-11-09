@@ -1,0 +1,9 @@
+/*
+ * statics	-- remember arbitrary settings
+ */
+CREATE TABLE statics (
+       key		text primary key,
+       value		real default 0.0
+);
+INSERT INTO "statics" VALUES( 'geothermal',	2.0 );
+INSERT INTO "statics" VALUES( 'furnace',	4.0 );
