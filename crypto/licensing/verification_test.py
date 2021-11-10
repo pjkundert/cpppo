@@ -114,13 +114,24 @@ def test_KeypairEncrypted_smoke():
     kp_r			= KeypairEncrypted( **json.loads( kp_e_ser ))
     assert str( kp_r ) == kp_e_ser
 
-    # We can also reconstruct form just seed and salt
+    # We can also reconstruct from just seed and salt
     kp_e2			= KeypairEncrypted( salt=salt, seed=kp_e.seed )
     assert str( kp_e2 ) == kp_e_ser
     assert kp_e.into_keypair( username=username, password=password ) \
         == kp_r.into_keypair( username=username, password=password ) \
         == kp_e2.into_keypair( username=username, password=password )
 
+    awesome_keypair		= into_keys( awesome_sigkey )
+    kp_a			= KeypairEncrypted( salt=b'\x01' * 12, sk=awesome_keypair[1],
+                                                    username=username, password=password )
+    assert kp_a.into_keypair( username=username, password=password )[1] == awesome_keypair[1]
+
+    kp_a_ser			= str( kp_a )
+    assert """\
+{
+    "salt":"010101010101010101010101",
+    "seed":"aea5129b033c3072be503b91957dbac0e4c672ab49bb1cc981a8955ec01dc47280effc21092403509086caa8684003c7"
+}""" == kp_a_ser
 
 @pytest.mark.skipif( not chacha20poly1305, reason="Needs ChaCha20Poly1504" )
 def test_KeypairEncrypted_load_keypair():
@@ -297,6 +308,7 @@ def test_LicenseSigned():
         confirm = False,
     )
     drv_prov = issue( drv, awesome_keypair.sk, confirm=False )
+    assert "KZUN48PRuI55gCBkbjkiHPeatj+lmAnJPOS5cTa13Ik=" == drv_prov.b64digest()
     drv_prov_str = str( drv_prov )
     assert drv_prov_str == """\
 {

@@ -1075,8 +1075,8 @@ class KeypairEncrypted( Serializable):
                 "Failed to recover original key after decryption"
 
     def key( self, username, password ):
-        # TODO: The username, which is often an email address, should not be case-sensitive?
-        #username		= username.lower()
+        # The username, which is often an email address, should be case-insensitive.
+        username		= username.lower()
         username		= username.encode( 'UTF-8' )
         password		= password.encode( 'UTF-8' )
         m			= hashlib.sha256()

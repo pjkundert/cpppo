@@ -412,24 +412,29 @@ def txt( win, cnf ):
         # and loop 'til they fix the display size.
         try:
             areas		= len( include )
-            pile		= 1
-            rank		= areas // pile
-            height		= rows - topmargin
-            width		= cols // ( rank + 1 )
-            while height > 20 or width < 20 or ( height >= 5 * width / 4 ):
-                pile           += 1
-                rank		= ( areas + pile - 1 ) // pile	# ensure integer div rounds up
-                height		= ( rows - topmargin ) // pile
-                width		= cols // ( rank + 1 )
-            assert height >= 10 and width >= 20
+            across		= 1
+            rank		= 1
+            def cellyx():
+                y		= ( rows - topmargin ) // rank
+                x		= cols // across
+                return y,x
+            height,width	= cellyx()
+            while width > 60:
+                across	       += 1
+                height,width	= cellyx()
+            while height > 20:
+                rank	       += 1
+                height,width	= cellyx()
+            assert height >= 10 and width >= 30
         except:
-            message( win, "Insufficient screen size (%d areas, %d ranks of %dx%d); increase height/width, or reduce font size" % (
-                areas, pile, width, height ),
+            message( win, "Insufficient screen size (%d areas, %d ranks of %d  %dx%d cells); increase height/width, or reduce font size" % (
+                areas, rank, across, width, height ),
                      col = 0, row = 0 )
+            win.refresh()
             time.sleep( 2 )
             continue
 
-        # Make h- and v-bars, everwhere except top margin
+        # Make h- and v-bars, everywhere except top margin
         for r in range( topmargin, rows ):
             if ( rows - r ) % height == 0:
                 win.hline( r, 0, curses.ACS_HLINE, cols )
