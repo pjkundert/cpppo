@@ -13,15 +13,3 @@ CREATE TABLE users (
        login		integer default 1,
        zones		text default NULL
 );
-
-/*
- * licenses -- All license provenance currently available to the License Server
- */
-
-CREATE TABLE licenses (
-       signature        char(128) UNIQUE not NULL,      -- base64 512-bit Ed25519 Signature
-       license		text,                           -- JSON License serialization
-       PRIMARY KEY (signature)
-);
-
-
