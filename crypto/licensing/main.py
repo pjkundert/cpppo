@@ -33,7 +33,6 @@ import collections
 import copy
 import curses, curses.ascii, curses.panel
 import datetime
-import dateutil.tz
 import glob
 import json
 import logging
@@ -257,34 +256,39 @@ credentials.local		= {} # { description: (username, password), ... }
 
 
 def keypairs():
-    """Load all available keys, using all currently available credentials.  This includes all Encrypted
-    and Plaintext keys in files, and all Encrypted keys in database "authors" table.  Each time we
-    add a new credential, this *may* make available more keys encrypted with those credentials.
+    """Load all available keypairs available for authoring Licenses, using all currently available
+    credentials.  This includes all Encrypted and Plaintext keys in files, and all Encrypted keys in
+    database "authors" table.  Each time we add a new credential, this *may* make available more
+    keys encrypted with those credentials.
 
     Yield sequence of all available (name, ...Keypair, credential) from "authors" table and files.
     May contain duplicates.  Caller may accumulate them, or simply scan for desired entry.
 
     """
     loaded			= set()
-    saved			= set()
-    for _,(username,password) in credentials():
+    saved			= 0
+    for credname,(username,password) in credentials():
         for r in db.select( 'authors' ):
             cred		= dict( username=username, password=password )
             try:
-                keypair		= licensing.KeypairEncrypted( salt=r.salt, seed=r.seed, **cred )
+                keypair		= licensing.KeypairEncrypted( salt=r.salt, seed=r.seed )
+                keypair.into_keypair( **cred ) # Ensure the supplied credentials can decrypt it
                 yield r.name, keypair, cred
-                saved.add(r.name)
+                saved	       += 1
             except Exception as exc:
                 log.warning( "{n:<20}: Failed to decrypt w/ {u:>20} / {p}".format(
-                    n=r.name, u=cred[0], p='*' * len( cred[1] )))
+                    n=r.name, u=cred['username'] or '(empty)', p='*' * len( cred['password'] or '(empty)' )))
                 pass
+        # Any Plaintext Keypairs (and perhaps some Encrypted ones, if duplicate credentials are
+        # supplied) will be found multiple times.  Report keypairs at the same path only once.
         try:
             for path, keypair, cred in licensing.load_keys( basename=KEYFILE, username=username, password=password ):
-                yield path, keypair, cred
-                loaded.add(path)
+                if path not in loaded:
+                    yield path, keypair, cred
+                    loaded.add( path )
         except ConfigNotFoundError:
             pass
-    log.normal( "Keypairs     saved: {}".format( len( saved )))
+    log.normal( "Keypairs     saved: {}".format( saved ))
     log.normal( "Keypairs    loaded: {}".format( len( loaded )))
     
 
@@ -661,7 +665,7 @@ def credentials_request( render, path, environ, accept, framework,
     response			= ""
 
     data			= {}
-    data["title"]		= "Authors"
+    data["title"]		= "Credentials"
     data["path"]		= path
     data["list"] = ll		= []
     data["keys"]		= ["name", "username", "password"]
@@ -672,6 +676,57 @@ def credentials_request( render, path, environ, accept, framework,
             name	= name,
             username	= username,
             password	= password,
+        )
+        ll.append( record )
+
+    if content and content in ( "application/json", "text/javascript", "text/plain" ):
+        callback		= variables.get( 'callback', "" )
+        if callback:
+            response           += callback + "( "
+        response               += json.dumps( data, indent=4 )
+        if callback:
+            response           += " )"
+    elif content and content in ( "text/html" ):
+        response		= render.keylist( data )
+    else:
+        raise http_exception( framework, 406, "Unable to produce %s content" % (
+                content or accept or "unknown" ))
+    return content, response
+
+
+def keypairs_request( render, path, environ, accept, framework,
+                         queries=None, posted=None,
+                         session=None, logged=None, # The user session
+                         proxy=None ):
+
+    """
+        api/keypairs/<name>/
+
+    """
+    variables			= queries or posted or {}
+    content			= deduce_encoding( [ "text/html",
+                                                     "application/json", "text/javascript",
+                                                     "text/plain" ],
+                                                   environ=environ, accept=accept )
+    response			= ""
+
+    data			= {}
+    data["title"]		= "Keypairs"
+    data["path"]		= path
+    data["list"] = ll		= []
+    data["keys"]		= ["name", "public_key", "credentials"]
+
+    # Get all credentials into creds: { name: (username,password), ... }, and build a reverse-lookup dict
+    # creds_reverse: { (username,password): name, ... }
+    creds			= dict( credentials() )
+    creds_reverse		= { v: k for k,v in creds.items() }
+
+    for name,keypair,cred in keypairs():
+        log.normal("Found keypair: {!r}".format( (name,keypair,cred) ))
+        record			= dict(
+            name	= name,
+            public_key	= licensing.into_b64( keypair.into_keypair( **cred ).vk ),
+            credentials	= creds_reverse.get( (cred['username'], cred['password']), '(unknown)' ),
         )
         ll.append( record )
 
@@ -791,8 +846,10 @@ def webpy( config ):
         "/logout",			"logout",
         "/api/issue(\.json)?",		"issue",                 # path: "", ".json"
         "/api/issue/(.+)?",		"issue",                 # path: "...", "....json"
-        "/api/credentials(\.json)?",	"credentials",           # path: "", ".json"
-        "/api/credentials/(.+)?",	"credentials",           # path: "...", "....json"
+        "/api/credentials(\.json)?",	"credentials",
+        "/api/credentials/(.+)?",	"credentials",
+        "/api/keypairs(\.json)?",	"keypairs",
+        "/api/keypairs/(.+)?",		"keypairs",
     )
 
     class trailing_stuff:
@@ -1124,6 +1181,34 @@ Disallow: /
             # carry a meaningful HTTP status code.  Otherwise, a generic 500 Server
             # Error will be produced.
             content, response	= credentials_request(
+                render=render, path=path, environ=web.ctx.environ,
+                accept=accept, framework=web, logged=logged,
+                **{ input_variable: web.input() } )
+            web.header( "Cache-Control", "no-cache" )
+            web.header( "Content-Type", content )
+            return response
+
+        def POST( self, path ):
+            # form data posted in web.input(), just like queries
+            return self.GET( path, input_variable="posted" )
+
+    class keypairs:
+        def GET( self, path, input_variable="queries" ):
+            # if not logged():
+            #     web.seeother( proxy( web.ctx.environ ) + '/login?redirect=' + web.ctx.environ.get( 'PATH_INFO', '' ))
+            #     return
+            render		= web.template.render(
+                TPLPATH, base="layout", globals={'inline': inline, 'session': session} )
+            accept		= None
+            if path and path.endswith( ".json" ):
+                path		= path[:-5]		# clip off ".json"
+                accept		= "application/json"
+
+            # Always returns a content-type and response.  If an exception is
+            # raised, it should be an appropriate one from the supplied framework to
+            # carry a meaningful HTTP status code.  Otherwise, a generic 500 Server
+            # Error will be produced.
+            content, response	= keypairs_request(
                 render=render, path=path, environ=web.ctx.environ,
                 accept=accept, framework=web, logged=logged,
                 **{ input_variable: web.input() } )

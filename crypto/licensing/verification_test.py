@@ -97,7 +97,7 @@ try:
 except:
     chacha20poly1305		= None
 
-@pytest.mark.skipif( not chacha20poly1305, reason="Needs ChaCha20Poly1504" )
+@pytest.mark.skipif( not chacha20poly1305, reason="Needs ChaCha20Poly1305" )
 def test_KeypairEncrypted_smoke():
     enduser_keypair		= author( seed=enduser_seed, why="from enduser seed" )
     salt			= b'\x00' * 12
@@ -133,7 +133,7 @@ def test_KeypairEncrypted_smoke():
     "seed":"aea5129b033c3072be503b91957dbac0e4c672ab49bb1cc981a8955ec01dc47280effc21092403509086caa8684003c7"
 }""" == kp_a_ser
 
-@pytest.mark.skipif( not chacha20poly1305, reason="Needs ChaCha20Poly1504" )
+@pytest.mark.skipif( not chacha20poly1305, reason="Needs ChaCha20Poly1305" )
 def test_KeypairEncrypted_load_keys():
     enduser_keypair		= author( seed=enduser_seed, why="from enduser seed" )
     (keyname,keypair,keycred),	= load_keys( username=username, password=password,

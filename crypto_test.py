@@ -123,7 +123,7 @@ def test_crypto():
             cnt += 1
             end = misc.timer()
             dur = end - beg
-            if dur > 10.0:
+            if dur > 5.0:
               break
 
         log.normal("\n{description}: Completed {cnt} signature checks in {dur}s, or {per:.5}/s".format(
