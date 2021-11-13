@@ -7,6 +7,7 @@ CREATE TABLE authors (
        name		char(128) UNIQUE NOT NULL,	-- The unique name of the Author
        salt             char(24) UNIQUE NOT NULL,	-- 96-bit salt in hex
        seed             char(96) UNIQUE NOT NULL,	-- 384-bit encrypted seed in hex
+       domain           char(256) default NULL,         -- The DNS domain w/ DKIM record (optional)
        PRIMARY KEY (name)
 );
 

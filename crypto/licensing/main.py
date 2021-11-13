@@ -33,6 +33,7 @@ import collections
 import copy
 import curses, curses.ascii, curses.panel
 import datetime
+import fnmatch
 import glob
 import json
 import logging
@@ -186,19 +187,49 @@ def state_save():
 
 
 def licenses():
-    """Obtain all current License provenances currently available from the DB and files."""
+    """Obtain all License provenances currently available from the DB and files, as a sequence of
+    (signature, License) provenance pairs; signature is a 512-bit Ed25519 Signature as bytes.
+
+    Each license provenance comprises a License and an Ed25519 Signature, and may contain dependencies.
+
+    All unique licenses are found and yielded, indexed by their signatures.
+
+    Any License for which you hold the Author signing keypair matching the Licenses' designed client
+    / client_pubkey (or they are null/None) may be included in a new License's dependencies.
+
+    In other words, you may create and author (sign) a brand new License with no dependencies, or
+    with dependencies that have a client / client_pubkey matching your authoring keypair pubkey.
+
+    TODO: Licenses specifying a *number* of things may be used as dependencies in authored Licenses
+    until the sum of those things allocated to the authored licenses meets the License dependencies'
+    number limit.
+
+    """
+    emitted			= set()
+    def emit( *provs ):
+        for p in provs:
+            if p.signature in emitted:
+                continue
+            yield p.signature, p.license
+            emitted.add( p.signature )
+            for sig, lic in emit( *[ licensing.LicenseSigned( confirm=False, **pd ) for pd in p.license.dependencies or [] ] ):
+                yield sig, lic
+            
     found			= 0
     for r in db.select( 'licenses' ):
-        yield r.name, licensing.LicenseSigned( license=r.license, signature=r.signature, confirm=False )
-        found		       += 1
+        prov			= licensing.LicenseSigned( license=r.license, signature=r.signature, confirm=False )
+        for sig, lic in emit( prov ):
+            yield sig, lic
+            found	       += 1
     log.normal( "Licenses     saved: {}".format( found ))
 
     found			= 0
     path			= None
     try:
         for path, prov in licensing.load( basename=LICFILE ):
-            yield path, prov
-            found	       += 1
+            for sig, lic in emit( prov ):
+                yield sig, lic
+                found	       += 1
     except ConfigNotFoundError:
         pass
     except Exception as exc:
@@ -290,8 +321,88 @@ def keypairs():
             pass
     log.normal( "Keypairs     saved: {}".format( saved ))
     log.normal( "Keypairs    loaded: {}".format( len( loaded )))
-    
 
+
+def licenses_data( path ):
+    data			= {}
+    data["title"]		= "Licenses"
+    data["path"]		= path
+    data["list"] = ll		= []
+    data["keys"]		= ["signature", "author", "author_pubkey", "client", "client_pubkey", "product", "license"]
+
+    pathsegs			= path.strip('/').split('/') if path else []
+    assert 0 <= len( pathsegs ) <= 1, "Invalid credentials path {}".format( path )
+    
+    for signature, lic in licenses():
+        record			= dict(
+            signature		= licensing.into_b64( signature ),
+            author		= lic['author'],
+            author_pubkey	= lic['author_pubkey'],
+            client		= lic['client'],
+            client_pubkey	= lic['client_pubkey'],
+            product		= lic['product'],
+            license		= str( lic ),
+        )
+        if pathsegs and pathsegs[0] and not fnmatch.fnmatch( record['author'], pathsegs[0] ):
+            log.detail( "License.author {} didn't match {}".format( record['author'], path ))
+            continue
+        ll.append( record )
+
+    return data
+
+
+def credentials_data( path ):
+    data			= {}
+    data["title"]		= "Credentials"
+    data["path"]		= path
+    data["list"] = ll		= []
+    data["keys"]		= ["name", "username", "password"]
+
+    pathsegs			= path.strip('/').split('/') if path else []
+    assert 0 <= len( pathsegs ) <= 1, "Invalid credentials path {}".format( path )
+    
+    for name,(username,password) in credentials():
+        if pathsegs and pathsegs[0] and not fnmatch.fnmatch( name, pathsegs[0] ):
+            log.detail( "Credential {} didn't match {}".format( name, path ))
+            continue
+        record			= dict(
+            name	= name,
+            username	= username,
+            password	= password,
+        )
+        ll.append( record )
+
+    return data
+
+
+def keypairs_data( path ):
+    data			= {}
+    data["title"]		= "Keypairs"
+    data["path"]		= path
+    data["list"] = ll		= []
+    data["keys"]		= ["name", "public_key", "credentials"]
+
+    pathsegs			= path.strip('/').split('/') if path else []
+    assert 0 <= len( pathsegs ) <= 1, "Invalid keypairs path {}".format( path )
+    
+    # Get all credentials into creds: { name: (username,password), ... }, and build a reverse-lookup dict
+    # creds_reverse: { (username,password): name, ... }
+    creds			= dict( credentials() )
+    creds_reverse		= { v: k for k,v in creds.items() }
+
+    for name,keypair,cred in keypairs():
+        log.normal("Found keypair: {!r}".format( (name,keypair,cred) ))
+        if pathsegs and pathsegs[0] and not fnmatch.fnmatch( name, pathsegs[0] ):
+            log.detail( "Credential {} didn't match {}".format( name, path ))
+            continue
+        record			= dict(
+            name	= name,
+            public_key	= licensing.into_b64( keypair.into_keypair( **cred ).vk ),
+            credentials	= creds_reverse.get( (cred['username'], cred['password']), '(unknown)' ),
+        )
+        ll.append( record )
+
+    return data
                     
 # Set up signal handling (log rotation, log level, etc.)
 # Output logging to a file, and handle UNIX-y log file rotation via 'logrotate', which sends
@@ -648,6 +759,39 @@ def http_exception( framework, status, message ):
     return Exception( "%d %s" % ( status, message ))
 
 
+def licenses_request( render, path, environ, accept, framework,
+                         queries=None, posted=None,
+                         session=None, logged=None, # The user session
+                         proxy=None ):
+
+    """
+        api/licenses/<name>/
+
+    """
+    variables			= queries or posted or {}
+    content			= deduce_encoding( [ "text/html",
+                                                     "application/json", "text/javascript",
+                                                     "text/plain" ],
+                                                   environ=environ, accept=accept )
+    response			= ""
+
+    data			= licenses_data( path )
+
+    if content and content in ( "application/json", "text/javascript", "text/plain" ):
+        callback		= variables.get( 'callback', "" )
+        if callback:
+            response           += callback + "( "
+        response               += json.dumps( data, indent=4 )
+        if callback:
+            response           += " )"
+    elif content and content in ( "text/html" ):
+        response		= render.keylist( data )
+    else:
+        raise http_exception( framework, 406, "Unable to produce %s content" % (
+                content or accept or "unknown" ))
+    return content, response
+
+
 def credentials_request( render, path, environ, accept, framework,
                          queries=None, posted=None,
                          session=None, logged=None, # The user session
@@ -664,20 +808,7 @@ def credentials_request( render, path, environ, accept, framework,
                                                    environ=environ, accept=accept )
     response			= ""
 
-    data			= {}
-    data["title"]		= "Credentials"
-    data["path"]		= path
-    data["list"] = ll		= []
-    data["keys"]		= ["name", "username", "password"]
-    z, _			= path.split('/')
-
-    for name,(username,password) in credentials():
-        record			= dict(
-            name	= name,
-            username	= username,
-            password	= password,
-        )
-        ll.append( record )
+    data			= credentials_data( path )
 
     if content and content in ( "application/json", "text/javascript", "text/plain" ):
         callback		= variables.get( 'callback', "" )
@@ -709,26 +840,7 @@ def keypairs_request( render, path, environ, accept, framework,
                                                      "text/plain" ],
                                                    environ=environ, accept=accept )
     response			= ""
-
-    data			= {}
-    data["title"]		= "Keypairs"
-    data["path"]		= path
-    data["list"] = ll		= []
-    data["keys"]		= ["name", "public_key", "credentials"]
-
-    # Get all credentials into creds: { name: (username,password), ... }, and build a reverse-lookup dict
-    # creds_reverse: { (username,password): name, ... }
-    creds			= dict( credentials() )
-    creds_reverse		= { v: k for k,v in creds.items() }
-
-    for name,keypair,cred in keypairs():
-        log.normal("Found keypair: {!r}".format( (name,keypair,cred) ))
-        record			= dict(
-            name	= name,
-            public_key	= licensing.into_b64( keypair.into_keypair( **cred ).vk ),
-            credentials	= creds_reverse.get( (cred['username'], cred['password']), '(unknown)' ),
-        )
-        ll.append( record )
+    data			= keypairs_data( path )
 
     if content and content in ( "application/json", "text/javascript", "text/plain" ):
         callback		= variables.get( 'callback', "" )
@@ -846,6 +958,8 @@ def webpy( config ):
         "/logout",			"logout",
         "/api/issue(\.json)?",		"issue",                 # path: "", ".json"
         "/api/issue/(.+)?",		"issue",                 # path: "...", "....json"
+        "/api/licenses(\.json)?",	"licenses",
+        "/api/licenses/(.+)?",		"licenses",
         "/api/credentials(\.json)?",	"credentials",
         "/api/credentials/(.+)?",	"credentials",
         "/api/keypairs(\.json)?",	"keypairs",
@@ -1164,6 +1278,34 @@ Disallow: /
             # form data posted in web.input(), just like queries
             return self.GET( path, input_variable="posted" )
 
+    class licenses:
+        def GET( self, path, input_variable="queries" ):
+            # if not logged():
+            #     web.seeother( proxy( web.ctx.environ ) + '/login?redirect=' + web.ctx.environ.get( 'PATH_INFO', '' ))
+            #     return
+            render		= web.template.render(
+                TPLPATH, base="layout", globals={'inline': inline, 'session': session} )
+            accept		= None
+            if path and path.endswith( ".json" ):
+                path		= path[:-5]		# clip off ".json"
+                accept		= "application/json"
+
+            # Always returns a content-type and response.  If an exception is
+            # raised, it should be an appropriate one from the supplied framework to
+            # carry a meaningful HTTP status code.  Otherwise, a generic 500 Server
+            # Error will be produced.
+            content, response	= licenses_request(
+                render=render, path=path, environ=web.ctx.environ,
+                accept=accept, framework=web, logged=logged,
+                **{ input_variable: web.input() } )
+            web.header( "Cache-Control", "no-cache" )
+            web.header( "Content-Type", content )
+            return response
+
+        def POST( self, path ):
+            # form data posted in web.input(), just like queries
+            return self.GET( path, input_variable="posted" )
+
     class credentials:
         def GET( self, path, input_variable="queries" ):
             # if not logged():
@@ -1376,9 +1518,9 @@ def main( argv=None, **kwds ):
     logging.basicConfig( **log_cfg )
 
 
-    for name, prov in licenses():
-        print( "{n:<20}: {lic}".format(
-            n=name, lic=prov ))
+    for sig, lic in licenses():
+        print( "{s:<64}: {lic}".format(
+            s=licensing.into_b64( sig ), lic=str( lic ) ))
         
     for name, keypair, (username, password) in keypairs():
         try:

@@ -1,21 +1,17 @@
 
 /*
- * licenses -- All license provenance currently available to the License Server
+ * licenses -- All license provenance currently available to the License Server, by digest
  */
 CREATE TABLE licenses (
-       name		char(128) UNIQUE NOT NULL,	-- A name for the License
-       digest		char(64) UNIQUE NOT NULL,	-- SHA256 hash of LicenseSigned
        signature        char(128) NOT NULL,		-- base64 512-bit Ed25519 Signature
        license		text NOT NULL,			-- JSON License serialization
-       PRIMARY KEY (digest)
+       PRIMARY KEY (signature)
 );
 
 /*
  * Initial defaults for licenses
  */
 INSERT INTO "licenses" VALUES(
-  'Awesome EtherNet/IP Tool for End User, LLC -- Annual, 2020-09-29',
-  'KZUN48PRuI55gCBkbjkiHPeatj+lmAnJPOS5cTa13Ik=',
   'egUZM9vlF2y4DBCTtWNv3UC7nBRxSz4LZ12nOR+WSUktOrBbESsBuwQzjobNvPR2G+EZASRkY00bm/XqTzKsCg==',
   '{
     "author":"Awesome, Inc.",
