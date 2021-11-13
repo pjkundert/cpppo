@@ -1,0 +1,91 @@
+$def with (content)
+<title>
+    $content["title"]
+</title>
+<div class="container theme-showcase" role="main">
+    <h1 class="page-header">
+        $content["title"]
+    </h1>
+    <div class="row-fluid">
+        <table class="table table-striped table-condensed table-bordered editableTable">
+            <thead>
+               $for key in content["keys"]:
+                  <th>$key</th>
+            </thead>
+            <tbody>
+              $for item in content["list"]:
+                <tr>
+                  $for key in content["keys"]:
+                    $if key in content.get( "editable", [] ):
+                      <td class="editable">$item[key]</td>
+                    $else:
+                      <td>$item[key]</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<script type="text/javascript">
+
+    var post = null;
+
+    function post_change( name, value )
+    {
+        console.log( [ 'Updating', name, "to", value ] )
+	if ( post )
+	    post.abort();
+	post = $$.ajax({
+		type:	    'POST',
+		url:	    '/api/sensor/' + name,
+		dataType:   'jsonp',
+		data:	    { value: value },
+		success:    function( d ) {
+		    post	= null;
+		},
+		error:	    function( jxr, s, m ) {
+		    console.log( [ "Change of ", name, " to ", value, " failed: ", m ]);
+		    post	= null;
+		},
+	    })
+    }
+
+    function editable()
+    {
+        console.log( "setup" );
+        $$("td.editable").on( "click", function () {
+            console.log( "clicked == " + $$(this) );
+            if ( ! $$(this).hasClass( "cellEditing" )) {
+                var OriginalContent = $$(this).text();
+                var width = $$(this).width() + 0; /* 1 pixel borders */
+                var html = "<input type='text' value='" + OriginalContent + "' />"
+                console.log(html);
+                $$(this)
+                    .addClass("cellEditing")
+                    .css("width", '' + width + 'px')
+                    .html( html );
+                $$(this).children().first()
+                    .focus()
+                    .keypress( function(e) {
+                        if (e.which == 13) {
+                            var newContent = $$(this).val();
+                            post_change( $$(this).closest("td").siblings(":first-child").text(), newContent );
+                            $$(this).parent()
+                                .text(newContent)
+                                .removeClass("cellEditing")
+                                .css('width', ''); 
+                        }
+                    })
+                    .on( 'blur', function() {
+                        $$(this).parent()
+                            .removeClass("cellEditing")
+                            .text(OriginalContent)
+                            .css('width', '');
+                });
+            }
+        });
+    }
+
+    $$(document).ready( editable );
+
+</script>

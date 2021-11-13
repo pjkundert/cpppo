@@ -13,7 +13,7 @@ from .verification import (
     domainkey, domainkey_service, overlap_intersect,
     into_b64, into_hex, into_str, into_str_UTC, into_JSON, into_keys,
     into_timestamp, into_duration,
-    author, issue, verify, load, load_keypair,
+    author, issue, verify, load, load_keys,
 )
 from .. import ed25519ll as ed25519
 
@@ -134,23 +134,27 @@ def test_KeypairEncrypted_smoke():
 }""" == kp_a_ser
 
 @pytest.mark.skipif( not chacha20poly1305, reason="Needs ChaCha20Poly1504" )
-def test_KeypairEncrypted_load_keypair():
+def test_KeypairEncrypted_load_keys():
     enduser_keypair		= author( seed=enduser_seed, why="from enduser seed" )
-    keypair			= load_keypair( username=username, password=password,
-                                                extra=[os.path.dirname( __file__ )], filename=__file__ )
-    assert keypair == enduser_keypair
+    (keyname,keypair,keycred),	= load_keys( username=username, password=password,
+                                             extra=[os.path.dirname( __file__ )], filename=__file__ )
+    assert keycred == dict( username=username, password=password )
+    assert keypair.into_keypair( **keycred ) == enduser_keypair
 
-def test_KeypairPlaintext_load_keypair():
+
+def test_KeypairPlaintext_load_keys():
     enduser_keypair		= author( seed=enduser_seed, why="from enduser seed" )
-    keypair			= load_keypair( extension="cpppo-keypair-plaintext",
-                                                extra=[os.path.dirname( __file__ )], filename=__file__ )
-    assert keypair == enduser_keypair
+    (keyname,keypair,keycred),	= load_keys( extension="cpppo-keypair-plaintext",
+                                             extra=[os.path.dirname( __file__ )], filename=__file__ )
+    assert keypair.into_keypair(**keycred) == enduser_keypair
+
 
 def test_License_serialization():
-    # Deduce the basename from our __file__
-    provenance = load( extra=[os.path.dirname( __file__ )], filename=__file__, confirm=False )
+    # Deduce the basename from our __file__ (note: this is destructuring a 1-element sequence from a
+    # generator!)
+    (provname,prov), = load( extra=[os.path.dirname( __file__ )], filename=__file__, confirm=False )
     with open( os.path.join( os.path.dirname( __file__ ), "verification_test.cpppo-licensing" )) as f:
-        assert str( provenance ) == f.read()
+        assert str( prov ) == f.read()
 
 
 def test_License():

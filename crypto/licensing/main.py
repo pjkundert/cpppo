@@ -84,7 +84,7 @@ from ...history.times	import timestamp, duration
 from ...misc		import timer
 from ...automata	import log_cfg
 from ...server.enip.defaults import config_open, ConfigNotFoundError
-from .verification	import LicenseSigned
+from ..			import licensing
 
 log				= logging.getLogger( "licensing" )
 
@@ -93,6 +93,10 @@ LOGFILE				= "licensing.log"
 DB_FILE				= "licensing.db"
 ACCFILE				= "licensing.access"
 
+CRDFILE				= "licensing.credentials"	# Any author credentials available persistently
+KEYFILE				= "licensing.cpppo-keypair"
+LICFILE				= "licensing.cpppo-licensing"
+
 # SQL configurations are typically found in cpppo/crypto/licensing/, but may be customized and
 # placed in any of the Cpppo configuration file paths (eg. ~/.cpppo/, /etc/cpppo/, or the current
 # working directory)
@@ -100,7 +104,7 @@ SQLFILE				= "licensing.sql" # this + .* are loaded
 
 OURPATH				= os.path.dirname( os.path.abspath( __file__ ))
 TPLPATH				= os.path.join( OURPATH, "static/resources/templates/" )
-
+LOCPATH				= os.path.abspath(os.path.curdir)
 
 # The database: global 'db', which is a web.database connection.  Since sqlite3 is thread-safe, but
 # will raise an exception if multiple threads attempt to write, provide a threading.Lock() to allow
@@ -116,26 +120,30 @@ init_db				= None
 db_file_path			= DB_FILE
 sqlfile_path			= SQLFILE
 try:
-    # Load all licensing.sql* config files into the licensing.db Sqlite3 file.  If it can be found
-    # somewhere in the configuration path, use it -- otherwise, assume its here in the CWD.
+    # Load the licensing.db file.  If it can be found somewhere in the configuration path, use it --
+    # otherwise, assume it's supposed to be here in the CWD.
     try:
-        with config_open( DB_FILE ) as f:
-            db_file_path	= f.name
+        for f in config_open( DB_FILE ):
+            with f:
+                db_file_path	= f.name
+            break
     except ConfigNotFoundError:
         pass
     init_db			= sqlite3.connect( db_file_path )
-    with config_open( SQLFILE, extra=[OURPATH] ) as f:
-        sqlfile_path		= f.name
-    for sql in sorted( glob.glob( sqlfile_path + '*' )):
-        if sql.endswith( '~' ):
-            continue
+
+    # Load all licensing.sql* config files into the licensing.db Sqlite3 file.  At least one must be
+    # found or a ConfigFileNotFound will be raised.
+    for f in config_open( SQLFILE+'*', extra=[OURPATH] ):
+        with f:
+            if f.name.endswith( '~' ):
+                continue
+            sql			= f.read()
         try:
-            with open( sql ) as f:
-                init_db.executescript( f.read() )
+            init_db.executescript( sql )
         except (sqlite3.OperationalError,sqlite3.IntegrityError) as exc:
-            logging.warning( "Failed to load %s (continuing): %s", f.name, exc )
+            log.warning( "Failed to load %s (continuing): %s", f.name, exc )
 except Exception as exc:
-    logging.warning( "Failed to execute {}* scripts into DB {}: {}".format(
+    log.warning( "Failed to execute {}* scripts into DB {}: {}".format(
         sqlfile_path, db_file_path, exc ))
     raise
 finally:
@@ -153,9 +161,9 @@ db_lock				= threading.Lock()
 
 # Various static values that should be saved/restored.  Always begins at defaults on start-up!
 # But, also read from database.  All floating point.
-db_statics		= {}
+db_statics			= {}
 for r in db.select( 'statics' ):
-    db_statics[r.key]	= float( r.value )
+    db_statics[r.key]		= float( r.value )
 
     
 def state_save():
@@ -170,14 +178,117 @@ def state_save():
     From https://github.com/sampsyo/beets
     """
     with db_lock:
-        logging.info( "Saving state (thread: %s)", threading.current_thread().ident )
+        log.info( "Saving state (thread: %s)", threading.current_thread().ident )
 
         for k in db_statics:
             if not db.update( 'statics', where="key = $key", vars={ "key": k }, value=db_statics[k] ):
                 if not db.insert( 'statics', key=k, value=db_statics[k] ):
-                    logging.warning( "Failed to store statics key %s value %s" % ( k, db_statics[k] ))
+                    log.warning( "Failed to store statics key %s value %s" % ( k, db_statics[k] ))
 
 
+def licenses():
+    """Obtain all current License provenances currently available from the DB and files."""
+    found			= 0
+    for r in db.select( 'licenses' ):
+        yield r.name, licensing.LicenseSigned( license=r.license, signature=r.signature, confirm=False )
+        found		       += 1
+    log.normal( "Licenses     saved: {}".format( found ))
+
+    found			= 0
+    path			= None
+    try:
+        for path, prov in licensing.load( basename=LICFILE ):
+            yield path, prov
+            found	       += 1
+    except ConfigNotFoundError:
+        pass
+    except Exception as exc:
+        log.error( "Failed to load {}*: {}".format( path or LICFILE, exc ))
+        pass
+    log.normal( "Licenses    loaded: {}".format( found ))
+
+
+def credentials( *add ):
+    """Load any available credentials, and add any passed (description, (username, password)),
+    ... containing new credentials supplied by the License Server administrator during operation.
+
+    Each Thread of this License Server that must decrypt encrypted keys should use these credentials
+    to access the keys.
+
+    TODO: Should this be encrypted at-rest during operation?  It could be inspected by any
+    user/root level process, and used to unlock the encrypted author signing keypairs.
+
+    """
+    yield "(No Credentials)", (None, None)
+
+    credentials.local.update( add )
+    for name, (username, password) in credentials.local.items():
+        log.detail( "  {n:<20}: {u:>20} / {p}".format( n=name, u=username, p='*' * len( password )))
+        yield name, (username, password)
+    log.normal( "Credentials  saved: {}".format( len( credentials.local )))
+
+    found			= 0
+    path			= None
+    try:
+        # Open any licensing.credentials* in configuration path
+        for f in config_open( CRDFILE+'*', extra=[OURPATH], skip='*~' ):
+            with f:
+                # Each licensing.credentials* file should be a sequence of:
+                #     [ ( "description", [ "username": "password" ] ), ... ]
+                # so convert a dict into such a sequence.  However, reverse the .update so more
+                # earlier (more specific) configurations are not overriden by later (more general)
+                # ones.
+                path		= f.name
+                creds		= json.loads( f.read() )
+            if isinstance( creds, dict ):
+                creds		= creds.items()
+            for name, (username, password) in creds:
+                log.detail( "  {n:<20}: {u:>20} / {p}".format( n=name, u=username, p='*' * len( password )))
+                yield name, (username, password)
+                found	       += 1
+    except ConfigNotFoundError:
+        pass
+    except Exception as exc:
+        log.error( "Failed to load {}*: {}".format( path or CRDFILE, exc ))
+        pass
+    log.normal( "Credentials loaded: {}".format( found ))
+
+credentials.local		= {} # { description: (username, password), ... }
+
+
+def keypairs():
+    """Load all available keys, using all currently available credentials.  This includes all Encrypted
+    and Plaintext keys in files, and all Encrypted keys in database "authors" table.  Each time we
+    add a new credential, this *may* make available more keys encrypted with those credentials.
+
+    Yield sequence of all available (name, ...Keypair, credential) from "authors" table and files.
+    May contain duplicates.  Caller may accumulate them, or simply scan for desired entry.
+
+    """
+    loaded			= set()
+    saved			= set()
+    for _,(username,password) in credentials():
+        for r in db.select( 'authors' ):
+            cred		= dict( username=username, password=password )
+            try:
+                keypair		= licensing.KeypairEncrypted( salt=r.salt, seed=r.seed, **cred )
+                yield r.name, keypair, cred
+                saved.add(r.name)
+            except Exception as exc:
+                log.warning( "{n:<20}: Failed to decrypt w/ {u:>20} / {p}".format(
+                    n=r.name, u=cred[0], p='*' * len( cred[1] )))
+                pass
+        try:
+            for path, keypair, cred in licensing.load_keys( basename=KEYFILE, username=username, password=password ):
+                yield path, keypair, cred
+                loaded.add(path)
+        except ConfigNotFoundError:
+            pass
+    log.normal( "Keypairs     saved: {}".format( len( saved )))
+    log.normal( "Keypairs    loaded: {}".format( len( loaded )))
+    
+
+                    
 # Set up signal handling (log rotation, log level, etc.)
 # Output logging to a file, and handle UNIX-y log file rotation via 'logrotate', which sends
 # signals to indicate that a service's log file has been moved/renamed and it should re-open
@@ -311,9 +422,9 @@ def txt( win, cnf ):
 
     rows, cols			= 0, 0
 
-    logging.info("threads: %2d: %s" % (
-            threading.active_count(),
-            ', '.join( [ t.name for t in threading.enumerate() ] )))
+    log.info("threads: %2d: %s" % (
+        threading.active_count(),
+        ', '.join( [ t.name for t in threading.enumerate() ] )))
 
 
 
@@ -533,6 +644,52 @@ def http_exception( framework, status, message ):
     return Exception( "%d %s" % ( status, message ))
 
 
+def credentials_request( render, path, environ, accept, framework,
+                         queries=None, posted=None,
+                         session=None, logged=None, # The user session
+                         proxy=None ):
+
+    """
+        api/credentials/<name>/
+
+    """
+    variables			= queries or posted or {}
+    content			= deduce_encoding( [ "text/html",
+                                                     "application/json", "text/javascript",
+                                                     "text/plain" ],
+                                                   environ=environ, accept=accept )
+    response			= ""
+
+    data			= {}
+    data["title"]		= "Authors"
+    data["path"]		= path
+    data["list"] = ll		= []
+    data["keys"]		= ["name", "username", "password"]
+    z, _			= path.split('/')
+
+    for name,(username,password) in credentials():
+        record			= dict(
+            name	= name,
+            username	= username,
+            password	= password,
+        )
+        ll.append( record )
+
+    if content and content in ( "application/json", "text/javascript", "text/plain" ):
+        callback		= variables.get( 'callback', "" )
+        if callback:
+            response           += callback + "( "
+        response               += json.dumps( data, indent=4 )
+        if callback:
+            response           += " )"
+    elif content and content in ( "text/html" ):
+        response		= render.keylist( data )
+    else:
+        raise http_exception( framework, 406, "Unable to produce %s content" % (
+                content or accept or "unknown" ))
+    return content, response
+
+
 def issue_request( render, path, environ, accept, framework,
                     queries=None, posted=None, logged=None, proxy=None ):
     """Returns a License issuance response, as HTML or JSON.
@@ -634,6 +791,8 @@ def webpy( config ):
         "/logout",			"logout",
         "/api/issue(\.json)?",		"issue",                 # path: "", ".json"
         "/api/issue/(.+)?",		"issue",                 # path: "...", "....json"
+        "/api/credentials(\.json)?",	"credentials",           # path: "", ".json"
+        "/api/credentials/(.+)?",	"credentials",           # path: "...", "....json"
     )
 
     class trailing_stuff:
@@ -697,7 +856,7 @@ Disallow: /
             return
         for key in h:
             name,user_id	= key
-            logging.info("%s %s" % ( ' '*level, name ))
+            log.info("%s %s" % ( ' '*level, name ))
             if h[key]:
                 user_heritage_print( h[key], level+1 )
 
@@ -707,7 +866,7 @@ Disallow: /
         """
         def GET( self ):
             """Allow login; if session.login already true, then display PIN change dialog."""
-            logging.info( "Session: %r" % ( session.items() ))
+            log.info( "Session: %r" % ( session.items() ))
             children		= None
             if logged():
                 children	= user_heritage( session.user_id )
@@ -733,7 +892,7 @@ Disallow: /
             then change the user's PIN.
 
             """
-            logging.info( "Session: %r, input: %r" % ( session.items(), web.input().items() ))
+            log.info( "Session: %r, input: %r" % ( session.items(), web.input().items() ))
             render		= web.template.render(
                 TPLPATH, base="layout", globals={'inline': inline, 'session': session} )
 
@@ -767,7 +926,7 @@ Disallow: /
                                 # Not updating this user; perhaps one of their sub-users?
                                 evaluate       += subs.items()
                         if target:
-                            logging.info( "Updating user: %r" % ( name ))
+                            log.info( "Updating user: %r" % ( name ))
                             kwds		= {}
                             kwds["login"]	= login
                             if zones: # Update zones, if supplied
@@ -782,7 +941,7 @@ Disallow: /
                         # Existing user not found and updated; insert a new one
                         assert pin, "Empty PIN"
                         assert zones, "No zones delegated"
-                        logging.info( "Adding User: %r" % ( name ))
+                        log.info( "Adding User: %r" % ( name ))
                         with db_lock:
                             insert = db.insert( 'users',
                                                 creator=session.user_id,
@@ -792,7 +951,7 @@ Disallow: /
                                                 zones=zones )
                         assert insert, "Insert failed"
                 except Exception as exc:
-                    logging.info( "Add/Update user failure: %s: %s" % ( exc, traceback.format_exc() ))
+                    log.info( "Add/Update user failure: %s: %s" % ( exc, traceback.format_exc() ))
                     error	= str( exc )
                 response	= render.login(
                     {
@@ -937,6 +1096,34 @@ Disallow: /
             # carry a meaningful HTTP status code.  Otherwise, a generic 500 Server
             # Error will be produced.
             content, response	= issue_request(
+                render=render, path=path, environ=web.ctx.environ,
+                accept=accept, framework=web, logged=logged,
+                **{ input_variable: web.input() } )
+            web.header( "Cache-Control", "no-cache" )
+            web.header( "Content-Type", content )
+            return response
+
+        def POST( self, path ):
+            # form data posted in web.input(), just like queries
+            return self.GET( path, input_variable="posted" )
+
+    class credentials:
+        def GET( self, path, input_variable="queries" ):
+            # if not logged():
+            #     web.seeother( proxy( web.ctx.environ ) + '/login?redirect=' + web.ctx.environ.get( 'PATH_INFO', '' ))
+            #     return
+            render		= web.template.render(
+                TPLPATH, base="layout", globals={'inline': inline, 'session': session} )
+            accept		= None
+            if path and path.endswith( ".json" ):
+                path		= path[:-5]		# clip off ".json"
+                accept		= "application/json"
+
+            # Always returns a content-type and response.  If an exception is
+            # raised, it should be an appropriate one from the supplied framework to
+            # carry a meaningful HTTP status code.  Otherwise, a generic 500 Server
+            # Error will be produced.
+            content, response	= credentials_request(
                 render=render, path=path, environ=web.ctx.environ,
                 accept=accept, framework=web, logged=logged,
                 **{ input_variable: web.input() } )
@@ -1104,17 +1291,26 @@ def main( argv=None, **kwds ):
     logging.basicConfig( **log_cfg )
 
 
-    # The caller obtains all current Licenses
-    def licenses():
-        for r in db.select( 'licenses' ):
-            yield LicenseSigned( license=r.license, signature=r.signature, confirm=False )
+    for name, prov in licenses():
+        print( "{n:<20}: {lic}".format(
+            n=name, lic=prov ))
+        
+    for name, keypair, (username, password) in keypairs():
+        try:
+            vk			= licensing.into_b64( keypair.into_keypair( username=username, password=password ).vk )
+        except Exception as exc:
+            vk			= str( exc )
+        print( "{n:<20}: {vk} w/ {u:>20} / {p}".format(
+            n=name, vk=vk, u=username, p='*' * len( password )))
 
-    
-    # Start up Curses consule GUI...
+        
+    # Start up Curses console GUI...
     txtcnf			= {
-        'stop':   False,
-        'title': 'Licensing',
-        'licenses': licenses,
+        'stop':		False,
+        'title':	'Licensing',
+        'licenses':	licenses,
+        'credentials':	credentials,
+        'keypairs': 	keypairs,
     }
 
     class daemon( threading.Thread ):

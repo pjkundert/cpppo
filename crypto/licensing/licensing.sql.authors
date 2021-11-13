@@ -4,7 +4,7 @@
  * ChaCha20Poly1305, w/ a 96-bit salt and a username (case-insensitive) + password.
  */
 CREATE TABLE authors (
-       name		char(64) UNIQUE NOT NULL,	-- The unique name of the Author
+       name		char(128) UNIQUE NOT NULL,	-- The unique name of the Author
        salt             char(24) UNIQUE NOT NULL,	-- 96-bit salt in hex
        seed             char(96) UNIQUE NOT NULL,	-- 384-bit encrypted seed in hex
        PRIMARY KEY (name)

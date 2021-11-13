@@ -1158,25 +1158,37 @@ def verify( provenance, author_pubkey=None, signature=None, confirm=None, machin
 def load( basename=None, mode=None, extension=None, confirm=None,
           filename=None, package=None,
           **kwds ):
-    """Open and load a Cpppo Licensing file, containing a LicenseSigned provenance record.  By default,
-    use the provided package's (your __package__) name, or the executable filename's (your __file__)
-    basename.  Append .cpppo-licensing, if no suffix provided.
+    """Open and load all Cpppo Licensing file(s) found on the config path(s) (and any extra=[...,...]
+    paths) containing a LicenseSigned provenance record.  By default, use the provided package's
+    (your __package__) name, or the executable filename's (your __file__) basename.  Appends
+    .cpppo-licensing, if no suffix provided.
+
+    Applies glob pattern matching via config_open....
+
+    Yields the resultant (filename, LicenseSigned) provenance(s), or an Exception if any
+    glob-matching file is found that doesn't contain a serialized LicenseSigned, or no matching
+    files are found.
 
     """
-    with config_open_deduced(
-            basename=basename, mode=mode, extension=extension or 'cpppo-licensing',
+    for f in config_open_deduced(
+            basename=basename, mode=mode, extension=extension or 'cpppo-licensing', skip='*~',
             filename=filename, package=package,
-            **kwds ) as f:
-        provenance_ser		= f.read()
-    provenance_dict		= json.loads( provenance_ser )
-    return LicenseSigned( confirm=confirm, **provenance_dict )
+            **kwds ):
+        with f:
+            prov_ser		= f.read()
+            prov_name		= f.name
+        prov_dict		= json.loads( prov_ser )
+        yield prov_name, LicenseSigned( confirm=confirm, **prov_dict )
     
 
-def load_keypair( basename=None, mode=None, extension=None,
-                  filename=None, package=None,
-                  username=None, password=None,
-                  **kwds ):
-    """Load Ed25519 signing Keypair from file;:
+def load_keys( basename=None, mode=None, extension=None,
+               filename=None, package=None,
+               username=None, password=None,
+               **kwds ):
+    """Load Ed25519 signing Keypair(s) from glob-matching file(s) with any supplied credentials.
+    Yeilds all Encrypted/Plaintext Keypairs successfully opened, or a ConfigNotFoundError if no keys
+    were found at all.  Use the same credentials supplied when invoking .into_keypair to obtain the
+    Ed25519 keys.
 
     - Read the plaintext Keypair's public/private keys.
     
@@ -1226,30 +1238,38 @@ def load_keypair( basename=None, mode=None, extension=None,
     MAC; we try each supported derivation.
 
     """
-    with config_open_deduced(
-            basename=basename, mode=mode, extension=extension or 'cpppo-keypair',
-            filename=filename, package=package,
-            **kwds ) as f:
-        keypair_filename        = f.name
-        keypair_ser		= f.read()
-    keypair_dict		= json.loads( keypair_ser )
-    # Attempt to recover the different Keypair...() types, from most stringent requirements to least.
     issues			= []
-    try:
-        encrypted		= KeypairEncrypted( username=username, password=password, **keypair_dict )
-        keypair			= encrypted.into_keypair( username=username, password=password )
-        log.info( "Recover Ed25519 KeypairEncrypted w/ Public key: {} (from {})".format(
-            into_b64( keypair.vk ), keypair_filename ))
-        return keypair
-    except Exception as exc:
-        issues.append( exc )
-    try:
-        plaintext		= KeypairPlaintext( **keypair_dict )
-        keypair			= plaintext.into_keypair()
-        log.info( "Recover Ed25519 KeypairPlaintext w/ Public key: {} (from {})".format(
-            into_b64( keypair.vk ), keypair_filename ))
-        return keypair
-    except Exception as exc:
-        issues.append( exc )
-    raise LicenseIncompatibility( "Cannot load Keypair from file {} providing {}: ".format(
-        keypair_filename, ', '.join( keypair_dict.keys() ), ', '.join( map( str, issues ))))
+    found			= 0
+    for f in config_open_deduced(
+            basename=basename, mode=mode, extension=extension or 'cpppo-keypair', skip='*~',
+            filename=filename, package=package,
+            **kwds ):
+        with f:
+            keypair_filename	= f.name
+            keypair_ser		= f.read()
+        keypair_dict		= json.loads( keypair_ser )
+
+        # Attempt to recover the different Keypair...() types, from most stringent requirements to least.
+        try:
+            encrypted		= KeypairEncrypted( username=username, password=password, **keypair_dict )
+            keypair		= encrypted.into_keypair( username=username, password=password )
+            log.info( "Recover Ed25519 KeypairEncrypted w/ Public key: {} (from {}) w/ credentials {} / {}".format(
+                into_b64( keypair.vk ), keypair_filename, username, '*' * len( password )))
+            yield f.name, encrypted, dict( username=username, password=password )
+            found	       += 1
+            continue
+        except Exception as exc:
+            issues.append( (keypair_filename, exc) )
+        try:
+            plaintext		= KeypairPlaintext( **keypair_dict )
+            keypair		= plaintext.into_keypair()
+            log.info( "Recover Ed25519 KeypairPlaintext w/ Public key: {} (from {})".format(
+                into_b64( keypair.vk ), keypair_filename ))
+            yield f.name, plaintext, {}
+            found	       += 1
+            continue
+        except Exception as exc:
+            issues.append( (keypair_filename, exc) )
+    if not found:
+        raise ConfigNotFoundError( "Cannot load Keypair(s) from {}: ".format(
+            basename, ', '.join( "{}: {}".format( fn, exc ) for fn, exc in issues )))

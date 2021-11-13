@@ -32,8 +32,11 @@ __all__				= [ 'latency', 'timeout', 'address',
                                     'forward_open_default' ]
 
 import os
+import glob
+import fnmatch
 
-from ...dotdict import dotdict
+from ...dotdict		import dotdict
+from ...automata	import type_str_base
 
 latency				=  0.1		# network I/O polling (should allow several round-trips)
 timeout				= 20.0		# Await completion of all I/O, thread activity (on many threads)
@@ -54,19 +57,20 @@ def config_paths( filename, extra=None ):
     """Yield the Cpppo configuration search paths in *reverse* order of precedence (furthest or most
     general, to nearest or most specific).
 
-    This is the order that is required by configparser; settings in "later"
-    files override those in "earlier" ones.
+    This is the order that is required by configparser; settings configured in "later" files
+    override those in "earlier" ones.
 
     For other purposes (eg. loading complete files), the order is likely reversed!  The caller must
     do this manually.
 
     """
-    yield os.path.join( os.path.dirname( __file__ ), '..', '..', filename )# cpppo install dir
-    yield os.path.join( os.getenv( 'APPDATA', os.sep + 'etc' ), filename )# global app data
-    yield os.path.join( os.path.expanduser( '~' ), '.' + filename )	# user home dir
-    yield filename							# current dir
-    for e in extra or []:
+    yield os.path.join( os.path.dirname( __file__ ), '..', '..', filename )	# cpppo installation root dir
+    yield os.path.join( os.getenv( 'APPDATA', os.sep + 'etc' ), filename )	# global app data dir, eg. /etc/
+    yield os.path.join( os.path.expanduser( '~' ), '.cpppo', filename )		# user dir, ~username/.cpppo/name
+    yield os.path.join( os.path.expanduser( '~' ), '.' + filename )		# user dir, ~username/.name
+    for e in extra or []:							# any extra dirs...
         yield os.path.join( e, filename )
+    yield filename								# current dir (most specific)
     
 # Default Cpppo configuration files path, In 'configparser' expected order (most general to most specific)
 config_files			= list( config_paths( config_name ))
@@ -76,30 +80,52 @@ try:
 except NameError:
     ConfigNotFoundError		= IOError # Python2 compatibility
 
-def config_open( filename, mode=None, extra=None, **kwds ):
-    """Find and open a filename on the standard or provided configuration file paths (plus any extra),
-    in most general to most specific order.
+def config_open( filename, mode=None, extra=None, skip=None, **kwds ):
+    """Find and open all glob-matched filename(s) found on the standard or provided configuration file
+    paths (plus any extra), in most general to most specific order.  Yield the open file(s), or
+    raise a ConfigNotFoundError (a FileNotFoundError or IOError in Python3/2 if no matching file(s)
+    at all were found, to be somewhat consistent with a raw open() call).
     
-    We traverse these in reverse order: nearest and most specific, to furthest and most general.
+    We traverse these in reverse order: nearest and most specific, to furthest and most general, and 
+    any matching file(s) in ascending sorted order.
 
-    By default, we assume the target files is a text file, and default to open in 'r' mode.
+    By default, we assume the matching target file(s) are text files, and default to open in 'r'
+    mode.
+
+    A 'skip' glob pattern or predicate function taking a single name and returning True/False may be
+    supplied.
+
     """
+    if isinstance( skip, type_str_base ):
+        filtered		= lambda names: (n for n in names if not fnmatch.fnmatch( n, skip ))
+    elif hasattr( skip, '__call__' ):
+        filtered		= lambda names: (n for n in names if not skip( n ))
+    elif skip is None:
+        filtered		= lambda names: names
+    else:
+        raise AssertionError( "Invalid skip={!r} provided".format( skip ))
+
     search			= list( config_paths( filename, extra=extra ))
-    for f in reversed( search ):
-        try:
-            return open( f, mode=mode or 'r', **kwds )
-        except ConfigNotFoundError:
-            pass
-    raise ConfigNotFoundError(
-        "Could not locate {!r} in any Cpppo config dir.: {}".format(
-            filename, ', '.join( search ))
-    )
+    found			= 0
+    for fn in reversed( search ):
+        for gn in sorted( filtered( glob.glob( fn ))):
+            try:
+                yield open( gn, mode=mode or 'r', **kwds )
+                found	       += 1
+            except:
+                # The file couldn't be opened (eg. permissions)
+                pass
+    if not found:
+        raise ConfigNotFoundError(
+            "Could not locate {!r} in any Cpppo config dir.: {}".format(
+                filename, ', '.join( search ))
+        )
 
 
 def config_open_deduced( basename=None, mode=None, extension=None, filename=None, package=None, **kwds ):
-    """Find a configuration file, optionally deducing the basename from the provided __file__ filename
-    or __package__ name, returning the open file or raising a ConfigNotFoundError (or
-    FileNotFoundError, or IOError in Python2).
+    """Find any glob-matched configuration file(s), optionally deducing the basename from the provided
+    __file__ filename or __package__ name, returning the open file or raising a ConfigNotFoundError
+    (or FileNotFoundError, or IOError in Python2).
 
     """
     assert basename or ( filename or package ), \
@@ -117,7 +143,8 @@ def config_open_deduced( basename=None, mode=None, extension=None, filename=None
         if extension[0] != '.':
             basename	       += '.'
         basename	       += extension
-    return config_open( basename, mode=mode or 'r', **kwds )
+    for f in config_open( basename, mode=mode or 'r', **kwds ):
+        yield f
 
 
 # Forward Open has Connection Path and Path (in addition to the Send RR Data's Route Path and Send Path)
