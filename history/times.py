@@ -767,7 +767,7 @@ class duration( object ):
         h_secs			= d_secs % cls.HR
 
         minutes			= h_secs // cls.MN
-        if hours: result       += "{minutes}m".format( minutes=minutes )
+        if minutes: result     += "{minutes}m".format( minutes=minutes )
 
         s			= h_secs % cls.MN
         is_us			= microseconds  % 1000 > 0
