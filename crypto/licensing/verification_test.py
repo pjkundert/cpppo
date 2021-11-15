@@ -290,7 +290,8 @@ def test_LicenseSigned():
     # Obtain a signed Cpppo license for 2021-09-30 + 1y
     lic_prov = issue( lic, dominion_sigkey )
 
-    # Create a signing key for Awesome, Inc.; securely hide it, and publish the base-64 encoded public key as a TXT RR at:
+    # Create a signing key for Awesome, Inc.; securely hide it (or, print it for everyone to see,
+    # just below! ;), and publish the base-64 encoded public key as a TXT RR at:
     # ethernet-ip-tool.cpppo-licensing._domainkey.awesome.com 300 IN TXT "v=DKIM1; k=ed25519; p=
 
     enduser_keypair		= author( seed=enduser_seed, why="from enduser seed" )
@@ -298,7 +299,8 @@ def test_LicenseSigned():
     print("End User, LLC ed25519 keypair; Signing: {sk}".format( sk=into_hex( enduser_keypair.sk )))
     print("End User, LLC ed25519 keypair; Public:  {pk_hex} == {pk}".format( pk_hex=into_hex( enduser_keypair.vk ), pk=into_b64( enduser_keypair.vk )))
 
-    # Almost at the end of their Cpppo license, they issue a new License to End User, LLC
+    # Almost at the end of their annual Cpppo license, they issue a new License to End User, LLC for
+    # their Awesome EtherNet/IP Tool.
     drv = License(
         author	= "Awesome, Inc.",
         product	= "EtherNet/IP Tool",
@@ -351,12 +353,15 @@ def test_LicenseSigned():
 
     # Test the cpppo.crypto.licensing API, as used in applications.  A LicenseSigned is saved to an
     # <application>.cpppo-licensing file in the Application's configuration directory path.  The
-    # process for deploying an application to a new host:
+    # process for deploying an application onto a new host:
     #
     # 1) Install software to target directory
     # 2) Obtain serialized LicenseSigned containing necessary License(s)
+    #    - This is normally done in a company License Server, which holds the
+    #      master license and issues specialized ones up to the purchased limits (eg. 10 machines)
     # 3) Derive a new License, specialized for the host's machine-id UUID
-    #    - This will not be a LicenseSigned
+    #    - This will be a LicenseSigned by the company License server using the company's key,
+    #    - It's client_pubkey will match this software installation's private key, and machine-id UUID
     # 4) Save to <application>.cpppo-licensing in application's config path
 
     # Lets specialize the license for a specific machine, and with a specific start time
@@ -400,8 +405,9 @@ def test_LicenseSigned():
             "signature":"egUZM9vlF2y4DBCTtWNv3UC7nBRxSz4LZ12nOR+WSUktOrBbESsBuwQzjobNvPR2G+EZASRkY00bm/XqTzKsCg=="
         }
     ],
+    "length":"1d6h",
     "machine":"00010203-0405-4607-8809-0a0b0c0d0e0f",
-    "start":"2022-09-28 08:00:00 Canada/Mountain"
+    "start":"2022-09-29 17:22:33 UTC"
 }""" == into_JSON( lic_host_dict, indent=4, default=str )
     
 
@@ -454,10 +460,10 @@ def test_LicenseSigned():
                 "signature":"egUZM9vlF2y4DBCTtWNv3UC7nBRxSz4LZ12nOR+WSUktOrBbESsBuwQzjobNvPR2G+EZASRkY00bm/XqTzKsCg=="
             }
         ],
-        "length":null,
+        "length":"1d6h",
         "machine":"00010203-0405-4607-8809-0a0b0c0d0e0f",
         "product":"application",
-        "start":"2022-09-28 14:00:00 UTC"
+        "start":"2022-09-29 17:22:33 UTC"
     },
-    "signature":"ZwmkT16aNshp2yjXCN2OMP+EiKrQ8Rs9zjpcDwWhPzBmUwEI8PGP0CmaK0oy1fmtrdJe9BHYXyCAck66nP+9DQ=="
+    "signature":"Ltb81Zms8b8vFdWlx+0y8CBkJJeq626t64D4TQvuBXgkgZqgJPCnAWXp2bVZupLhpnEncyDoxLVcumYFWsaeDA=="
 }""" == lic_host_str

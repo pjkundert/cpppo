@@ -79,10 +79,9 @@ session_initializer		= {
 }
 
 
-
 from ...history.times	import timestamp, duration
 from ...misc		import timer
-from ...automata	import log_cfg
+from ...automata	import log_cfg, type_str_base
 from ...server.enip.defaults import config_open, ConfigNotFoundError
 from ..			import licensing
 
@@ -165,7 +164,20 @@ db_statics			= {}
 for r in db.select( 'statics' ):
     db_statics[r.key]		= float( r.value )
 
-    
+
+def into_boolean( val, truthy=(), falsey=() ):
+    """Check if the provided numeric or str val content is truthy or falsey; additional tuples of
+    truthy/falsey lowercase values may be provided."""
+    if isinstance( val, (int,float,bool)):
+        return bool( val )
+    assert isinstance( val, type_str_base )
+    if val.lower() in ( 't', 'true', 'y', 'yes' ) + truthy:
+        return True
+    elif val.lower() in ( 'f', 'false', 'n', 'no' ) + falsey:
+        return False
+    raise ValueError( val )
+
+
 def state_save():
     """Dump out any persistent licensing data, etc. that should be loaded next time.  This should be done
     from time to time, so we don't get too far behind, in case of a cold reboot.  Of course, save 
@@ -186,7 +198,7 @@ def state_save():
                     log.warning( "Failed to store statics key %s value %s" % ( k, db_statics[k] ))
 
 
-def licenses():
+def licenses( confirm=None, stored=None ):
     """Obtain all License provenances currently available from the DB and files, as a sequence of
     (signature, License) provenance pairs; signature is a 512-bit Ed25519 Signature as bytes.
 
@@ -212,12 +224,16 @@ def licenses():
                 continue
             yield p.signature, p.license
             emitted.add( p.signature )
-            for sig, lic in emit( *[ licensing.LicenseSigned( confirm=False, **pd ) for pd in p.license.dependencies or [] ] ):
+            for sig, lic in emit( *[ licensing.LicenseSigned( confirm=confirm, **pd ) for pd in p.license.dependencies or [] ] ):
                 yield sig, lic
-            
+
+    # First, process any stored provenances.  These are assumed to contain .license and .signature
+    # attributes.  Could be a sequence of LicenseSigned, or a database query yielding records with
+    # .signature and .license.  These may be full Licenses structs and signatures bytes data, or
+    # serialized forms.
     found			= 0
-    for r in db.select( 'licenses' ):
-        prov			= licensing.LicenseSigned( license=r.license, signature=r.signature, confirm=False )
+    for r in stored or []:
+        prov			= licensing.LicenseSigned( license=r.license, signature=r.signature, confirm=confirm )
         for sig, lic in emit( prov ):
             yield sig, lic
             found	       += 1
@@ -307,8 +323,9 @@ def keypairs():
                 yield r.name, keypair, cred
                 saved	       += 1
             except Exception as exc:
-                log.warning( "{n:<20}: Failed to decrypt w/ {u:>20} / {p}".format(
-                    n=r.name, u=cred['username'] or '(empty)', p='*' * len( cred['password'] or '(empty)' )))
+                log.warning( "{n:<20}: Failed to decrypt w/ {u:>20} / {p}: {exc}".format(
+                    n=r.name, u=cred['username'] or '(empty)', p='*' * len( cred['password'] or '(empty)' ),
+                    exc=exc ))
                 pass
         # Any Plaintext Keypairs (and perhaps some Encrypted ones, if duplicate credentials are
         # supplied) will be found multiple times.  Report keypairs at the same path only once.
@@ -323,7 +340,7 @@ def keypairs():
     log.normal( "Keypairs    loaded: {}".format( len( loaded )))
 
 
-def licenses_data( path ):
+def licenses_data( path, confirm=None, stored=None ):
     data			= {}
     data["title"]		= "Licenses"
     data["path"]		= path
@@ -333,7 +350,7 @@ def licenses_data( path ):
     pathsegs			= path.strip('/').split('/') if path else []
     assert 0 <= len( pathsegs ) <= 1, "Invalid credentials path {}".format( path )
     
-    for signature, lic in licenses():
+    for signature, lic in licenses( confirm=confirm, stored=stored ):
         record			= dict(
             signature		= licensing.into_b64( signature ),
             author		= lic['author'],
@@ -775,7 +792,10 @@ def licenses_request( render, path, environ, accept, framework,
                                                    environ=environ, accept=accept )
     response			= ""
 
-    data			= licenses_data( path )
+    # A URL w/ an empty ...?confirm is assumed to be True.
+    confirm			= into_boolean( variables.get( 'confirm', False ), truthy=('',) )
+    stored			= list( db.select( 'licenses' ))
+    data			= licenses_data( path, confirm=False, stored=stored )
 
     if content and content in ( "application/json", "text/javascript", "text/plain" ):
         callback		= variables.get( 'callback', "" )
@@ -956,14 +976,14 @@ def webpy( config ):
         "/robots.txt",			"robots",
         "/login",			"login",
         "/logout",			"logout",
-        "/api/issue(\.json)?",		"issue",                 # path: "", ".json"
-        "/api/issue/(.+)?",		"issue",                 # path: "...", "....json"
-        "/api/licenses(\.json)?",	"licenses",
-        "/api/licenses/(.+)?",		"licenses",
-        "/api/credentials(\.json)?",	"credentials",
-        "/api/credentials/(.+)?",	"credentials",
-        "/api/keypairs(\.json)?",	"keypairs",
-        "/api/keypairs/(.+)?",		"keypairs",
+        "/api/issue(\.json)?",		"api_issue",		# path: "", ".json"
+        "/api/issue/(.+)?",		"api_issue",		# path: "...", "....json"
+        "/api/licenses(\.json)?",	"api_licenses",
+        "/api/licenses/(.+)?",		"api_licenses",
+        "/api/credentials(\.json)?",	"api_credentials",
+        "/api/credentials/(.+)?",	"api_credentials",
+        "/api/keypairs(\.json)?",	"api_keypairs",
+        "/api/keypairs/(.+)?",		"api_keypairs",
     )
 
     class trailing_stuff:
@@ -1253,7 +1273,7 @@ Disallow: /
                 web.header( "Content-Type", "text/html" )
                 return response
 
-    class issue:
+    class api_issue:
         def GET( self, path, input_variable="queries" ):
             render		= web.template.render(
                 TPLPATH, base="layout", globals={'inline': inline, 'session': session} )
@@ -1308,15 +1328,15 @@ Disallow: /
             return self.GET( path, input_variable="posted" )
 
 
-    class licenses( tabular_request_base ):
+    class api_licenses( tabular_request_base ):
         request			= licenses_request
 
 
-    class credentials( tabular_request_base ):
+    class api_credentials( tabular_request_base ):
         request			= credentials_request
 
 
-    class keypairs( tabular_request_base ):
+    class api_keypairs( tabular_request_base ):
         request			= keypairs_request
 
 
@@ -1325,6 +1345,7 @@ Disallow: /
         """Implement the missing flush API to avoid warnings"""
         def flush(self):
             pass
+
 
     class Log( wsgilog.WsgiLog ):
         def __init__( self, application ):
@@ -1354,6 +1375,7 @@ Disallow: /
         def __init__( self, environ, start_response, directory ):
             super( StaticAppDir, self ).__init__( environ, start_response )
             self.directory	= directory
+
 
     cache_max_age		= 30*24*60*60
     class StaticMiddlewareDir( web.httpserver.StaticMiddleware ):
@@ -1474,8 +1496,10 @@ def main( argv=None, **kwds ):
         log_cfg['filename']	= args.log or LOGFILE
     logging.basicConfig( **log_cfg )
 
-
-    for sig, lic in licenses():
+    stored			= db.select( 'licenses' )
+    log.detail( "Licenses stored: {stored!r}".format( stored=stored ))
+    stored			= list( stored )
+    for sig, lic in licenses( confirm=False, stored=stored ):
         print( "{s:<64}: {lic}".format(
             s=licensing.into_b64( sig ), lic=str( lic ) ))
         

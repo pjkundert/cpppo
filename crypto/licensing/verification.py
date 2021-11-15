@@ -25,23 +25,22 @@ __license__                     = "Dual License: GPLv3 (or later) and Commercial
 import ast
 import base64
 import codecs
-import copy
 import collections
+import copy
+import datetime
 import dns.resolver
 import encodings.idna
 import hashlib
 import json
 import logging
-import uuid
 import os
 import sys
-
-from datetime import datetime
+import uuid
 
 from ...misc		import timer
 from ...automata	import type_str_base
 from ...history.times	import parse_datetime, parse_seconds, timestamp, duration
-from ...server.enip.defaults import config_open_deduced
+from ...server.enip.defaults import config_open_deduced, ConfigNotFoundError
 
 log				= logging.getLogger( "licensing" )
 
@@ -235,7 +234,7 @@ def into_timestamp( ts ):
     if ts is not None:
         if isinstance( ts, type_str_base ):
             ts			= parse_datetime( ts )
-        if isinstance( ts, datetime ):
+        if isinstance( ts, datetime.datetime ):
             ts			= timestamp( ts )
         assert isinstance( ts, timestamp )
         return ts
@@ -495,9 +494,6 @@ class License( Serializable ):
     Each module that uses cpppo.crypto.licensing checks that the final product's License or contains
     valid license(s) for itself, somewhere within the License dependencies tree.
 
-    
-
-
     All start times are expressed in the UTC timezone; if we used the local timezone (as computed
     using get_localzone, wrapped to respect any TZ environment variable, and made available as
     timestamp.LOC), then serializations (and hence signatures and signature tests) would be
@@ -677,7 +673,7 @@ class License( Serializable ):
         machine_id			= bytes( machine_id )
         return uuid.UUID( into_hex( machine_id ))
 
-    def verify( self, signature=None, confirm=None, author_pubkey=None, machine_id_path=None,
+    def verify( self, author_pubkey=None, signature=None, confirm=None, machine_id_path=None,
                 **constraints ):
         """Verify that the License is valid:
 
@@ -762,8 +758,9 @@ class License( Serializable ):
             # representing any supplied start/length constraints in order to validate their
             # consistency with the sub-License start/lengths.
             others		= list( ls.license for ls in self.dependencies or [] )
-            others.append( Timespan( into_timestamp( constraints.get( 'start' )),
-                                     into_duration( constraints.get( 'length' ))))
+            start_cons		= into_timestamp( constraints.get( 'start' ))
+            length_cons		= into_duration( constraints.get( 'length' ))
+            others.append( Timespan( start_cons, length_cons ))
             start, length	= self.overlap( *others )
         except LicenseIncompatibility as exc:
             raise LicenseIncompatibility(
@@ -772,6 +769,12 @@ class License( Serializable ):
                     prod	= self.product,
                     exc		= exc,
                 ))
+        else:
+            # Finally, if either start or length constraints were supplied, update them both with
+            # the computed timespan of start/length constraints overlapped with all dependencies.
+            if ( start_cons or length_cons ) and start_cons:
+                constraints['start'] = into_str_UTC( start )
+                constraints['length'] = into_str( length )
 
         # TODO: Implement License expiration date, to allow a software deployment to time out and
         # refuse to run after a License as expired, forcing the software owner to obtain a new
@@ -794,19 +797,19 @@ class License( Serializable ):
                         required= self.machine,
                         detected= machine_uuid,
                     ))
-            machine_const	= constraints.get( 'machine' )
-            if machine_const not in (None, True) and machine_const != machine_uuid:
+            machine_cons	= constraints.get( 'machine' )
+            if machine_cons not in (None, True) and machine_cons != machine_uuid:
                 raise LicenseIncompatibility(
                     "Constraints on {auth}'s {prod!r} specifies Machine ID {required}; found {detected}".format(
                         auth	= self.author,
                         prod	= self.product,
-                        required= machine_const,
+                        required= machine_cons,
                         detected= machine_uuid,
                     ))
             # Finally, unless the supplied 'machine' constraint was explicitly None (indicating that
             # the caller desires a machine-agnostic sub-License), default to constrain the License to
             # this machine.
-            if machine_const is not None:
+            if machine_cons is not None:
                 constraints['machine'] = machine_uuid
 
         log.normal( "License for {auth}'s {prod!r} is valid from {start} for {length} on machine {machine}".format(
