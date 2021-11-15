@@ -1278,7 +1278,8 @@ Disallow: /
             # form data posted in web.input(), just like queries
             return self.GET( path, input_variable="posted" )
 
-    class licenses:
+    class tabular_request_base:
+        # Set request = <function returning (content, response)>
         def GET( self, path, input_variable="queries" ):
             # if not logged():
             #     web.seeother( proxy( web.ctx.environ ) + '/login?redirect=' + web.ctx.environ.get( 'PATH_INFO', '' ))
@@ -1294,7 +1295,7 @@ Disallow: /
             # raised, it should be an appropriate one from the supplied framework to
             # carry a meaningful HTTP status code.  Otherwise, a generic 500 Server
             # Error will be produced.
-            content, response	= licenses_request(
+            content, response	= self.__class__.__dict__['request'](
                 render=render, path=path, environ=web.ctx.environ,
                 accept=accept, framework=web, logged=logged,
                 **{ input_variable: web.input() } )
@@ -1306,61 +1307,17 @@ Disallow: /
             # form data posted in web.input(), just like queries
             return self.GET( path, input_variable="posted" )
 
-    class credentials:
-        def GET( self, path, input_variable="queries" ):
-            # if not logged():
-            #     web.seeother( proxy( web.ctx.environ ) + '/login?redirect=' + web.ctx.environ.get( 'PATH_INFO', '' ))
-            #     return
-            render		= web.template.render(
-                TPLPATH, base="layout", globals={'inline': inline, 'session': session} )
-            accept		= None
-            if path and path.endswith( ".json" ):
-                path		= path[:-5]		# clip off ".json"
-                accept		= "application/json"
 
-            # Always returns a content-type and response.  If an exception is
-            # raised, it should be an appropriate one from the supplied framework to
-            # carry a meaningful HTTP status code.  Otherwise, a generic 500 Server
-            # Error will be produced.
-            content, response	= credentials_request(
-                render=render, path=path, environ=web.ctx.environ,
-                accept=accept, framework=web, logged=logged,
-                **{ input_variable: web.input() } )
-            web.header( "Cache-Control", "no-cache" )
-            web.header( "Content-Type", content )
-            return response
+    class licenses( tabular_request_base ):
+        request			= licenses_request
 
-        def POST( self, path ):
-            # form data posted in web.input(), just like queries
-            return self.GET( path, input_variable="posted" )
 
-    class keypairs:
-        def GET( self, path, input_variable="queries" ):
-            # if not logged():
-            #     web.seeother( proxy( web.ctx.environ ) + '/login?redirect=' + web.ctx.environ.get( 'PATH_INFO', '' ))
-            #     return
-            render		= web.template.render(
-                TPLPATH, base="layout", globals={'inline': inline, 'session': session} )
-            accept		= None
-            if path and path.endswith( ".json" ):
-                path		= path[:-5]		# clip off ".json"
-                accept		= "application/json"
+    class credentials( tabular_request_base ):
+        request			= credentials_request
 
-            # Always returns a content-type and response.  If an exception is
-            # raised, it should be an appropriate one from the supplied framework to
-            # carry a meaningful HTTP status code.  Otherwise, a generic 500 Server
-            # Error will be produced.
-            content, response	= keypairs_request(
-                render=render, path=path, environ=web.ctx.environ,
-                accept=accept, framework=web, logged=logged,
-                **{ input_variable: web.input() } )
-            web.header( "Cache-Control", "no-cache" )
-            web.header( "Content-Type", content )
-            return response
 
-        def POST( self, path ):
-            # form data posted in web.input(), just like queries
-            return self.GET( path, input_variable="posted" )
+    class keypairs( tabular_request_base ):
+        request			= keypairs_request
 
 
     # Log web.py HTTP requests to licensing.access
