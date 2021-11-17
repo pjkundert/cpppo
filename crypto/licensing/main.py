@@ -345,24 +345,32 @@ def licenses_data( path, confirm=None, stored=None ):
     data["title"]		= "Licenses"
     data["path"]		= path
     data["list"] = ll		= []
-    data["keys"]		= ["signature", "author", "author_pubkey", "client", "client_pubkey", "product", "license"]
+    data["keys"]		= ["author", "product", "client", "signature", "confirm", "license"]
 
     pathsegs			= path.strip('/').split('/') if path else []
     assert 0 <= len( pathsegs ) <= 1, "Invalid credentials path {}".format( path )
-    
-    for signature, lic in licenses( confirm=confirm, stored=stored ):
+
+    # Iterate all available licenses, filtering if additional license author name path component supplied
+    for signature, lic in licenses( confirm=False, stored=stored ):
         record			= dict(
-            signature		= licensing.into_b64( signature ),
             author		= lic['author']['name'],
-            author_pubkey	= lic['author']['pubkey'],
             product		= lic['author']['product'],
             client		= lic['client']['name'],
-            client_pubkey	= lic['client']['pubkey'],
+            signature		= licensing.into_b64( signature ),
+            confirm		= None,
             license		= str( lic ),
         )
         if pathsegs and pathsegs[0] and not fnmatch.fnmatch( record['author'], pathsegs[0] ):
             log.detail( "License.author {} didn't match {}".format( record['author'], path ))
             continue
+        # After filtering out uninteresting Licenses, confirm if desired
+        if confirm:
+            try:
+                lic.verify( confirm=confirm )
+            except Exception as exc:
+                record.update( confirm=str( exc ))
+            else:
+                record.update( confirm=True )
         ll.append( record )
 
     return data
@@ -795,7 +803,7 @@ def licenses_request( render, path, environ, accept, framework,
     # A URL w/ an empty ...?confirm is assumed to be True.
     confirm			= into_boolean( variables.get( 'confirm', False ), truthy=('',) )
     stored			= list( db.select( 'licenses' ))
-    data			= licenses_data( path, confirm=False, stored=stored )
+    data			= licenses_data( path, confirm=confirm, stored=stored )
 
     if content and content in ( "application/json", "text/javascript", "text/plain" ):
         callback		= variables.get( 'callback', "" )
