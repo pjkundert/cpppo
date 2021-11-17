@@ -353,11 +353,11 @@ def licenses_data( path, confirm=None, stored=None ):
     for signature, lic in licenses( confirm=confirm, stored=stored ):
         record			= dict(
             signature		= licensing.into_b64( signature ),
-            author		= lic['author'],
-            author_pubkey	= lic['author_pubkey'],
-            client		= lic['client'],
-            client_pubkey	= lic['client_pubkey'],
-            product		= lic['product'],
+            author		= lic['author']['name'],
+            author_pubkey	= lic['author']['pubkey'],
+            product		= lic['author']['product'],
+            client		= lic['client']['name'],
+            client_pubkey	= lic['client']['pubkey'],
             license		= str( lic ),
         )
         if pathsegs and pathsegs[0] and not fnmatch.fnmatch( record['author'], pathsegs[0] ):

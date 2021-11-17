@@ -40,7 +40,7 @@ def test_License_domainkey():
     assert path == 'some-product.cpppo-licensing._domainkey.example.com.'
     assert dkim_rr == None
     author_keypair = author( seed=b'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA' )
-    path, dkim_rr = domainkey( u"ᛞᚩᛗᛖᛋ᛫ᚻᛚᛇᛏᚪᚾ᛬", "awesome-inc.com", author_pubkey=author_keypair )
+    path, dkim_rr = domainkey( u"ᛞᚩᛗᛖᛋ᛫ᚻᛚᛇᛏᚪᚾ᛬", "awesome-inc.com", pubkey=author_keypair )
     assert path == 'xn--dwec4cn7bwa4a4ci7a1b2lta.cpppo-licensing._domainkey.awesome-inc.com.'
     assert dkim_rr == 'v=DKIM1; k=ed25519; p=25lf4lFp0UHKubu6krqgH58uHs599MsqwFGQ83/MH50='
 
@@ -160,41 +160,46 @@ def test_License_serialization():
 def test_License():
     try:
         lic = License(
-            author	= "Dominion Research & Development Corp.",
-            product	= "Cpppo Test",
-            author_domain = "dominionrnd.com",
+            author	= dict(
+                domain	= "dominionrnd.com",
+                name	= "Dominion Research & Development Corp.",
+                product	= "Cpppo Test",
+            ),
             start	= "2021-09-30 11:22:33 Canada/Mountain",
             length	= "1y" )
     except DNSException:
         lic = License(
-            author	= "Dominion Research & Development Corp.",
-            product	= "Cpppo Test",
-            author_domain = "dominionrnd.com",
-            author_pubkey = dominion_sigkey[32:],
+            author	= dict(
+                domain = "dominionrnd.com",
+                name	= "Dominion Research & Development Corp.",
+                product	= "Cpppo Test",
+                pubkey = dominion_sigkey[32:],
+            ),
             start	= "2021-09-30 11:22:33 Canada/Mountain",
             length	= "1y" )
 
     lic_str = str( lic )
     assert lic_str == """\
 {
-    "author":"Dominion Research & Development Corp.",
-    "author_domain":"dominionrnd.com",
-    "author_pubkey":"qZERnjDZZTmnDNNJg90AcUJZ+LYKIWO9t0jz/AzwNsk=",
-    "author_service":"cpppo-test",
-    "client":null,
-    "client_pubkey":null,
-    "dependencies":null,
+    "author":{
+        "domain":"dominionrnd.com",
+        "name":"Dominion Research & Development Corp.",
+        "product":"Cpppo Test",
+        "pubkey":"qZERnjDZZTmnDNNJg90AcUJZ+LYKIWO9t0jz/AzwNsk="
+    },
     "length":"1y",
-    "machine":null,
-    "product":"Cpppo Test",
     "start":"2021-09-30 17:22:33 UTC"
 }"""
-    assert lic.digest() == b'\xb9\x99\xe0{\n\x1f\x1f\xcd-R;~_\x1aX\xcb\xdb\xa9[4\x91\xc4\xd5v\xa5\xf4\x06z\xee\x9c\nE'
-    assert lic.digest('hex', 'ASCII' ) == 'b999e07b0a1f1fcd2d523b7e5f1a58cbdba95b3491c4d576a5f4067aee9c0a45'
-    assert lic.digest('base64', 'ASCII' ) == 'uZngewofH80tUjt+XxpYy9upWzSRxNV2pfQGeu6cCkU='
+    lic_digest_b64 = 'sizNU873WbB5d5EZ6lT3Z4319D4wTzsvcLfzl+wItWE='
+    assert lic_digest_b64 == lic.digest('base64', 'ASCII' )
+    if lic_digest_b64 == lic.digest('base64', 'ASCII' ):
+        #print( repr( lic.digest() ))
+        assert lic.digest() == b'\xb2,\xcdS\xce\xf7Y\xb0yw\x91\x19\xeaT\xf7g\x8d\xf5\xf4>0O;/p\xb7\xf3\x97\xec\x08\xb5a'
+        assert lic.digest('hex', 'ASCII' ) == 'b22ccd53cef759b079779119ea54f7678df5f43e304f3b2f70b7f397ec08b561'
+        
     keypair = ed25519.crypto_sign_keypair( dominion_sigkey[:32] )
     assert keypair.sk == dominion_sigkey
-    assert lic.author_pubkey == b'\xa9\x91\x11\x9e0\xd9e9\xa7\x0c\xd3I\x83\xdd\x00qBY\xf8\xb6\n!c\xbd\xb7H\xf3\xfc\x0c\xf06\xc9'
+    assert b'\xa9\x91\x11\x9e0\xd9e9\xa7\x0c\xd3I\x83\xdd\x00qBY\xf8\xb6\n!c\xbd\xb7H\xf3\xfc\x0c\xf06\xc9' == lic.author.pubkey
     assert codecs.getencoder( 'base64' )( keypair.vk ) == (b'qZERnjDZZTmnDNNJg90AcUJZ+LYKIWO9t0jz/AzwNsk=\n', 32)
     prov = LicenseSigned( lic, keypair.sk )
 
@@ -206,26 +211,23 @@ def test_License():
     assert prov_str == """\
 {
     "license":{
-        "author":"Dominion Research & Development Corp.",
-        "author_domain":"dominionrnd.com",
-        "author_pubkey":"qZERnjDZZTmnDNNJg90AcUJZ+LYKIWO9t0jz/AzwNsk=",
-        "author_service":"cpppo-test",
-        "client":null,
-        "client_pubkey":null,
-        "dependencies":null,
+        "author":{
+            "domain":"dominionrnd.com",
+            "name":"Dominion Research & Development Corp.",
+            "product":"Cpppo Test",
+            "pubkey":"qZERnjDZZTmnDNNJg90AcUJZ+LYKIWO9t0jz/AzwNsk="
+        },
         "length":"1y",
-        "machine":null,
-        "product":"Cpppo Test",
         "start":"2021-09-30 17:22:33 UTC"
     },
-    "signature":"bw58LSvuadS76jFBCWxkK+KkmAqLrfuzEv7ly0Y3lCLSE2Y01EiPyZjxirwSjHoUf9kz9meeEEziwk358jthBw=="
+    "signature":"V+VI/JXX/ZuypAo2nJHKme4VFjhJpWRzQbUFV9NMqIaLHiQYltQgfoLmQD11zcw+oxemnEPrZg+UJm4rJwiICg=="
 }"""
     # Multiple licenses, some which truncate the duration of the initial License. Non-timezone
     # timestamps are assumed to be UTC.
     start, length = lic.overlap(
-        License( author = "A", product = 'a', author_domain='a-inc.com', author_pubkey=keypair.vk, confirm=False,
+        License( author = dict( name="A", product='a', domain='a-inc.com', pubkey=keypair.vk ), confirm=False,
                  start = "2021-09-29 00:00:00", length = "1w" ),
-        License( author = "B", product = 'b', author_domain='b-inc.com', author_pubkey=keypair.vk, confirm=False,
+        License( author = dict( name="B", product='b', domain='b-inc.com', pubkey=keypair.vk ), confirm=False,
                  start = "2021-09-30 00:00:00", length = "1w" ))
     # Default rendering of a timestamp is w/ milliseconds, and no tz info for UTC
     assert str( start ) == "2021-09-30 17:22:33.000"
@@ -235,9 +237,9 @@ def test_License():
     # rendering; force by setting environment variable TZ=Canada/Mountain for this test!
     with pytest.raises( LicenseIncompatibility ) as exc_info:
         start, length = lic.overlap(
-            License( author = "A", product = 'a', author_domain='a-inc.com', author_pubkey=keypair.vk, confirm=False,
+            License( author = dict( name="A", product='a', domain='a-inc.com', pubkey=keypair.vk ), confirm=False,
                      start = "2021-09-29 00:00:00", length = "1w" ),
-            License( author = "B", product = 'b', author_domain='b-inc.com', author_pubkey=keypair.vk, confirm=False,
+            License( author = dict( name="B", product='b', domain='b-inc.com', pubkey=keypair.vk ), confirm=False,
                      start = "2021-10-07 00:00:00", length = "1w" ))
     assert str( exc_info.value ).endswith(
         "License for B's 'b' from 2021-10-06 18:00:00 Canada/Mountain for 1w incompatible with others" )
@@ -257,34 +259,46 @@ def test_LicenseSigned():
 
         with pytest.raises( LicenseIncompatibility ) as exc_info:
             License(
-                author	= "Dominion Research & Development Corp.",
-                product	= "Cpppo Test",
-                author_domain = "dominionrnd.com",
-                author_pubkey = awesome_pubkey, # Purposely *wrong*; will not match cpppo-test.cpppo-licensing.. DKIM entry
-                client	= "Awesome, Inc.",
-                client_pubkey = awesome_pubkey,
+                author	= dict(
+                    name	= "Dominion Research & Development Corp.",
+                    product	= "Cpppo Test",
+                    domain	= "dominionrnd.com",
+                    pubkey	= awesome_pubkey, # Purposely *wrong*; will not match cpppo-test.cpppo-licensing.. DKIM entry
+                ),
+                client	= dict(
+                    name	= "Awesome, Inc.",
+                    pubkey	= awesome_pubkey
+                ),
                 start	= "2021-09-30 11:22:33 Canada/Mountain",
                 length	= "1y" )
         assert str( exc_info.value ).endswith(
             """License for Dominion Research & Development Corp.'s 'Cpppo Test': author key from DKIM qZERnjDZZTmnDNNJg90AcUJZ+LYKIWO9t0jz/AzwNsk= != cyHOei+4c5X+D/niQWvDG5olR1qi4jddcPTDJv/UfrQ=""" )
 
         lic = License(
-            author	= "Dominion Research & Development Corp.",
-            product	= "Cpppo Test",
-            author_domain = "dominionrnd.com",
-            client	= "Awesome, Inc.",
-            client_pubkey = awesome_pubkey,
+            author	= dict (
+                name	= "Dominion Research & Development Corp.",
+                product	= "Cpppo Test",
+                domain	= "dominionrnd.com",
+            ),
+            client	= dict(
+                name	= "Awesome, Inc.",
+                pubkey = awesome_pubkey,
+            ),
             start	= "2021-09-30 11:22:33 Canada/Mountain",
             length	= "1y" )
     except DNSException:
         # No DNS; OK, let the test pass anyway.
         lic = License(
-            author	= "Dominion Research & Development Corp.",
-            product	= "Cpppo Test",
-            author_domain = "dominionrnd.com",
-            author_pubkey = dominion_sigkey[32:], # This is the correct key, which matches the DKIM entry
-            client	= "Awesome, Inc.",
-            client_pubkey = awesome_pubkey,
+            author	= dict(
+                name	= "Dominion Research & Development Corp.",
+                product	= "Cpppo Test",
+                domain	= "dominionrnd.com",
+                pubkey	= dominion_sigkey[32:], # This is the correct key, which matches the DKIM entry
+            ),
+            client	= dict(
+                name	= "Awesome, Inc.",
+                pubkey = awesome_pubkey,
+            ),
             start	= "2021-09-30 11:22:33 Canada/Mountain",
             length	= "1y" )
     # Obtain a signed Cpppo license for 2021-09-30 + 1y
@@ -302,54 +316,62 @@ def test_LicenseSigned():
     # Almost at the end of their annual Cpppo license, they issue a new License to End User, LLC for
     # their Awesome EtherNet/IP Tool.
     drv = License(
-        author	= "Awesome, Inc.",
-        product	= "EtherNet/IP Tool",
-        author_domain = "awesome-inc.com",
-        author_pubkey = awesome_keypair.vk, # Avoid the dns.resolver.NXDOMAIN by providing the pubkey
-        client = "End User, LLC",
-        client_pubkey = enduser_pubkey,
+        author	= dict(
+            name	= "Awesome, Inc.",
+            product	= "EtherNet/IP Tool",
+            domain	= "awesome-inc.com",
+            pubkey	= awesome_keypair.vk # Avoid the dns.resolver.NXDOMAIN by providing the pubkey
+        ),
+        client = dict(
+            name	= "End User, LLC",
+            pubkey	= enduser_pubkey
+        ),
         dependencies = [ lic_prov ],
         start	= "2022-09-29 11:22:33 Canada/Mountain",
         length	= "1y",
         confirm = False,
     )
     drv_prov = issue( drv, awesome_keypair.sk, confirm=False )
-    assert "KZUN48PRuI55gCBkbjkiHPeatj+lmAnJPOS5cTa13Ik=" == drv_prov.b64digest()
+    assert 'ZGoigaaA2xOl5Aw23nDkq2BpKpj3RvjDtPAr19Mupz8=' == drv_prov.b64digest()
     drv_prov_str = str( drv_prov )
-    assert drv_prov_str == """\
+    #print(drv_prov_str)
+    assert """\
 {
     "license":{
-        "author":"Awesome, Inc.",
-        "author_domain":"awesome-inc.com",
-        "author_pubkey":"cyHOei+4c5X+D/niQWvDG5olR1qi4jddcPTDJv/UfrQ=",
-        "author_service":"ethernet-ip-tool",
-        "client":"End User, LLC",
-        "client_pubkey":"O2onvM62pC1io6jQKm8Nc2UyFXcd4kOmOsBIoYtZ2ik=",
+        "author":{
+            "domain":"awesome-inc.com",
+            "name":"Awesome, Inc.",
+            "product":"EtherNet/IP Tool",
+            "pubkey":"cyHOei+4c5X+D/niQWvDG5olR1qi4jddcPTDJv/UfrQ="
+        },
+        "client":{
+            "name":"End User, LLC",
+            "pubkey":"O2onvM62pC1io6jQKm8Nc2UyFXcd4kOmOsBIoYtZ2ik="
+        },
         "dependencies":[
             {
                 "license":{
-                    "author":"Dominion Research & Development Corp.",
-                    "author_domain":"dominionrnd.com",
-                    "author_pubkey":"qZERnjDZZTmnDNNJg90AcUJZ+LYKIWO9t0jz/AzwNsk=",
-                    "author_service":"cpppo-test",
-                    "client":"Awesome, Inc.",
-                    "client_pubkey":"cyHOei+4c5X+D/niQWvDG5olR1qi4jddcPTDJv/UfrQ=",
-                    "dependencies":null,
+                    "author":{
+                        "domain":"dominionrnd.com",
+                        "name":"Dominion Research & Development Corp.",
+                        "product":"Cpppo Test",
+                        "pubkey":"qZERnjDZZTmnDNNJg90AcUJZ+LYKIWO9t0jz/AzwNsk="
+                    },
+                    "client":{
+                        "name":"Awesome, Inc.",
+                        "pubkey":"cyHOei+4c5X+D/niQWvDG5olR1qi4jddcPTDJv/UfrQ="
+                    },
                     "length":"1y",
-                    "machine":null,
-                    "product":"Cpppo Test",
                     "start":"2021-09-30 17:22:33 UTC"
                 },
-                "signature":"TNVGYQjdGFFBJMIviAOLhPPuOefv+451OslLY4DJEK77LCS9LeJIaomv5sS8KHDkOE12eFOxi5aFXOw5O4jOCA=="
+                "signature":"9DbaJRrEm9krviJfhhPkFoH/LtN1uYG48xA/4CTe4ZcXQOhCfnc/HhpcO0kR1t5EzWt27U7SBYr2IwVpHAkLCg=="
             }
         ],
         "length":"1y",
-        "machine":null,
-        "product":"EtherNet/IP Tool",
         "start":"2022-09-29 17:22:33 UTC"
     },
-    "signature":"egUZM9vlF2y4DBCTtWNv3UC7nBRxSz4LZ12nOR+WSUktOrBbESsBuwQzjobNvPR2G+EZASRkY00bm/XqTzKsCg=="
-}"""
+    "signature":"KKMNf9Ds9uJYIrwBoFRjP3F1vt8d1bp7jYWlM0kn+hkMoJViI9BvMY923MjwgV9iMhYbiC6hfD3s28ULVK2KDA=="
+}""" == drv_prov_str
 
     # Test the cpppo.crypto.licensing API, as used in applications.  A LicenseSigned is saved to an
     # <application>.cpppo-licensing file in the Application's configuration directory path.  The
@@ -373,36 +395,39 @@ def test_LicenseSigned():
     "dependencies":[
         {
             "license":{
-                "author":"Awesome, Inc.",
-                "author_domain":"awesome-inc.com",
-                "author_pubkey":"cyHOei+4c5X+D/niQWvDG5olR1qi4jddcPTDJv/UfrQ=",
-                "author_service":"ethernet-ip-tool",
-                "client":"End User, LLC",
-                "client_pubkey":"O2onvM62pC1io6jQKm8Nc2UyFXcd4kOmOsBIoYtZ2ik=",
+                "author":{
+                    "domain":"awesome-inc.com",
+                    "name":"Awesome, Inc.",
+                    "product":"EtherNet/IP Tool",
+                    "pubkey":"cyHOei+4c5X+D/niQWvDG5olR1qi4jddcPTDJv/UfrQ="
+                },
+                "client":{
+                    "name":"End User, LLC",
+                    "pubkey":"O2onvM62pC1io6jQKm8Nc2UyFXcd4kOmOsBIoYtZ2ik="
+                },
                 "dependencies":[
                     {
                         "license":{
-                            "author":"Dominion Research & Development Corp.",
-                            "author_domain":"dominionrnd.com",
-                            "author_pubkey":"qZERnjDZZTmnDNNJg90AcUJZ+LYKIWO9t0jz/AzwNsk=",
-                            "author_service":"cpppo-test",
-                            "client":"Awesome, Inc.",
-                            "client_pubkey":"cyHOei+4c5X+D/niQWvDG5olR1qi4jddcPTDJv/UfrQ=",
-                            "dependencies":null,
+                            "author":{
+                                "domain":"dominionrnd.com",
+                                "name":"Dominion Research & Development Corp.",
+                                "product":"Cpppo Test",
+                                "pubkey":"qZERnjDZZTmnDNNJg90AcUJZ+LYKIWO9t0jz/AzwNsk="
+                            },
+                            "client":{
+                                "name":"Awesome, Inc.",
+                                "pubkey":"cyHOei+4c5X+D/niQWvDG5olR1qi4jddcPTDJv/UfrQ="
+                            },
                             "length":"1y",
-                            "machine":null,
-                            "product":"Cpppo Test",
                             "start":"2021-09-30 17:22:33 UTC"
                         },
-                        "signature":"TNVGYQjdGFFBJMIviAOLhPPuOefv+451OslLY4DJEK77LCS9LeJIaomv5sS8KHDkOE12eFOxi5aFXOw5O4jOCA=="
+                        "signature":"9DbaJRrEm9krviJfhhPkFoH/LtN1uYG48xA/4CTe4ZcXQOhCfnc/HhpcO0kR1t5EzWt27U7SBYr2IwVpHAkLCg=="
                     }
                 ],
                 "length":"1y",
-                "machine":null,
-                "product":"EtherNet/IP Tool",
                 "start":"2022-09-29 17:22:33 UTC"
             },
-            "signature":"egUZM9vlF2y4DBCTtWNv3UC7nBRxSz4LZ12nOR+WSUktOrBbESsBuwQzjobNvPR2G+EZASRkY00bm/XqTzKsCg=="
+            "signature":"KKMNf9Ds9uJYIrwBoFRjP3F1vt8d1bp7jYWlM0kn+hkMoJViI9BvMY923MjwgV9iMhYbiC6hfD3s28ULVK2KDA=="
         }
     ],
     "length":"1d6h",
@@ -411,59 +436,61 @@ def test_LicenseSigned():
 }""" == into_JSON( lic_host_dict, indent=4, default=str )
     
 
-    lic_host = License( author="End User", product="application", author_pubkey=enduser_keypair,
+    lic_host = License( author=dict( name="End User", product="application", pubkey=enduser_keypair ),
                         confirm=False, machine_id_path=machine_id_path,
                         **lic_host_dict )
     lic_host_prov = issue( lic_host, enduser_keypair, confirm=False, machine_id_path=machine_id_path )
     lic_host_str = str( lic_host_prov )
+    #print( lic_host_str )
     assert """\
 {
     "license":{
-        "author":"End User",
-        "author_domain":null,
-        "author_pubkey":"O2onvM62pC1io6jQKm8Nc2UyFXcd4kOmOsBIoYtZ2ik=",
-        "author_service":"application",
-        "client":null,
-        "client_pubkey":null,
+        "author":{
+            "name":"End User",
+            "product":"application",
+            "pubkey":"O2onvM62pC1io6jQKm8Nc2UyFXcd4kOmOsBIoYtZ2ik="
+        },
         "dependencies":[
             {
                 "license":{
-                    "author":"Awesome, Inc.",
-                    "author_domain":"awesome-inc.com",
-                    "author_pubkey":"cyHOei+4c5X+D/niQWvDG5olR1qi4jddcPTDJv/UfrQ=",
-                    "author_service":"ethernet-ip-tool",
-                    "client":"End User, LLC",
-                    "client_pubkey":"O2onvM62pC1io6jQKm8Nc2UyFXcd4kOmOsBIoYtZ2ik=",
+                    "author":{
+                        "domain":"awesome-inc.com",
+                        "name":"Awesome, Inc.",
+                        "product":"EtherNet/IP Tool",
+                        "pubkey":"cyHOei+4c5X+D/niQWvDG5olR1qi4jddcPTDJv/UfrQ="
+                    },
+                    "client":{
+                        "name":"End User, LLC",
+                        "pubkey":"O2onvM62pC1io6jQKm8Nc2UyFXcd4kOmOsBIoYtZ2ik="
+                    },
                     "dependencies":[
                         {
                             "license":{
-                                "author":"Dominion Research & Development Corp.",
-                                "author_domain":"dominionrnd.com",
-                                "author_pubkey":"qZERnjDZZTmnDNNJg90AcUJZ+LYKIWO9t0jz/AzwNsk=",
-                                "author_service":"cpppo-test",
-                                "client":"Awesome, Inc.",
-                                "client_pubkey":"cyHOei+4c5X+D/niQWvDG5olR1qi4jddcPTDJv/UfrQ=",
-                                "dependencies":null,
+                                "author":{
+                                    "domain":"dominionrnd.com",
+                                    "name":"Dominion Research & Development Corp.",
+                                    "product":"Cpppo Test",
+                                    "pubkey":"qZERnjDZZTmnDNNJg90AcUJZ+LYKIWO9t0jz/AzwNsk="
+                                },
+                                "client":{
+                                    "name":"Awesome, Inc.",
+                                    "pubkey":"cyHOei+4c5X+D/niQWvDG5olR1qi4jddcPTDJv/UfrQ="
+                                },
                                 "length":"1y",
-                                "machine":null,
-                                "product":"Cpppo Test",
                                 "start":"2021-09-30 17:22:33 UTC"
                             },
-                            "signature":"TNVGYQjdGFFBJMIviAOLhPPuOefv+451OslLY4DJEK77LCS9LeJIaomv5sS8KHDkOE12eFOxi5aFXOw5O4jOCA=="
+                            "signature":"9DbaJRrEm9krviJfhhPkFoH/LtN1uYG48xA/4CTe4ZcXQOhCfnc/HhpcO0kR1t5EzWt27U7SBYr2IwVpHAkLCg=="
                         }
                     ],
                     "length":"1y",
-                    "machine":null,
-                    "product":"EtherNet/IP Tool",
                     "start":"2022-09-29 17:22:33 UTC"
                 },
-                "signature":"egUZM9vlF2y4DBCTtWNv3UC7nBRxSz4LZ12nOR+WSUktOrBbESsBuwQzjobNvPR2G+EZASRkY00bm/XqTzKsCg=="
+                "signature":"KKMNf9Ds9uJYIrwBoFRjP3F1vt8d1bp7jYWlM0kn+hkMoJViI9BvMY923MjwgV9iMhYbiC6hfD3s28ULVK2KDA=="
             }
         ],
         "length":"1d6h",
         "machine":"00010203-0405-4607-8809-0a0b0c0d0e0f",
-        "product":"application",
         "start":"2022-09-29 17:22:33 UTC"
     },
-    "signature":"Ltb81Zms8b8vFdWlx+0y8CBkJJeq626t64D4TQvuBXgkgZqgJPCnAWXp2bVZupLhpnEncyDoxLVcumYFWsaeDA=="
+    "signature":"8m+gfL5qPd7XPc1N87tPm9noDSOU5f1ToeN6NuQO9vYS+xca6hkUuZPdUjQ9/jcjNrj8IGeGYzoPIIUQ/LxcAw=="
 }""" == lic_host_str

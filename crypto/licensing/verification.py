@@ -77,14 +77,17 @@ def domainkey_service( product ):
         >>> domainkey_service( "Something Awesome v1.0" )
         'something-awesome-v1-0'
 
+    Retains None, if supplied.
     """
     author_service		= product
-    author_service		= domainkey_service.idna_encoder( author_service )[0]
-    if sys.version_info[0] >= 3:
-        author_service		= author_service.decode( 'ASCII' )
-    author_service		= author_service.translate( domainkey_service.dns_trans )
-    author_service		= author_service.lower()
+    if author_service:
+        author_service		= domainkey_service.idna_encoder( author_service )[0]
+        if sys.version_info[0] >= 3:
+            author_service	= author_service.decode( 'ASCII' )
+        author_service		= author_service.translate( domainkey_service.dns_trans )
+        author_service		= author_service.lower()
     return author_service
+
 try:
     domainkey_service.dns_trans	= str.maketrans( ' ._/', '----' )
 except: # Python2
@@ -250,9 +253,9 @@ def into_duration( dur ):
         return dur
 
 
-def domainkey( product, author_domain, author_service=None, author_pubkey=None ):
+def domainkey( product, domain, service=None, pubkey=None ):
     """Compute and return the DNS path for the given product and domain.  Optionally, also returns the
-    appropriate DKIM TXT RR record containing the author's public key (base-64 encoded), as per the
+    appropriate DKIM TXT RR record containing the agent's public key (base-64 encoded), as per the
     RFC: https://www.rfc-editor.org/rfc/rfc6376.html
 
         >>> from .verification import author, domainkey
@@ -263,29 +266,30 @@ def domainkey( product, author_domain, author_service=None, author_pubkey=None )
 
     
         # An Awesome, Inc. product
-        >>> author_keypair = author( seed=b'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA' )
-        >>> path, dkim_rr = domainkey( "Something Awesome v1.0", "awesome-inc.com", author_pubkey=author_keypair )
+        >>> keypair = author( seed=b'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA' )
+        >>> path, dkim_rr = domainkey( "Something Awesome v1.0", "awesome-inc.com", pubkey=keypair )
         >>> path
         'something-awesome-v1-0.cpppo-licensing._domainkey.awesome-inc.com.'
         >>> dkim_rr
         'v=DKIM1; k=ed25519; p=25lf4lFp0UHKubu6krqgH58uHs599MsqwFGQ83/MH50='
 
     """
-    if author_service is None:
-        author_service		= domainkey_service( product )
-
-    domain_name			= dns.name.from_text( author_domain )
-    service_name		= dns.name.Name( [author_service, 'cpppo-licensing', '_domainkey'] )
+    if service is None:
+        service			= domainkey_service( product )
+    assert service, \
+        "A service is required to deduce the DKIM DNS path"
+    domain_name			= dns.name.from_text( domain )
+    service_name		= dns.name.Name( [service, 'cpppo-licensing', '_domainkey'] )
     path_name			= service_name + domain_name
     path			= path_name.to_text()
 
     dkim			= None
-    if author_pubkey:
-        author_pubkey, _	= into_keys( author_pubkey )
+    if pubkey:
+        pubkey,_		= into_keys( pubkey )
         dkim			= '; '.join( "{k}={v}".format(k=k, v=v) for k,v in (
             ('v', 'DKIM1'),
             ('k', 'ed25519'),
-            ('p', into_b64( author_pubkey )),
+            ('p', into_b64( pubkey )),
         ))
 
     return (path, dkim)
@@ -316,7 +320,8 @@ class Serializable( object ):
     def keys( self ):
         for cls in type( self ).__mro__:
             for key in getattr( cls, '__slots__', []):
-                yield key
+                if getattr( self, key ) is not None: # If the key is empty, don't include it
+                    yield key
 
     def serializer( self, key ):
         """Finds any custom serialization formatter specified for the given attribute, defaults to None.
@@ -352,7 +357,7 @@ class Serializable( object ):
 
         The default serialization (ie. with indent=None) will be the one used to create the digest.
 
-        If there are objects to be serialized that require special handling, the must not have a
+        If there are objects to be serialized that require special handling, they must not have a
         'dict' interface (be convertible to a dict), and then a default may be supplied to serialize
         them (eg. str).
 
@@ -461,6 +466,79 @@ def overlap_intersect( start, length, other ):
     return start,length,begun,ended
 
 
+class Agent( Serializable ):
+    __slots__			= (
+        'name', 'pubkey', 'domain', 'product', 'service',
+    )
+    serializers			= dict(
+        pubkey		= into_b64,
+    )
+
+    def __init__( self, name,
+                  pubkey	= None,			# Normally, obtained from domain's DKIM1 TXT RR
+                  domain	= None,			# Needed for DKIM if no pubkey provided
+                  product	= None,
+                  service	= None,			# Normally, derived from product name
+                 ):
+        # Obtain the Agent's public key; either given through the API, or obtained from their
+        # domain's DKIM entry.
+        assert pubkey or ( domain and ( product or service )), \
+            "Either a pubkey or a domain + service/product must be provided"
+        self.name	= name
+        self.domain	= domain
+        self.product	= product
+        self.service	= service
+        self.pubkey,_	= into_keys( pubkey )
+        # Now pubkey_query has all the details it requires to do a DKIM lookup, if necessary
+        if not self.pubkey:
+            self.pubkey	= self.pubkey_query()
+
+    def pubkey_query( self ):
+        """Obtain the agent's public key.  This was either provided at License construction time, or can be
+        obtained from a DNS TXT "DKIM" record.
+        
+        TODO: Cache
+
+        Query the DKIM record for an author public key.  May be split into multiple strings:
+
+            r = dns.resolver.query('default._domainkey.justicewall.com', 'TXT')
+            for i in r:
+            ...  i.to_text()
+            ...
+            '"v=DKIM1; k=rsa; p=MIIBIjANBgkqhkiG9...Btx" "aPXTN/aI+cvS8...4KHoQqhS7IwIDAQAB;"'
+
+        Fortunately, the Python AST for string literals handles this quite nicely:
+
+            >>> ast.literal_eval('"abc" "123"')
+            'abc123'
+        """
+        dkim_path, _dkim_rr	= domainkey( self.product, self.domain, service=self.service )
+        log.info("Querying {domain} for DKIM service {service}: {dkim_path}".format(
+            domain=self.domain, service=self.service, dkim_path=dkim_path ))
+        # Python2/3 compatibility; use query vs. resolve
+        records			= list( rr.to_text() for rr in dns.resolver.query( dkim_path, 'TXT' ))
+        assert len( records ) == 1, \
+            "Failed to obtain a single TXT record from {dkim_path}".format( dkim_path=dkim_path )
+        # Parse the "..." "..." strings.  There should be no escaped quotes.
+        dkim			= ast.literal_eval( records[0] )
+        log.info("Parsing DKIM record: {dkim!r}".format( dkim=dkim ))
+        p			= None
+        for pair in dkim.split( ';' ):
+            key,val 		= pair.strip().split( '=', 1 )
+            if key.strip().lower() == "v":
+                assert val.upper() == "DKIM1", \
+                    "Failed to find DKIM record; instead found record of type/version {val}".format( val=val )
+            if key.strip().lower() == "k":
+                assert val.lower() == "ed25519", \
+                    "Failed to find Ed25519 public key; instead was of type {val!r}".format( val=val )
+            if key.strip().lower() == "p":
+                p		= val.strip()
+        assert p, \
+            "Failed to locate public key in TXT DKIM record: {dkim}".format( dkim=dkim )
+        p_binary		= into_bytes( p, ('base64',) )
+        return p_binary
+
+
 class License( Serializable ):
     """Represents the details of a Licence from an author to a client (could be any client, if no
     client_pubkey provided).  Cannot be constructed unless the supplied License details are valid
@@ -504,11 +582,40 @@ class License( Serializable ):
 
         cpppo.licensing._domainkey.dominionrnd.com 300 IN TXT "v=DKIM1; k=ed25519; p=ICkF+6tTRKc8voK15Th4eTXMX3inp5jZwZSu4CH2FIc="
 
+
+    Licenses may carry optional constraints, with functions to validate their values.  These may be
+    expressed in terms of all Licenses issued by the Author.  During normal License.verify of an
+    installed License, nothing about the pool of issued Licenses is known, so no additional
+    verification can be done.  However, when an Author is issuing a License and has access to the
+    full pool of issued Licenses, all presently issued values of the constraint are known.
+
+    If a lambda is provided it will be passed a proposed value as its second default parameter, with
+    the first parameter defaulting to None, or a list containing all present instances of the
+    constraint across all currently valid Licenses.  For example, if only 10 machine licenses are
+    available, return the provided machine if the number is not exhausted:
+
+        machine = "00010203-0405-4607-8809-0a0b0c0d0e0f"
+        machine__verifier = lambda m, ms=None: \
+            ( str( m ) if len( str( m ).split( '-' )) == 5 else ValueError( f"{m} doesn't look like a UUID" )\
+                if ms is None or len( ms ) < 10 \
+                else ValueError( "No more machine licenses presently available" )
+
+    Alternatively, a None or numeric limit could be distributed across all issued licenses:
+
+        targets = 3
+        targets__verifier = lambda n, ns=None: \
+            None if n is None else int( n ) \
+              if n is None or ns is None or int( n ) + sum( map( int, filter( None, ns ))) <= 100 \
+              else ValueError( f"{n} exceeds {100-sum(map(int,filter(None,ns)))} targets available" )
+
+    If an Exception is returned, it will be raised.  Otherwise, the result of the lambda will be
+    used as the License' value for the constraint.
+
     """
 
     __slots__			= (
-        'author', 'author_pubkey', 'author_domain', 'author_service', 'product',
-        'client', 'client_pubkey',
+        'author',
+        'client',
         'dependencies',
         'start', 'length',
         'machine',
@@ -521,24 +628,19 @@ class License( Serializable ):
         machine		= into_str,
     )
 
-    def __init__( self, author, product,
-                  author_domain=None,			# Needed for DKIM if no author_pubkey provided
-                  author_pubkey=None,			# Normally, obtained from domain's DKIM1 TXT RR
-                  author_service=None,			# Normally, derived from product name
-                  client=None, client_pubkey=None,	# The client may be identified
+    def __init__( self, author, client=None,
                   dependencies=None,			# Any sub-Licenses
                   start=None, length=None,		# License may not be perpetual
                   machine=None,				# A specific host may be specified
                   machine_id_path=None,
                   confirm=None,				# Validate License dependencies' author_pubkey from DNS
                  ):
-        self.author		= author
-        self.author_domain	= author_domain
-        self.author_service	= author_service or domainkey_service( product )
-        self.product		= product
-
-        self.client		= client
-        self.client_pubkey, _	= into_keys( client_pubkey )
+        if isinstance( author, type_str_base ):
+            author		= json.loads( author )	# Deserialize Agent, if necessary
+        self.author	= Agent( **author )
+        if isinstance( client, type_str_base ):
+            client		= json.loads( client )	# Deserialize Agent, if necessary
+        self.client	= Agent( **client ) if client else None
 
         # Reconstitute LicenseSigned provenance from any dicts provided
         self.dependencies	= None if dependencies is None else list(
@@ -550,7 +652,8 @@ class License( Serializable ):
         # exceed the timespan of any License dependencies.  First, get any supplied start time as a
         # cpppo.history.timestamp, and any duration length as a number of seconds.
         try:
-            self.start, self.length = into_timestamp( start ), into_duration( length ) # both retain None
+            self.start		= into_timestamp( start )
+            self.length		= into_duration( length )
         except Exception as exc:
             raise LicenseIncompatibility(
                     "License start: {start!r} or length: {length!r} invalid: {exc}".format(
@@ -562,61 +665,9 @@ class License( Serializable ):
             assert machine.version == 4
         self.machine		= machine
 
-        # Obtain confirmation of the Author's public key; either given through the API, or obtained
-        # from their domain's DKIM entry.
-        assert author_pubkey or self.author_domain, \
-            "Either an author_pubkey, or an author_domain/service must be provided"
-        self.author_pubkey, _	= into_keys( author_pubkey )
-        if self.author_pubkey is None:
-            self.author_pubkey	= self.author_pubkey_query()
 
         # Only allow the construction of valid Licenses.
         self.verify( confirm=confirm, machine_id_path=machine_id_path )
-
-    def author_pubkey_query( self ):
-        """Obtain the author's public key.  This was either provided at License construction time, or can be
-        obtained from a DNS TXT "DKIM" record.
-        
-        TODO: Cache
-
-        Query the DKIM record for an author public key.  May be split into multiple strings:
-
-            r = dns.resolver.query('default._domainkey.justicewall.com', 'TXT')
-            for i in r:
-            ...  i.to_text()
-            ...
-            '"v=DKIM1; k=rsa; p=MIIBIjANBgkqhkiG9...Btx" "aPXTN/aI+cvS8...4KHoQqhS7IwIDAQAB;"'
-
-        Fortunately, the Python AST for string literals handles this quite nicely:
-
-            >>> ast.literal_eval('"abc" "123"')
-            'abc123'
-        """
-        dkim_path, _dkim_rr	= domainkey( self.product, self.author_domain, author_service=self.author_service )
-        log.info("Querying {domain} for DKIM service {service}: {dkim_path}".format(
-            domain=self.author_domain, service=self.author_service, dkim_path=dkim_path ))
-        # Python2/3 compatibility; use query vs. resolve
-        records			= list( rr.to_text() for rr in dns.resolver.query( dkim_path, 'TXT' ))
-        assert len( records ) == 1, \
-            "Failed to obtain a single TXT record from {dkim_path}".format( dkim_path=dkim_path )
-        # Parse the "..." "..." strings.  There should be no escaped quotes.
-        dkim			= ast.literal_eval( records[0] )
-        log.info("Parsing DKIM record: {dkim!r}".format( dkim=dkim ))
-        p			= None
-        for pair in dkim.split( ';' ):
-            key,val 		= pair.strip().split( '=', 1 )
-            if key.strip().lower() == "v":
-                assert val.upper() == "DKIM1", \
-                    "Failed to find DKIM record; instead found record of type/version {val}".format( val=val )
-            if key.strip().lower() == "k":
-                assert val.lower() == "ed25519", \
-                    "Failed to find Ed25519 public key; instead was of type {val!r}".format( val=val )
-            if key.strip().lower() == "p":
-                p		= val.strip()
-        assert p, \
-            "Failed to locate public key in TXT DKIM record: {dkim}".format( dkim=dkim )
-        p_binary		= into_bytes( p, ('base64',) )
-        return p_binary
 
     def overlap( self, *others ):
         """Compute the overlapping start/length that is within the bounds of this and other license(s).
@@ -635,8 +686,8 @@ class License( Serializable ):
                 # Overlap was computable, and was zero
                 raise LicenseIncompatibility(
                     "License for {author}'s {product!r} from {start} for {length} incompatible with others".format(
-                        author	= getattr( other, 'author', self.author ),
-                        product	= getattr( other, 'product', self.product ),
+                        author	= getattr( getattr( other, 'author', None ), 'name', None )  or self.author.name,
+                        product	= getattr( getattr( other, 'author', None ), 'product', None ) or self.author.product,
                         start	= into_str_LOC( other.start ),
                         length	= other.length,
                     ))
@@ -674,7 +725,7 @@ class License( Serializable ):
         return uuid.UUID( into_hex( machine_id ))
 
     def verify( self, author_pubkey=None, signature=None, confirm=None, machine_id_path=None,
-                **constraints ):
+                current=None, **constraints ):
         """Verify that the License is valid:
 
             - Has properly signed License dependencies
@@ -688,39 +739,42 @@ class License( Serializable ):
         constraints dict on success.  The returned constraints would be usable in constructing a new
         License (assuming at least the necessary author, author_domain and product were defined).
 
+        If a sequence of all current Licenses is provided, it will be used to validate any
+        constraints supplied with a callable (eg. lambda) specification.
+
         """
         if author_pubkey:
             author_pubkey, _	= into_keys( author_pubkey )
             assert author_pubkey, "Unrecognized author_pubkey provided"
 
-        if author_pubkey and author_pubkey != self.author_pubkey:
+        if author_pubkey and author_pubkey != self.author.pubkey:
             raise LicenseIncompatibility( 
                 "License for {auth}'s {prod!r} public key mismatch".format(
-                    auth	= self.author,
-                    prod	= self.product,
+                    auth	= self.author.name,
+                    prod	= self.author.product,
                 ))
         # Verify that the License's stated public key matches the one in the domain's DKIM.  Default
         # to True when confirm is None.
         if confirm or confirm is None:
-            avkey	 	= self.author_pubkey_query()
-            if avkey != self.author_pubkey:
+            avkey	 	= self.author.pubkey_query()
+            if avkey != self.author.pubkey:
                 raise LicenseIncompatibility(
                     "License for {auth}'s {prod!r}: author key from DKIM {found} != {claim}".format(
-                        auth	= self.author,
-                        prod	= self.product,
+                        auth	= self.author.name,
+                        prod	= self.author.product,
                         found	= into_b64( avkey ),
-                        claim	= into_b64( self.author_pubkey ),
+                        claim	= into_b64( self.author.pubkey ),
                     ))
         # Verify that the License signature was indeed produced by the signing key corresponding to the
         # provided public key
         if signature:
             try:
-                ed25519.crypto_sign_open( signature + self.serialize(), self.author_pubkey )
+                ed25519.crypto_sign_open( signature + self.serialize(), self.author.pubkey )
             except Exception as exc:
                 raise LicenseIncompatibility( 
                     "License for {auth}'s {prod!r}: signature mismatch: {sig!r}; {exc}".format(
-                        auth	= self.author,
-                        prod	= self.product,
+                        auth	= self.author.name,
+                        prod	= self.author.product,
                         sig	= signature,
                         exc	= exc,
                     ))
@@ -730,25 +784,28 @@ class License( Serializable ):
         # interested in sub-Licensing these Licenses, only verifying them.
         for prov in ( LicenseSigned( confirm=confirm, **d ) for d in self.dependencies or [] ):
             try:
-                prov.verify( confirm=confirm )
-                assert prov.license.client_pubkey is None or prov.license.client_pubkey == self.author_pubkey, \
+                prov.verify( confirm=confirm, machine_id_path=machine_id_path )
+                assert prov.license.client.pubkey is None or prov.license.client.pubkey == self.author.pubkey, \
                     "sub-License client public key {client_pubkey} doesn't match Licence author's public key {author_pubkey}".format(
-                        client_pubkey	= into_b64( prov.license.client_pubkey ),
-                        author_pubkey	= into_b64( self.author_pubkey ),
+                        client_pubkey	= into_b64( prov.license.client.pubkey ),
+                        author_pubkey	= into_b64( self.author.pubkey ),
                     )
             except Exception as exc:
                 raise LicenseIncompatibility(
                     "License for {auth}'s {prod!r}; sub-License for {dep_auth}'s {dep_prod!r} invalid: {exc}".format(
-                        auth		= self.author,
-                        prod		= self.product,
-                        dep_auth	= prov.license.author,
-                        dep_prod	= prov.license.product,
+                        auth		= self.author.name,
+                        prod		= self.author.product,
+                        dep_auth	= prov.license.author.name,
+                        dep_prod	= prov.license.author.product,
                         exc		= exc,
                     ))
 
         # Enforce all constraints, returning a dict suitable for creating a specialized License, if
         # a signature was provided; if not, we cannot produce a specialized sub-License, and must
-        # fail.  
+        # fail.
+
+        # First, scan the constraints to see if any are callable
+        
 
         # Verify all sub-license start/length durations comply with this License' duration.
         # Remember, these start/length specify the validity period of the License to be
@@ -765,8 +822,8 @@ class License( Serializable ):
         except LicenseIncompatibility as exc:
             raise LicenseIncompatibility(
                 "License for {auth}'s {prod!r}; sub-{exc}".format(
-                    auth	= self.author,
-                    prod	= self.product,
+                    auth	= self.author.name,
+                    prod	= self.author.product,
                     exc		= exc,
                 ))
         else:
@@ -792,8 +849,8 @@ class License( Serializable ):
             if self.machine not in (None, True) and self.machine != machine_uuid:
                 raise LicenseIncompatibility(
                     "License for {auth}'s {prod!r} specifies Machine ID {required}; found {detected}".format(
-                        auth	= self.author,
-                        prod	= self.product,
+                        auth	= self.author.name,
+                        prod	= self.author.product,
                         required= self.machine,
                         detected= machine_uuid,
                     ))
@@ -801,8 +858,8 @@ class License( Serializable ):
             if machine_cons not in (None, True) and machine_cons != machine_uuid:
                 raise LicenseIncompatibility(
                     "Constraints on {auth}'s {prod!r} specifies Machine ID {required}; found {detected}".format(
-                        auth	= self.author,
-                        prod	= self.product,
+                        auth	= self.author.name,
+                        prod	= self.author.product,
                         required= machine_cons,
                         detected= machine_uuid,
                     ))
@@ -813,8 +870,8 @@ class License( Serializable ):
                 constraints['machine'] = machine_uuid
 
         log.normal( "License for {auth}'s {prod!r} is valid from {start} for {length} on machine {machine}".format(
-            auth	= self.author,
-            prod	= self.product,
+            auth	= self.author.name,
+            prod	= self.author.product,
             start	= into_str_LOC( start ),
             length	= length,
             machine	= into_str( machine ) or into_str( constraints.get( 'machine' )) or '(any)',
@@ -954,7 +1011,7 @@ class LicenseSigned( Serializable ):
             "Require either signature, or the means to produce one via the author's signing key"
         if author_sigkey and not signature:
             # Sign our default serialization, also confirming that the public key matches
-            self.signature	= self.license.sign( author_sigkey, self.license.author_pubkey )
+            self.signature	= self.license.sign( author_sigkey, self.license.author.pubkey )
         elif signature:
             # Could be a hex-encoded signature on deserialization, or a 64-byte signature.  If both
             # signature and author_sigkey, we'll just be confirming the supplied signature, below.
@@ -968,7 +1025,7 @@ class LicenseSigned( Serializable ):
     def verify( self, author_pubkey=None, signature=None, confirm=None, machine_id_path=None,
                 **constraints ):
         return self.license.verify(
-            author_pubkey	= author_pubkey or self.license.author_pubkey,
+            author_pubkey	= author_pubkey or self.license.author.pubkey,
             signature		= signature or self.signature,
             confirm		= confirm,
             machine_id_path	= machine_id_path,
