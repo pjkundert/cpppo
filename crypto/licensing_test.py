@@ -22,8 +22,12 @@ except ImportError: # Python3
 import cpppo
 from   cpppo		import misc
 from   cpppo.crypto	import licensing
-from   cpppo.crypto.licensing.main import main as licensing_main
 
+# If web.py is unavailable, licensing.main cannot be used
+try:
+    from cpppo.crypto.licensing.main import main as licensing_main
+except:
+    licensing_main		= None
 
 log				= logging.getLogger( "lic.svr")
 
@@ -63,7 +67,7 @@ def test_licensing_issue_query():
         product		= "EtherNet/IP Tool",
         machine		= licensing.machine_UUIDv4( machine_id_path=__file__.replace( ".py", ".machine-id" )),
     )
-    query		= request.query( sigkey="AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA7aie8zrakLWKjqNAqbw1zZTIVdx3iQ6Y6wEihi1naKQ==" )
+    query			= request.query( sigkey="AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA7aie8zrakLWKjqNAqbw1zZTIVdx3iQ6Y6wEihi1naKQ==" )
     #print( query )
     assert """\
 author=Awesome%2C+Inc.&\
@@ -82,10 +86,10 @@ def licensing_cli( number, tests=None ):
 
     """
     time.sleep( 1 )
-    query		= test_licensing_issue_query()
-    response		= urlopen( "http://localhost:8000/api/issue.json?" + query ).read()
+    query			= test_licensing_issue_query()
+    response			= urlopen( "http://localhost:8000/api/issue.json?" + query ).read()
     assert response
-    data		= json.loads( response )
+    data			= json.loads( response )
     #print( data )
     assert data['list'] and data['list'][0]['signature'] == 'xnSfp/GDWsAvxVqarn+7AG8l0TIlSXD5kdHzb0sRxZsrm7o3uYLbPNxkcgvLV62m9V7BhKCU0unaMweSWX8TCA=='
 
@@ -107,7 +111,17 @@ def licensing_bench():
 
     return failed
 
-
+try:
+    import web
+except:
+    web				= None
+try:
+    import chacha20poly1305
+except:
+    chacha20poly1305		= None
+    
+@pytest.mark.skipif( not licensing_main or not web or not chacha20poly1305,
+                     reason="Licensing server needs web.py" )
 def test_licensing_bench( tmp_path ):
     print( "Changing CWD to {}".format( tmp_path ))
     os.chdir( str( tmp_path ))
