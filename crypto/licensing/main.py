@@ -39,6 +39,7 @@ import json
 import logging
 import math
 import os
+import posixpath
 import random
 import re
 import signal
@@ -54,10 +55,10 @@ import uuid
 
 try: # Python2
     from urllib2 import urlopen
-    from urllib import urlencode
+    from urllib import urlencode, unquote
 except ImportError: # Python3
     from urllib.request import urlopen
-    from urllib.parse import urlencode
+    from urllib.parse import urlencode, unquote
 
 # Used for Web GUI, and for licensing database
 import web
@@ -1542,15 +1543,44 @@ Disallow: /
 
 
     # Implement our own version of StaticApp and StaticMiddleware so we can return proper caching
-    # headers, and specify a specific basedir for static file access.
-    class StaticAppDir( web.httpserver.StaticApp ):
+    # headers, and specify a specific basedir for static file access. Force new-style classes in
+    # Python2 so super works.  Unfortunately, the Python2 SimpleHTTPRequest implementation baked in
+    # os.getcwd so we have to transplant a Python2/3 compatible translate_path, too.
+    class StaticAppDir( web.httpserver.StaticApp, object ):
         def __init__( self, environ, start_response, directory ):
             super( StaticAppDir, self ).__init__( environ, start_response )
             self.directory	= directory
+            logging.detail( "Serving static files out of {}".format( self.directory))
+
+        def translate_path(self, path):
+            """Translate a /-separated PATH to the local filename syntax.
+
+            Components that mean special things to the local file system
+            (e.g. drive or directory names) are ignored.  (XXX They should
+            probably be diagnosed.)
+
+            """
+            # abandon query parameters
+            path = path.split('?',1)[0]
+            path = path.split('#',1)[0]
+            # Don't forget explicit trailing slash when normalizing. Issue17324
+            trailing_slash = path.rstrip().endswith('/')
+            path = posixpath.normpath(unquote(path))
+            words = path.split('/')
+            words = filter(None, words)
+            path = self.directory # << D'oh!
+            for word in words:
+                if os.path.dirname(word) or word in (os.curdir, os.pardir):
+                    # Ignore components that are not a simple file/directory name
+                    continue
+                path = os.path.join(path, word)
+            if trailing_slash:
+                path += '/'
+            return path
 
 
     cache_max_age		= 30*24*60*60
-    class StaticMiddlewareDir( web.httpserver.StaticMiddleware, object ): # force new-style classes in Python2
+    class StaticMiddlewareDir( web.httpserver.StaticMiddleware, object ):
         """WSGI middleware for serving static files from the specified basedir."""
         def __init__( self, app, prefix="/static/", basedir=os.getcwd() ):
             super( StaticMiddlewareDir, self ).__init__( app, prefix=prefix )
@@ -1580,7 +1610,8 @@ Disallow: /
         app, web.session.DBStore( db, 'sessions' ), initializer=session_initializer )
 
     # We can't use the stock runsimple; we have to build up our own chain of WSGI middleware and run
-    # its server, in order to get our custom StaticMiddleware/StaticApp.
+    # its server, in order to get our custom StaticMiddleware/StaticApp to serve static files from
+    # the Python module installation directory.
     func			= app.wsgifunc( Log )
     func			= StaticMiddlewareDir( func, "/static/", os.path.dirname( __file__ ))
     func			= web.httpserver.LogMiddleware( func )

@@ -903,7 +903,7 @@ class License( Serializable ):
         # self.machine is None, we don't need to do anything, because the License is good for any
         # machine.  Use machine=True to force constraints to include the current machine UUID.
         machine			= None
-        if self.machine or constraints.get( 'machine' ) and machine_id_path != False:
+        if machine_id_path != False and ( self.machine or constraints.get( 'machine' )):
             # Either License or constraints specify a machine (so we have to verify), and the
             # machine_id_path directive doesn't indicate to *not* check the machine ID (eg. when
             # issuing the license from a different machine)
