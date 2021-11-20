@@ -228,7 +228,8 @@ def licenses( confirm=None, stored=None ):
                 continue
             yield p.signature, p.license
             emitted.add( p.signature )
-            for sig, lic in emit( *[ licensing.LicenseSigned( confirm=confirm, **pd ) for pd in p.license.dependencies or [] ] ):
+            for sig, lic in emit( *[ licensing.LicenseSigned( confirm=confirm, machine_id_path=False, **pd )
+                                     for pd in p.license.dependencies or [] ] ):
                 yield sig, lic
 
     # First, process any stored provenances.  These are assumed to contain .license and .signature
@@ -237,7 +238,8 @@ def licenses( confirm=None, stored=None ):
     # serialized forms.
     found			= 0
     for r in stored or []:
-        prov			= licensing.LicenseSigned( license=r.license, signature=r.signature, confirm=confirm )
+        prov			= licensing.LicenseSigned(
+            license=r.license, signature=r.signature, confirm=confirm, machine_id_path=False )
         for sig, lic in emit( prov ):
             yield sig, lic
             found	       += 1
@@ -1030,7 +1032,6 @@ def issue_request( render, path, environ, accept, framework,
             log.warning( "Failed: {exc}".format( exc ))
             pass
         else:
-            log.detail( "Specializing candidate: {}".format( lic ))
             if not lic.machine or lic['machine'] == issue_request['machine']:
                 log.detail( "Specializing existing License: {}".format( lic ))
                 author_sigkey	= None
@@ -1038,20 +1039,19 @@ def issue_request( render, path, environ, accept, framework,
                     vk, sk	= keypair.into_keypair( **cred )
                     pubkey	= licensing.into_b64( vk )
                     if name == lic.author['name'] and pubkey == issue_request['author_pubkey']:
-                        log.info( "Specializing using keypair {} (w/ {}'s credentials) for {}'s {!r}".format(
-                            name, pubkey, cred['username'], lic.author['name'], lic.author['product'] ))
                         author_sigkey = sk
                         break
                 # Issue a new specialized License for Client, signed with Author's private signing key.
-                log.detail( "Sublicensing client-specific License for machine {}: {}".format( issue_request['machine'], lic ))
                 if not lic.client:
-                    log.detail( "Sublicensing setting client.name to {}".format( issue_request['client'] ))
                     lic.client	= licensing.Agent( name=issue_request['client'], pubkey=issue_request['client_pubkey'] )
                 lic.machine	= licensing.into_UUIDv4( issue_request['machine'] )
-                log.detail( "Sublicensing issuing {}".format( lic ))
-                prov		= licensing.issue( license=lic, author_sigkey=author_sigkey,
-                                                   confirm=False, machine_id_path=False )
-                log.detail( "Sublicensing issued {}".format( prov ))
+                prov		= licensing.issue(
+                    license=lic, author_sigkey=author_sigkey, confirm=False, machine_id_path=False )
+                with db_lock:
+                    insert = db.insert( 'licenses',
+                                        signature=prov['signature'],
+                                        license=str( prov.license ))
+                assert insert, "Specializing license insert failed"
                 return prov
 
         raise http_exception( framework, 409, "No matching Licenses found matching request: {}".format(

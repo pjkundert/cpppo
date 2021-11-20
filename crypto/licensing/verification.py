@@ -42,7 +42,7 @@ try: # Python2
 except ImportError: # Python3
     from urllib.parse import urlencode
 
-from ...misc		import timer, logresult
+from ...misc		import timer
 from ...automata	import type_str_base
 from ...history.times	import parse_datetime, parse_seconds, timestamp, duration
 from ...server.enip.defaults import config_open_deduced, ConfigNotFoundError
@@ -946,7 +946,7 @@ class License( Serializable ):
                 "Attempt to issue a sub-License of an un-signed License"
             constraints.setdefault( 'dependencies', [] )
             constraints['dependencies'].append( dict(
-                LicenseSigned( license=self, signature=signature, confirm=confirm )
+                LicenseSigned( license=self, signature=signature, confirm=confirm, machine_id_path=machine_id_path )
             ))
 
         return constraints
@@ -1067,7 +1067,9 @@ class LicenseSigned( Serializable ):
             license		= json.loads( license ) # Deserialize License, if necessary
         assert isinstance( license, (License, dict) ), \
             "Require a License or its serialization dict, not a {!r}".format( license )
-        self.license		= License( confirm=confirm, **license ) if isinstance( license, dict ) else license
+        if isinstance( license, dict ):
+            license		= License( confirm=confirm, machine_id_path=machine_id_path, **license )
+        self.license		= license
 
         assert signature or author_sigkey, \
             "Require either signature, or the means to produce one via the author's signing key"
@@ -1084,7 +1086,6 @@ class LicenseSigned( Serializable ):
             confirm		= confirm,
             machine_id_path	= machine_id_path )
 
-    @logresult(log_level=logging.WARNING)
     def verify( self, author_pubkey=None, signature=None, confirm=None, machine_id_path=None,
                 **constraints ):
         return self.license.verify(
@@ -1259,7 +1260,6 @@ def issue( license, author_sigkey, signature=None, confirm=None, machine_id_path
         machine_id_path	= machine_id_path )
 
 
-@logresult(log_level=logging.WARNING)
 def verify( provenance, author_pubkey=None, signature=None, confirm=None, machine_id_path=None,
             **constraints ):
     """Verify that the supplied License or LicenseSigned contains a valid signature, and that the
