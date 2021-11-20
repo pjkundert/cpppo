@@ -844,7 +844,7 @@ def licenses_request( render, path, environ, accept, framework,
         callback		= variables.get( 'callback', "" )
         if callback:
             response           += callback + "( "
-        response               += json.dumps( data, indent=4 )
+        response               += licensing.into_JSON( data, indent=4 )
         if callback:
             response           += " )"
     elif content and content in ( "text/html" ):
@@ -877,7 +877,7 @@ def credentials_request( render, path, environ, accept, framework,
         callback		= variables.get( 'callback', "" )
         if callback:
             response           += callback + "( "
-        response               += json.dumps( data, indent=4 )
+        response               += licensing.into_JSON( data, indent=4 )
         if callback:
             response           += " )"
     elif content and content in ( "text/html" ):
@@ -909,7 +909,7 @@ def keypairs_request( render, path, environ, accept, framework,
         callback		= variables.get( 'callback', "" )
         if callback:
             response           += callback + "( "
-        response               += json.dumps( data, indent=4 )
+        response               += licensing.into_JSON( data, indent=4 )
         if callback:
             response           += " )"
     elif content and content in ( "text/html" ):
@@ -982,7 +982,6 @@ def issue_request( render, path, environ, accept, framework,
         raise http_exception( framework, 401, "Ed25519 Signature of request is incorrect: {exc}".format(
             exc=exc ))
 
-
     # See if there are License(s) that match a certain portion of the requirements.  An exact match
     # can be directly returned.  A partial match can be sub-licensed.
     skip_tab = {
@@ -993,21 +992,32 @@ def issue_request( render, path, environ, accept, framework,
         'product':	lambda lic: issue_request['product'] and lic.author['product'] != issue_request['product'],
         'machine':	lambda lic: issue_request['machine'] and lic['machine'] != issue_request['machine'],
     }
-    def lics_filtered( *names ):
-        stored			= list( db.select( 'licenses' ))
-        for sig, lic in licenses( confirm=False, stored=stored ):
-            log.info( "{}'s {}: mismatched keys: {}".format(
-                lic.author['name'], lic.author['product'],
-                ', '.join( n for n in names if skip_tab[n]( lic ) )))
-            if any( skip_tab[n]( lic ) for n in names ):
-                continue
-            log.info( "{}'s {} accepted: {}".format(
-                lic.author['name'], lic.author['product'], lic ))
-            yield sig, lic
 
-    # Produce a LicenseSigned suitable for the client to receive, use as a dependency of a new
-    # License specific to their machine, and sign and install.
+
     def prov_to_issue():
+        """Produce a LicenseSigned suitable for the client to receive, use as a dependency of a new
+        License specific to their machine, and sign and install.
+
+        Since we scan the database 'licenses' table, do some computations and then update the table,
+        we need to db_lock around this entire process, to avoid multiple simultaneous requests
+        issuing the same License.  Since we do no DKIM confirmation or other network I/O here (only
+        file reading), it should be quick.
+
+        """
+
+        def lics_filtered( *names ):
+            """Scan the loaded/stored Licenses for  """
+            stored			= list( db.select( 'licenses' ))
+            for sig, lic in licenses( confirm=False, stored=stored ):
+                log.info( "{}'s {}: mismatched keys: {}".format(
+                    lic.author['name'], lic.author['product'],
+                    ', '.join( n for n in names if skip_tab[n]( lic ) )))
+                if any( skip_tab[n]( lic ) for n in names ):
+                    continue
+                log.info( "{}'s {} accepted: {}".format(
+                    lic.author['name'], lic.author['product'], lic ))
+                yield sig, lic
+
         # Ideally, everything matches exactly one specific License already issued to this Client for
         # this machine.  If we've already issued the License (and perhaps the client forgot to
         # install it, or re-installed the software), and needs it again.
@@ -1048,17 +1058,17 @@ def issue_request( render, path, environ, accept, framework,
                 lic.machine	= licensing.into_UUIDv4( issue_request['machine'] )
                 prov		= licensing.issue(
                     license=lic, author_sigkey=author_sigkey, confirm=False, machine_id_path=False )
-                with db_lock:
-                    insert = db.insert( 'licenses',
-                                        signature=prov['signature'],
-                                        license=str( prov.license ))
+                insert = db.insert( 'licenses',
+                                    signature=prov['signature'],
+                                    license=str( prov.license ))
                 assert insert, "Specializing license insert failed"
                 return prov
 
         raise http_exception( framework, 409, "No matching Licenses found matching request: {}".format(
             issue_request ))
 
-    prov			= prov_to_issue()
+    with db_lock:
+        prov			= prov_to_issue()
     log.detail( "Issuing License for {}' {}".format( prov.license.author['name'], prov.license.author['product'] ))
 
     data			= {}
@@ -1073,7 +1083,7 @@ def issue_request( render, path, environ, accept, framework,
         product		= prov.license['author']['product'],
         signature	= licensing.into_b64( prov.signature ),
         confirm		= None,
-        license		= str( prov.license ),
+        license		= prov.license,
     )
     if confirm:
         log.detail( "Confirming DKIM for {}' {}".format( prov.license.author['name'], prov.license.author['product'] ))
@@ -1089,7 +1099,7 @@ def issue_request( render, path, environ, accept, framework,
         callback		= variables.get( 'callback', "" )
         if callback:
             response           += callback + "( "
-        response               += json.dumps( data, indent=4 )
+        response               += licensing.into_JSON( data, indent=4 )
         if callback:
             response           += " )"
     elif content and content in ( "text/html" ):

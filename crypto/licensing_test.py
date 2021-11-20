@@ -5,7 +5,9 @@ try:
 except ImportError:
     pass
 
+import json
 import logging
+import time
 
 try: # Python2
     from urllib2 import urlopen
@@ -18,7 +20,7 @@ except ImportError: # Python3
 import cpppo
 from   cpppo		import misc
 from   cpppo.crypto	import licensing
-from   cpppo.crypto.licensing import main as licensing_main
+from   cpppo.crypto.licensing.main import main as licensing_main
 
 
 log				= logging.getLogger( "lic.svr")
@@ -38,8 +40,9 @@ licensing_cli_kwds		= {
 CFGPATH				=  __file__[:-3] # trim off .py
 
 licensing_svr_kwds		= {
-    "argv": [ "-vv", "--no-gui", "--log", "licensing_test.log", "--config", CFGPATH ]
+    "argv": [ "--no-gui", "--config", CFGPATH ]
 }
+
 
 def test_licensing_issue_query():
     # Issue a license to this machine-id, for client "End User, LLC".
@@ -59,7 +62,7 @@ def test_licensing_issue_query():
         machine		= licensing.machine_UUIDv4( machine_id_path=__file__.replace( ".py", ".machine-id" )),
     )
     query		= request.query( sigkey="AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA7aie8zrakLWKjqNAqbw1zZTIVdx3iQ6Y6wEihi1naKQ==" )
-    print( query )
+    #print( query )
     assert """\
 author=Awesome%2C+Inc.&\
 author_pubkey=cyHOei%2B4c5X%2BD%2FniQWvDG5olR1qi4jddcPTDJv%2FUfrQ%3D&\
@@ -76,19 +79,24 @@ def licensing_cli( number, tests=None ):
     """Makes a series of HTTP requests to the licensing server, testing the response.
 
     """
+    time.sleep( 1 )
     query		= test_licensing_issue_query()
-    response		= urlopen( "https:localhost:8000/api/issue.json?" + query ).read()
-    assert "" == response
-    
+    response		= urlopen( "http://localhost:8000/api/issue.json?" + query ).read()
+    assert response
+    data		= json.loads( response )
+    #print( data )
+    assert data['list'] and data['list'][0]['signature'] == 'xnSfp/GDWsAvxVqarn+7AG8l0TIlSXD5kdHzb0sRxZsrm7o3uYLbPNxkcgvLV62m9V7BhKCU0unaMweSWX8TCA=='
 
 
 def licensing_bench():
     logging.getLogger().setLevel(logging.INFO)
     failed			= cpppo.server.network.bench(
-        server_func=licensing_main,
-        server_kwds=licensing_svr_kwds,
-        client_func=licensing_cli, client_count=client_count, 
-        client_kwds=licensing_cli_kwds )
+        server_func	= licensing_main,
+        server_kwds	= licensing_svr_kwds,
+        client_func	= licensing_cli,
+        client_count	= client_count,
+        client_kwds	= licensing_cli_kwds
+    )
 
     if failed:
         log.warning( "Failure" )
@@ -99,4 +107,5 @@ def licensing_bench():
 
 
 def test_licensing_bench():
-    assert not licensing_bench(), "One or more licensing_banch clients reported failure"
+    assert not licensing_bench(), \
+        "One or more licensing_banch clients reported failure"
