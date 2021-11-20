@@ -1,7 +1,7 @@
 minimalmodbus
 pylogix>=0.7.5
 pymodbus>=1.2.0
-pytest
+pytest>=4.6
 pytz>=2014.7
 tzlocal>=1.1.1
 web.py>=0.37

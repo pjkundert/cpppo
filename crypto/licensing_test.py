@@ -7,6 +7,8 @@ except ImportError:
 
 import json
 import logging
+import os
+import pytest
 import time
 
 try: # Python2
@@ -106,6 +108,8 @@ def licensing_bench():
     return failed
 
 
-def test_licensing_bench():
+def test_licensing_bench( tmp_path ):
+    print( "Changing CWD to {}".format( tmp_path ))
+    os.chdir( str( tmp_path ))
     assert not licensing_bench(), \
         "One or more licensing_banch clients reported failure"
