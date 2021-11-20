@@ -52,11 +52,12 @@ import timeit
 import traceback
 import uuid
 
-try:
+try: # Python2
     from urllib2 import urlopen
-except ImportError:
+    from urllib import urlencode
+except ImportError: # Python3
     from urllib.request import urlopen
-
+    from urllib.parse import urlencode
 
 # Used for Web GUI, and for licensing database
 import web
@@ -82,7 +83,7 @@ session_initializer		= {
 from ...history.times	import timestamp, duration
 from ...misc		import timer
 from ...automata	import log_cfg, type_str_base
-from ...server.enip.defaults import config_open, ConfigNotFoundError
+from ...server.enip.defaults import config_paths, config_open, ConfigNotFoundError
 from ..			import licensing
 
 log				= logging.getLogger( "licensing" )
@@ -105,9 +106,14 @@ OURPATH				= os.path.dirname( os.path.abspath( __file__ ))
 TPLPATH				= os.path.join( OURPATH, "static/resources/templates/" )
 LOCPATH				= os.path.abspath(os.path.curdir)
 
-# The database: global 'db', which is a web.database connection.  Since sqlite3 is thread-safe, but
-# will raise an exception if multiple threads attempt to write, provide a threading.Lock() to allow
-# serializing of all db insert, update, etc. between threads.
+# License Server Configuration
+
+config_extras			= [OURPATH] # Any extra higher-priority configuration paths to look in
+
+
+# The database: global 'db', which is a web.database connection.  Also 'db_lock', since sqlite3 is
+# thread-safe, but will raise an exception if multiple threads attempt to write, provide a
+# threading.Lock() to allow serializing of all db insert, update, etc. between threads.
 
 # We will *always* execute all of the available ...sql* scripts.  These contain 'CREATE TABLE' and
 # 'INSERT' commands, which will fail if the specified table/row already exists, so are safe to run
@@ -115,70 +121,67 @@ LOCPATH				= os.path.abspath(os.path.curdir)
 # scripts.  This provides us with a rudimentary database update mechanism between releases, as long
 # as we carefully migrate data from old to new tables.
 
-init_db				= None
-db_file_path			= DB_FILE
-sqlfile_path			= SQLFILE
-try:
-    # Load the licensing.db file.  If it can be found somewhere in the configuration path, use it --
-    # otherwise, assume it's supposed to be here in the CWD.
-    try:
-        for f in config_open( DB_FILE ):
-            with f:
-                db_file_path	= f.name
-            break
-    except ConfigNotFoundError:
-        pass
-    init_db			= sqlite3.connect( db_file_path )
 
-    # Load all licensing.sql* config files into the licensing.db Sqlite3 file.  At least one must be
-    # found or a ConfigFileNotFound will be raised.
-    for f in config_open( SQLFILE+'*', extra=[OURPATH] ):
-        with f:
-            if f.name.endswith( '~' ):
-                continue
-            sql			= f.read()
-        try:
-            init_db.executescript( sql )
-        except (sqlite3.OperationalError,sqlite3.IntegrityError) as exc:
-            log.warning( "Failed to load %s (continuing): %s", f.name, exc )
-except Exception as exc:
-    log.warning( "Failed to execute {}* scripts into DB {}: {}".format(
-        sqlfile_path, db_file_path, exc ))
-    raise
-finally:
-    if init_db:
-        init_db.close()
-assert os.access( db_file_path, os.W_OK ), \
-    "Cannot access licensing DB: {}".format( db_file_path )
-
-# OK, the DB has been initialized, and is at db_file_path
-db				= web.database( dbn='sqlite', db=db_file_path )
-assert hasattr( db, 'query' ), \
-    "Unrecognized licensing DB connection: {!r}" % ( db )
-db_lock				= threading.Lock()
-
-
-# Various static values that should be saved/restored.  Always begins at defaults on start-up!
-# But, also read from database.  All floating point.
 db_statics			= {}
-for r in db.select( 'statics' ):
-    db_statics[r.key]		= float( r.value )
+db_lock				= threading.Lock()
+db				= None
+
+def db_setup():
+    """Set up application-global db, db_lock, ...  Should be done after config_extras is initialized."""
+    
+    init_db			= None
+    db_file_path		= DB_FILE
+    sqlfile_path		= SQLFILE
+    try:
+        # Load the licensing.db file.  If it can be found somewhere in the configuration path, use it --
+        # otherwise, assume it's supposed to be here in the CWD.
+        try:
+            for f in config_open( DB_FILE ):
+                with f:
+                    db_file_path= f.name
+                break
+        except ConfigNotFoundError:
+            pass
+        init_db			= sqlite3.connect( db_file_path )
+    
+        # Load all licensing.sql* config files into the licensing.db Sqlite3 file.  We want to load
+        # SQL files from most general/distant to most specific/nearest, so make reverse=False.
+        global config_extra
+        for f in config_open( SQLFILE+'*', extra=config_extras, skip='*~', reverse=False ):
+            with f:
+                sql		= f.read()
+                sql_file	= f.name
+            try:
+                log.detail( "Loading SQL from {}".format( sql_file ))
+                init_db.executescript( sql )
+            except (sqlite3.OperationalError,sqlite3.IntegrityError) as exc:
+                log.warning( "Failed to load %s (continuing): %s", sql_file, exc )
+    except Exception as exc:
+        log.warning( "Failed to execute {}* scripts into DB {}: {}".format(
+            sqlfile_path, db_file_path, exc ))
+        raise
+    finally:
+        if init_db:
+            init_db.close()
+    assert os.access( db_file_path, os.W_OK ), \
+        "Cannot access licensing DB: {}".format( db_file_path )
+    
+    # OK, the DB has been initialized, and is at db_file_path
+    global db
+    db				= web.database( dbn='sqlite', db=db_file_path )
+    assert hasattr( db, 'query' ), \
+        "Unrecognized licensing DB connection: {!r}" % ( db )
+
+    
+    # Various static values that should be saved/restored.  Always begins at defaults on start-up!
+    # But, also read from database.  All floating point.
+    global db_statics
+    db_statics			= {}
+    for r in db.select( 'statics' ):
+        db_statics[r.key]		= float( r.value )
 
 
-def into_boolean( val, truthy=(), falsey=() ):
-    """Check if the provided numeric or str val content is truthy or falsey; additional tuples of
-    truthy/falsey lowercase values may be provided."""
-    if isinstance( val, (int,float,bool)):
-        return bool( val )
-    assert isinstance( val, type_str_base )
-    if val.lower() in ( 't', 'true', 'y', 'yes' ) + truthy:
-        return True
-    elif val.lower() in ( 'f', 'false', 'n', 'no' ) + falsey:
-        return False
-    raise ValueError( val )
-
-
-def state_save():
+def db_state_save():
     """Dump out any persistent licensing data, etc. that should be loaded next time.  This should be done
     from time to time, so we don't get too far behind, in case of a cold reboot.  Of course, save 
     immediately upon license creation, etc.
@@ -242,7 +245,9 @@ def licenses( confirm=None, stored=None ):
     found			= 0
     path			= None
     try:
-        for path, prov in licensing.load( basename=LICFILE ):
+        # Load most general/distant Licenses first, including the optional extra config dirs
+        global config_extras
+        for path, prov in licensing.load( basename=LICFILE, extra=config_extras, reverse=False ):
             for sig, lic in emit( prov ):
                 yield sig, lic
                 found	       += 1
@@ -276,8 +281,10 @@ def credentials( *add ):
     found			= 0
     path			= None
     try:
-        # Open any licensing.credentials* in configuration path
-        for f in config_open( CRDFILE+'*', extra=[OURPATH], skip='*~' ):
+        # Open any licensing.credentials* in configuration path.  We want to load most
+        # general/distant files first so make reverse=True.
+        global config_extras
+        for f in config_open( CRDFILE+'*', extra=config_extras, skip='*~', reverse=False ):
             with f:
                 # Each licensing.credentials* file should be a sequence of:
                 #     [ ( "description", [ "username": "password" ] ), ... ]
@@ -328,9 +335,13 @@ def keypairs():
                     exc=exc ))
                 pass
         # Any Plaintext Keypairs (and perhaps some Encrypted ones, if duplicate credentials are
-        # supplied) will be found multiple times.  Report keypairs at the same path only once.
+        # supplied) will be found multiple times.  Report keypairs at the same path only once.  We
+        # want to load the most general/distant keys first, so reverse=False.
+        global config_extras
         try:
-            for path, keypair, cred in licensing.load_keys( basename=KEYFILE, username=username, password=password ):
+            for path, keypair, cred in licensing.load_keys(
+                    basename=KEYFILE, username=username, password=password,
+                    extra=config_extras, reverse=False ):
                 if path not in loaded:
                     yield path, keypair, cred
                     loaded.add( path )
@@ -340,28 +351,43 @@ def keypairs():
     log.normal( "Keypairs    loaded: {}".format( len( loaded )))
 
 
-def licenses_data( path, confirm=None, stored=None ):
+def licenses_data( path, stored=None, confirm=None, author=None, client=None, product=None ):
+    """Returns all filtered licenses as data['list'] records, maybe w/ confirm of DKIM, filtered by
+    author / client (maybe passed via path).  For example,
+
+        licenses/Dom*/Awesome*   -->  All Dominion R&D Corp. authored Licenses to Awesome, Inc.
+
+    The same result would be reached if liceses?author=Dom*&client=Awe*.
+
+    """
     data			= {}
     data["title"]		= "Licenses"
     data["path"]		= path
     data["list"] = ll		= []
-    data["keys"]		= ["author", "product", "client", "signature", "confirm", "license"]
+    data["keys"]		= ["author", "client", "product", "signature", "confirm", "license"]
 
     pathsegs			= path.strip('/').split('/') if path else []
-    assert 0 <= len( pathsegs ) <= 1, "Invalid credentials path {}".format( path )
+    assert 0 <= len( pathsegs ) <= 2, \
+        "Invalid licenses glob path {}; licenses/<author>/<client>/<product>".format( path )
 
     # Iterate all available licenses, filtering if additional license author name path component supplied
     for signature, lic in licenses( confirm=False, stored=stored ):
         record			= dict(
             author		= lic['author']['name'],
-            product		= lic['author']['product'],
             client		= lic['client']['name'],
+            product		= lic['author']['product'],
             signature		= licensing.into_b64( signature ),
             confirm		= None,
             license		= str( lic ),
         )
-        if pathsegs and pathsegs[0] and not fnmatch.fnmatch( record['author'], pathsegs[0] ):
-            log.detail( "License.author {} didn't match {}".format( record['author'], path ))
+        author			= author or len( pathsegs ) > 0 and pathsegs[0]
+        if author and not fnmatch.fnmatch( record['author'], author ):
+            continue
+        client			= client or len( pathsegs ) > 1 and pathsegs[1]
+        if client and not fnmatch.fnmatch( record['client'], client ):
+            continue
+        product			= product or len( pathsegs ) > 2 and pathsegs[2]
+        if product and not fnmatch.fnmatch( record['product'], product ):
             continue
         # After filtering out uninteresting Licenses, confirm if desired
         if confirm:
@@ -428,6 +454,7 @@ def keypairs_data( path ):
         ll.append( record )
 
     return data
+
                     
 # Set up signal handling (log rotation, log level, etc.)
 # Output logging to a file, and handle UNIX-y log file rotation via 'logrotate', which sends
@@ -801,9 +828,13 @@ def licenses_request( render, path, environ, accept, framework,
     response			= ""
 
     # A URL w/ an empty ...?confirm is assumed to be True.
-    confirm			= into_boolean( variables.get( 'confirm', False ), truthy=('',) )
+    confirm			= licensing.into_boolean( variables.get( 'confirm', False ), truthy=('',) )
+    author			= licensing.into_str( variables.get( 'author' ))
+    client			= licensing.into_str( variables.get( 'client' ))
+    product			= licensing.into_str( variables.get( 'product' ))
     stored			= list( db.select( 'licenses' ))
-    data			= licenses_data( path, confirm=confirm, stored=stored )
+    data			= licenses_data( path, stored=stored, confirm=confirm,
+                                                 author=author, client=client, product=product )
 
     if content and content in ( "application/json", "text/javascript", "text/plain" ):
         callback		= variables.get( 'callback', "" )
@@ -895,8 +926,16 @@ def issue_request( render, path, environ, accept, framework,
     available, it may request one from a cpppo.crypto.licensing server.  If such a License is
     available to issue, it will be returned.
 
+    If not available, instructions on how to get the License issued are returned (eg. agree to
+    licensing terms by paying USDC$100.00 to Ethereum address 0x3193...1ee3).  As soon as the
+    License server sees that the contractual requirement has been met, the license is issued and the
+    next call to the same api/issue... endpoint will return the newly Ed25591-signed License.
+
     If the License specifies a certain Client Public key, then the request must be signed by the
-    corresponding Ed25519 Signing key.
+    corresponding Ed25519 Signing key.  This is almost certainly the case; issuing Licenses with a
+    "null"/None client -- that allow sub-Licensing to other clients -- is not likely something you
+    want to do automatically.  This proves that the requester is actually the Client; not just
+    someone who knows the Client's public key.
 
     Only if sufficient License(s) are available in the server will they be issued.
 
@@ -912,12 +951,137 @@ def issue_request( render, path, environ, accept, framework,
 
     variables			= queries or posted or {}
 
+    # Full specifications of desired License.  Must include client_pubkey.  
+    confirm			= licensing.into_boolean( variables.get( 'confirm', False ), truthy=('',) )
+    author			= variables.get( 'author' )
+    author_pubkey		= variables.get( 'author_pubkey' )
+    product			= variables.get( 'product' )
+    client			= variables.get( 'client' )
+    client_pubkey		= variables.get( 'client_pubkey' ) # Must sign the issue request
+    machine			= variables.get( 'machine' )
+    signature			= variables.get( 'signature' )
+
+    # TODO: verify the signature is that of the original canonicalized, serialized IssueRequest payload
+    # 
+    #     ...?author=Blah,%20Inc&client_pubkey=...&machine=00010203-...0e0f&signature=9Dba...Cg==
+    #         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    # 
+    # We must serialize the request in a standard way in the sender and the receiver, because the
+    # data may be sent as URL arguments or POST header variables.
+    issue_request		= licensing.IssueRequest(
+        author=author, author_pubkey=author_pubkey, product=product,
+        client=client, client_pubkey=client_pubkey, machine=machine )
+    log.normal( "Issue request: {req}, w/ signature: {sig!r}".format( req=str( issue_request ), sig=signature ))
+    try:
+        issue_request.verify( pubkey=client_pubkey, signature=signature )
+    except Exception as exc:
+        raise http_exception( framework, 401, "Ed25519 Signature of request is incorrect: {exc}".format(
+            exc=exc ))
+
+
+    # See if there are License(s) that match a certain portion of the requirements.  An exact match
+    # can be directly returned.  A partial match can be sub-licensed.
+    skip_tab = {
+        'client':	lambda lic: lic.client and issue_request['client'] and lic.client['name'] != issue_request['client'],
+        'client_pubkey':lambda lic: lic.client and issue_request['client_pubkey'] and lic.client['pubkey'] != issue_request['client_pubkey'],
+        'author':	lambda lic: issue_request['author'] and lic.author['name'] != issue_request['author'],
+        'author_pubkey':lambda lic: issue_request['author_pubkey'] and lic.author['pubkey'] != issue_request['author_pubkey'],
+        'product':	lambda lic: issue_request['product'] and lic.author['product'] != issue_request['product'],
+        'machine':	lambda lic: issue_request['machine'] and lic['machine'] and lic['machine'] != issue_request['machine'],
+    }
+    def lics_filtered( *names ):
+        stored			= list( db.select( 'licenses' ))
+        log.detail( "filtering {} stored Licenses".format( len( stored )))
+        for sig, lic in licenses( confirm=False, stored=stored ):
+            log.detail( "{}'s {}: mismatched keys: {}".format(
+                lic.author['name'], lic.author['product'],
+                ', '.join( n for n in names if skip_tab[n]( lic ) )))
+            if any( skip_tab[n]( lic ) for n in names ):
+                continue
+            log.detail( "{}'s {} accepted: {}".format(
+                lic.author['name'], lic.author['product'], lic ))
+            yield sig, lic
+
+    # Produce a LicenseSigned suitable for the client to receive, use as a dependency of a new
+    # License specific to their machine, and sign and install.
+    def prov_to_issue():
+        # Ideally, everything matches exactly one specific License already issued to this Client for
+        # this machine.  If we've already issued the License (and perhaps the client forgot to
+        # install it, or re-installed the software), and needs it again.
+        try:
+            (sig, lic,),	= lics_filtered( 'author', 'author_pubkey', 'product', 'client', 'client_pubkey', 'machine' )
+        except ValueError as exc:
+            log.warning( "Failed: {exc}".format( exc ))
+            pass
+        else:
+            if lic.client and lic.machine: # Exact match, with specific client and machine
+                log.detail( "Reissuing existing License: {}".format( lic ))
+                return licensing.LicenseSigned( license=lic, signature=sig )
+
+        # OK, not already issued.  Find a License to specialize.  If one matches the author and
+        # client (or specifies no client) and has no machine, use it to author a new License, simply
+        # specialized with the client and machine specified.  The client will receive and
+        # sub-License it by creating a new License with this a one of its dependencies, then sign it
+        # with the client signing key they hold, and install it.
+        try:
+            (sig, lic),		= lics_filtered( 'author', 'author_pubkey', 'product', 'client', 'client_pubkey' )
+        except ValueError as exc:
+            log.warning( "Failed: {exc}".format( exc ))
+            pass
+        else:
+            log.detail( "Specializing candidate: {}".format( lic ))
+            if not lic.machine or lic['machine'] == issue_request['machine']:
+                log.detail( "Specializing existing License: {}".format( lic ))
+                author_sigkey	= None
+                for name,keypair,cred in keypairs():
+                    vk, sk	= keypair.into_keypair( **cred )
+                    pubkey	= licensing.into_b64( vk )
+                    if name == lic.author['name'] and pubkey == issue_request['author_pubkey']:
+                        log.info( "Specializing using keypair {} (w/ {}'s credentials) for {}'s {!r}".format(
+                            name, pubkey, cred['username'], lic.author['name'], lic.author['product'] ))
+                        author_sigkey = sk
+                        break
+                # Issue a new specialized License for Client, signed with Author's private signing key.
+                log.detail( "Sublicensing client-specific License for machine {}: {}".format( issue_request['machine'], lic ))
+                if not lic.client:
+                    log.detail( "Sublicensing setting client.name to {}".format( issue_request['client'] ))
+                    lic.client	= licensing.Agent( name=issue_request['client'], pubkey=issue_request['client_pubkey'] )
+                lic.machine	= licensing.into_UUIDv4( issue_request['machine'] )
+                log.detail( "Sublicensing issuing {}".format( lic ))
+                prov		= licensing.issue( license=lic, author_sigkey=author_sigkey,
+                                                   confirm=False, machine_id_path=False )
+                log.detail( "Sublicensing issued {}".format( prov ))
+                return prov
+
+        raise http_exception( framework, 409, "No matching Licenses found matching request: {}".format(
+            issue_request ))
+
+    prov			= prov_to_issue()
+    log.detail( "Issuing License for {}' {}".format( prov.license.author['name'], prov.license.author['product'] ))
+
     data			= {}
     data["title"]		= path or "Issue"
     data["path"]		= path
-    data["list"]		= []
-    data["keys"]		= ["description", "family", "id", "value"]
-    data["editable"]		= ["value"]
+    data["list"] = ll		= []
+    data["keys"]		= ["author", "client", "product", "signature", "confirm", "license"]
+
+    record			= dict(
+        author		= prov.license['author']['name'],
+        client		= prov.license['client']['name'],
+        product		= prov.license['author']['product'],
+        signature	= licensing.into_b64( prov.signature ),
+        confirm		= None,
+        license		= str( prov.license ),
+    )
+    if confirm:
+        log.detail( "Confirming DKIM for {}' {}".format( prov.license.author['name'], prov.license.author['product'] ))
+        try:
+            licensing.verify( prov, confirm=confirm, machine_id_path=False )
+        except Exception as exc:
+            record.update( confirm=str( exc ))
+        else:
+            record.update( confirm=True )
+    ll.append( record )
 
     if content and content in ( "application/json", "text/javascript", "text/plain" ):
         callback		= variables.get( 'callback', "" )
@@ -977,20 +1141,20 @@ def webpy( config ):
 
     urls			= (
         "/",				"index",
-        "/index(\.html)?",		"index",
+        r"/index(\.html)?",		"index",
         "/(.*)/",			"trailing_stuff",
-        "/(.*)\.html",			"trailing_stuff",
+        r"/(.*)\.html",			"trailing_stuff",
         "/favicon.ico",			"favicon",
         "/robots.txt",			"robots",
         "/login",			"login",
         "/logout",			"logout",
-        "/api/issue(\.json)?",		"api_issue",		# path: "", ".json"
+        r"/api/issue(\.json)?",		"api_issue",		# path: "", ".json"
         "/api/issue/(.+)?",		"api_issue",		# path: "...", "....json"
-        "/api/licenses(\.json)?",	"api_licenses",
+        r"/api/licenses(\.json)?",	"api_licenses",
         "/api/licenses/(.+)?",		"api_licenses",
-        "/api/credentials(\.json)?",	"api_credentials",
+        r"/api/credentials(\.json)?",	"api_credentials",
         "/api/credentials/(.+)?",	"api_credentials",
-        "/api/keypairs(\.json)?",	"api_keypairs",
+        r"/api/keypairs(\.json)?",	"api_keypairs",
         "/api/keypairs/(.+)?",		"api_keypairs",
     )
 
@@ -1386,7 +1550,7 @@ Disallow: /
 
 
     cache_max_age		= 30*24*60*60
-    class StaticMiddlewareDir( web.httpserver.StaticMiddleware ):
+    class StaticMiddlewareDir( web.httpserver.StaticMiddleware, object ): # force new-style classes in Python2
         """WSGI middleware for serving static files from the specified basedir."""
         def __init__( self, app, prefix="/static/", basedir=os.getcwd() ):
             super( StaticMiddlewareDir, self ).__init__( app, prefix=prefix )
@@ -1491,12 +1655,13 @@ def main( argv=None, **kwds ):
     ap.add_argument( '--no-gui', dest='gui',
                        action="store_false", default=True,
                        help='disable Curses GUI interface (default: False)' )
+    ap.add_argument( '-c', '--config', action='append',
+                     help="Add another (higher priority) config file path." )
     ap.add_argument( '-l', '--log',
                      help="Log file, if desired (default, if text gui: {LOGFILE})".format( LOGFILE=LOGFILE ))
 
     args = ap.parse_args( argv )
 
-    # Set up logging (may have already triggered and been
     log_cfg['level']		= ( logging_levelmap[args.verbose] 
                                     if args.verbose in logging_levelmap
                                     else logging.DEBUG )
@@ -1504,13 +1669,21 @@ def main( argv=None, **kwds ):
         log_cfg['filename']	= args.log or LOGFILE
     logging.basicConfig( **log_cfg )
 
+    # Any configuration files and licensing.load/load_keys should inspect these extra dirs
+    global config_extras
+    config_extras	       += args.config
+    log.info( "Licensing configuration paths: {}".format( ', '.join( config_paths( '<file>', extra=config_extras ))))
+
+    # Set up the global db, etc.
+    db_setup()
+
+    # Summarize the initial Licenses and Keypairs available; these are re-obtained in real-time by the UIs, above
     stored			= db.select( 'licenses' )
-    log.detail( "Licenses stored: {stored!r}".format( stored=stored ))
     stored			= list( stored )
     for sig, lic in licenses( confirm=False, stored=stored ):
         print( "{s:<64}: {lic}".format(
             s=licensing.into_b64( sig ), lic=str( lic ) ))
-        
+
     for name, keypair, (username, password) in keypairs():
         try:
             vk			= licensing.into_b64( keypair.into_keypair( username=username, password=password ).vk )
@@ -1631,5 +1804,5 @@ def main( argv=None, **kwds ):
         for t in threads:
             t.join( timeout=10.0 )
         logging.detail( "Saving state..." )
-        state_save()
+        db_state_save()
 

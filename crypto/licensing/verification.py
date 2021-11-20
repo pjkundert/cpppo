@@ -37,7 +37,12 @@ import os
 import sys
 import uuid
 
-from ...misc		import timer
+try: # Python2
+    from urllib import urlencode
+except ImportError: # Python3
+    from urllib.parse import urlencode
+
+from ...misc		import timer, logresult
 from ...automata	import type_str_base
 from ...history.times	import parse_datetime, parse_seconds, timestamp, duration
 from ...server.enip.defaults import config_open_deduced, ConfigNotFoundError
@@ -228,6 +233,19 @@ def into_JSON( thing, indent=None, default=None ):
     return text
 
 
+def into_boolean( val, truthy=(), falsey=() ):
+    """Check if the provided numeric or str val content is truthy or falsey; additional tuples of
+    truthy/falsey lowercase values may be provided."""
+    if isinstance( val, (int,float,bool)):
+        return bool( val )
+    assert isinstance( val, type_str_base )
+    if val.lower() in ( 't', 'true', 'y', 'yes' ) + truthy:
+        return True
+    elif val.lower() in ( 'f', 'false', 'n', 'no' ) + falsey:
+        return False
+    raise ValueError( val )
+
+
 def into_timestamp( ts ):
     """Convert to a timestamp, retaining None.  We don't need/want to support ambiguous local timezone
     abbreviations, here, so use the simpler parse_datetime interface, instead of letting timestamp
@@ -251,6 +269,46 @@ def into_duration( dur ):
             assert isinstance( dur, (int, float) )
             dur			= duration( dur )
         return dur
+
+
+def into_UUIDv4( machine ):
+    if machine is not None:
+        if not isinstance( machine, uuid.UUID ):
+            machine		= uuid.UUID( machine )
+        assert machine.version == 4
+    return machine
+
+
+def machine_UUIDv4( machine_id_path=None):
+    """Identify the machine-id as an RFC 4122 UUID v4. On Linux systems w/ systemd, get from
+    /etc/machine-id, as a UUID v4: https://www.man7.org/linux/man-pages/man5/machine-id.5.html.
+    On MacOS and Windows, use uuid.getnode(), which derives from host-specific data (eg. MAC
+    addresses, serial number, ...).
+
+    This UUID should be reasonably unique across hosts, but is not guaranteed to be.
+
+    TODO: Include root disk UUID?
+    """
+    if machine_id_path is None:
+        machine_id_path		= "/etc/machine-id" 
+    try:
+        with open( machine_id_path, 'r' ) as m_id:
+            machine_id		= m_id.read().strip()
+    except Exception as exc:
+        # Node number is typically a much shorter integer; fill to required UUID length.
+        machine_id		= "{:0>32}".format( hex( uuid.getnode())[2:] )
+    try:
+        machine_id		= into_bytes( machine_id, ('hex', ) )
+        assert len( machine_id ) == 16
+    except Exception as exc:
+        raise RuntimeError( "Invalid Machine ID found: {!r}: {}".format( machine_id, exc ))
+    machine_id			= bytearray( machine_id )
+    machine_id[6]	       &= 0x0F
+    machine_id[6]	       |= 0x40
+    machine_id[8]	       &= 0x3F
+    machine_id[8]	       |= 0x80
+    machine_id			= bytes( machine_id )
+    return uuid.UUID( into_hex( machine_id ))
 
 
 def domainkey( product, domain, service=None, pubkey=None ):
@@ -317,10 +375,15 @@ class Serializable( object ):
     __slots__			= ()
     serializers			= {}
 
-    def keys( self ):
+    def keys( self, every=False ):
+        """Yields the Serializable object's relevant keys.  For many uses (eg. conversion to dict), the
+        default behaviour of ignoring keys with values of None is appropriate.  However, if you want
+        all keys regardless of content, specify every=True.
+
+        """
         for cls in type( self ).__mro__:
             for key in getattr( cls, '__slots__', []):
-                if getattr( self, key ) is not None: # If the key is empty, don't include it
+                if every or getattr( self, key ) is not None: # If the key is empty, don't include it
                     yield key
 
     def serializer( self, key ):
@@ -335,7 +398,7 @@ class Serializable( object ):
 
     def __getitem__( self, key ):
         """Returns the serialization of the requested key, passing thru values without a serializer."""
-        if key in self.keys():
+        if key in self.keys( every=True ):
             try:
                 serialize	= self.serializer( key ) # (no Exceptions)
                 value		= getattr( self, key ) # IndexError
@@ -346,7 +409,7 @@ class Serializable( object ):
                 log.info( "Failed to convert {class_name}.{key} with {serialize!r}: {exc}".format(
                     class_name = self.__class__.__name__, key=key, serialize=serialize, exc=exc ))
                 raise
-        raise IndexError( key )
+        raise IndexError( "{} not found in keys {}".format( key, ', '.join( self.keys( every=True ))))
 
     def __str__( self ):
         return self.serialize( indent=4, encoding=None ) # remains as UTF-8 text
@@ -367,22 +430,35 @@ class Serializable( object ):
             stream		= stream.encode( encoding )
         return stream
 
-    def sign( self, author_sigkey, author_pubkey=None ):
+    def sign( self, sigkey, pubkey=None ):
         """Sign our default serialization, and (optionally) confirm that the supplied public key (which will
         be used to check the signature) is correct, by re-deriving the public key.
 
         """
-        pubkey, sigkey		= into_keys( author_sigkey )
-        assert sigkey, \
+        vk, sk			= into_keys( sigkey )
+        assert sk, \
             "Invalid ed25519 signing key provided"
-        if author_pubkey:
+        if pubkey:
             # Re-derive and confirm supplied public key matches supplied signing key
-            keypair		= ed25519.crypto_sign_keypair( sigkey[:32] )
-            assert keypair.vk == author_pubkey, \
+            keypair		= ed25519.crypto_sign_keypair( sk[:32] )
+            assert keypair.vk == pubkey, \
                 "Mismatched ed25519 signing/public keys"
-        signed			= ed25519.crypto_sign( self.serialize(), sigkey )
+        signed			= ed25519.crypto_sign( self.serialize(), sk )
         signature		= signed[:64]
         return signature
+
+    def verify( self, pubkey, signature ):
+        """Check that the supplied signature matches this serialized payload, and return the verified
+        payload bytes.
+
+        """
+        pubkey, _		= into_keys( pubkey )
+        signature		= into_bytes( signature, ('base64',) )
+        assert pubkey and signature, \
+            "Missing required {}".format(
+                ', '.join( () if pubkey else ('public key',) + 
+                           () if signature else ('signature',) ))
+        return ed25519.crypto_sign_open( signature + self.serialize(), pubkey )
 
     def digest( self, encoding=None, decoding=None ):
         """The SHA-256 hash of the serialization, as 32 bytes.  Optionally, encode w/ a named codec, eg
@@ -412,11 +488,36 @@ class Serializable( object ):
 
         for cls in type( self ).__mro__:
             for key in getattr( cls, '__slots__', [] ):
-                log.info( "copy .{key:<16s} from {src:16d} to {dst:16d}".format(
-                    key=key, src=id(self), dst=id(result) ))
                 setattr( result, key, copy.copy( getattr( self, key )))
 
         return result
+
+
+class IssueRequest( Serializable ):
+    __slots__			= (
+        'author', 'author_pubkey', 'product',
+        'client', 'client_pubkey', 'machine'
+    )
+    serializers			= dict(
+        author_pubkey	= into_b64,
+        client_pubkey	= into_b64,
+        machine		= into_str,
+    )
+
+    def __init__( self, author=None, author_pubkey=None, product=None,
+                  client=None, client_pubkey=None, machine=None ):
+        self.author		= into_str( author )
+        self.author_pubkey, _	= into_keys( author_pubkey )
+        self.product		= into_str( product )
+        self.client		= into_str( client )
+        self.client_pubkey, _	= into_keys( client_pubkey )
+        self.machine		= into_UUIDv4( machine )
+
+    def query( self, sigkey ):
+        """Issue query is sorted-key order"""
+        qd			= dict( self )
+        qd['signature']		= into_b64( self.sign( sigkey=sigkey ))
+        return urlencode( sorted( qd.items() ))
 
 
 Timespan = collections.namedtuple( 'Timespan', ('start', 'length') )
@@ -621,8 +722,6 @@ class License( Serializable ):
         'machine',
     )
     serializers			= dict(
-        author_pubkey	= into_b64,
-        client_pubkey	= into_b64,
         start		= into_str_UTC,
         length		= into_str,
         machine		= into_str,
@@ -659,12 +758,7 @@ class License( Serializable ):
                     "License start: {start!r} or length: {length!r} invalid: {exc}".format(
                         start=start, length=length, exc=exc ))
 
-        if machine is not None:
-            if not isinstance( machine, uuid.UUID ):
-                machine		= uuid.UUID( machine )
-            assert machine.version == 4
-        self.machine		= machine
-
+        self.machine		= into_UUIDv4( machine )
 
         # Only allow the construction of valid Licenses.
         self.verify( confirm=confirm, machine_id_path=machine_id_path )
@@ -693,39 +787,8 @@ class License( Serializable ):
                     ))
         return start, length
 
-    def machine_uuid( self, machine_id_path=None):
-        """Identify the machine-id as an RFC 4122 UUID v4. On Linux systems w/ systemd, get from
-        /etc/machine-id, as a UUID v4: https://www.man7.org/linux/man-pages/man5/machine-id.5.html.
-        On MacOS and Windows, use uuid.getnode(), which derives from host-specific data (eg. MAC
-        addresses, serial number, ...).
-
-        This UUID should be reasonably unique across hosts, but is not guaranteed to be.
-
-        TODO: Include root disk UUID?
-        """
-        if machine_id_path is None:
-            machine_id_path		= "/etc/machine-id" 
-        try:
-            with open( machine_id_path, 'r' ) as m_id:
-                machine_id		= m_id.read().strip()
-        except Exception as exc:
-            # Node number is typically a much shorter integer; fill to required UUID length.
-            machine_id			= "{:0>32}".format( hex( uuid.getnode())[2:] )
-        try:
-            machine_id			= into_bytes( machine_id, ('hex', ) )
-            assert len( machine_id ) == 16
-        except Exception as exc:
-            raise RuntimeError( "Invalid Machine ID found: {!r}: {}".format( machine_id, exc ))
-        machine_id			= bytearray( machine_id )
-        machine_id[6]		       &= 0x0F
-        machine_id[6]		       |= 0x40
-        machine_id[8]		       &= 0x3F
-        machine_id[8]		       |= 0x80
-        machine_id			= bytes( machine_id )
-        return uuid.UUID( into_hex( machine_id ))
-
     def verify( self, author_pubkey=None, signature=None, confirm=None, machine_id_path=None,
-                current=None, **constraints ):
+                **constraints ):
         """Verify that the License is valid:
 
             - Has properly signed License dependencies
@@ -738,9 +801,6 @@ class License( Serializable ):
         dependencies.  If no additional constraints are supplied, this will simply return the empty
         constraints dict on success.  The returned constraints would be usable in constructing a new
         License (assuming at least the necessary author, author_domain and product were defined).
-
-        If a sequence of all current Licenses is provided, it will be used to validate any
-        constraints supplied with a callable (eg. lambda) specification.
 
         """
         if author_pubkey:
@@ -769,7 +829,7 @@ class License( Serializable ):
         # provided public key
         if signature:
             try:
-                ed25519.crypto_sign_open( signature + self.serialize(), self.author.pubkey )
+                super( License, self ).verify( pubkey=self.author.pubkey, signature=signature )
             except Exception as exc:
                 raise LicenseIncompatibility( 
                     "License for {auth}'s {prod!r}: signature mismatch: {sig!r}; {exc}".format(
@@ -843,9 +903,11 @@ class License( Serializable ):
         # self.machine is None, we don't need to do anything, because the License is good for any
         # machine.  Use machine=True to force constraints to include the current machine UUID.
         machine			= None
-        if self.machine or constraints.get( 'machine' ):
-            # Either License or constraints specify a machine (so we have to verify).
-            machine_uuid	= self.machine_uuid( machine_id_path=machine_id_path )
+        if self.machine or constraints.get( 'machine' ) and machine_id_path != False:
+            # Either License or constraints specify a machine (so we have to verify), and the
+            # machine_id_path directive doesn't indicate to *not* check the machine ID (eg. when
+            # issuing the license from a different machine)
+            machine_uuid	= machine_UUIDv4( machine_id_path=machine_id_path )
             if self.machine not in (None, True) and self.machine != machine_uuid:
                 raise LicenseIncompatibility(
                     "License for {auth}'s {prod!r} specifies Machine ID {required}; found {detected}".format(
@@ -1011,7 +1073,7 @@ class LicenseSigned( Serializable ):
             "Require either signature, or the means to produce one via the author's signing key"
         if author_sigkey and not signature:
             # Sign our default serialization, also confirming that the public key matches
-            self.signature	= self.license.sign( author_sigkey, self.license.author.pubkey )
+            self.signature	= self.license.sign( sigkey=author_sigkey, pubkey=self.license.author.pubkey )
         elif signature:
             # Could be a hex-encoded signature on deserialization, or a 64-byte signature.  If both
             # signature and author_sigkey, we'll just be confirming the supplied signature, below.
@@ -1022,6 +1084,7 @@ class LicenseSigned( Serializable ):
             confirm		= confirm,
             machine_id_path	= machine_id_path )
 
+    @logresult(log_level=logging.WARNING)
     def verify( self, author_pubkey=None, signature=None, confirm=None, machine_id_path=None,
                 **constraints ):
         return self.license.verify(
@@ -1157,7 +1220,7 @@ class KeypairEncrypted( Serializable):
         nonce			= self.salt
         ciphertext		= bytearray( self.seed )
         plaintext		= bytes( cipher.decrypt( nonce, ciphertext ))
-        keypair			= author( seed=plaintext, why="decrypted w/ {}'s password".format( username ))
+        keypair			= author( seed=plaintext, why="decrypted w/ {}'s credentials".format( username ))
         return keypair
 
 
@@ -1196,6 +1259,7 @@ def issue( license, author_sigkey, signature=None, confirm=None, machine_id_path
         machine_id_path	= machine_id_path )
 
 
+@logresult(log_level=logging.WARNING)
 def verify( provenance, author_pubkey=None, signature=None, confirm=None, machine_id_path=None,
             **constraints ):
     """Verify that the supplied License or LicenseSigned contains a valid signature, and that the

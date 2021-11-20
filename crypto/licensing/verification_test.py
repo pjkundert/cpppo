@@ -9,7 +9,7 @@ import pytest
 from dns.exception import DNSException
 from .verification import (
     License, LicenseSigned, LicenseIncompatibility, Timespan,
-    KeypairPlaintext, KeypairEncrypted,
+    KeypairPlaintext, KeypairEncrypted, machine_UUIDv4,
     domainkey, domainkey_service, overlap_intersect,
     into_b64, into_hex, into_str, into_str_UTC, into_JSON, into_keys,
     into_timestamp, into_duration,
@@ -203,7 +203,7 @@ def test_License():
     assert codecs.getencoder( 'base64' )( keypair.vk ) == (b'qZERnjDZZTmnDNNJg90AcUJZ+LYKIWO9t0jz/AzwNsk=\n', 32)
     prov = LicenseSigned( lic, keypair.sk )
 
-    machine_uuid = lic.machine_uuid( machine_id_path=machine_id_path )
+    machine_uuid = machine_UUIDv4( machine_id_path=machine_id_path )
     assert machine_uuid.hex == "000102030405460788090a0b0c0d0e0f"
     assert machine_uuid.version == 4
     

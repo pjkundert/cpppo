@@ -80,14 +80,16 @@ try:
 except NameError:
     ConfigNotFoundError		= IOError # Python2 compatibility
 
-def config_open( filename, mode=None, extra=None, skip=None, **kwds ):
+
+def config_open( filename, mode=None, extra=None, skip=None, reverse=True, **kwds ):
     """Find and open all glob-matched filename(s) found on the standard or provided configuration file
     paths (plus any extra), in most general to most specific order.  Yield the open file(s), or
     raise a ConfigNotFoundError (a FileNotFoundError or IOError in Python3/2 if no matching file(s)
     at all were found, to be somewhat consistent with a raw open() call).
     
-    We traverse these in reverse order: nearest and most specific, to furthest and most general, and 
-    any matching file(s) in ascending sorted order.
+    We traverse these in reverse order by default: nearest and most specific, to furthest and most
+    general, and any matching file(s) in ascending sorted order; specify reverse=False to obtain the
+    files in the most general/distant configuration first.
 
     By default, we assume the matching target file(s) are text files, and default to open in 'r'
     mode.
@@ -106,20 +108,15 @@ def config_open( filename, mode=None, extra=None, skip=None, **kwds ):
         raise AssertionError( "Invalid skip={!r} provided".format( skip ))
 
     search			= list( config_paths( filename, extra=extra ))
-    found			= 0
-    for fn in reversed( search ):
+    if reverse:
+        search			= reversed( search )
+    for fn in search:
         for gn in sorted( filtered( glob.glob( fn ))):
             try:
                 yield open( gn, mode=mode or 'r', **kwds )
-                found	       += 1
             except:
                 # The file couldn't be opened (eg. permissions)
                 pass
-    if not found:
-        raise ConfigNotFoundError(
-            "Could not locate {!r} in any Cpppo config dir.: {}".format(
-                filename, ', '.join( search ))
-        )
 
 
 def config_open_deduced( basename=None, mode=None, extension=None, filename=None, package=None, **kwds ):
