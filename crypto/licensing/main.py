@@ -52,6 +52,7 @@ import time
 import timeit
 import traceback
 import uuid
+import warnings
 
 try: # Python2
     from urllib2 import urlopen
@@ -156,7 +157,7 @@ def db_setup():
                 log.detail( "Loading SQL from {}".format( sql_file ))
                 init_db.executescript( sql )
             except (sqlite3.OperationalError,sqlite3.IntegrityError) as exc:
-                log.warning( "Failed to load %s (continuing): %s", sql_file, exc )
+                log.detail( "Failed to load %s (probably already configured, continuing): %s", sql_file, exc )
     except Exception as exc:
         log.warning( "Failed to execute {}* scripts into DB {}: {}".format(
             sqlfile_path, db_file_path, exc ))
@@ -243,7 +244,7 @@ def licenses( confirm=None, stored=None ):
         for sig, lic in emit( prov ):
             yield sig, lic
             found	       += 1
-    log.normal( "Licenses     saved: {}".format( found ))
+    log.info( "Licenses     saved: {}".format( found ))
 
     found			= 0
     path			= None
@@ -259,7 +260,7 @@ def licenses( confirm=None, stored=None ):
     except Exception as exc:
         log.error( "Failed to load {}*: {}".format( path or LICFILE, exc ))
         pass
-    log.normal( "Licenses    loaded: {}".format( found ))
+    log.info( "Licenses    loaded: {}".format( found ))
 
 
 def credentials( *add ):
@@ -277,9 +278,8 @@ def credentials( *add ):
 
     credentials.local.update( add )
     for name, (username, password) in credentials.local.items():
-        log.detail( "  {n:<20}: {u:>20} / {p}".format( n=name, u=username, p='*' * len( password )))
         yield name, (username, password)
-    log.normal( "Credentials  saved: {}".format( len( credentials.local )))
+    log.info( "Credentials  saved: {}".format( len( credentials.local )))
 
     found			= 0
     path			= None
@@ -307,7 +307,7 @@ def credentials( *add ):
     except Exception as exc:
         log.error( "Failed to load {}*: {}".format( path or CRDFILE, exc ))
         pass
-    log.normal( "Credentials loaded: {}".format( found ))
+    log.info( "Credentials loaded: {}".format( found ))
 
 credentials.local		= {} # { description: (username, password), ... }
 
@@ -333,7 +333,8 @@ def keypairs():
                 yield r.name, keypair, cred
                 saved	       += 1
             except Exception as exc:
-                log.warning( "{n:<20}: Failed to decrypt w/ {u:>20} / {p}: {exc}".format(
+                # Most keypairs will fail to decrypt with most credentials...
+                log.debug( "{n:<20}: Failed to decrypt w/ {u:>20} / {p}: {exc}".format(
                     n=r.name, u=cred['username'] or '(empty)', p='*' * len( cred['password'] or '(empty)' ),
                     exc=exc ))
                 pass
@@ -350,8 +351,8 @@ def keypairs():
                     loaded.add( path )
         except ConfigNotFoundError:
             pass
-    log.normal( "Keypairs     saved: {}".format( saved ))
-    log.normal( "Keypairs    loaded: {}".format( len( loaded )))
+    log.info( "Keypairs     saved: {}".format( saved ))
+    log.info( "Keypairs    loaded: {}".format( len( loaded )))
 
 
 def licenses_data( path, stored=None, confirm=None, author=None, client=None, product=None ):
@@ -445,7 +446,7 @@ def keypairs_data( path ):
     creds_reverse		= { v: k for k,v in creds.items() }
 
     for name,keypair,cred in keypairs():
-        log.normal("Found keypair: {!r}".format( (name,keypair,cred) ))
+        log.info("Found keypair: {!r}".format( (name,keypair,cred) ))
         if pathsegs and pathsegs[0] and not fnmatch.fnmatch( name, pathsegs[0] ):
             log.detail( "Credential {} didn't match {}".format( name, path ))
             continue
@@ -974,7 +975,7 @@ def issue_request( render, path, environ, accept, framework,
     issue_request		= licensing.IssueRequest(
         author=author, author_pubkey=author_pubkey, product=product,
         client=client, client_pubkey=client_pubkey, machine=machine )
-    log.normal( "Issue request: {req}, w/ signature: {sig!r}".format( req=str( issue_request ), sig=signature ))
+    log.info( "Issue request: {req}, w/ signature: {sig!r}".format( req=str( issue_request ), sig=signature ))
     try:
         issue_request.verify( pubkey=client_pubkey, signature=signature )
     except Exception as exc:
@@ -990,18 +991,17 @@ def issue_request( render, path, environ, accept, framework,
         'author':	lambda lic: issue_request['author'] and lic.author['name'] != issue_request['author'],
         'author_pubkey':lambda lic: issue_request['author_pubkey'] and lic.author['pubkey'] != issue_request['author_pubkey'],
         'product':	lambda lic: issue_request['product'] and lic.author['product'] != issue_request['product'],
-        'machine':	lambda lic: issue_request['machine'] and lic['machine'] and lic['machine'] != issue_request['machine'],
+        'machine':	lambda lic: issue_request['machine'] and lic['machine'] != issue_request['machine'],
     }
     def lics_filtered( *names ):
         stored			= list( db.select( 'licenses' ))
-        log.detail( "filtering {} stored Licenses".format( len( stored )))
         for sig, lic in licenses( confirm=False, stored=stored ):
-            log.detail( "{}'s {}: mismatched keys: {}".format(
+            log.info( "{}'s {}: mismatched keys: {}".format(
                 lic.author['name'], lic.author['product'],
                 ', '.join( n for n in names if skip_tab[n]( lic ) )))
             if any( skip_tab[n]( lic ) for n in names ):
                 continue
-            log.detail( "{}'s {} accepted: {}".format(
+            log.info( "{}'s {} accepted: {}".format(
                 lic.author['name'], lic.author['product'], lic ))
             yield sig, lic
 
@@ -1012,14 +1012,15 @@ def issue_request( render, path, environ, accept, framework,
         # this machine.  If we've already issued the License (and perhaps the client forgot to
         # install it, or re-installed the software), and needs it again.
         try:
-            (sig, lic,),	= lics_filtered( 'author', 'author_pubkey', 'product', 'client', 'client_pubkey', 'machine' )
+            (sig, lic),		= lics_filtered( 'author', 'author_pubkey', 'product', 'client', 'client_pubkey', 'machine' )
         except ValueError as exc:
-            log.warning( "Failed: {exc}".format( exc ))
+            log.warning( "Failed: {exc}".format( exc=exc ))
             pass
         else:
             if lic.client and lic.machine: # Exact match, with specific client and machine
                 log.detail( "Reissuing existing License: {}".format( lic ))
-                return licensing.LicenseSigned( license=lic, signature=sig )
+                return licensing.LicenseSigned(
+                    license=lic, signature=sig, confirm=False, machine_id_path=False )
 
         # OK, not already issued.  Find a License to specialize.  If one matches the author and
         # client (or specifies no client) and has no machine, use it to author a new License, simply
@@ -1029,7 +1030,7 @@ def issue_request( render, path, environ, accept, framework,
         try:
             (sig, lic),		= lics_filtered( 'author', 'author_pubkey', 'product', 'client', 'client_pubkey' )
         except ValueError as exc:
-            log.warning( "Failed: {exc}".format( exc ))
+            log.warning( "Failed: {exc}".format( exc=exc ))
             pass
         else:
             if not lic.machine or lic['machine'] == issue_request['machine']:
@@ -1550,7 +1551,6 @@ Disallow: /
         def __init__( self, environ, start_response, directory ):
             super( StaticAppDir, self ).__init__( environ, start_response )
             self.directory	= directory
-            logging.detail( "Serving static files out of {}".format( self.directory))
 
         def translate_path(self, path):
             """Translate a /-separated PATH to the local filename syntax.
@@ -1705,6 +1705,13 @@ def main( argv=None, **kwds ):
     config_extras	       += args.config
     log.info( "Licensing configuration paths: {}".format( ', '.join( config_paths( '<file>', extra=config_extras ))))
 
+    # Get some details about the Ed25519 version we're using, and suppress some nagging about
+    # letting it generate random seeds.
+    warnings.simplefilter('ignore') # We know about handling Ed25519 random seeds...
+    
+    log.detail( "Ed25519 Version: {} / {} / {}".format(
+        getattr( licensing.ed25519, '__version__', None ), licensing.ed25519.__package__, licensing.ed25519.__path__ ))
+
     # Set up the global db, etc.
     db_setup()
 
@@ -1712,7 +1719,7 @@ def main( argv=None, **kwds ):
     stored			= db.select( 'licenses' )
     stored			= list( stored )
     for sig, lic in licenses( confirm=False, stored=stored ):
-        print( "{s:<64}: {lic}".format(
+        log.detail( "{s:<64}: {lic}".format(
             s=licensing.into_b64( sig ), lic=str( lic ) ))
 
     for name, keypair, (username, password) in keypairs():
@@ -1720,9 +1727,8 @@ def main( argv=None, **kwds ):
             vk			= licensing.into_b64( keypair.into_keypair( username=username, password=password ).vk )
         except Exception as exc:
             vk			= str( exc )
-        print( "{n:<20}: {vk} w/ {u:>20} / {p}".format(
+        log.detail( "{n:<20}: {vk} w/ {u:>20} / {p}".format(
             n=name, vk=vk, u=username, p='*' * len( password )))
-
         
     # Start up Curses console GUI...
     txtcnf			= {

@@ -52,16 +52,13 @@ log				= logging.getLogger( "licensing" )
 # Get Ed25519 support. Try a globally installed ed25519ll possibly with a CTypes binding
 try:
     import ed25519ll as ed25519
-    log.detail( "Loaded global ed25519ll (w/ compiled Ed25519 intrinsics)" )
 except ImportError:
     # Otherwise, try our local Python-only ed25519ll derivation
     try:
         from .. import ed25519ll as ed25519
-        log.detail( "Loaded local ed25519ll (w/ fast Python Ed25519 intrinsics)" )
     except ImportError:
         # Fall back to the very slow D.J.Bernstein Python reference implementation
         from .. import ed25519
-        log.detail( "Loaded reference ed25519 (w/ slow Python Ed25519 intrinsics)" )
 
 # Optionally, we can provide ChaCha20Poly1305 to support KeypairEncrypted
 try:
@@ -931,7 +928,7 @@ class License( Serializable ):
             if machine_cons is not None:
                 constraints['machine'] = machine_uuid
 
-        log.normal( "License for {auth}'s {prod!r} is valid from {start} for {length} on machine {machine}".format(
+        log.info( "License for {auth}'s {prod!r} is valid from {start} for {length} on machine {machine}".format(
             auth	= self.author.name,
             prod	= self.author.product,
             start	= into_str_LOC( start ),
