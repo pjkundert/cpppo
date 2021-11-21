@@ -1531,7 +1531,12 @@ Disallow: /
             pass
 
 
-    class Log( wsgilog.WsgiLog ):
+    class Log( wsgilog.WsgiLog, object ):
+        """Direct log messages to the correct log file, including stdout/stderr.  Because we're running
+        a curses textual UI, we don't want stuff being printed to the screen accidentally -- make
+        sure it all goes to the log file.
+
+        """
         def __init__( self, application ):
             """Set up logging, and then make sure sys.stderr goes to whereever sys.stdout is now going.  This
             ensures that environ['wsgi.errors'] (which is always set to sys.stderr by web.py) goes
@@ -1608,6 +1613,27 @@ Disallow: /
                 return self.app( environ, start_response )
 
 
+    class LogMiddlewareCF( web.httpserver.LogMiddleware, object ):
+        def log( self, status, environ ):
+            cf_ip		= environ.get( 'HTTP_CF_CONNECTING_IP' )
+            if cf_ip is None:
+                cf_ip		= environ.get( 'HTTP_X_FORWARDED_FOR' )
+            if cf_ip is not None and ',' in cf_ip:
+                # CF appends connecting IP to X_FORWARDED_FOR
+                cf_ip		= cf_ip.split( ',' )[-1].strip()
+            cf_country		= environ.get( 'HTTP_CF_IPCOUNTRY' )
+
+            ip,port		= environ.get( 'REMOTE_ADDR' ),environ.get( 'REMOTE_PORT' )
+            if cf_ip:
+                environ['REMOTE_ADDR'] = cf_ip
+            if cf_country:
+                environ['REMOTE_PORT'] = cf_country
+            log.isEnabledFor( logging.INFO ) and log.info(
+                "CF IP: {!r} (was {!r}), Port: {!r} (was {!r}) Environment: {}".format(
+                    cf_ip, ip, cf_country, port, licensing.into_JSON( environ, indent=4, default=str )))
+            return super( LogMiddlewareCF, self ).log( status, environ )
+
+
     # Get the required web.py classes from the local namespace.  The iface:port must always passed
     # on argv[1] to use app.run(), so use lower-level web.httpserver.runsimple interface.  This sets
     # up the WSGI middleware chain, prints the address and then invokes
@@ -1624,7 +1650,7 @@ Disallow: /
     # the Python module installation directory.
     func			= app.wsgifunc( Log )
     func			= StaticMiddlewareDir( func, "/static/", os.path.dirname( __file__ ))
-    func			= web.httpserver.LogMiddleware( func )
+    func			= LogMiddlewareCF( func ) # web.httpserver.LogMiddleware( func )
     webpy.server		= web.httpserver.WSGIServer( config['address'], func )
 
     logging.detail( "Web Interface Thread server starting" )
