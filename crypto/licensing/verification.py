@@ -840,7 +840,8 @@ class License( Serializable ):
         # Verify any License dependencies are valid; signed w/ DKIM specified key, License OK.
         # When verifying License dependencies, we don't supply the constraints, because we're not
         # interested in sub-Licensing these Licenses, only verifying them.
-        for prov in ( LicenseSigned( confirm=confirm, **d ) for d in self.dependencies or [] ):
+        for prov_dct in self.dependencies or []:
+            prov		= LicenseSigned( confirm=confirm, **prov_dct )
             try:
                 prov.verify( confirm=confirm, machine_id_path=machine_id_path )
                 assert prov.license.client.pubkey is None or prov.license.client.pubkey == self.author.pubkey, \
@@ -872,7 +873,7 @@ class License( Serializable ):
             # Collect any things with .start/.length; all sub-Licenses dependencies, and a Timespan
             # representing any supplied start/length constraints in order to validate their
             # consistency with the sub-License start/lengths.
-            others		= list( ls.license for ls in self.dependencies or [] )
+            others		= list( ls.license for ls in ( self.dependencies or [] ))
             start_cons		= into_timestamp( constraints.get( 'start' ))
             length_cons		= into_duration( constraints.get( 'length' ))
             others.append( Timespan( start_cons, length_cons ))
