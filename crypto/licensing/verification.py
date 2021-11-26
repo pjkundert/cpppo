@@ -35,6 +35,7 @@ import json
 import logging
 import os
 import sys
+import traceback
 import uuid
 
 try: # Python2
@@ -45,7 +46,7 @@ except ImportError: # Python3
 from ...misc		import timer
 from ...automata	import type_str_base
 from ...history.times	import parse_datetime, parse_seconds, timestamp, duration
-from ...server.enip.defaults import config_open_deduced, ConfigNotFoundError
+from ...server.enip.defaults import deduce_name, config_open, ConfigNotFoundError
 
 log				= logging.getLogger( "licensing" )
 
@@ -1140,7 +1141,12 @@ class KeypairPlaintext( Serializable ):
         return keypair
 
 
-class KeypairEncrypted( Serializable):
+class KeypairCredentialError( Exception ):
+    """Something is wrong with the provided Keypair credentials."""
+    pass
+
+
+class KeypairEncrypted( Serializable ):
     """De/serialize the keypair encrypted derivation seed, and the salt used in combination with the
     supplied username and password to derive the symmetric encryption key for encrypting the seed.
     The supported derivation(s):
@@ -1148,36 +1154,39 @@ class KeypairEncrypted( Serializable):
         sha256:		hash of salt + username + password
 
     The 256-bit Ed25519 Keypair seed is encrypted using ChaCha20Poly1305 w/ the salt and derived
-    key.  The salt and seed are always serialized in hex, to illustrate that it is not Ed25519
+    key.  The salt and ciphertext are always serialized in hex, to illustrate that it is not Ed25519
     Keypair data.
 
     """
-    __slots__			= ('salt', 'seed')
+    __slots__			= ('salt', 'ciphertext')
     serializers			= dict(
         salt		= into_hex,
-        seed		= into_hex,
+        ciphertext	= into_hex,
     )
 
-    def __init__( self, salt=None, seed=None, username=None, password=None, vk=None, sk=None ):
-        assert ( seed and salt ) or ( sk and password and username ), \
+    def __init__( self, salt=None, ciphertext=None, username=None, password=None, vk=None, sk=None ):
+        assert ( ciphertext and salt ) or ( sk and password and username ), \
             "Insufficient data to create an Encrypted Keypair"
         if salt:
             self.salt		= into_bytes( salt, ('hex',) )
         else:
+            # If salt not supplied, supply one -- but we obviously cannot be given an encrypted seed!
+            assert vk and not ciphertext, \
+                "Expected unencrypted keypair if no is salt provided"
             self.salt		= os.urandom( 12 )
         assert len( self.salt ) == 12, \
             "Expected 96-bit salt, not {!r}".format( self.salt )
-        if seed:
+        if ciphertext:
             # We are provided with the encrypted seed (tag + ciphertext).  Done!  But, we don't know
             # the original Keypair, here, so we can't verify below.
-            self.seed		= into_bytes( seed, ('hex',) )
-            assert len( self.seed ) * 8 == 384, \
+            self.ciphertext	= into_bytes( ciphertext, ('hex',) )
+            assert len( self.ciphertext ) * 8 == 384, \
                 "Expected 384-bit ChaCha20Poly1305-encrypted seed, not a {}-bit {!r}".format(
-                    len( self.seed ) * 8, self.seed )
+                    len( self.ciphertext ) * 8, self.ciphtertext )
             keypair		= None
         else:
             # We are provided with the unencrypted signing key.  We must encrypt the 256-bit private
-            # key material to produce the seed.  Remember, the Ed25519 private signing key always
+            # key material to produce the seed ciphertext.  Remember, the Ed25519 private signing key always
             # includes the 256-bit public key appended to the raw 256-bit private key material.
             sk			= into_bytes( sk, ('base64',) )
             seed		= sk[:32]
@@ -1190,8 +1199,7 @@ class KeypairEncrypted( Serializable):
             cipher		= ChaCha20Poly1305( key )
             plaintext		= bytearray( seed )
             nonce		= self.salt
-            ciphertext		= bytes( cipher.encrypt( nonce, plaintext ))
-            self.seed		= ciphertext
+            self.ciphertext	= bytes( cipher.encrypt( nonce, plaintext ))
         if username and password:
             # Verify MAC by decrypting w/ username and password, if provided
             keypair_rec		= self.into_keypair( username=username, password=password )
@@ -1210,14 +1218,21 @@ class KeypairEncrypted( Serializable):
         return m.digest()
 
     def into_keypair( self, username=None, password=None ):
-        """Recover the original signing Keypair by decrypting with the supplied data."""
+        """Recover the original signing Keypair by decrypting with the supplied data.  Raises a
+        KeypairCredentialError on decryption failure.
+
+        """
         assert username and password, \
             "Cannot recover Encrypted Keypair without username and password"
         key			= self.key( username=username, password=password )
         cipher			= ChaCha20Poly1305( key )
         nonce			= self.salt
-        ciphertext		= bytearray( self.seed )
-        plaintext		= bytes( cipher.decrypt( nonce, ciphertext ))
+        ciphertext		= bytearray( self.ciphertext )
+        try:
+            plaintext		= bytes( cipher.decrypt( nonce, ciphertext ))
+        except:
+            raise KeypairCredentialError(
+                "Failed to decrypt ChaCha20Poly1305-encrypted Keypair w/ {}'s credentials".format( username ))
         keypair			= author( seed=plaintext, why="decrypted w/ {}'s credentials".format( username ))
         return keypair
 
@@ -1281,7 +1296,7 @@ def verify( provenance, author_pubkey=None, signature=None, confirm=None, machin
     
 def load( basename=None, mode=None, extension=None, confirm=None,
           filename=None, package=None,
-          **kwds ):
+          skip="*~", **kwds ): # eg. extra=["..."], reverse=False, other open() args; see config_open
     """Open and load all Cpppo Licensing file(s) found on the config path(s) (and any extra=[...,...]
     paths) containing a LicenseSigned provenance record.  By default, use the provided package's
     (your __package__) name, or the executable filename's (your __file__) basename.  Appends
@@ -1290,14 +1305,12 @@ def load( basename=None, mode=None, extension=None, confirm=None,
     Applies glob pattern matching via config_open....
 
     Yields the resultant (filename, LicenseSigned) provenance(s), or an Exception if any
-    glob-matching file is found that doesn't contain a serialized LicenseSigned, or no matching
-    files are found.
+    glob-matching file is found that doesn't contain a serialized LicenseSigned.
 
     """
-    for f in config_open_deduced(
-            basename=basename, mode=mode, extension=extension or 'cpppo-licensing', skip='*~',
-            filename=filename, package=package,
-            **kwds ):
+    name		= deduce_name(
+        basename=basename, extension=extension or 'cpppo-license*', filename=filename, package=package )
+    for f in config_open( name=name, mode=mode, skip=skip, **kwds ):
         with f:
             prov_ser		= f.read()
             prov_name		= f.name
@@ -1306,13 +1319,18 @@ def load( basename=None, mode=None, extension=None, confirm=None,
     
 
 def load_keys( basename=None, mode=None, extension=None,
-               filename=None, package=None,
-               username=None, password=None,
-               **kwds ):
+               filename=None, package=None,		# For deduction of basename
+               username=None, password=None,		# Decryption credentials to use
+               every=False, detail=True,		# Yield every file? w/ origin + credentials info?
+               skip="*~", **kwds ): # eg. extra=["..."], reverse=False, other open() args; see config_open               **kwds ):
     """Load Ed25519 signing Keypair(s) from glob-matching file(s) with any supplied credentials.
-    Yeilds all Encrypted/Plaintext Keypairs successfully opened, or a ConfigNotFoundError if no keys
-    were found at all.  Use the same credentials supplied when invoking .into_keypair to obtain the
-    Ed25519 keys.
+    Yeilds all Encrypted/Plaintext Keypairs successfully opened (may be none at all), as a sequence of:
+
+        <filename>, <Keypair{Encrypted,Plaintext}>, <credentials dict>, <Keypair/Exception>
+
+    If every=True, then every file found will be returned with every credential, and an either
+    Exception explaining why it couldn't be opened, or the resultant decrypted Ed25519 Keypair.
+    Otherwise, only successfully decrypted Keypairs will be returned.
 
     - Read the plaintext Keypair's public/private keys.
     
@@ -1343,18 +1361,18 @@ def load_keys( basename=None, mode=None, extension=None,
             "vk":"qZERnjDZZTmnDNNJg90AcUJZ+LYKIWO9t0jz/AzwNsk="
         }
 
-    Unencrypted Keypair from just 256-bit seed (which is the first half of a full .sk signing key),
-    and optional public key .vk to verify:
+    Unencrypted Keypair from just 256-bit seed (which is basically the first half of a full .sk
+    signing key with a few bits normalized), and optional public key .vk to verify:
 
         {
             "seed":"bw58LSvuadS76jFBCWxkK+KkmAqLrfuzEv7ly0Y3lC=",
             "vk":"qZERnjDZZTmnDNNJg90AcUJZ+LYKIWO9t0jz/AzwNsk="
         }
 
-    384-bit ChaCha20Poly1503-Encrypted seed:
+    384-bit ChaCha20Poly1503-Encrypted seed (ya, don't use a non-random salt...):
         {
-            "salt":"cyHOei+4c5X+D/niQWvDG5olR1qi4jddcPTDJv/UfrQ=",
-            "seed":"6XvQl2fIOPYKe8wzSPxXIhUKKwf38qGWS9iOeN7hzriJ38gv5X7xJnGQl0hHDgMX"
+            "salt":"000000000000000000000000",
+            "ciphertext":"d211f72ba97e9cdb68d864e362935a5170383e70ea10e2307118c6d955b814918ad7e28415e2bfe66a5b34dddf12d275"
         }
 
     NOTE: For encrypted Keypairs, we do not need to save the "derivation" we use to arrive at
@@ -1364,36 +1382,109 @@ def load_keys( basename=None, mode=None, extension=None,
     """
     issues			= []
     found			= 0
-    for f in config_open_deduced(
-            basename=basename, mode=mode, extension=extension or 'cpppo-keypair', skip='*~',
-            filename=filename, package=package,
-            **kwds ):
-        with f:
-            keypair_filename	= f.name
-            keypair_ser		= f.read()
-        keypair_dict		= json.loads( keypair_ser )
-
+    name		= deduce_name(
+        basename=basename, extension=extension or 'cpppo-keypair*', filename=filename, package=package )
+    for f in config_open( name=name, mode=mode, skip=skip, **kwds ):
+        try:
+            with f:
+                f_name		= f.name
+                f_ser		= f.read()
+            log.isEnabledFor( logging.DEBUG ) and log.debug( "Read Keypair... data from {}: {}".format( f_name, f_ser ))
+            keypair_dict		= json.loads( f_ser )
+        except Exception as exc:
+            log.info( "Failure to load KeypairEncrypted/Plaintext from {}: {}".format(
+                f_name, exc ))
+            issues.append( (f_name, exc ) )
+            continue
         # Attempt to recover the different Keypair...() types, from most stringent requirements to least.
+        encrypted		= None
         try:
             encrypted		= KeypairEncrypted( username=username, password=password, **keypair_dict )
             keypair		= encrypted.into_keypair( username=username, password=password )
             log.info( "Recover Ed25519 KeypairEncrypted w/ Public key: {} (from {}) w/ credentials {} / {}".format(
-                into_b64( keypair.vk ), keypair_filename, username, '*' * len( password )))
-            yield f.name, encrypted, dict( username=username, password=password )
+                into_b64( keypair.vk ), f_name, username, '*' * len( password )))
+            if detail:
+                yield f_name, encrypted, dict( username=username, password=password ), keypair
+            else:
+                yield f_name, keypair
             found	       += 1
             continue
+        except KeypairCredentialError as exc:
+            # The KeypairEncrypted was OK -- just the credentials were wrong; don't bother trying as non-Encrypted
+            issues.append( (f_name, exc) )
+            if every:
+                if detail:
+                    yield f_name, encrypted, dict( username=username, password=password ), exc
+                else:
+                    yield f_name, exc
+            log.isEnabledFor( logging.INFO ) and log.info(
+                "Failed to decrypt KeypairEncrypted: {}".format(
+                    ''.join( traceback.format_exception( *sys.exc_info() )) if log.isEnabledFor( logging.DEBUG ) else exc ))
+            continue
         except Exception as exc:
-            issues.append( (keypair_filename, exc) )
+            # Some other problem attempting to interpret this thing as a KeypairEncrypted; carry on and try again
+            log.isEnabledFor( logging.DEBUG ) and log.debug(
+                "Failed to decode  KeypairEncrypted: {}".format(
+                    ''.join( traceback.format_exception( *sys.exc_info() ))))
+
+        plaintext		= None
         try:
             plaintext		= KeypairPlaintext( **keypair_dict )
             keypair		= plaintext.into_keypair()
             log.info( "Recover Ed25519 KeypairPlaintext w/ Public key: {} (from {})".format(
-                into_b64( keypair.vk ), keypair_filename ))
-            yield f.name, plaintext, {}
+                into_b64( keypair.vk ), f_name ))
+            if detail:
+                yield f_name, plaintext, {}, keypair
+            else:
+                yield f_name, keypair
             found	       += 1
             continue
         except Exception as exc:
-            issues.append( (keypair_filename, exc) )
+            # Some other problem attempting to interpret as a KeypairPlaintext
+            issues.append( (f_name, exc) )
+            if every:
+                if detail:
+                    yield f_name, plaintext, {}, exc
+                else:
+                    yield f_name, exc
+            log.isEnabledFor( logging.INFO ) and log.info(
+                "Failed to decode KeypairPlaintext: {}".format(
+                    ''.join( traceback.format_exception( *sys.exc_info() )) if log.isEnabledFor( logging.DEBUG ) else exc ))
     if not found:
-        raise ConfigNotFoundError( "Cannot load Keypair(s) from {}: ".format(
-            basename, ', '.join( "{}: {}".format( fn, exc ) for fn, exc in issues )))
+        log.detail( "Cannot load Keypair(s) from {}: ".format(
+            name, ', '.join( "{}: {}".format( fn, exc ) for fn, exc in issues )))
+
+
+def check( basename=None, mode=None,		# Keypair/License file basename and open mode
+           extension_keypair=None, extension_license=None,
+           filename=None, package=None,		#   or, deduce basename from supplied data
+           username=None, password=None,	# Keypair protected w/ supplied credentials
+           skip="*~", **kwds ): # eg. extra=["..."], reverse=False, other open() args; see config_open               **kwds ):
+    """Check that a License has been issued with the desired features.  If none founds, attempt to
+    obtain one.  Can deduce a basename from provided filename/package, if desired
+
+    - Load our Ed25519 Keypair
+      - Create one, if not found
+    - Load our Licenses
+      - Obtain one, if not found
+
+    If an Ed25519 Agent signing authority or License must be created, the default location where
+    they will be stored is in the most general Cpppo configuration location that is writable.
+
+    Agent signing authority is usually machine-specific: a License to run a program on one machine
+    usually doesn't transfer to another machine.  
+
+    <basename>-<machine-id>.cpppo-keypair...
+    <basename>-<machine-id>.cpppo-license...
+
+    """
+    keypairs		= dict( (name, keypair_or_error)
+                                for name, keypair_typed, cred, keypair_or_error in load_keys(
+                                        basename=basename, mode=mode, extension=extension_keypair,
+                                        filename=filename, package=package,
+                                        every=True, detail=True,
+                                        username=username, password=password,
+                                        skip=skip, **kwds ))
+    log.info( "Name          Keypair/Error" )
+    for n,k_e in keypairs.items():
+        log.info( "{:48} {}".format( os.path.basename( n ), k_e ))

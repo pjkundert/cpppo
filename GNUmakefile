@@ -39,7 +39,7 @@ PY3=python3
 TZ=Canada/Mountain
 
 # To see all pytest output, uncomment --capture=no
-PYTESTOPTS=-v # --capture=no -vv --log-cli-level=5
+PYTESTOPTS=-v # --capture=no -vv --log-cli-level=INFO
 
 PY_TEST=TZ=$(TZ) $(PY)  -m pytest $(PYTESTOPTS)
 PY2TEST=TZ=$(TZ) $(PY2) -m pytest $(PYTESTOPTS)
@@ -87,17 +87,6 @@ doctest3:
 	cd crypto/licensing && $(PY3TEST) --doctest-modules
 doctest23: doctest2 doctest3
 
-
-install:
-	$(PY) setup.py install
-install2:
-	$(PY2) setup.py install
-install3:
-	$(PY3) setup.py install
-install23:
-	$(PY2) setup.py install
-	$(PY3) setup.py install
-
 analyze:
 	flake8 -j 1 --max-line-length=110					\
 	  --ignore=F401,E221,E201,E202,E203,E223,E225,E226,E231,E241,E242,E261,E272,E302,W503,E701,E702,E,W	\
@@ -107,11 +96,25 @@ analyze:
 pylint:
 	cd .. && pylint cpppo --disable=W,C,R
 
+
+
+install2:
+	$(PY2) setup.py install
+install3:
+	$(PY3) setup.py install
+install23: install2 install3
+install: install23
+
+build:	clean
+	$(PY3) -m build
+	@ls -last dist
+
 # Support uploading a new version of cpppo to pypi.  Must:
 #   o advance __version__ number in cpppo/version.py
 #   o log in to your pypi account (ie. for package maintainer only)
-upload:
-	python setup.py sdist upload
+
+upload: clean
+	$(PY3) setup.py sdist upload
 
 clean:
 	@rm -rf MANIFEST *.png build dist auto *.egg-info $(shell find . -name '*.pyc' -o -name '__pycache__' )

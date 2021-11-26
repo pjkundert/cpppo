@@ -97,7 +97,7 @@ ACCFILE				= "licensing.access"
 
 CRDFILE				= "licensing.credentials"	# Any author credentials available persistently
 KEYFILE				= "licensing.cpppo-keypair"
-LICFILE				= "licensing.cpppo-licensing"
+LICFILE				= "licensing.cpppo-license"
 
 # SQL configurations are typically found in cpppo/crypto/licensing/, but may be customized and
 # placed in any of the Cpppo configuration file paths (eg. ~/.cpppo/, /etc/cpppo/, or the current

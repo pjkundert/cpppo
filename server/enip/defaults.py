@@ -81,8 +81,8 @@ except NameError:
     ConfigNotFoundError		= IOError # Python2 compatibility
 
 
-def config_open( filename, mode=None, extra=None, skip=None, reverse=True, **kwds ):
-    """Find and open all glob-matched filename(s) found on the standard or provided configuration file
+def config_open( name, mode=None, extra=None, skip=None, reverse=True, **kwds ):
+    """Find and open all glob-matched file name(s) found on the standard or provided configuration file
     paths (plus any extra), in most general to most specific order.  Yield the open file(s), or
     raise a ConfigNotFoundError (a FileNotFoundError or IOError in Python3/2 if no matching file(s)
     at all were found, to be somewhat consistent with a raw open() call).
@@ -91,8 +91,8 @@ def config_open( filename, mode=None, extra=None, skip=None, reverse=True, **kwd
     general, and any matching file(s) in ascending sorted order; specify reverse=False to obtain the
     files in the most general/distant configuration first.
 
-    By default, we assume the matching target file(s) are text files, and default to open in 'r'
-    mode.
+    By default, we assume the matching target file(s) are UTF-8/ASCII text files, and default to
+    open in 'r' mode.
 
     A 'skip' glob pattern or predicate function taking a single name and returning True/False may be
     supplied.
@@ -107,7 +107,7 @@ def config_open( filename, mode=None, extra=None, skip=None, reverse=True, **kwd
     else:
         raise AssertionError( "Invalid skip={!r} provided".format( skip ))
 
-    search			= list( config_paths( filename, extra=extra ))
+    search			= list( config_paths( name, extra=extra ))
     if reverse:
         search			= reversed( search )
     for fn in search:
@@ -119,16 +119,11 @@ def config_open( filename, mode=None, extra=None, skip=None, reverse=True, **kwd
                 pass
 
 
-def config_open_deduced( basename=None, mode=None, extension=None, filename=None, package=None, **kwds ):
-    """Find any glob-matched configuration file(s), optionally deducing the basename from the provided
-    __file__ filename or __package__ name, returning the open file or raising a ConfigNotFoundError
-    (or FileNotFoundError, or IOError in Python2).
-
-    """
+def deduce_name( basename=None, extension=None, filename=None, package=None ):
     assert basename or ( filename or package ), \
-        "Cannot deduce basename without either __file__ or __package__"
+        "Cannot deduce basename without either filename (__file__) or package (__package__)"
     if basename is None:
-        if package is None:
+        if filename:
             basename		= os.path.basename( filename ) # eg. '/a/b/c/d.py' --> 'd.py'
             if '.' in basename:
                 basename	= basename[:basename.rfind( '.' )] # up to last '.'
@@ -136,11 +131,24 @@ def config_open_deduced( basename=None, mode=None, extension=None, filename=None
             basename		= package
             if '.' in basename:
                 basename	= basename[:basename.find( '.' )] # up to first '.'
-    if extension and '.' not in basename:
+    name			= basename
+    if extension and '.' not in name:
         if extension[0] != '.':
-            basename	       += '.'
-        basename	       += extension
-    for f in config_open( basename, mode=mode or 'r', **kwds ):
+            name	       += '.'
+        name		       += extension
+    return name
+
+
+def config_open_deduced( basename=None, mode=None, extension=None, filename=None, package=None, **kwds ):
+    """Find any glob-matched configuration file(s), optionally deducing the basename from the provided
+    __file__ filename or __package__ package name, returning the open file or raising a ConfigNotFoundError
+    (or FileNotFoundError, or IOError in Python2).
+
+    """
+    for f in config_open(
+            name=deduce_name(
+                basename=basename, extension=extension, filename=filename, package=package ),
+            mode=mode or 'r', **kwds ):
         yield f
 
 

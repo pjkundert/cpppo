@@ -6,6 +6,11 @@ import json
 import os
 import pytest
 
+try:
+    import chacha20poly1305
+except:
+    chacha20poly1305		= None
+
 from dns.exception import DNSException
 from .verification import (
     License, LicenseSigned, LicenseIncompatibility, Timespan,
@@ -13,11 +18,12 @@ from .verification import (
     domainkey, domainkey_service, overlap_intersect,
     into_b64, into_hex, into_str, into_str_UTC, into_JSON, into_keys,
     into_timestamp, into_duration,
-    author, issue, verify, load, load_keys,
+    author, issue, verify, load, load_keys, check,
 )
 from .. import ed25519ll as ed25519
 
 from ...history import parse_datetime, timestamp, parse_seconds, duration
+
 
 dominion_sigkey			= binascii.unhexlify(
     '431f3fb4339144cb5bdeb77db3148a5d340269fa3bc0bf2bf598ce0625750fdca991119e30d96539a70cd34983dd00714259f8b60a2163bdb748f3fc0cf036c9' )
@@ -92,10 +98,6 @@ def test_KeypairPlaintext_smoke():
     kp_c1			= copy.copy( kp_p4 )
     assert str( kp_c1 ) == str( kp_p4 )
 
-try:
-    import chacha20poly1305
-except:
-    chacha20poly1305		= None
 
 @pytest.mark.skipif( not chacha20poly1305, reason="Needs ChaCha20Poly1305" )
 def test_KeypairEncrypted_smoke():
@@ -108,14 +110,14 @@ def test_KeypairEncrypted_smoke():
     kp_e_ser			= str( kp_e )
     assert kp_e_ser == """\
 {
-    "salt":"000000000000000000000000",
-    "seed":"d211f72ba97e9cdb68d864e362935a5170383e70ea10e2307118c6d955b814918ad7e28415e2bfe66a5b34dddf12d275"
+    "ciphertext":"d211f72ba97e9cdb68d864e362935a5170383e70ea10e2307118c6d955b814918ad7e28415e2bfe66a5b34dddf12d275",
+    "salt":"000000000000000000000000"
 }"""
     kp_r			= KeypairEncrypted( **json.loads( kp_e_ser ))
     assert str( kp_r ) == kp_e_ser
 
     # We can also reconstruct from just seed and salt
-    kp_e2			= KeypairEncrypted( salt=salt, seed=kp_e.seed )
+    kp_e2			= KeypairEncrypted( salt=salt, ciphertext=kp_e.ciphertext )
     assert str( kp_e2 ) == kp_e_ser
     assert kp_e.into_keypair( username=username, password=password ) \
         == kp_r.into_keypair( username=username, password=password ) \
@@ -129,31 +131,36 @@ def test_KeypairEncrypted_smoke():
     kp_a_ser			= str( kp_a )
     assert """\
 {
-    "salt":"010101010101010101010101",
-    "seed":"aea5129b033c3072be503b91957dbac0e4c672ab49bb1cc981a8955ec01dc47280effc21092403509086caa8684003c7"
+    "ciphertext":"aea5129b033c3072be503b91957dbac0e4c672ab49bb1cc981a8955ec01dc47280effc21092403509086caa8684003c7",
+    "salt":"010101010101010101010101"
 }""" == kp_a_ser
+
 
 @pytest.mark.skipif( not chacha20poly1305, reason="Needs ChaCha20Poly1305" )
 def test_KeypairEncrypted_load_keys():
     enduser_keypair		= author( seed=enduser_seed, why="from enduser seed" )
-    (keyname,keypair,keycred),	= load_keys( username=username, password=password,
-                                             extra=[os.path.dirname( __file__ )], filename=__file__ )
+    # load just the one encrypted cpppo-keypair (no glob wildcard on extension)
+    (keyname,keypair_encrypted,keycred,keypair), = load_keys(
+        extension="cpppo-keypair", username=username, password=password,
+        extra=[os.path.dirname( __file__ )], filename=__file__ )
     assert keycred == dict( username=username, password=password )
-    assert keypair.into_keypair( **keycred ) == enduser_keypair
+    assert enduser_keypair == keypair_encrypted.into_keypair( **keycred ) == keypair
 
 
 def test_KeypairPlaintext_load_keys():
     enduser_keypair		= author( seed=enduser_seed, why="from enduser seed" )
-    (keyname,keypair,keycred),	= load_keys( extension="cpppo-keypair-plaintext",
-                                             extra=[os.path.dirname( __file__ )], filename=__file__ )
-    assert keypair.into_keypair(**keycred) == enduser_keypair
+    (keyname,keypair_plaintext,keycred,keypair), = load_keys(
+        extension="cpppo-keypair-plaintext",
+        extra=[os.path.dirname( __file__ )], filename=__file__ )
+    assert keycred == {}
+    assert enduser_keypair == keypair_plaintext.into_keypair( **keycred ) == keypair
 
 
 def test_License_serialization():
     # Deduce the basename from our __file__ (note: this is destructuring a 1-element sequence from a
     # generator!)
     (provname,prov), = load( extra=[os.path.dirname( __file__ )], filename=__file__, confirm=False )
-    with open( os.path.join( os.path.dirname( __file__ ), "verification_test.cpppo-licensing" )) as f:
+    with open( os.path.join( os.path.dirname( __file__ ), "verification_test.cpppo-license" )) as f:
         assert str( prov ) == f.read()
 
 
@@ -374,7 +381,7 @@ def test_LicenseSigned():
 }""" == drv_prov_str
 
     # Test the cpppo.crypto.licensing API, as used in applications.  A LicenseSigned is saved to an
-    # <application>.cpppo-licensing file in the Application's configuration directory path.  The
+    # <application>.cpppo-license file in the Application's configuration directory path.  The
     # process for deploying an application onto a new host:
     #
     # 1) Install software to target directory
@@ -384,7 +391,7 @@ def test_LicenseSigned():
     # 3) Derive a new License, specialized for the host's machine-id UUID
     #    - This will be a LicenseSigned by the company License server using the company's key,
     #    - It's client_pubkey will match this software installation's private key, and machine-id UUID
-    # 4) Save to <application>.cpppo-licensing in application's config path
+    # 4) Save to <application>.cpppo-license in application's config path
 
     # Lets specialize the license for a specific machine, and with a specific start time
     lic_host_dict = verify( drv_prov, confirm=False, machine=True, machine_id_path=machine_id_path,
@@ -494,3 +501,9 @@ def test_LicenseSigned():
     },
     "signature":"8m+gfL5qPd7XPc1N87tPm9noDSOU5f1ToeN6NuQO9vYS+xca6hkUuZPdUjQ9/jcjNrj8IGeGYzoPIIUQ/LxcAw=="
 }""" == lic_host_str
+
+
+def test_licensing_check():
+    check( extra=[os.path.dirname( __file__ )],
+           filename=__file__, package=__package__, # filename takes precedence
+           username="a@b.c", password="passwor" )
