@@ -32,7 +32,8 @@ jobs:
         python -m pip install --upgrade pip
         pip install wheel
         if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
-        pip install flake8 pytest pytz tzlocal pymodbus pylogix
+        if [ -f requirements-optional.txt ]; then pip install -r requirements-optional.txt; fi
+        pip install flake8
         pip install 'argparse; python_version < "2.7"'
         pip install 'configparser; python_version < "3.0"'
         pip install 'ipaddress; python_version < "3.0"'
