@@ -96,8 +96,8 @@ DB_FILE				= "licensing.db"
 ACCFILE				= "licensing.access"
 
 CRDFILE				= "licensing.credentials"	# Any author credentials available persistently
-KEYFILE				= "licensing.cpppo-keypair"
-LICFILE				= "licensing.cpppo-license"
+KEYFILE				= "licensing.cpppo-keypair*"
+LICFILE				= "licensing.cpppo-license*"
 
 # SQL configurations are typically found in cpppo/crypto/licensing/, but may be customized and
 # placed in any of the Cpppo configuration file paths (eg. ~/.cpppo/, /etc/cpppo/, or the current
@@ -251,14 +251,12 @@ def licenses( confirm=None, stored=None ):
     try:
         # Load most general/distant Licenses first, including the optional extra config dirs
         global config_extras
-        for path, prov in licensing.load( basename=LICFILE, extra=config_extras, reverse=False ):
+        for path, prov in licensing.load( package=__package__, extra=config_extras, reverse=False ):
             for sig, lic in emit( prov ):
                 yield sig, lic
                 found	       += 1
-    except ConfigNotFoundError:
-        pass
     except Exception as exc:
-        log.error( "Failed to load {}*: {}".format( path or LICFILE, exc ))
+        log.error( "Failed to load license from {}: {}".format( path or __package__, exc ))
         pass
     log.info( "Licenses    loaded: {}".format( found ))
 
@@ -279,7 +277,7 @@ def credentials( *add ):
     credentials.local.update( add )
     for name, (username, password) in credentials.local.items():
         yield name, (username, password)
-    log.info( "Credentials  saved: {}".format( len( credentials.local )))
+    log.info( "Credentials cached: {}".format( len( credentials.local )))
 
     found			= 0
     path			= None
@@ -302,8 +300,6 @@ def credentials( *add ):
                 log.detail( "  {n:<20}: {u:>20} / {p}".format( n=name, u=username, p='*' * len( password )))
                 yield name, (username, password)
                 found	       += 1
-    except ConfigNotFoundError:
-        pass
     except Exception as exc:
         log.error( "Failed to load {}*: {}".format( path or CRDFILE, exc ))
         pass
@@ -325,10 +321,11 @@ def keypairs():
     loaded			= set()
     saved			= 0
     for credname,(username,password) in credentials():
+        log.info( "Keypairs for {}'s credential:".format( username ))
         for r in db.select( 'authors' ):
             cred		= dict( username=username, password=password )
             try:
-                keypair		= licensing.KeypairEncrypted( salt=r.salt, seed=r.seed )
+                keypair		= licensing.KeypairEncrypted( ciphertext=r.ciphertext, salt=r.salt )
                 keypair.into_keypair( **cred ) # Ensure the supplied credentials can decrypt it
                 yield r.name, keypair, cred
                 saved	       += 1
@@ -341,15 +338,17 @@ def keypairs():
         # Any Plaintext Keypairs (and perhaps some Encrypted ones, if duplicate credentials are
         # supplied) will be found multiple times.  Report keypairs at the same path only once.  We
         # want to load the most general/distant keys first, so reverse=False.
-        global config_extras
+        path			= None
         try:
+            global config_extras
             for path, keypair, cred in licensing.load_keys(
-                    basename=KEYFILE, username=username, password=password,
+                    package=__package__, username=username, password=password,
                     extra=config_extras, reverse=False ):
                 if path not in loaded:
                     yield path, keypair, cred
                     loaded.add( path )
-        except ConfigNotFoundError:
+        except Exception as exc:
+            log.error( "Failed to load keypair from {}: {}".format( path or __package__, exc ))
             pass
     log.info( "Keypairs     saved: {}".format( saved ))
     log.info( "Keypairs    loaded: {}".format( len( loaded )))
@@ -445,6 +444,7 @@ def keypairs_data( path ):
     creds			= dict( credentials() )
     creds_reverse		= { v: k for k,v in creds.items() }
 
+    log.detail( "Keypairs data w/ {} credential:".format( len( creds_reverse )))
     for name,keypair,cred in keypairs():
         log.info("Found keypair: {!r}".format( (name,keypair,cred) ))
         if pathsegs and pathsegs[0] and not fnmatch.fnmatch( name, pathsegs[0] ):
@@ -1499,7 +1499,9 @@ Disallow: /
             # raised, it should be an appropriate one from the supplied framework to
             # carry a meaningful HTTP status code.  Otherwise, a generic 500 Server
             # Error will be produced.
-            content, response	= self.__class__.__dict__['request'](
+            request		= self.__class__.__dict__['request']
+            log.detail( "Tabular API call: {!r}".format( request ))
+            content, response	= request(
                 render=render, path=path, environ=web.ctx.environ,
                 accept=accept, framework=web, logged=logged,
                 **{ input_variable: web.input() } )
@@ -1628,9 +1630,6 @@ Disallow: /
                 environ['REMOTE_ADDR'] = cf_ip
             if cf_country:
                 environ['REMOTE_PORT'] = cf_country
-            log.isEnabledFor( logging.INFO ) and log.info(
-                "CF IP: {!r} (was {!r}), Port: {!r} (was {!r}) Environment: {}".format(
-                    cf_ip, ip, cf_country, port, licensing.into_JSON( environ, indent=4, default=str )))
             return super( LogMiddlewareCF, self ).log( status, environ )
 
 

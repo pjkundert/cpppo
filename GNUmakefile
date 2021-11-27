@@ -8,6 +8,8 @@ PY=python
 PY2=python2
 PY3=python3
 
+VERSION=$(shell $(PY3) -c 'exec(open("version.py").read()); print( __version__ )')
+
 # PY[23]TEST is the desired method of invoking py.test; either as a command, or
 # loading it as module, by directly invoking the target Python interpreter.
 # 
@@ -97,17 +99,26 @@ pylint:
 	cd .. && pylint cpppo --disable=W,C,R
 
 
+build-check:
+	@$(PY3) -m build --version \
+	    || ( echo "\n*** Missing Python modules; run:\n\n        $(PY3) -m pip install --upgrade pip setuptools build\n" \
+	        && false )
+
+build3:	build-check clean
+	$(PY3) -m build
+	@ls -last dist
+build: build3
+
+dist/cpppo-$(VERSION)-py3-none-any.whl: build3
 
 install2:
 	$(PY2) setup.py install
-install3:
-	$(PY3) setup.py install
-install23: install2 install3
-install: install23
+install3:	dist/cpppo-$(VERSION)-py3-none-any.whl
+	$(PY3) -m pip install --force-reinstall $^
 
-build:	clean
-	$(PY3) -m build
-	@ls -last dist
+install23: install2 install3
+install: install3
+
 
 # Support uploading a new version of cpppo to pypi.  Must:
 #   o advance __version__ number in cpppo/version.py

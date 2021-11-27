@@ -76,9 +76,15 @@ package_dir			= {
     "cpppo/bin":		"./bin",
 }
 
-# Including data in the package is complex.  See: https://sinoroc.gitlab.io/kb/python/package_data.html
+# Including data in the package is complex: https://sinoroc.gitlab.io/kb/python/package_data.html
+# 
+# Ship the static data for the cpppo.crypto.licensing server, and some demo test data.  From the
+# parent of your cpppo source, run:
+# 
+#     rm -f licensing.* && python3 -m cpppo.crypto.licensing -vv --config cpppo/crypto/licensing/licensing_test --no-gui
+# 
 package_data			= {
-        'cpppo/crypto/licensing': find_data_files( 'crypto/licensing', 'licensing.sql*', 'static' )
+        'cpppo/crypto/licensing': find_data_files( 'crypto/licensing', 'licensing.sql*', 'licensing_test', 'static' )
 }
 
 import json
