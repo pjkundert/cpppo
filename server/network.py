@@ -484,11 +484,11 @@ def bench( server_func, client_func, client_count,
                   successes, client_count, failures )
         return failures
     finally:
-        # Shut down server; use 'server.control.done = true' to stop server, if
-        # available in server_kwds.  If this doesn't work, we can try terminate
+        # Shut down server; use 'server.control.done = True' to stop server, if
+        # available in server_kwds.  If this doesn't work (eg. using Process), we can try terminate
         control			= server_kwds.get( 'server', {} ).get( 'control', {} ) if server_kwds else {}
         if 'done' in control:
-            log.normal( "Server %r done signalled", misc.function_name( server_func ))
+            log.detail( "Server %r done signalled", misc.function_name( server_func ))
             control['done']	= True	# only useful for threading.Thread; Process cannot see this
         if hasattr( server, 'terminate' ):
             log.normal( "Server %r done via .terminate()", misc.function_name( server_func ))
