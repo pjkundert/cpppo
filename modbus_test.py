@@ -148,7 +148,6 @@ def start_simulator( simulator, *options, **kwds ):
     begun			= misc.timer()
     # Soak up output in a non-blocking fashion, passing it thru to logging.  Harvest 
     def soak():
-        logging.normal( "Soaking starting")
         while command.poll() is None:
             raw			= None
             try:
@@ -163,15 +162,13 @@ def start_simulator( simulator, *options, **kwds ):
                 soak.data       += raw.decode( 'utf-8', 'backslashreplace' )
                 while soak.data.find( '\n' ) >= 0:
                     l,soak.data	= soak.data.split( '\n', 1 )
+                    logging.detail( ">>> %s", l )
                     if not soak.address:
-                        logging.normal( ">>> %s", l )
                         m	= re.search( RE_ADDRESS, l )
                         if m:
                             logging.normal( ">>> found address {!r}".format( m.group('address') ))
                             soak.address = misc.parse_ip_port( m.group('address').strip() )
-            logging.debug( "Soaked up {!r}".format( raw ))
             time.sleep( CMD_LATENCY )
-        logging.detail( "Soaking done")
     soak.data			= ''
     soak.address		= None
 
