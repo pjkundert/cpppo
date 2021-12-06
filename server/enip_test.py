@@ -806,8 +806,9 @@ def test_enip_header():
         source			= cpppo.chainable()
         with enip.enip_header( 'header' ) as machine: # don't use default '.header' context!
             for i,(m,s) in enumerate( machine.run( source=source, path='enip', data=data )):
-                log.info( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r",
-                          machine.name_centered(), i, s, source.sent, source.peek(), data )
+                log.isEnabledFor( logging.INFO ) and log.info(
+                    "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r",
+                    machine.name_centered(), i, s, source.sent, source.peek(), data )
                 if s is None:
                     if source.peek() is None and origin.peek() is not None:
                         log.info( "%s chain: %r", machine.name_centered(), [origin.peek()] )
@@ -830,8 +831,9 @@ def test_enip_machine():
         with enip.enip_machine( context='enip' ) as machine:
             with contextlib.closing( machine.run( source=source, data=data )) as engine:
                 for i,(m,s) in enumerate( engine ):
-                    log.info( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r",
-                              machine.name_centered(), i, s, source.sent, source.peek(), data )
+                    log.isEnabledFor( logging.INFO ) and log.info(
+                        "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r",
+                        machine.name_centered(), i, s, source.sent, source.peek(), data )
                     if s is None and source.peek() is None:
                         break # simulate detection of EOF
             if not pkt:
@@ -840,7 +842,8 @@ def test_enip_machine():
                 pass 			# varies...
         assert source.peek() is None
 
-        log.normal( "EtherNet/IP Request: %s", enip.enip_format( data ))
+        log.isEnabledFor( logging.DETAIL ) and log.detail(
+            "EtherNet/IP Request: %s", enip.enip_format( data ))
         try:
             for k,v in tst.items():
                 assert data[k] == v, ( "data[%r] == %r\n"
@@ -1683,16 +1686,20 @@ def test_enip_CPF():
             if 'unconnected_send' in item:
                 assert 'request' in item.unconnected_send # the encapsulated request
                 with logix.Logix.parser as machine:
-                    log.normal( "Parsing %3d bytes using %s.parser, from %s", len( item.unconnected_send.request.input ),
-                                logix.Logix.__name__, enip.enip_format( item ))
+                    log.isEnabledFor( logging.DETAIL ) and log.detail(
+                        "Parsing %3d bytes using %s.parser, from %s", len( item.unconnected_send.request.input ),
+                        logix.Logix.__name__, enip.enip_format( item ))
                     # Parse the unconnected_send.request.input octets, putting parsed items into the
                     # same request context
                     for i,(m,s) in enumerate( machine.run( source=cpppo.peekable( item.unconnected_send.request.input ),
                                                            data=item.unconnected_send.request )):
-                        log.detail( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r",
-                                    machine.name_centered(), i, s, source.sent, source.peek(), data )
-                    log.normal( "Parsed  %3d bytes using %s.parser, into %s", len( item.unconnected_send.request.input ),
-                                logix.Logix.__name__, enip.enip_format( data ))
+                        log.isEnabledFor( logging.INFO ) and log.info(
+                            "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r",
+                            machine.name_centered(), i, s, source.sent, source.peek(), data )
+
+                    log.isEnabledFor( logging.DETAIL ) and log.detail(
+                        "Parsed  %3d bytes using %s.parser, into %s", len( item.unconnected_send.request.input ),
+                        logix.Logix.__name__, enip.enip_format( data ))
 
         try:
             for k,v in tst.items():
@@ -1713,8 +1720,8 @@ def test_enip_CPF():
               for item in data.CPF.item:
                 if 'unconnected_send' in item:
                     item.unconnected_send.request.input	= bytearray( logix.Logix.produce( item.unconnected_send.request ))
-                    log.normal("Produce Logix message from: %r", item.unconnected_send.request )
-            log.normal( "Produce CPF message from: %r", data.CPF )
+                    log.detail("Produce Logix message from: %r", item.unconnected_send.request )
+            log.detail( "Produce CPF message from: %r", data.CPF )
             data.input		= bytearray( enip.CPF.produce( data.CPF )) 
             assert data.input == pkt
         except:
@@ -3391,7 +3398,7 @@ def test_enip_CIP( repeat=1 ):
     ENIP			= enip.enip_machine( context='enip' )
     CIP				= enip.CIP()
     for pkt_name,cls,tst in client.recycle( CIP_tests, times=repeat ):
-        log.warning( "CIP test: {pkt_name}".format( pkt_name=pkt_name ))
+        log.normal( "CIP test: {pkt_name}".format( pkt_name=pkt_name ))
         pkt			= globals()[pkt_name]
         assert type( cls ) is type
         # Parse just the CIP portion following the EtherNet/IP encapsulation header
@@ -3399,26 +3406,28 @@ def test_enip_CIP( repeat=1 ):
         source			= cpppo.chainable( pkt )
         with ENIP as machine:
             for i,(m,s) in enumerate( machine.run( source=source, data=data )):
-                log.detail( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r",
-                          machine.name_centered(), i, s, source.sent, source.peek(), data )
+                log.isEnabledFor( logging.INFO ) and log.info(
+                    "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r",
+                    machine.name_centered(), i, s, source.sent, source.peek(), data )
         # In a real protocol implementation, an empty header (EOF with no input at all) is
         # acceptable; it indicates a session closed by the client.
         if not data:
             log.normal( "EtherNet/IP Request: Empty (session terminated): %s", enip.enip_format( data ))
             continue
 
-        if log.getEffectiveLevel() <= logging.NORMAL:
-            log.normal( "EtherNet/IP Request: %s", enip.enip_format( data ))
+        log.isEnabledFor( logging.DETAIL ) and log.detail(
+            "EtherNet/IP Request: %s", enip.enip_format( data ))
             
         # Parse the encapsulated .input
         with CIP as machine:
             for i,(m,s) in enumerate( machine.run( path='enip', source=cpppo.peekable( data.enip.get( 'input', b'' )), data=data )):
-                log.detail( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r",
-                          machine.name_centered(), i, s, source.sent, source.peek(), data )
+                log.isEnabledFor( logging.INFO ) and log.info(
+                    "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r",
+                    machine.name_centered(), i, s, source.sent, source.peek(), data )
                 #log.normal( "CIP Parsed: %s", enip.enip_format( data ))
 
-        if log.getEffectiveLevel() <= logging.NORMAL:
-            log.normal( "EtherNet/IP CIP Request: %s", enip.enip_format( data ))
+        log.isEnabledFor( logging.DETAIL ) and log.detail(
+            "EtherNet/IP CIP Request: %s", enip.enip_format( data ))
 
         # Assume the request in the CIP's CPF items are Logix requests.
         # Now, parse the encapsulated message(s).  We'll assume it is destined for a Logix Object.
@@ -3436,22 +3445,23 @@ def test_enip_CIP( repeat=1 ):
                 # A Connected/Unconnected Send that contained an encapsulated request (ie. not just a Get
                 # Attribute All)
                 with cls.parser as machine:
-                    if log.getEffectiveLevel() <= logging.NORMAL:
-                        log.normal( "Parsing %3d bytes using %s.parser, from %s", 
-                                    len( request.input ),
-                                    cls, enip.enip_format( item ))
+                    log.isEnabledFor( logging.DETAIL ) and log.detail(
+                        "Parsing %3d bytes using %s.parser, from %s", 
+                        len( request.input ),
+                        cls, enip.enip_format( item ))
                     # Parse the unconnected_send.request.input octets, putting parsed items into the
                     # same request context
                     for i,(m,s) in enumerate( machine.run(
                             source=cpppo.peekable( request.input ),
                             data=request )):
-                        log.detail( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r",
-                                    machine.name_centered(), i, s, source.sent, source.peek(), data )
+                        log.isEnabledFor( logging.INFO ) and log.info(
+                            "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r",
+                            machine.name_centered(), i, s, source.sent, source.peek(), data )
                 # Post-processing of some parsed items is only performed after lock released!
-                if log.getEffectiveLevel() <= logging.NORMAL:
-                    log.normal( "Parsed  %3d bytes using %s.parser, into %s", 
-                                len( request.input ),
-                                cls, enip.enip_format( data ))
+                log.isEnabledFor( logging.DETAIL ) and log.detail(
+                    "Parsed  %3d bytes using %s.parser, into %s", 
+                    len( request.input ),
+                    cls, enip.enip_format( data ))
           finally:
             device.dialect	= dialect_bak
 
@@ -3483,10 +3493,10 @@ def test_enip_CIP( repeat=1 ):
                 for item in cpf.CPF.item:
                     if 'unconnected_send' in item:
                         item.unconnected_send.request.input	= bytearray( cls.produce( item.unconnected_send.request ))
-                        log.normal("Produce %s message from: %r", cls,item.unconnected_send.request )
+                        log.detail("Produce %s message from: %r", cls,item.unconnected_send.request )
                     elif 'connection_data' in item:
                         item.connection_data.request.input	= bytearray( cls.produce( item.connection_data.request ))
-                        log.normal("Produce %s message from: %r", cls,item.connection_data.request )
+                        log.detail("Produce %s message from: %r", cls,item.connection_data.request )
 
             # Next, reconstruct the CIP Register, ListIdentity, ListServices, or SendRRData.  The CIP.produce must
             # be provided the EtherNet/IP header, because it contains data (such as .command)
@@ -3605,18 +3615,18 @@ def test_enip_device():
 
     O2				= Test_Device( 'Test Class' )
     assert enip.device.directory[str(O.class_id)+'.0.3'].value == 2 # Number of Instances
-    log.normal( "device.directory: %s", '\n'.join(
+    log.detail( "device.directory: %s", '\n'.join(
         "%16s: %s" % ( k, enip.device.directory[k] )
         for k in sorted( enip.device.directory.keys(), key=cpppo.natural)))
 
     Ix				= enip.device.Identity( 'Test Identity' )
     attrs			= enip.device.directory[str(Ix.class_id)+'.'+str(Ix.instance_id)]
-    log.normal( "New Identity Instance directory: %s", enip.enip_format( attrs ))
+    log.detail( "New Identity Instance directory: %s", enip.enip_format( attrs ))
     assert attrs['7'].produce() == b'\x141756-L61/B LOGIX5561'
     
     request			= cpppo.dotdict({'service': 0x01, 'path':{'segment':[{'class':Ix.class_id},{'instance':Ix.instance_id}]}})
     gaa				= Ix.request( request )
-    log.normal( "Identity Get Attributes All: %r, data: %s", gaa, enip.enip_format( request ))
+    log.detail( "Identity Get Attributes All: %r, data: %s", gaa, enip.enip_format( request ))
     assert request.input == b'\x81\x00\x00\x00\x01\x00\x0e\x006\x00\x14\x0b`1\x1a\x06l\x00\x141756-L61/B LOGIX5561\xff\x00\x00\x00'
 
     # Look up Objects/Attribute by resolving a path
@@ -3638,7 +3648,7 @@ def test_enip_device():
     Tcpip			= enip.device.TCPIP( 'Test TCP/IP' )
     request			= cpppo.dotdict({'service': 0x01, 'path':{'segment':[{'class':Tcpip.class_id},{'instance':Tcpip.instance_id}]}})
     gaa				= Tcpip.request( request )
-    log.normal( "TCPIP Get Attributes All: %r, data: %s", gaa, enip.enip_format( request ))
+    log.detail( "TCPIP Get Attributes All: %r, data: %s", gaa, enip.enip_format( request ))
     assert request.input == b'\x81\x00\x00\x00\x02\x00\x00\x00\x30\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00'
 
 
@@ -3669,11 +3679,12 @@ def test_enip_Logix_request():
     with Obj.parser as machine:
         for m,w in machine.run( source=source, data=data ):
             pass
-    log.normal( "Logix Request parsed: %s", enip.enip_format( data ))
+    log.isEnabledFor( logging.DETAIL ) and log.detail( "Logix Request parsed: %s", enip.enip_format( data ))
 
     # If we ask a Logix Object to process the request, it should respond.
     proceed			= Obj.request( data )
-    log.normal("Logix Request processed: %s (proceed == %s)", enip.enip_format( data ), proceed )
+    log.isEnabledFor( logging.DETAIL ) and log.detail(
+        "Logix Request processed: %s (proceed == %s)", enip.enip_format( data ), proceed )
 
 
 # Run the bench-test.  Sends some request from a bunch of clients to a server, testing responses
@@ -3722,7 +3733,8 @@ def enip_cli( number, tests=None ):
             errors		= 0
             data		= cpppo.dotdict()
 
-            log.normal( "EtherNet/IP Client %3d req.: %5d: %s ", number, len( req ), repr( req ))
+            log.isEnabledFor( logging.DETAIL ) and log.detail(
+                "EtherNet/IP Client %3d req.: %5d: %s ", number, len( req ), repr( req ))
 
             # Await response, sending request in chunks using inter-block chardelay if output
             # remains, otherwise await response using draindelay.  Stop if EOF from server.  For
@@ -3739,7 +3751,8 @@ def enip_cli( number, tests=None ):
                                     number ))
                             errors += 1
                         out	= min( len( req ), random.randrange( *charrange ))
-                        log.detail( "EtherNet/IP Client %3d send: %5d/%5d: %s", number, out, len( req ),
+                        log.isEnabledFor( logging.DETAIL ) and log.detail(
+                            "EtherNet/IP Client %3d send: %5d/%5d: %s", number, out, len( req ),
                                     repr( req[:out] ))
                         conn.send( req[:out] )
                         req	= req[out:]
@@ -3757,7 +3770,8 @@ def enip_cli( number, tests=None ):
                                         number, draindelay ))
                             break
                     else:
-                        log.detail( "EtherNet/IP Client %3d recv: %5d: %s", number, len( rcvd ),
+                        log.isEnabledFor( logging.DETAIL ) and log.detail(
+                            "EtherNet/IP Client %3d recv: %5d: %s", number, len( rcvd ),
                                     repr( rcvd ) if len( rcvd ) else "EOF" )
                         eof		= not len( rcvd )
                         rpy	       += rcvd
@@ -3765,16 +3779,19 @@ def enip_cli( number, tests=None ):
                         # New data; keep running machine's engine (a generator)
                         source.chain( rcvd )
                         for mch,sta in engine:
-                            log.detail("EtherNet/IP Client %3d rpy.: %s -> %10.10s; next byte %3d: %-10.10r: %s",
-                                       number, machine.name_centered(), sta, source.sent, source.peek(), cpppo.reprlib.repr( data ))
+                            log.isEnabledFor( logging.INFO ) and log.info(
+                                "EtherNet/IP Client %3d rpy.: %s -> %10.10s; next byte %3d: %-10.10r: %s",
+                                number, machine.name_centered(), sta, source.sent, source.peek(), cpppo.reprlib.repr( data ))
 
                 # Parsed response should be in data.
                 assert machine.terminal, \
                     "%3d client failed to decode EtherNet/IP response: %r\ndata: %s" % (
                         number, rpy, enip.parser.enip_format( data ))
 
-            log.detail( "EtherNet/IP Client %3d rpy.: %5d: %s ", number, len( rpy ), repr( rpy ))
-            log.normal( "EtherNet/IP Client %3d rpy.: %s", number, enip.parser.enip_format( data ))
+            log.isEnabledFor( logging.DETAIL ) and log.detail(
+                "EtherNet/IP Client %3d rpy.: %5d: %s ", number, len( rpy ), repr( rpy ))
+            log.isEnabledFor( logging.INFO ) and log.info(
+                "EtherNet/IP Client %3d rpy.: %s", number, enip.parser.enip_format( data ))
 
             # Successfully sent request and parsed response; can continue; test req/rpy parsed data
             for k,v in tst.items():
@@ -3822,6 +3839,7 @@ enip_svr_kwds_basic		= {
         }),
     },
 }
+
 
 def enip_bench_basic():
     failed			= cpppo.server.network.bench( server_func=enip_main,

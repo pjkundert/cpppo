@@ -693,10 +693,10 @@ def parse_ip_port( netloc, default=(None,None) ):
         addr,port	= ast.literal_eval( netloc )
         assert isinstance( addr, type_str_base ) and isinstance( port, (int, type(None)) )
         try:
-            addr	= ip( parsed.hostname )
+            addr	= ip( addr.hostname )
         except:
             pass
-    except Exception as exc:
+    except Exception:
         try:
             # Raw IPv{4,6} address, eg "1.2.3.4", "::1"
             addr		= ip( netloc )

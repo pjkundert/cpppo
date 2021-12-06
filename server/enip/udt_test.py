@@ -112,13 +112,13 @@ def parse_check_tag_records( tagdata, tagname, tagtype ):
         out			= parser.produce( record )
         encoded			= out == rec
         if encoded:
-            log.detail( "{tagname}[{i}] ENCODING MATCHES (STRUCT_typed)".format( tagname=tagname, i=i ))
+            log.info( "{tagname}[{i}] ENCODING MATCHES (STRUCT_typed)".format( tagname=tagname, i=i ))
         else:
             out_dump		= misc.hexdump( out, length=8 )
             rec_dump		= misc.hexdump( rec, length=8 )
             rec_vs_out		= misc.hexdump_differs(
                 rec_dump, out_dump, inclusive=log.isEnabledFor( logging.DETAIL ) )
-            log.normal( "{tagname}[{i}] ENCODING DIFFERS (STRUCT_typed):\n{rec_vs_out}\n".format(
+            log.detail( "{tagname}[{i}] ENCODING DIFFERS (STRUCT_typed):\n{rec_vs_out}\n".format(
                 tagname=tagname, i=i, rec_vs_out=rec_vs_out ))
 
         tagrecords.append( record )

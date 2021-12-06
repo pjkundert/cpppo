@@ -1625,7 +1625,7 @@ Disallow: /
                 cf_ip		= cf_ip.split( ',' )[-1].strip()
             cf_country		= environ.get( 'HTTP_CF_IPCOUNTRY' )
 
-            ip,port		= environ.get( 'REMOTE_ADDR' ),environ.get( 'REMOTE_PORT' )
+            #ip,port		= environ.get( 'REMOTE_ADDR' ),environ.get( 'REMOTE_PORT' )
             if cf_ip:
                 environ['REMOTE_ADDR'] = cf_ip
             if cf_country:
