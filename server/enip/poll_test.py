@@ -206,7 +206,7 @@ def test_powerflex_poll_failure():
         failed			= {} # { <time>: <exc> }
 
         control			= dotdict()
-        control.done		= False
+        control['done']		= False
 
         for _ in range( 3 ):
             server		= threading.Thread(
@@ -304,7 +304,7 @@ def test_powerflex_poll_routing( simulated_powerflex_gateway ):
         }
     
     control			= apidict( timeout=1.0 )
-    control.done		= False
+    control['done']		= False
     for _ in range( 3 ):
         clogix		= threading.Thread(
             target=enip_main,
@@ -327,11 +327,13 @@ def test_powerflex_poll_routing( simulated_powerflex_gateway ):
 
     class powerflex_routed( proxy ):
         PARAMETERS		= powerflex_750_series.PARAMETERS
-
-    with powerflex_routed( host=address[0], route_path="1/1" ) as via:
-        (freq,), = via.read( via.parameter_substitution( 'Output Frequency' ))
-    logging.normal( "Output Frequency == {}".format( freq ))
-    assert near( freq, 456.78 )        
+    try:
+        with powerflex_routed( host=address[0], route_path="1/1" ) as via:
+            (freq,), = via.read( via.parameter_substitution( 'Output Frequency' ))
+            logging.normal( "Output Frequency == {}".format( freq ))
+        assert near( freq, 456.78 )
+    finally:
+        control.done		= True
 
     
 # 

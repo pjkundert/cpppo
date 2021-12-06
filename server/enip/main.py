@@ -1065,12 +1065,6 @@ def main( argv=None, attribute_class=device.Attribute, attribute_kwds=None,
     srv_ctl.control['disable']	= False
     srv_ctl.control.setdefault( 'latency', defaults.latency )
 
-    # Hook SIGTERM up to shut down the server (if not already set up or ignored).  The apidict will block
-    # unless we 
-    if signal.getsignal( signal.SIGTERM ) is signal.SIG_DFL:
-        shutdown_handler = lambda signum, frame: srv_ctl.control.__setitem__( 'done', True )
-        signal.signal( signal.SIGTERM, shutdown_handler )
-
     # Global options data.  Copy any remaining keyword args supplied to main().  This could
     # include an alternative enip_process, for example, instead of defaulting to logix.process.
     options.update( kwds )
@@ -1289,7 +1283,7 @@ def main( argv=None, attribute_class=device.Attribute, attribute_kwds=None,
     # .disable) are also passed as the server= keyword.  We are using an cpppo.apidict with a long
     # timeout; this will block the web API for several seconds to allow all threads to respond to
     # the signals delivered via the web API.
-    log.normal( "EtherNet/IP Simulator: %r" % ( bind, ))
+    log.normal( "EtherNet/IP Simulator: {!r}".format( bind ))
     kwargs			= dict( options, latency=defaults.latency, size=args.size, tags=tags, server=srv_ctl )
 
     tf				= network.server_thread
@@ -1298,21 +1292,25 @@ def main( argv=None, attribute_class=device.Attribute, attribute_kwds=None,
         tf			= network.server_thread_profiling
         tf_kwds['filename']	= args.profile
 
-    disabled			= False	# Recognize toggling between en/disabled
-    while not srv_ctl.control.done:
-        if not srv_ctl.control.disable:
-            if disabled:
-                log.detail( "EtherNet/IP Server enabled" )
-                disabled= False
-            log.debug( "Starting server on {bind}, with {idle_count} idle services".format(
-                    bind=bind, idle_count=len( idle_service )))
-            network.server_main( address=bind, address_output=args.address_output, target=enip_srv, kwargs=kwargs,
-                                 idle_service=lambda: list( map( lambda f: f(), idle_service )),
-                                 udp=args.udp, tcp=args.tcp, thread_factory=tf, **tf_kwds )
-        else:
-            if not disabled:
-                log.detail( "EtherNet/IP Server disabled" )
-                disabled= True
-            time.sleep( defaults.latency )            # Still disabled; wait a bit
-
+    try:
+        disabled		= False	# Recognize toggling between en/disabled
+        while not srv_ctl.control.done:
+            if not srv_ctl.control.disable:
+                if disabled:
+                    log.detail( "EtherNet/IP Server enabled" )
+                    disabled= False
+                log.debug( "Starting server on {bind}, with {idle_count} idle services".format(
+                        bind=bind, idle_count=len( idle_service )))
+                network.server_main( address=bind, address_output=args.address_output, target=enip_srv, kwargs=kwargs,
+                                     idle_service=lambda: list( map( lambda f: f(), idle_service )),
+                                     udp=args.udp, tcp=args.tcp, thread_factory=tf, **tf_kwds )
+            else:
+                if not disabled:
+                    log.detail( "EtherNet/IP Server disabled" )
+                    disabled= True
+                time.sleep( defaults.latency )            # Still disabled; wait a bit
+    except Exception as exc:
+        log.normal( "EtherNet/IP Simulator: {!r} failed: {}.".format( bind, exc ))
+        raise
+    log.normal( "EtherNet/IP Simulator: {!r} exit".format( bind ))
     return 0
