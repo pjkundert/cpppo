@@ -173,7 +173,6 @@ def test_logix_multiple():
     for description,original,produced,parsed,result,response in GA_tests:
         request			= cpppo.dotdict( original )
 
-        log.warning( "%s; request: %s", description, enip.enip_format( request ))
         encoded			= Obj.produce( request )
         assert encoded == produced, "%s: Didn't produce correct encoded request: %r != %r" % (
             description, encoded, produced )
@@ -192,7 +191,6 @@ def test_logix_multiple():
         # are filtered from Get Attributes All; only a 2-element DINT array and a single REAL should
         # be produced)
         Obj.request( request )
-        logging.warning("%s: reply:   %s", description, enip.enip_format( request ))
         for k,v in cpppo.dotdict( result ).items():
             assert k in request and request[k] == v, \
                 "%s: Didn't result in expected response: %s != %r; got %r" % (
@@ -429,7 +427,7 @@ def test_logix_multiple():
     with Obj.parser as machine:
         for i,(m,s) in enumerate( machine.run( source=source, data=data )):
             pass
-    log.normal( "Multiple Request: %s", enip.enip_format( data ))
+    log.isEnabledFor( logging.DETAIL ) and log.detail( "Multiple Request: %s", enip.enip_format( data ))
     assert 'multiple' in data, \
         "No parsed multiple found in data: %s" % enip.enip_format( data )
     assert data.service == enip.device.Message_Router.MULTIPLE_REQ, \
@@ -442,7 +440,7 @@ def test_logix_multiple():
 
     # Process the request into a reply.
     Obj.request( data )
-    log.normal( "Multiple Response: %s", enip.enip_format( data ))
+    log.isEnabledFor( logging.DETAIL ) and log.detail( "Multiple Response: %s", enip.enip_format( data ))
     assert data.service == enip.device.Message_Router.MULTIPLE_RPY, \
         "Expected a Multiple Request Service reply: %s" % enip.enip_format( data )
 
@@ -599,13 +597,13 @@ def logix_test_once( obj, req ):
     with obj.parser as machine:
         for m,s in machine.run( source=req_source, data=req_data ):
             pass
-    if log.isEnabledFor( logging.NORMAL ):
-        log.normal( "Logix Request parsed: %s", enip.enip_format( req_data ))
+    log.isEnabledFor( logging.DETAIL ) and log.detail(
+        "Logix Request parsed: %s", enip.enip_format( req_data ))
 
     # If we ask a Logix Object to process the request, it should respond.
     processed			= obj.request( req_data )
-    if log.isEnabledFor( logging.NORMAL ):
-        log.normal( "Logix Request processed: %s", enip.enip_format( req_data ))
+    log.isEnabledFor( logging.DETAIL ) and log.detail(
+        "Logix Request processed: %s", enip.enip_format( req_data ))
 
     # And, the same object should be able to parse the request's generated reply
     rpy_source			= cpppo.peekable( bytes( req_data.input ))
@@ -616,8 +614,8 @@ def logix_test_once( obj, req ):
                 log.info( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r", m.name_centered(),
                           i, s, rpy_source.sent, rpy_source.peek(), rpy_data )
 
-    if log.isEnabledFor( logging.NORMAL ):
-        log.normal( "Logix Reply   processed: %s", enip.enip_format( rpy_data ))
+    log.isEnabledFor( logging.DETAIL ) and log.detail(
+        "Logix Reply   processed: %s", enip.enip_format( rpy_data ))
 
     return processed,req_data,rpy_data
 

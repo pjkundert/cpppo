@@ -48,7 +48,7 @@ def start_hart_simulator( *options ):
 
     """
     return start_simulator(
-        os.path.abspath( __file__ ), '-a', ':0', '-A', '-p', '-v', '--no-udp',
+        os.path.abspath( __file__ ), '-a', 'localhost:0', '-A', '-p', '--no-udp', '-v',
         *options
     )
 
@@ -122,7 +122,7 @@ def test_hart_simple( simulated_hart_gateway ):
             failures		= 0
             for idx,dsc,req,rpy,sts,val in hio.pipeline(
                     operations=client.parse_operations( operations, route_path=route_path ), **hart_kwds ):
-                log.normal( "Client %s: %s --> %r: %s", hio, dsc, val, enip.enip_format( rpy ))
+                log.detail( "Client %s: %s --> %r: %s", hio, dsc, val, enip.enip_format( rpy ))
                 if not val:
                     log.warning( "Client %s harvested %d/%d results; failed request: %s",
                                      hio, len( results ), len( operations ), rpy )
@@ -171,7 +171,7 @@ def test_hart_pass_thru_simulated( simulated_hart_gateway ):
             failures		= 0
             for idx,dsc,req,rpy,sts,val in hio.pipeline(
                     operations=client.parse_operations( operations ), **hart_kwds ):
-                log.normal( "Client %s: %s --> %r: %s", hio, dsc, val, enip.enip_format( rpy ))
+                log.detail( "Client %s: %s --> %r: %s", hio, dsc, val, enip.enip_format( rpy ))
                 if not val:
                     log.warning( "Client %s harvested %d/%d results; failed request: %s",
                                      hio, len( results ), len( operations ), rpy )
@@ -319,7 +319,7 @@ def test_hart_pass_thru_poll( simulated_hart_gateway ):
         with hio:
             for idx,dsc,req,rpy,sts,val in hio.pipeline(
                     operations=client.parse_operations( operations ), **hart_kwds ):
-                log.normal( "Client %s: %s --> %r: %s", hio, dsc, val, enip.enip_format( rpy ))
+                log.detail( "Client %s: %s --> %r: %s", hio, dsc, val, enip.enip_format( rpy ))
 
 
         path			= '@0x%X/8' % ( HART.class_id )
@@ -359,7 +359,7 @@ def test_hart_pass_thru_poll( simulated_hart_gateway ):
             value.TV,		= packer.unpack_from( buffer=bytearray( data[15:] ))
             value.FV_units	= data[19]
             value.FV,		= packer.unpack_from( buffer=bytearray( data[20:] ))
-        log.normal( "Read all variables Values: %s, from: %r", enip.enip_format( value ), data )
+        log.detail( "Read all variables Values: %s, from: %r", enip.enip_format( value ), data )
         
         # HART Command 12 gets the 24-character Message
         data			= hart_pass_thru(
@@ -370,7 +370,7 @@ def test_hart_pass_thru_poll( simulated_hart_gateway ):
                 value		= bytes( data ).decode('ascii')
             except:
                 value		= hexdump( data )
-            log.normal( "Read Message: \n%s\nfrom: %r", value, data )
+            log.detail( "Read Message: \n%s\nfrom: %r", value, data )
 
         # HART Command 0 gets the identity
         data			= hart_pass_thru(
@@ -378,7 +378,7 @@ def test_hart_pass_thru_poll( simulated_hart_gateway ):
         value			= None
         if data and len( data ):
             value		= hexdump( data )
-            log.normal( "Read Identity: \n%s\nfrom: %r", value, data )
+            log.detail( "Read Identity: \n%s\nfrom: %r", value, data )
             
         # HART Command 13 gets the Tag
         data			= hart_pass_thru(
@@ -386,7 +386,7 @@ def test_hart_pass_thru_poll( simulated_hart_gateway ):
         value			= None
         if data and len( data ):
             value		= hexdump( data )
-            log.normal( "Read Tag: \n%s\nfrom: %r", value, data )
+            log.detail( "Read Tag: \n%s\nfrom: %r", value, data )
             
     except Exception as exc:
         log.warning( "Test terminated with exception: %s", exc )
@@ -561,25 +561,27 @@ def test_CIP_hart( repeat=1 ):
         source			= cpppo.chainable( pkt )
         with ENIP as machine:
             for i,(m,s) in enumerate( machine.run( source=source, data=data )):
-                log.detail( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r",
-                          machine.name_centered(), i, s, source.sent, source.peek(), data )
+                log.isEnabledFor( logging.INFO ) and log.info(
+                    "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r",
+                    machine.name_centered(), i, s, source.sent, source.peek(), data )
         # In a real protocol implementation, an empty header (EOF with no input at all) is
         # acceptable; it indicates a session closed by the client.
         if not data:
-            log.normal( "EtherNet/IP Request: Empty (session terminated): %s", enip.enip_format( data ))
+            log.isEnabledFor( logging.DETAIL ) and log.detail(
+                "EtherNet/IP Request: Empty (session terminated): %s", enip.enip_format( data ))
             continue
 
-        if log.isEnabledFor( logging.NORMAL ):
-            log.normal( "EtherNet/IP Request: %s", enip.enip_format( data ))
+        log.isEnabledFor( logging.DETAIL ) and log.detail(
+            "EtherNet/IP Request: %s", enip.enip_format( data ))
             
         # Parse the encapsulated .input
         with CIP as machine:
             for i,(m,s) in enumerate( machine.run( path='enip', source=cpppo.peekable( data.enip.get( 'input', b'' )), data=data )):
-                log.detail( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r",
+                log.info( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r",
                           machine.name_centered(), i, s, source.sent, source.peek(), data )
 
-        if log.isEnabledFor( logging.NORMAL ):
-            log.normal( "EtherNet/IP CIP Request: %s", enip.enip_format( data ))
+        log.isEnabledFor( logging.DETAIL ) and log.detail(
+            "EtherNet/IP CIP Request: %s", enip.enip_format( data ))
 
         # Assume the request in the CIP's CPF items are HART requests.
         # Now, parse the encapsulated message(s).  We'll assume it is destined for a HART Object.
@@ -589,22 +591,23 @@ def test_CIP_hart( repeat=1 ):
                     # An Unconnected Send that contained an encapsulated request (ie. not just a Get
                     # Attribute All)
                     with MR.parser as machine:
-                        if log.isEnabledFor( logging.NORMAL ):
-                            log.normal( "Parsing %3d bytes using %s.parser, from %s", 
-                                        len( item.unconnected_send.request.input ),
-                                        MR, enip.enip_format( item ))
+                        log.isEnabledFor( logging.INFO ) and log.info(
+                            "Parsing %3d bytes using %s.parser, from %s", 
+                            len( item.unconnected_send.request.input ),
+                            MR, enip.enip_format( item ))
                         # Parse the unconnected_send.request.input octets, putting parsed items into the
                         # same request context
                         for i,(m,s) in enumerate( machine.run(
                                 source=cpppo.peekable( item.unconnected_send.request.input ),
                                 data=item.unconnected_send.request )):
-                            log.detail( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r",
-                                        machine.name_centered(), i, s, source.sent, source.peek(), data )
+                            log.isEnabledFor( logging.INFO ) and log.info(
+                                "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r",
+                                machine.name_centered(), i, s, source.sent, source.peek(), data )
                     # Post-processing of some parsed items is only performed after lock released!
-                    if log.isEnabledFor( logging.NORMAL ):
-                        log.normal( "Parsed  %3d bytes using %s.parser, into %s", 
-                                    len( item.unconnected_send.request.input ),
-                                    MR, enip.enip_format( data ))
+                    log.isEnabledFor( logging.DETAIL ) and log.detail(
+                        "Parsed  %3d bytes using %s.parser, into %s", 
+                        len( item.unconnected_send.request.input ),
+                        MR, enip.enip_format( data ))
         try:
             for k,v in tst.items():
                 assert data[k] == v, ( "data[%r] == %r\n"
@@ -626,7 +629,7 @@ def test_CIP_hart( repeat=1 ):
                 for item in cpf.CPF.item:
                     if 'unconnected_send' in item:
                         item.unconnected_send.request.input	= bytearray( MR.produce( item.unconnected_send.request ))
-                        log.normal("Produce HART message from: %r", item.unconnected_send.request )
+                        log.detail("Produce HART message from: %r", item.unconnected_send.request )
 
             # Next, reconstruct the CIP Register, ListIdentity, ListServices, or SendRRData.  The CIP.produce must
             # be provided the EtherNet/IP header, because it contains data (such as .command)
