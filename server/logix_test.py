@@ -2,6 +2,7 @@ from __future__ import absolute_import
 from __future__ import print_function
 from __future__ import division
 
+import errno
 import logging
 import os
 import pytest
@@ -30,7 +31,6 @@ if __name__ == "__main__":
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
     from cpppo.automata import log_cfg
     logging.basicConfig( **log_cfg )
-    #logging.getLogger().setLevel( logging.INFO )
 
 import cpppo
 from   cpppo.server import enip
@@ -216,7 +216,7 @@ def test_logix_multiple():
     data.read_frag.elements	= 1000
     data.read_frag.offset	= 0
     data.read_frag.max_size	= 500
-    
+
     # Reply maximum size limited
     beg,end,endact,offrem,maxsiz= Obj.reply_elements( Obj_a1, data, 'read_frag' )
     assert beg == 0 and end == 125 and endact == 1000 and offrem == 0 and maxsiz == 500 # DINT == 4 bytes
@@ -357,7 +357,7 @@ def test_logix_multiple():
                                                  for d in [{'symbolic': 'parts'}]] }
     req[0].read_tag		= {}
     req[0].read_tag.elements	= 1
-    
+
     req[1].path			= { 'segment': [ cpppo.dotdict( d )
                                                  for d in [{'symbolic': 'ControlWord'}]] }
     req[1].read_tag		= {}
@@ -387,20 +387,20 @@ def test_logix_multiple():
         0x0A,
         0x02,
         0x20, 0x02, 0x24, 0x01,
-        
+
         0x05, 0x00,
-        
+
         0x0c, 0x00,
         0x18, 0x00,
         0x2a, 0x00,
         0x36, 0x00,
         0x48, 0x00,
-        
+
         0x4C,
         0x04, 0x91, 0x05, 0x70, 0x61,
         0x72, 0x74, 0x73, 0x00,
         0x01, 0x00,
-        
+
         0x4C,
         0x07, 0x91, 0x0B, 0x43, 0x6F,
         0x6E, 0x74, 0x72, 0x6F, 0x6C,
@@ -419,7 +419,7 @@ def test_logix_multiple():
         0x04, 0x91, 0x06, b'n'[0], b'u'[0], b'm'[0], b'b'[0], b'e'[0], b'r'[0],
         0x01, 0x00,
     ]))
-                       
+
     assert request == req_1, \
         "Unexpected result from Multiple Request Service; got: \n%r\nvs.\n%r " % ( request, req_1 )
 
@@ -496,11 +496,11 @@ def test_logix_multiple():
         0x0A,
         0x02,
         0x20, 0x02, ord('$'), 0x01,
-        
+
         0x01, 0x00,
-        
+
         0x04, 0x00,
-        
+
         0x4C,
         0x07, 0x91, 0x0b, ord('S'), ord('C'),
         ord('A'), ord('D'), ord('A'), ord('_'), ord('4'),
@@ -549,12 +549,12 @@ def test_logix_multiple():
         0x0A,
         0x02,
         0x20, 0x02, ord('$'), 0x01,
-        
+
         0x02, 0x00,
-        
+
         0x06, 0x00,
         0x18, 0x00,
-        
+
         0x4C,
         0x07, 0x91, 0x0b, ord('S'), ord('C'),
         ord('A'), ord('D'), ord('A'), ord('_'), ord('4'),
@@ -601,7 +601,7 @@ def logix_test_once( obj, req ):
             pass
     if log.isEnabledFor( logging.NORMAL ):
         log.normal( "Logix Request parsed: %s", enip.enip_format( req_data ))
-    
+
     # If we ask a Logix Object to process the request, it should respond.
     processed			= obj.request( req_data )
     if log.isEnabledFor( logging.NORMAL ):
@@ -698,42 +698,62 @@ def test_logix_remote_cpppo( count=100 ):
     thread).
 
     """
-    #logging.getLogger().setLevel( logging.NORMAL )
     enip.lookup_reset() # Flush out any existing CIP Objects for a fresh start
-    svraddr		        = ('localhost', 12345)
-    kwargs			= {
-        'argv': [
-            #'-v',
-            #'--log',		'/tmp/logix.log',
-            #'--profile',	'/tmp/logix.prof',
-            '--address',	'%s:%d' % svraddr,
-            'SCADA=INT[1000]'
-        ],
-        'server': {
-            'control': cpppo.apidict( enip.timeout, { 
-                'done': False
-            } ),
-        },
-    }
-    logixthread_kwargs		= {
-        'count':		count,
-        'svraddr':		svraddr,
-        'kwargs':		kwargs
-    }
 
-    log.normal( "test_logix_remote_cpppo w/ server.control in object %s", id( kwargs['server']['control'] ))
-    # This is sort of "inside-out".  This thread will run logix_remote_cpppo, which will signal the
-    # enip_main (via the kwargs.server...) to shut down.  However, to do line-based performance
-    # measurement, we need to be running enip.main in the "Main" thread...
-    logixthread			= threading.Thread( target=logix_remote_cpppo, kwargs=logixthread_kwargs )
-    logixthread.daemon		= True
-    logixthread.start()
-    try:
-        enip_main( **kwargs )
-    finally:
-        kwargs['server']['control'].done= True # Signal the server to terminate
+    for svrport in range( 44818, 44818+10 ):
+        svraddr		        = ('localhost', svrport)
+        kwargs			= {
+            'argv': [
+                #'-v',
+                #'--log',		'/tmp/logix.log',
+                #'--profile',	'/tmp/logix.prof',
+                '--address',	'%s:%d' % svraddr,
+                'SCADA=INT[1000]'
+            ],
+            'server': {
+                'control': cpppo.apidict( enip.timeout, { 
+                    'done': False
+                } ),
+            },
+        }
+        logixthread_kwargs		= {
+            'count':		count,
+            'svraddr':		svraddr,
+            'kwargs':		kwargs
+        }
 
-    logixthread.join()
+        def idle_service():
+            """This is sort of "inside-out".  This thread will run logix_remote, which will signal the
+            enip_main (via the kwargs.server...)  to shut down.  However, to do line-based
+            performance measurement, we need to be running enip.main in the "Main" thread...
+
+            """
+            if idle_service.once:
+                return
+            idle_service.once		= True
+
+            log.normal( "test_logix_remote_cpppo w/ server.control in object %s", id( kwargs['server']['control'] ))
+            idle_service.thrd		= threading.Thread( target=logix_remote_cpppo, kwargs=logixthread_kwargs )
+            idle_service.thrd.daemon	= True
+            idle_service.thrd.start()
+            log.normal( "logix_remote_cpppo running..." )
+        idle_service.once		= False
+        idle_service.thrd		= None
+
+        try:
+            log.normal( "Attempting to start EtherNet/IP CIP server on {}".format( svraddr ))
+            enip_main( idle_service=idle_service, **kwargs )
+        except Exception as exc:
+            assert isinstance( exc, OSError ) and exc.errno == errno.EADDRINUSE, \
+                "Failed to start EtherNet/IP CIP server on {}; failing: {!r}".format( svraddr, exc )
+            log.warning( "Failed to start EtherNet/IP CIP server on {} due to port in use; trying again: {!r}".format( svraddr, exc ))
+        else:
+            log.normal( "Controlled shutdown of EtherNet/IP CIP server on {}; test complete".format( svraddr ))
+            idle_service.thrd.join()
+            log.normal( "Shutdown of client complete" )
+            break
+
+    log.normal( "Shutdown of server complete" )
 
 
 def logix_remote_cpppo( count, svraddr, kwargs ):
@@ -755,7 +775,7 @@ def logix_remote_cpppo( count, svraddr, kwargs ):
     data.enip.input		= bytearray( enip.CIP.produce( data.enip ))
     data.input			= bytearray( enip.enip_encode( data.enip ))
     log.normal( "Register Request: %r" % data )
-    
+
     assert bytes( data.input ) == rss_004_request
 
     # Try to Register a real session, followed by commands
@@ -802,82 +822,102 @@ def test_logix_remote_pylogix( count=100 ):
     thread).  Only connects on the standard port.
 
     """
-    #logging.getLogger().setLevel( logging.NORMAL )
     enip.lookup_reset() # Flush out any existing CIP Objects for a fresh start
-    svraddr		        = ('localhost', 44828)
-    kwargs			= {
-        'argv': [
-            #'-v',
-            #'--log',		'/tmp/pylogix.log',
-            #'--profile',	'/tmp/plogix.prof',
-            '--address',	'%s:%d' % svraddr,
-            'SCADA=INT[1000]'
-        ],
-        'server': {
-            'control': cpppo.apidict( enip.timeout, { 
-                'done': False
-            } ),
-        },
-    }
-    logixthread_kwargs		= {
-        'count':		count,
-        'svraddr':		svraddr,
-        'kwargs':		kwargs
-    }
 
-    log.normal( "test_logix_remote_pylogix w/ server.control in object %s", id( kwargs['server']['control'] ))
-    # This is sort of "inside-out".  This thread will run logix_remote, which will signal the
-    # enip_main (via the kwargs.server...) to shut down.  However, to do line-based performance
-    # measurement, we need to be running enip.main in the "Main" thread...
-    logixthread			= threading.Thread( target=logix_remote_pylogix, kwargs=logixthread_kwargs )
-    logixthread.daemon		= True
-    logixthread.start()
+    for svrport in range( 44818, 44818+10 ):
+        svraddr		        = ('localhost', svrport)
+        kwargs			= {
+            'argv': [
+                #'-v',
+                #'--log',		'/tmp/pylogix.log',
+                #'--profile',	'/tmp/plogix.prof',
+                '--address',	'%s:%d' % svraddr,
+                'SCADA=INT[1000]'
+            ],
+            'server': {
+                'control': cpppo.apidict( enip.timeout, { 
+                    'done': False
+                } ),
+            },
+        }
+        logixthread_kwargs	= {
+            'count':		count,
+            'svraddr':		svraddr,
+            'kwargs':		kwargs
+        }
 
-    try:
-        enip_main( **kwargs )
-    finally:
-        kwargs['server']['control'].done = True # Signal the server to terminate
+        def idle_service():
+            """This is sort of "inside-out".  This thread will run logix_remote, which will signal the
+            enip_main (via the kwargs.server...)  to shut down.  However, to do line-based
+            performance measurement, we need to be running enip.main in the "Main" thread...
 
-    logixthread.join()
+            """
+            if idle_service.once:
+                return
+            idle_service.once		= True
+
+            log.normal( "test_logix_remote_pylogix w/ server.control in object %s", id( kwargs['server']['control'] ))
+            idle_service.thrd		= threading.Thread( target=logix_remote_pylogix, kwargs=logixthread_kwargs )
+            idle_service.thrd.daemon	= True
+            idle_service.thrd.start()
+            log.normal( "logix_remote_pylogix running..." )
+        idle_service.once		= False
+        idle_service.thrd		= None
+
+        # Finally, try to start the EtherNet/IP CIP server in the main thread.  Only if the port can be bound and
+        # everything starts up, will idle_service be called.
+        try:
+            log.normal( "Attempting to start EtherNet/IP CIP server on {}".format( svraddr ))
+            enip_main( idle_service=idle_service, **kwargs )
+        except Exception as exc:
+            assert isinstance( exc, OSError ) and exc.errno == errno.EADDRINUSE, \
+                "Failed to start EtherNet/IP CIP server on {}; failing: {!r}".format( svraddr, exc )
+            log.warning( "Failed to start EtherNet/IP CIP server on {} due to port in use; trying again: {!r}".format( svraddr, exc ))
+        else:
+            log.normal( "Controlled shutdown of EtherNet/IP CIP server on {}; test complete".format( svraddr ))
+            idle_service.thrd.join()
+            log.normal( "Shutdown of client complete" )
+            break
+
     log.normal( "Shutdown of server complete" )
 
 
 def logix_remote_pylogix( count, svraddr, kwargs ):
-  try:
-    time.sleep(.25) # Wait for server to be established
+    try:
+        # Try to Register a real session, followed by commands
+        timeout			= 5
 
-    # Try to Register a real session, followed by commands
-    timeout			= 5
+        with pylogix.PLC() as comm:
+            comm.SocketTimeout	= timeout
+            comm.IPAddress	= svraddr[0]
+            comm.ConnectionSize	= 4000
 
-    with pylogix.PLC() as comm:
-        comm.SocketTimeout	= timeout
-        comm.IPAddress		= svraddr[0]
-        comm.ConnectionSize	= 4000
+            comm.conn.Port	= int( svraddr[1] )
 
-        comm.conn.Port		= int( svraddr[1] )
-
-        # CIP Register, Forward Open
-        start			= cpppo.timer()
-        conn			= comm.conn.connect()
-        #assert not conn[0], "Failed to connect via pylogix"
-        elapsed			= cpppo.timer() - start
-        log.normal( "Client Register Rcvd %7.3f/%7.3fs: %r", elapsed, timeout, conn )
-
-        # count x Logix Read Tag [Fragmented] 201-element reads, starting at element 12
-        start			= cpppo.timer()
-        for _ in range( count ):
-            reply		= comm.Read( 'SCADA[12]', 201 )
+            # CIP Register, Forward Open
+            start		= cpppo.timer()
+            conn		= comm.conn.connect()
+            #assert not conn[0], "Failed to connect via pylogix"
             elapsed		= cpppo.timer() - start
-            data		= reply.Value
-            log.detail( "Client ReadFrg. Rcvd %7.3f/%7.3fs: %s", elapsed, timeout, reprlib.repr( data ))
+            log.normal( "Client Register Rcvd %7.3f/%7.3fs: %r", elapsed, timeout, conn )
 
-        duration		= cpppo.timer() - start
-        log.warning( "Client ReadFrg. Average %7.3f TPS (%7.3fs ea)." % ( count / duration, duration / count ))
+            # count x Logix Read Tag [Fragmented] 201-element reads, starting at element 12
+            start		= cpppo.timer()
+            for _ in range( count ):
+                if kwargs['server']['control'].done:
+                    break
+                reply		= comm.Read( 'SCADA[12]', 201 )
+                elapsed		= cpppo.timer() - start
+                data		= reply.Value
+                log.detail( "Client ReadFrg. Rcvd %7.3f/%7.3fs: %s", elapsed, timeout, reprlib.repr( data ))
 
-    log.normal( "Signal shutdown w/ server.control in object %s", id( kwargs['server']['control'] ))
-  finally:
-    kwargs['server']['control'].done= True # Signal the server to terminate
-    log.normal( "Signalling shutdown server complete" )
+            duration		= cpppo.timer() - start
+            log.warning( "Client ReadFrg. Average %7.3f TPS (%7.3fs ea)." % ( count / duration, duration / count ))
+
+        log.normal( "Signal shutdown w/ server.control in object %s", id( kwargs['server']['control'] ))
+    finally:
+        kwargs['server']['control'].done= True # Signal the server to terminate
+        log.normal( "Signalling shutdown server complete" )
 
 
 if __name__ == "__main__":
@@ -910,7 +950,7 @@ if __name__ == "__main__":
 
     print('\n\nSORTED BY TOT TIME')
     yappi.print_stats( sys.stdout, sort_type=yappi.SORTTYPE_TTOT, limit=100 )
-    
+
     print('\n\nSORTED BY SUB TIME')
     yappi.print_stats( sys.stdout, sort_type=yappi.SORTTYPE_TSUB, limit=100 )
     '''

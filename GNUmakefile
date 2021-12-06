@@ -41,7 +41,7 @@ VERSION=$(shell $(PY3) -c 'exec(open("version.py").read()); print( __version__ )
 TZ=Canada/Mountain
 
 # To see all pytest output, uncomment --capture=no
-PYTESTOPTS=-v # --capture=no -vv --log-cli-level=INFO
+PYTESTOPTS=-vv # --capture=no --log-cli-level=35 # INFO
 
 PY_TEST=TZ=$(TZ) $(PY)  -m pytest $(PYTESTOPTS)
 PY2TEST=TZ=$(TZ) $(PY2) -m pytest $(PYTESTOPTS)
