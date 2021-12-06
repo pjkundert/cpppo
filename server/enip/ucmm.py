@@ -118,7 +118,9 @@ class UCMM( device.Object ):
         # any locally specified mappings.  Then, convert all "<port>/<link>" keys to tuples, and all
         # "<ip>[:<port>]" to tuples.
         route			= self.config_json( "Route", '{}' )
-        route.update( self.route )
+        route.update( self.route )	# route defaults from UCMM class
+        if 'route' in kwds:		# and any route from keyword parameters
+            route.update( kwds.pop( 'route' ))
         self.route		= { "{port}/{link}".format( **device.port_link( pl )): addr_port( ap )
                                     for pl,ap in port_link_expand( route.items() ) }
         if self.route:

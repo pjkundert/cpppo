@@ -11,7 +11,7 @@ import logging
 import random
 import sys
 
-import misc
+from . import misc
 
 
 log = logging.getLogger( "crypto" )
@@ -24,13 +24,13 @@ except:
     pass
 
 try: # The Python-only bindings from dholth/ed25519ll
-    from crypto import ed25519ll as ed25519_pyonly
+    from .crypto import ed25519ll as ed25519_pyonly
     ed25519_mods.append(("Python-only from dholth", ed25519_pyonly))
 except:
     pass
 
 try: # https://ed25519.cr.yp.to/python/ed25519.py (w/ Python3 udpates)
-    from crypto import ed25519 as ed25519_djb
+    from .crypto import ed25519 as ed25519_djb
     ed25519_mods.append(("Daniel J. Bernstein's Reference", ed25519_djb))
 except:
     pass

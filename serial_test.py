@@ -122,7 +122,7 @@ def simulated_modbus_rtu( tty ):
     expects certain delays before/after requests.
 
     """
-    return start_modbus_simulator( options=[
+    return start_modbus_simulator(
         '-vvv', '--log', '.'.join( [
             'serial_test', 'modbus_sim', 'log', os.path.basename( tty )] ),
         '--evil', 'delay:.01-.1',
@@ -139,7 +139,7 @@ def simulated_modbus_rtu( tty ):
             'timeout':  RTU_TIMEOUT, # TODO: implement meaningfully; basically ignored
             'ignore_missing_slaves': True,
         } )
-    ] )
+    )
 
 
 @pytest.fixture( scope="module" )

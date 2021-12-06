@@ -173,8 +173,12 @@ def test_parse_ip_port():
         "2605:2700:0:3::4713:93e3":	( ip("2605:2700:0:3::4713:93e3"),	None ),
         "[2605:2700:0:3::4713:93e3]:80":( ip("2605:2700:0:3::4713:93e3"),	80),
         "boogaloo.cash:443":		( "boogaloo.cash",			443 ),
+        "('host', None)":		( "host",				None ),
+        "('host', 443)":		( "host",				443 ),
     }.items():
-        assert parse_ip_port( t ) == (a,p)
+        r			= parse_ip_port( t )
+        assert r == (a,p), \
+            "Expected {t} == {e!r}; got {r!r}".format( t=t, e=(a,p), r=r )
 
     for t,(a,p) in {
         "127.0.0.1":			( ip("127.0.0.1"),			123 ),
@@ -185,14 +189,22 @@ def test_parse_ip_port():
         "2605:2700:0:3::4713:93e3":	( ip("2605:2700:0:3::4713:93e3"),	123 ),
         "[2605:2700:0:3::4713:93e3]:80":( ip("2605:2700:0:3::4713:93e3"),	80),
         "boogaloo.cash:443":		( "boogaloo.cash",			443 ),
+        "('host', None)":		( "host",				123 ),
+        "('host', 443)":		( "host",				443 ),
     }.items():
-        assert parse_ip_port( t, default=(None,123) ) == (a,p)
+        r			= parse_ip_port( t, default=(None,123) ) 
+        assert r == (a,p), \
+            "Expected {t} == {e!r}; got {r!r}".format( t=t, e=(a,p), r=r )
 
     assert parse_ip_port( ":11", default=('',456)) == ('',11)
     assert parse_ip_port( ":11", default=('boo',456)) == ('boo',11)
     assert parse_ip_port( "", default=('',456)) == ('',456)
 
+    assert parse_ip_port( "('host', None)", default=('',456)) == ('host',456)
+
+
     assert str( network( "192.168.1.0/24" ).broadcast_address ) == "192.168.1.255"
+
 
 def test_hexdump():
     vals		= b'\x01\x02\x03'

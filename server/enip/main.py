@@ -942,7 +942,9 @@ def main( argv=None, attribute_class=device.Attribute, attribute_kwds=None,
     ap.add_argument( '-v', '--verbose', action="count",
                      default=0, 
                      help="Display logging information." )
-    ap.add_argument( '-c', '--config', action='append',
+    ap.add_argument( '-b', '--config-basename', # defaults to None
+                     help="Specify a configuration file <basename>.cfg (default: cpppo)" )
+    ap.add_argument( '-c', '--config', action='append', # defaults to None
                      help="Add another (higher priority) config file path." )
     ap.add_argument( '--no-config', action='store_true',
                      default=False, 
@@ -1033,9 +1035,18 @@ def main( argv=None, attribute_class=device.Attribute, attribute_kwds=None,
     if args.verbose:
         logging.getLogger().setLevel( log_cfg['level'] )
 
+    # If an alternative basename was supplied, we will re-compute the defaults.config_files to
+    # reflect it.  Thus, a program that uses cpppo.server.enip.main:main can specify
+    # program-specific configuration files (instead of loading the default cpppo.cfg).  The
+    # alternative is to simply add one or more program-specific configuration file path(s) to the
+    # end of defaults.config; they will be loaded last, hence overriding any configurations loaded
+    # in any default cpppo.cfg file(s) found.
+    if args.config_basename:
+        defaults.config_name	= defaults.deduce_name( basename=args.config_basename, extension='cfg' )
+
     # Load config file(s), if not disabled, into the device.Object class-level 'config_loader'.
     if not args.no_config:
-        loaded			= device.Object.config_loader.read( defaults.config_files + ( args.config or [] ) )
+        loaded			= device.Object.config_loader.read( defaults.config_files + ( args.config or [] ))
         log.normal( "Loaded config files: %r", loaded )
 
     # Pull out a 'server.control...' supplied in the keywords, and make certain it's a
@@ -1053,6 +1064,12 @@ def main( argv=None, attribute_class=device.Attribute, attribute_kwds=None,
     srv_ctl.control['done']	= False
     srv_ctl.control['disable']	= False
     srv_ctl.control.setdefault( 'latency', defaults.latency )
+
+    # Hook SIGTERM up to shut down the server (if not already set up or ignored).  The apidict will block
+    # unless we 
+    if signal.getsignal( signal.SIGTERM ) is signal.SIG_DFL:
+        shutdown_handler = lambda signum, frame: srv_ctl.control.__setitem__( 'done', True )
+        signal.signal( signal.SIGTERM, shutdown_handler )
 
     # Global options data.  Copy any remaining keyword args supplied to main().  This could
     # include an alternative enip_process, for example, instead of defaulting to logix.process.

@@ -9,7 +9,6 @@ import contextlib
 import json
 import logging
 import os
-import platform
 import pytest
 import random
 import socket

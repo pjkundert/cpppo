@@ -1373,7 +1373,7 @@ tag_tests			= [
     )
 ]
 
-def test_enip_Logix():
+def test_enip_Logix_tags():
     enip.lookup_reset() # Flush out any existing CIP Objects for a fresh start
     logix.Logix( instance_id=1 )
 
@@ -3642,7 +3642,7 @@ def test_enip_device():
     assert request.input == b'\x81\x00\x00\x00\x02\x00\x00\x00\x30\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00'
 
 
-def test_enip_logix():
+def test_enip_Logix_request():
     """The logix module implements some features of a Logix Controller."""
     enip.lookup_reset() # Flush out any existing CIP Objects for a fresh start
 
@@ -3907,6 +3907,8 @@ def enip_bench_logix():
 
     return failed
 
+@pytest.mark.skipif( platform.system() == "Darwin" and sys.version_info[0] >= 3,
+                     reason="No Python3 support for pickling Rlock on Mac" )
 def test_enip_bench_logix():
     assert not enip_bench_logix(), "One or more enip_bench_logix clients reported failure"
 
@@ -3944,7 +3946,6 @@ def enip_cli_pylogix( number, tests=None ):
 
     testval( tags, results )
 
-
 def enip_bench_pylogix():
     failed			= cpppo.server.network.bench( server_func=enip_main,
                                                               server_kwds=enip_svr_kwds_logix,
@@ -3960,7 +3961,8 @@ def enip_bench_pylogix():
     return failed
 
 
-@pytest.mark.skipif( not has_pylogix, reason="Needs pylogix" )
+@pytest.mark.skipif( not has_pylogix or ( platform.system() == "Darwin" and sys.version_info[0] >= 3 ),
+                     reason="No Python3 support for pickling Rlock on Mac" if has_pylogix else "Needs pylogix")
 def test_enip_bench_pylogix():
     assert not enip_bench_pylogix(), "One or more enip_bench_pylogix clients reported failure"
     

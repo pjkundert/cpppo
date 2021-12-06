@@ -78,9 +78,18 @@ import threading
 import time
 import traceback
 
-import cpppo
-
 from . import defaults, parser, device, client
+from ...automata import type_str_base, is_listlike, peekable, log_cfg
+from ...misc import timer, parse_ip_port
+from ...dotdict import dotdict
+
+# Optional support for polling via pylogix.PLC, via proxy_pylogix
+try:
+    import pylogix
+    from pylogix.eip import parse_tag_name
+    from pylogix.lgx_response import Response, cip_error_codes
+except ImportError:
+    pass
 
 log				= logging.getLogger( "enip.get" )
 
@@ -221,14 +230,14 @@ class proxy( object ):
         Default to use the class' PARAMETERS, and default pass_thru to True.
 
         """
-        if isinstance( iterable, cpppo.type_str_base ):
+        if isinstance( iterable, type_str_base ):
             iterable		= [ iterable ]
         if parameters is None:
             parameters		= self.PARAMETERS
         if pass_thru is None:
             pass_thru		= True
         for tag in iterable:
-            if isinstance( tag, cpppo.type_str_base ):
+            if isinstance( tag, type_str_base ):
                 # Capture any ... = <value>, to pass w/ substitued attribute address
                 val		= tag.split( '=', 1 )[1] if '=' in tag else None
                 prm 		= tag.split( '=', 1 )[0].strip().lower().replace( ' ', '_' )
@@ -269,8 +278,8 @@ class proxy( object ):
         self.gateway_class	= client.connector if gateway_class is None else gateway_class
         self.gateway		= None
         self.gateway_lock	= threading.Lock()
-        if isinstance( identity_default, cpppo.type_str_base ):
-            identity_default	= cpppo.dotdict( product_name = identity_default )
+        if isinstance( identity_default, type_str_base ):
+            identity_default	= dotdict( product_name = identity_default )
         assert not identity_default or hasattr( identity_default, 'product_name' )
         self.identity_default	= identity_default
         self.identity		= identity_default
@@ -311,15 +320,15 @@ class proxy( object ):
         gateway_class instance and registers a session, and (if necessary) queries the identity of the
         device -- all under the protection of the gateway_lock Mutex.  All gateways must use the 
         same (globally defined) device.dialect, if they specify one."""
-        blocked			= cpppo.timer()
+        blocked			= timer()
         with self.gateway_lock:
             if self.gateway is None:
-                creating	= cpppo.timer()
+                creating	= timer()
                 self.gateway = self.gateway_class(
                     host=self.host, port=self.port, timeout=self.timeout, dialect=self.dialect,
                     **self.gateway_kwds )
                 log.info( "Creating gateway %r connection, after blocking %7.3fs, in %7.3fs",
-                          self.gateway, creating - blocked, cpppo.timer() - creating )
+                          self.gateway, creating - blocked, timer() - creating )
                 if not self.identity:
                     try:
                         rsp,ela = self.list_identity_details()
@@ -328,7 +337,7 @@ class proxy( object ):
                     except Exception as exc:
                         self.close_gateway( exc=exc )
                         raise
-                log.normal( "Opened EtherNet/IP CIP gateway %r, in %7.3fs", self, cpppo.timer() - creating )
+                log.normal( "Opened EtherNet/IP CIP gateway %r, in %7.3fs", self, timer() - creating )
 
     def maintain_gateway( function ):
         """A decorator to open the gateway (if necessary), and discard it on any Exception.  Atomically
@@ -390,18 +399,18 @@ class proxy( object ):
         No validation of the provided <units> is done; it is passed thru unchanged.
         """
         log.detail( "Validating request: %r", req )
-        if isinstance( req, cpppo.type_str_base ):
+        if isinstance( req, type_str_base ):
             return True
-        if cpppo.is_listlike( req ) and 2 <= len( req ) <= 3:
+        if is_listlike( req ) and 2 <= len( req ) <= 3:
             try:
                 add,typ,_	= req
             except ValueError:
                 add,typ		= req
-            if isinstance( add, cpppo.type_str_base ):
-                if isinstance( typ, (cpppo.type_str_base, type) ):
+            if isinstance( add, type_str_base ):
+                if isinstance( typ, (type_str_base, type) ):
                     return True
-                if cpppo.is_listlike( typ ):
-                    if all( isinstance( t, (cpppo.type_str_base, type) ) for t in typ ):
+                if is_listlike( typ ):
+                    if all( isinstance( t, (type_str_base, type) ) for t in typ ):
                         return True
         return False
 
@@ -523,7 +532,7 @@ class proxy( object ):
                 proxy.close_gateway( exc )
 
         """
-        if isinstance( attributes, cpppo.type_str_base ):
+        if isinstance( attributes, type_str_base ):
             attributes		= [ attributes ]
 
         def opp__att_typ_uni( i ):
@@ -541,7 +550,7 @@ class proxy( object ):
                 try:
                     # The attribute description is either a plain Tag, an (address, type), or an
                     # (address, type, description)
-                    if cpppo.is_listlike( a ):
+                    if is_listlike( a ):
                         att,typ,uni = a if len( a ) == 3 else a+(None,)
                     else:
                         att,typ,uni = a,None,None
@@ -560,9 +569,9 @@ class proxy( object ):
                 # provided) to estimate data sizes for Multiple Service Packets.  For
                 # write_tag.../set_attribute..., the data has specified its data type, if not the
                 # default (INT for write_tag, SINT for set_attribute).
-                if typ is not None and not cpppo.is_listlike( typ ) and 'tag_type' not in opp:
+                if typ is not None and not is_listlike( typ ) and 'tag_type' not in opp:
                     t		= typ
-                    if isinstance( typ, cpppo.type_str_base ):
+                    if isinstance( typ, type_str_base ):
                         td	= self.CIP_TYPES.get( t.strip().lower() )
                         if td is not None:
                             t,d	= td
@@ -577,7 +586,7 @@ class proxy( object ):
             user-supplied type (or None) is provided, data-path is None, and the type is passed.
 
             """
-            for t in ( types if cpppo.is_listlike( types ) else [ types ] ):
+            for t in ( types if is_listlike( types ) else [ types ] ):
                 d		= None 		# No data-path, if user-supplied type
                 if isinstance( t, int ):
                     # a CIP type number, eg 0x00ca == 202 ==> 'REAL'.  Look for CIP parsers w/ a
@@ -586,7 +595,7 @@ class proxy( object ):
                         if getattr( t_prs, 'tag_type', None ) == t:
                             t	= t_str
                             break
-                if isinstance( t, cpppo.type_str_base ):
+                if isinstance( t, type_str_base ):
                     td		= self.CIP_TYPES.get( t.strip().lower() )
                     assert td, "Invalid EtherNet/IP CIP type name %r specified" % ( t, )
                     t,d		= td
@@ -610,9 +619,9 @@ class proxy( object ):
         #     "Attempting recursive read on %r" % ( self.gateway.frame, )
         log.info( "Acquiring gateway %r connection: %s", self.gateway,
                   "locked" if self.gateway.frame.lock.locked() else "available" )
-        blocked			= cpppo.timer()
+        blocked			= timer()
         with self.gateway as connection: # waits 'til any Thread's txn. completes
-          polling		= cpppo.timer()
+          polling		= timer()
           try:
             log.info( "Operating gateway %r connection, after blocking %7.3fs", self.gateway, polling - blocked )
             for i,(idx,dsc,req,rpy,sts,val) in enumerate( connection.operate(
@@ -651,14 +660,14 @@ class proxy( object ):
                 # we just want to return data['SSTRING.string'] == "abc"; each recognized CIP type
                 # has a data path which we'll use to extract just the result data.  If a
                 # user-defined type is supplied, of course we'll just return the full result.
-                source		= cpppo.peekable( bytes( bytearray( val ))) # Python2/3 compat.
+                source		= peekable( bytes( bytearray( val ))) # Python2/3 compat.
                 res		= []
-                typ_is_list	= cpppo.is_listlike( typ )
+                typ_is_list	= is_listlike( typ )
                 typ_dat		= list( types_decode( typ ))
                 for t,d in typ_dat:
                     with t() as machine:
                         while source.peek() is not None: # More data available; keep parsing.
-                            data= cpppo.dotdict()
+                            data= dotdict()
                             for m,s in machine.run( source=source, data=data ):
                                 assert not ( s is None and source.peek() is None ), \
                                     "Data exhausted before completing parsing a %s" % ( t.__name__, )
@@ -670,7 +679,7 @@ class proxy( object ):
                 typ_types	= [td[0] for td in typ_dat] if typ_is_list else typ_dat[0][0]
                 yield res,(sts,(att,typ_types,uni))
           finally:
-            log.info( "Releasing gateway %r connection, after polling  %7.3fs", self.gateway, cpppo.timer() - polling )
+            log.info( "Releasing gateway %r connection, after polling  %7.3fs", self.gateway, timer() - polling )
 
     # Supply "Tag = <value>" to perform a write.
     write = read
@@ -725,6 +734,153 @@ class proxy_connected( proxy ):
             **kwds )
         self.route_path		= False
         self.send_path		= ''
+
+
+class proxy_pylogix( object ):
+    """Serializes access to an underlying pylogix.PLC() communication channel, adequate
+    for cpppo.server.enip.poll's run( via=... )"""
+
+    CIP_TYPE_NUMS		= {
+        parser.REAL.tag_type:	( parser.REAL,	"REAL" ),
+        parser.SINT.tag_type:	( parser.SINT,	"SINT" ),
+        parser.USINT.tag_type:	( parser.USINT,	"USINT" ),
+        parser.INT.tag_type:	( parser.INT,	"INT" ),
+        parser.UINT.tag_type:	( parser.UINT,	"UINT" ),
+        parser.DINT.tag_type:	( parser.DINT,	"DINT" ),
+        parser.UDINT.tag_type:	( parser.UDINT,	"UDINT" ),
+        parser.BOOL.tag_type:	( parser.BOOL,	"BOOL" ),
+        parser.WORD.tag_type:	( parser.WORD,	"WORD" ),
+        parser.DWORD.tag_type:	( parser.DWORD,	"DWORD" ),
+    }
+
+    def __init__( self, host=None, port=None, timeout=None,
+                  depth=None, multiple=None, cluster=None, configuration=None ):
+        """Load Address from named configuration if None. """
+        self.lock		= threading.Lock()
+        self.gateway		= pylogix.PLC()
+
+        # Obtain PLC Address from configuration. TODO: augment pylogix to support alternative port
+        if host is None:
+            addr_str		= device.Object.config_override( None, 'Address', section=configuration,
+                                                                 default='' ).strip()
+            host,port_cnf	= parse_ip_port( addr_str, default=('localhost', defaults.address[1]) )
+        assert port is None or port == 44818, \
+            "Only TCP/IP port 44818 is supported by pylogix"
+        self.gateway.IPAddress	= str( host )
+        
+        
+        # We'll set self.multiple True/False, and use self.gateway.ConnectionSize to specify the
+        # amount of Multiple Service Packet data to marshal...  May specify a Connection size
+        # (eg. "4000"), or a Connection size and request cluster count limit.
+        self.cluster		= cluster
+        if cluster is None:
+            self.cluster	= device.Object.config_override( None, 'Cluster', section=configuration,
+                                                                 default=0 )
+
+        self.multiple		= False # Any desired Implicit connection size?
+        if multiple: # If Falsey; leave Connection size default (pylogix will try Large then Small)
+            self.multiple	= multiple
+            assert isinstance( self.multiple, (bool, int) ), \
+                "Expected True/False or size for Multiple = size / ..., not {self.multiple!r}".format( self=self )
+            assert isinstance( self.cluster, (int, type(None)) ), \
+                "Expected number for Multiple = ... / requests, not {self.requests!r}".format( self=self )
+            if not isinstance( self.multiple, bool ) and self.multiple > 0: # True is considered an int...
+                self.gateway.ConnectionSize = self.multiple
+        log.normal( "Connecting w/ pylogix, Multiple requests {self.multiple}, cluster: {self.cluster}".format( self=self ))
+        # Timeouts are enforced on a per-read/write basis...
+        if timeout:
+            self.gateway.SocketTimeout = float( timeout )
+        self.identity		= None # TODO: get Identity w/ .product_name
+
+    def __str__( self ):
+        return "%s at %s" % ( self.identity.product_name if self.identity else None, self.gateway )
+
+    def __repr__( self ):
+        return "<%s via %r>" % ( self.__class__.__name__, self.gateway )
+
+    def __enter__( self ):
+        self.lock.acquire()
+        return self
+
+    def __exit__( self, typ, val, tbk ):
+        self.lock.release()
+        if typ is not None:
+            # On Exception, also close the pylogix.PLC gateway.
+            log.warning( "{val!r}, {typ!r}: {tbk}".format(
+                val=val, typ=typ, tbk=''.join(traceback.format_tb( tbk ))))
+            self.gateway.conn.close()
+        return False
+
+    def parameter_substitution( self, params, pass_thru=None ):
+        return params
+
+    def read_details( self, params ):
+        """Collect up groups of params, and issue Multiple Service Packets of Read Tag Fragmented
+        requests.  Yields a sequence of records like this:
+
+            [1340.0], (0, ('a26gg455_07amvc', <class 'cpppo.server.enip.parser.REAL'>, None))
+             ^         ^    ^                  ^                                       ^
+             val       sts  tag name           CIP type parser         unit name (eg, 'kWh', optional)
+
+        TODO: Group into Multiple Service Packets of appropriate request/result size.
+        """
+        uni			= None
+
+        # Process tags, detecting connection failure by a special Result(None,None,.Status) value
+        tags			= list( params )
+        if self.multiple:
+            if self.cluster:
+	        # Restrict to cluster-size chunks
+                def chunker( seq, size ):
+                    return ( seq[pos:pos + size] for pos in range(0, len(seq), size))
+                results		= []
+                for chunk in chunker( tags, self.cluster ):
+                    res		= self.gateway.Read( chunk )
+                    assert len(res) != 1 or res[0].TagName is not None, \
+                        "Connection failure: {status}".format( status=res[0].Status )
+                    results    += res
+            else:
+		# Let pylogix estimate clustering
+                results		= self.gateway.Read( tags )
+                assert len(results) != 1 or results[0].TagName is not None, \
+                    "Connection failure: {status}".format( status=results[0].Status )
+        else:
+            # Single tags
+            results		= []
+            for tag in tags:
+                res		= self.gateway.Read( tag )
+                assert res.TagName is not None, \
+                    "Connection failure: {status}".format( status=res.Status )
+                results.append( res )
+
+        for tag,res in zip( tags, results ):
+            # pylogix returns either a string eg. 'Success' or 'Unknown Error ##' from cip_error_codes
+            sts			= 0
+            if res.Status != 'Success':
+                for sts,sts_name in cip_error_codes.items():
+                    if res.Status == sts_name:
+                        break
+                else: # Loop completed without finding res.Status!  "Unknown Error ##"?
+                    if res.Status.startswith( "Unknown Error " ):
+                        sts	= int( res.Status[14:] )
+
+            if sts in (0,6):
+                val		= res.Value if is_listlike( res.Value ) else [res.Value]
+            else:
+                val		= None
+
+            att,base_tag,index	= parse_tag_name( tag )
+            typ_num,tag_len	= self.gateway.KnownTags.get( base_tag, (None,None) )
+            typ,typ_nam		= self.CIP_TYPE_NUMS.get( typ_num, (None,None ) )
+            out			= val,(sts,(att,typ,uni))
+            log.info( "{tag:<20} == {out!r} ({base_tag} ... [{index}] type: {typ_num}, len: {tag_len}".format(
+                tag=tag, out=out, base_tag=base_tag, index=index, typ_num=typ_num, tag_len=tag_len ))
+            yield out
+
+    def read( self, params ):
+        log.warning( "Using proxy_pylogix.read" )
+        for val,(sts,(att,typ,uni)) in self.read_details( params ):
+            yield val
 
 
 def main( argv=None ):
@@ -799,13 +955,13 @@ which is required to carry this Send/Route Path data. """ )
         3: logging.INFO,
         4: logging.DEBUG,
         }
-    cpppo.log_cfg['level']	= ( levelmap[args.verbose] 
+    log_cfg['level']		= ( levelmap[args.verbose] 
                                     if args.verbose in levelmap
                                     else logging.DEBUG )
     if args.log:
-        cpppo.log_cfg['filename'] = args.log
+        log_cfg['filename']	= args.log
 
-    logging.basicConfig( **cpppo.log_cfg )
+    logging.basicConfig( **log_cfg )
 
     addr			= args.address.split(':')
     assert 1 <= len( addr ) <= 2, "Invalid --address [<interface>]:[<port>}: %s" % args.address
@@ -836,14 +992,14 @@ which is required to carry this Send/Route Path data. """ )
     failures			= 0
     with client.connector( host=addr[0], port=addr[1], timeout=timeout, profiler=profiler ) as connection:
         idx			= -1
-        start			= cpppo.timer()
+        start			= timer()
         operations		= attribute_operations( tags, route_path=route_path, send_path=send_path )
         for idx,dsc,op,rpy,sts,val in connection.pipeline(
                 operations=operations, depth=depth, multiple=multiple, timeout=timeout ):
             if args.print:
                 print( "%s: %3d: %s == %s" % ( time.ctime(), idx, dsc, val ))
             failures	       += 1 if sts else 0
-        elapsed			= cpppo.timer() - start
+        elapsed			= timer() - start
         log.normal( "%3d requests in %7.3fs at pipeline depth %2s; %7.3f TPS" % (
             idx+1, elapsed, args.depth, (idx+1) / elapsed ))
 

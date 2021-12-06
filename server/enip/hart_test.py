@@ -24,7 +24,7 @@ if __name__ == "__main__":
 
 import cpppo
 from cpppo.misc import timer, near, hexdump
-from cpppo.modbus_test import nonblocking_command
+from cpppo.modbus_test import start_simulator
 from cpppo.server import enip
 from cpppo.server.enip import client
 from cpppo.server.enip.main import main as enip_main
@@ -34,7 +34,7 @@ from cpppo.server.enip.hart import HART, proxy_hart # Class, proxy
 
 log				= logging.getLogger( "HART" )
 
-def start_hart_simulator( *options, **kwds ):
+def start_hart_simulator( *options ):
     """Start a simple EtherNet/IP CIP simulator w/ a HART I/O module (execute this file as __main__),
     optionally with Tag=<type>[<size>] (or other) positional arguments appended to the command-line.
     Return the command-line used, and the detected (host,port) address bound.  Looks for something
@@ -47,45 +47,10 @@ def start_hart_simulator( *options, **kwds ):
     At least one positional parameter containing a Tag=<type>[<size>] must be provided.
 
     """
-    command                     = nonblocking_command( [
-        sys.executable, os.path.abspath( __file__ ),
-        '-a', ':0', '-A', '-p', '-v', '--no-udp',
-    ] + list( options ), stderr=None, bufsize=0, blocking=None )
-
-    # For python 2/3 compatibility (can't mix positional wildcard, keyword parameters in Python 2)
-    CMD_WAIT			= kwds.pop( 'CMD_WAIT', 10.0 )
-    CMD_LATENCY			= kwds.pop( 'CMD_LATENCY', 0.1 )
-    assert not kwds, "Unrecognized keyword parameter: %s" % ( ", ".join( kwds ))
-
-    begun			= timer()
-    address			= None
-    data			= ''
-    while address is None and timer() - begun < CMD_WAIT:
-        # On Python2, socket will raise IOError/EAGAIN; on Python3 may return None 'til command started.
-        raw			= None
-        try:
-            raw			= command.stdout.read()
-            #log.debug( "Socket received: %r", raw)
-            if raw:
-                data  	       += raw.decode( 'utf-8', 'backslashreplace' )
-        except IOError as exc:
-            log.debug( "Socket blocking...")
-            assert exc.errno == errno.EAGAIN, "Expected only Non-blocking IOError"
-        except Exception as exc:
-            log.warning("Socket read return Exception: %s", exc)
-        if not data:
-            time.sleep( CMD_LATENCY )
-        while data.find( '\n' ) >= 0:
-            line,data		= data.split( '\n', 1 )
-            log.info( "%s", line )
-            m			= re.search( r"running on (\([^)]*\))", line )
-            if m:
-                address		= ast.literal_eval( m.group(1).strip() )
-                log.normal( "EtherNet/IP CIP Simulator started after %7.3fs on %s:%d",
-                                    timer() - begun, address[0], address[1] )
-                break
-    log.normal( "Started %s on: %s", command, address )
-    return command,address
+    return start_simulator(
+        os.path.abspath( __file__ ), '-a', ':0', '-A', '-p', '-v', '--no-udp',
+        *options
+    )
 
 
 def command_logging( command, buf='' ):

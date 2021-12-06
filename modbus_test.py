@@ -13,6 +13,7 @@ import re
 import signal
 import subprocess
 import sys
+import threading
 import time
 import traceback
 
@@ -71,78 +72,131 @@ class nonblocking_command( object ):
             bufsize=bufsize, preexec_fn=os.setsid, shell=shell )
         log.normal( 'Started Server PID [%d]: %s', self.process.pid, self.command )
         if not blocking:
-            fd 			= self.process.stdout.fileno()
-            fl			= fcntl.fcntl( fd, fcntl.F_GETFL )
-            fcntl.fcntl( fd, fcntl.F_SETFL, fl | os.O_NONBLOCK )
+            self.non_blocking()
         # Really, really ensure we get terminated
         atexit.register( self.kill )
+
+    def non_blocking( self ):
+        fd 			= self.process.stdout.fileno()
+        fl			= fcntl.fcntl( fd, fcntl.F_GETFL )
+        fcntl.fcntl( fd, fcntl.F_SETFL, fl | os.O_NONBLOCK )
 
     @property
     def stdout( self ):
         return self.process.stdout
 
-    def kill( self ):
+    # Return returncode on self.process exit, None if self.process is still running.
+    def poll( self ):
+        return self.process.poll()
+
+    def wait( self, timeout=None ):
+        if sys.version_info[0] < 3: # Python 2.x subprocess.Popen.wait() has no timeout...
+            if timeout is not None:
+                deadline = misc.timer() + timeout
+                while self.poll() is None and misc.timer() < deadline:
+                    time.sleep( min( timeout / 10, 0.1 ))
+            return self.process.wait()
+        return self.process.wait( timeout=timeout )
+
+    def kill( self, timeout=None ):
         log.normal( 'Sending SIGTERM to PID [%d]: %s, via: %s', self.process.pid, self.command,
-                        ''.join( traceback.format_stack() ) if log.isEnabledFor( logging.INFO ) else '' )
+                        ''.join( traceback.format_stack() ) if log.isEnabledFor( logging.DEBUG ) else '' )
         try:
-            os.killpg( self.process.pid, signal.SIGTERM )
-        except OSError as exc:
-            log.info( 'Failed to send SIGTERM to PID [%d]: %s', self.process.pid, exc )
-        else:
-            log.info( "Waiting for command (PID [%d]) to terminate", self.process.pid )
+            self.process.terminate()
+        except OSError: # Python2.7 doesn't check/ignore problems sending signals to already-dead processes
+            pass
+        if self.wait( timeout=timeout ) is None:
+            log.normal( 'Sending SIGKILL to PID [%d]: %s', self.process.pid, self.command )
+            try:
+                self.process.kill()
+            except OSError:
+                pass
             self.process.wait()
-        # Process may exit with a non-numeric returncode (eg. None)
         log.info( "Command (PID [%d]) finished with status %r: %s",
                       self.process.pid, self.process.returncode, self.command )
 
     __del__			= kill
 
 
-def start_modbus_simulator( options ):
+def start_simulator( simulator, *options, **kwds ):
+    """Start a simple EtherNet/IP CIP simulator (execute this file as __main__), optionally with
+    Tag=<type>[<size>] (or other) positional arguments appended to the command-line.  Return the
+    command-line used, and the detected (host,port) address bound.  Looks for something like:
+
+        11-11 11:46:16.301     7fff7a619000 network  NORMAL   server_mai enip_srv server PID [ 7573] running on ('', 44818)
+
+    containing a repr of the (<host>,<port>) tuple.  Recover this address using the safe
+    ast.literal_eval.  Use the -A to provide this on stdout, or just -v if stderr is redirected to
+    stdout (the default, w/o a stderr parameter to nonblocking_command)
+
+    At least one positional parameter containing a Tag=<type>[<size>] must be provided.
+
+    Note that the output of this file's interpreter is not *unbuffered* (above), so we can receive
+    and parse the 'running on ...'!  We assume that server/network.py flushes stdout when printing
+    the bindings.  We could use #!/usr/bin/env -S python3 -u instead to have all output unbuffered.
+
+    """
+    command_list		= [ sys.executable, simulator, ] + list( options )
+
+    # For python 2/3 compatibility (can't mix positional wildcard, keyword parameters in Python 2)
+    CMD_WAIT			= kwds.pop( 'CMD_WAIT', 10.0 )
+    CMD_LATENCY			= kwds.pop( 'CMD_LATENCY', 0.1 )
+    RE_ADDRESS			= kwds.pop( 'RE_ADDRESS', r"TCP.*address =\s*(?P<address>.*)?" )
+
+    command                     = nonblocking_command( command_list, **kwds )
+
+    begun			= misc.timer()
+    # Soak up output in a non-blocking fashion, passing it thru to logging.  Harvest 
+    def soak():
+        logging.normal( "Soaking starting")
+        while command.poll() is None:
+            raw			= None
+            try:
+                raw		= command.stdout.read()
+            except IOError as exc:
+                logging.debug( "Socket blocking...: {exc}".format( exc=exc ))
+                assert exc.errno == errno.EAGAIN, "Expected only Non-blocking IOError"
+            except Exception as exc:
+                logging.warning("Socket read return Exception: %s", exc)
+                raise
+            if raw:
+                soak.data       += raw.decode( 'utf-8', 'backslashreplace' )
+                while soak.data.find( '\n' ) >= 0:
+                    l,soak.data	= soak.data.split( '\n', 1 )
+                    if not soak.address:
+                        logging.normal( ">>> %s", l )
+                        m	= re.search( RE_ADDRESS, l )
+                        if m:
+                            logging.normal( ">>> found address {!r}".format( m.group('address') ))
+                            soak.address = misc.parse_ip_port( m.group('address').strip() )
+            logging.debug( "Soaked up {!r}".format( raw ))
+            time.sleep( CMD_LATENCY )
+        logging.detail( "Soaking done")
+    soak.data			= ''
+    soak.address		= None
+
+    soaker			= threading.Thread( target=soak )
+    soaker.daemon		= True
+    soaker.start()
+    while soak.address is None and misc.timer() - begun < CMD_WAIT:
+        time.sleep( CMD_LATENCY )
+
+    assert soak.address, "Failed to harvest Simulator IP address"
+
+    logging.normal( "Simulator started after %7.3fs on %s:%d",
+                    misc.timer() - begun, soak.address[0], soak.address[1] )
+    return command,soak.address
+
+
+def start_modbus_simulator( *options ):
     """Start bin/modbus_sim.py; assumes it flushes stdout when printing bindings so we can parse it
     here.
 
     """
-    command                     = nonblocking_command( [
-        sys.executable,
+    return start_simulator( 
         os.path.join( os.path.dirname( os.path.abspath( __file__ )), 'bin', 'modbus_sim.py' ),
-    ] + list( options ), stderr=None, bufsize=0 )
-
-    begun			= misc.timer()
-    address			= None
-    data			= ''
-    while address is None and misc.timer() - begun < RTU_WAIT:
-        # On Python2, socket will raise IOError/EAGAIN; on Python3 may return None 'til command started.
-        raw			= None
-        try:
-            raw			= command.stdout.read()
-            log.debug( "Socket received: %r", raw)
-            if raw:
-                data  	       += raw.decode( 'utf-8', 'backslashreplace' )
-        except IOError as exc:
-            log.debug( "Socket blocking...")
-            assert exc.errno == errno.EAGAIN, "Expected only Non-blocking IOError"
-        except Exception as exc:
-            log.warning("Socket read return Exception: %s", exc)
-        if not raw:
-            time.sleep( RTU_LATENCY )
-        while data.find( '\n' ) >= 0:
-            line,data		= data.split( '\n', 1 )
-            log.info( "%s", line )
-            m			= re.search( "address = (.*)", line )
-            if m:
-                try:
-                    host,port	= m.group(1).split( ':' )
-                    address	= host,int(port)
-                    log.normal( "Modbus/TCP Simulator started after %7.3fs on %s:%d",
-                                    misc.timer() - begun, address[0], address[1] )
-                except:
-                    assert m.group(1).startswith( '/' )
-                    address	= m.group(1)
-                    log.normal( "Modbus/RTU Simulator started after %7.3fs on %s",
-                                    misc.timer() - begun, address )
-                break
-    return command,address
+        *options
+    )
 
 
 def run_plc_modbus_polls( plc ):

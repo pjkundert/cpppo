@@ -1,4 +1,4 @@
-#! /usr/bin/env python
+#! /usr/bin/env python3
 from __future__ import absolute_import, print_function, division, unicode_literals
 try:
     from future_builtins import zip, map # Use Python 3 "lazy" zip, map
@@ -23,75 +23,28 @@ if __name__ == "__main__":
     if __package__ is None:
         __package__	= "cpppo.server.enip"
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))))
+    '''
     print( "Set sys.path: {path!r}".format( path=sys.path ))
     from cpppo.automata import log_cfg
     log_cfg['level']	= logging.NORMAL
     logging.basicConfig( **log_cfg )
+    '''
 
-from cpppo.dotdict import dotdict
+from cpppo.dotdict import dotdict, apidict
 from cpppo.misc import timer, near
-from cpppo.modbus_test import nonblocking_command
+from cpppo.modbus_test import start_simulator
 from cpppo.server import enip, network
 from cpppo.server.enip import poll, ucmm
 from cpppo.server.enip.main import main as enip_main
 from cpppo.server.enip.ab import powerflex, powerflex_750_series
+from cpppo.server.enip.get_attribute import proxy
 
-def start_powerflex_simulator( *options, **kwds ):
-    """Start a simple EtherNet/IP CIP simulator (execute this file as __main__), optionally with
-    Tag=<type>[<size>] (or other) positional arguments appended to the command-line.  Return the
-    command-line used, and the detected (host,port) address bound.  Looks for something like:
-
-        11-11 11:46:16.301     7fff7a619000 network  NORMAL   server_mai enip_srv server PID [ 7573] running on ('', 44818)
-
-    containing a repr of the (<host>,<port>) tuple.  Recover this address using the safe
-    ast.literal_eval.  Use the -A to provide this on stdout, or just -v if stderr is redirected to
-    stdout (the default, w/o a stderr parameter to nonblocking_command)
-
-    At least one positional parameter containing a Tag=<type>[<size>] must be provided.
-
-    Note that the output of this file's interpreter is not *unbuffered* (above), so we can receive
-    and parse the 'running on ...'!  We assume that server/network.py flushes stdout when printing
-    the bindings.  We could use #!/usr/bin/env -S python3 -u instead to have all output unbuffered.
-
-    """
-    command                     = nonblocking_command( [
-        sys.executable, os.path.abspath( __file__ ),
-        '-a', ':0', '-A', '-p', '-v', '--no-udp',
-    ] + list( options ), stderr=None, bufsize=0, blocking=None )
-
-    # For python 2/3 compatibility (can't mix positional wildcard, keyword parameters in Python 2)
-    CMD_WAIT			= kwds.pop( 'CMD_WAIT', 10.0 )
-    CMD_LATENCY			= kwds.pop( 'CMD_LATENCY', 0.1 )
-    assert not kwds, "Unrecognized keyword parameter: %s" % ( ", ".join( kwds ))
-
-    begun			= timer()
-    address			= None
-    data			= ''
-    while address is None and timer() - begun < CMD_WAIT:
-        # On Python2, socket will raise IOError/EAGAIN; on Python3 may return None 'til command started.
-        raw			= None
-        try:
-            raw			= command.stdout.read()
-            logging.debug( "Socket received: %r", raw)
-            if raw:
-                data  	       += raw.decode( 'utf-8', 'backslashreplace' )
-        except IOError as exc:
-            logging.debug( "Socket blocking...: {exc}".format( exc=exc ))
-            assert exc.errno == errno.EAGAIN, "Expected only Non-blocking IOError"
-        except Exception as exc:
-            logging.warning("Socket read return Exception: %s", exc)
-        if not raw: # got nothing; wait a bit
-            time.sleep( CMD_LATENCY )
-        while data.find( '\n' ) >= 0:
-            line,data		= data.split( '\n', 1 )
-            logging.info( "%s", line )
-            m			= re.search( r"running on (\([^)]*\))", line )
-            if m:
-                address		= ast.literal_eval( m.group(1).strip() )
-                logging.normal( "EtherNet/IP CIP Simulator started after %7.3fs on %s:%d",
-                                    timer() - begun, address[0], address[1] )
-                break
-    return command,address
+    
+def start_powerflex_simulator( *options ):
+    return start_simulator(
+        os.path.abspath( __file__ ), '-a', 'localhost:0', '-A', '-p', '--no-udp', '-v',
+        *options
+    )
 
 
 @pytest.fixture( scope="module" )
@@ -102,11 +55,10 @@ def simulated_powerflex_gateway( request ):
 
 
 def test_powerflex_simple( simulated_powerflex_gateway ):
-    #logging.getLogger().setLevel( logging.INFO )
     command,address             = simulated_powerflex_gateway
     try:
         assert address, "Unable to detect PowerFlex EtherNet/IP CIP Gateway IP address"
-        pf				= powerflex( host=address[0], port=address[1], timeout=1 )
+        pf			= powerflex( host=address[0], port=address[1], timeout=1 )
 
         # Reading a list of nothing should work...
         assert list( pf.read( [] )) == []
@@ -182,12 +134,15 @@ def test_powerflex_poll_success( simulated_powerflex_gateway ):
             print( "%s: %16s == %s" % ( time.ctime(), p, v ))
             values[p]		= v    
         process.done		= False
-    
+
+        params			= [ 'Output Current', 'Motor Velocity', 'Speed Units' ]
+
         poller			= threading.Thread(
             target=poll.poll, args=(powerflex_750_series,), kwargs={ 
                 'address': 	address,
                 'cycle':	1.0,
                 'timeout':	0.5,
+                'params':	params,
                 'process':	process,
             })
         poller.deamon		= True
@@ -196,13 +151,13 @@ def test_powerflex_poll_success( simulated_powerflex_gateway ):
         try:
             # Polling starts immediately
             time.sleep(.5)
-            assert len( values ) == 2
+            assert len( values ) == len( params )
 
             # Make sure it repeats
             values.clear()
             assert len( values ) == 0
             time.sleep(1.0)
-            assert len( values ) == 2
+            assert len( values ) == len( params )
 
             # Allow time to refresh values on next poll
             values['Output Current'] = 1.0
@@ -283,6 +238,8 @@ def test_powerflex_poll_failure():
             failed[elapsed]	= str( exc )
         failure.start		= timer()
     
+        params			= [ 'Output Current', 'Motor Velocity', 'Speed Units' ]
+
         backoff_min		= 0.5
         backoff_max		= 4.0
         backoff_multiplier	= 2.0 # --> backoff == .5, 1.0, 2.0, 4.0
@@ -295,6 +252,7 @@ def test_powerflex_poll_failure():
                 'backoff_min':	backoff_min,
                 'backoff_max':	backoff_max,
                 'backoff_multiplier': backoff_multiplier,
+                'params':	params,
                 'process':	process,
                 'failure':	failure,
             })
@@ -331,6 +289,51 @@ def test_powerflex_poll_failure():
         logging.warning( "Test terminated with exception: %s", exc )
         raise
 
+
+def test_powerflex_poll_routing( simulated_powerflex_gateway ):
+    """Test all the various proxy class for routing a request to the powerflex.  Sets up a simulated
+    C*Logix PLC with a gateway to the simulated Powerflex."""
+    command,address             = simulated_powerflex_gateway
+
+    # We *must* have the simulated C*Logix on localhost:44818, because some proxy classes cannot be
+    # configured to use any other port than the default EtherNet/IP port.
+
+    class UCMM_routing_to_powerflex( ucmm.UCMM ):
+        route			= {
+            "1/1": "{}:{}".format( *address ),
+        }
+    
+    control			= apidict( timeout=1.0 )
+    control.done		= False
+    for _ in range( 3 ):
+        clogix		= threading.Thread(
+            target=enip_main,
+            args		= (
+                [ "-v", "--address", "localhost:44818" ],
+            ),
+            kwargs		= dict(
+                UCMM_class	= UCMM_routing_to_powerflex,
+                server		= dotdict(
+                    control	= control
+                ),
+                udp		= False, # no UDP server in this test
+            ))
+        clogix.daemon		= True
+        clogix.start()
+        time.sleep(.5)
+        if clogix.is_alive:
+            break
+    assert clogix.is_alive, "Unable to start C*Logix on localhost:44818"
+
+    class powerflex_routed( proxy ):
+        PARAMETERS		= powerflex_750_series.PARAMETERS
+
+    with powerflex_routed( host=address[0], route_path="1/1" ) as via:
+        (freq,), = via.read( via.parameter_substitution( 'Output Frequency' ))
+    logging.normal( "Output Frequency == {}".format( freq ))
+    assert near( freq, 456.78 )        
+
+    
 # 
 # python poll_test.py -- AB PowerFlex simulator for testing
 # 
@@ -341,7 +344,7 @@ class UCMM_no_route_path( ucmm.UCMM ):
 
 
 class DPI_Parameters( enip.Object ):
-    """Each Instance corresponds to a PowerFlex paramter.  Writing to Attribute 9 updates the EEPROM in
+    """Each Instance corresponds to a PowerFlex parameter.  Writing to Attribute 9 updates the EEPROM in
     the device, while writing to Attribute 10 (0xA) updates only the (temporary) RAM memory in the
     PowerFlex.  Therefore, we'll set both Attribute 9/10 to point to the same simulated Attribute.
     
@@ -415,6 +418,7 @@ def main( **kwds ):
 
     # Establish Identity and TCPIP objects w/ some custom data for the test, from a config file
     return enip_main( argv=sys.argv[1:], UCMM_class=UCMM_no_route_path )
+
 
 
 if __name__ == "__main__":

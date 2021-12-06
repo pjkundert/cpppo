@@ -33,6 +33,7 @@ import os
 import select
 import socket
 import sys
+import signal
 import threading
 import time
 import traceback
@@ -314,7 +315,7 @@ def server_main( address, target=None, kwargs=None, idle_service=None, thread_fa
 
     # Log the server's network i'face/port binding.  This is used by various tests/tools to
     # detect and use the server, so don't remove!
-    log.normal( "%s server PID [%5d] running on %r", name, os.getpid(), address )
+    log.normal( "%s server PID [%5d] starting on %r", name, os.getpid(), address )
 
     # Ensure that any server.control in kwds is a dotdict.  Specifically, we can handle an
     # cpppo.apidict, which responds to getattr by releasing the corresponding setattr.  We will
@@ -376,14 +377,16 @@ def server_main( address, target=None, kwargs=None, idle_service=None, thread_fa
         tcp_sock.bind( address )
         tcp_sock.listen( 100 ) # How may simultaneous unaccepted connection requests
         if address_output:
-            print( "Network TCP Server running on {locl!r}".format( locl=tcp_sock.getsockname() ))
+            locl		= tcp_sock.getsockname()
+            print( "Network TCP Server address = {locl!r}".format( locl=locl ))
             sys.stdout.flush()
 
     if udp:
         udp_sock		= socket.socket( socket.AF_INET, socket.SOCK_DGRAM )
         udp_sock.bind( address )
         if address_output:
-            print( "Network UDP Server running on {locl!r}".format( locl=udp_sock.getsockname() ))
+            locl		= udp_sock.getsockname()
+            print( "Network UDP Server address = {locl!r}".format( locl=locl ))
             sys.stdout.flush()
         thread_start( udp_sock, None )
 
@@ -492,6 +495,7 @@ def bench( server_func, client_func, client_count,
             server.terminate() 		# only if using multiprocessing.Process(); Thread doesn't have
         server.join( timeout=server_join_timeout )
         if server.is_alive():
-            log.warning( "Server %r remains running...", misc.function_name( server_func ))
+            log.warning( "Server %r remains running; killing...", misc.function_name( server_func ))
+            server.kill() if hasattr( server, 'kill' ) else os.kill( server.pid, signal.SIGKILL )
         else:
             log.normal( "Server %r stopped.", misc.function_name( server_func ))

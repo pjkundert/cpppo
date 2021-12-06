@@ -20,6 +20,7 @@ try:
 except ImportError:
     pass
 
+import ast
 import functools
 import logging
 import math
@@ -31,7 +32,7 @@ import re
 # Import ip_address/network and urlparse into the cpppo namespace.  ip_address requires unicode, so
 # we also provide a Python2 shim to ensure a str is interpreted as unicode, as well as provide
 # cpppo.ip/network functions that handle str sensibly.
-from ipaddress import ( ip_address, ip_network )
+from ipaddress import ( ip_address, ip_network, IPv4Address, IPv6Address )
 try:
     from urllib.parse import urlparse
 except ImportError:
@@ -671,6 +672,9 @@ def hexload( dump, offset=0, fill=False, skip=False ):
 if sys.version_info[0] >= 3:
     def unicode( s ):
         return str( s )
+    type_str_base	= str
+else:
+    type_str_base	= basestring
 
 def ip( a ):
     return ip_address( unicode( a ))
@@ -685,22 +689,35 @@ def parse_ip_port( netloc, default=(None,None) ):
 
     """
     try:
-        # Raw IPv{4,6} address, eg 1.2.3.4, ::1
-        addr			= ip( netloc )
-        port			= None
-    except ValueError:
-        # IPv{4,6} address:port, eg 1.2.3.4:80, [::1]:80 (raw IP only returned as an ip_address)
+        # "('hostname', port)" tuple
+        addr,port	= ast.literal_eval( netloc )
+        assert isinstance( addr, type_str_base ) and isinstance( port, (int, type(None)) )
         try:
-            parsed		= urlparse( '//{}'.format( netloc ))
-            addr		= ip( parsed.hostname )
-            port		= parsed.port
+            addr	= ip( parsed.hostname )
         except:
-            # <hostname>[:<port>] (anything other than a rew IP will be returned as a str)
-            addr_port		= netloc.split( ':' )
-            assert 1 <= len( addr_port ) <= 2, \
-                "Expected <host>[:<port>], found {netloc!r}"
-            addr		= addr_port[0]
-            port		= None if len( addr_port ) < 2 else addr_port[1]
+            pass
+    except Exception as exc:
+        try:
+            # Raw IPv{4,6} address, eg "1.2.3.4", "::1"
+            addr		= ip( netloc )
+            port		= None
+        except ValueError:
+            # IPv{4,6} address:port, eg "1.2.3.4:80", "[::1]:80" (raw IP only returned as an ip_address)
+            try:
+                parsed		= urlparse( '//{}'.format( netloc ))
+                addr		= parsed.hostname
+                port		= parsed.port
+                try:
+                    addr	= ip( parsed.hostname )
+                except:
+                    pass
+            except:
+                # "<hostname>[:<port>]" (anything other than a rew IP will be returned as a str)
+                addr_port	= netloc.split( ':' )
+                assert 1 <= len( addr_port ) <= 2, \
+                    "Expected <host>[:<port>], found {netloc!r}"
+                addr		= addr_port[0]
+                port		= None if len( addr_port ) < 2 else addr_port[1]
 
     # An empty ip is overridden by a non-None default[0], but either could still be '', which is a
     # valid i'face designation.
@@ -715,5 +732,10 @@ def parse_ip_port( netloc, default=(None,None) ):
         port			= default[1]
     if port is not None:
         port			= int( port )
+
+    assert isinstance( addr, (type_str_base, IPv4Address, IPv6Address) ), \
+        "address must be an IP or a hostname str, not {!r}".format( addr )
+    assert isinstance( port, (int, type(None)) ), \
+        "port must be a number, or None, not {!r}".format( port )
 
     return addr, port # (None/str/ip_address, None/int)
