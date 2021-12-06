@@ -290,7 +290,6 @@ def test_powerflex_poll_failure():
         raise
 
 
-@pytest.mark.xfail # not yet reliable under CI
 def test_powerflex_poll_routing( simulated_powerflex_gateway ):
     """Test all the various proxy class for routing a request to the powerflex.  Sets up a simulated
     C*Logix PLC with a gateway to the simulated Powerflex."""

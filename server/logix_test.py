@@ -700,7 +700,7 @@ def test_logix_remote_cpppo( count=100 ):
     """
     enip.lookup_reset() # Flush out any existing CIP Objects for a fresh start
 
-    for svrport in range( 44818, 44818+10 ):
+    for svrport in range( 44848, 44848+10 ):
         svraddr		        = ('localhost', svrport)
         kwargs			= {
             'argv': [
@@ -744,7 +744,7 @@ def test_logix_remote_cpppo( count=100 ):
             log.normal( "Attempting to start EtherNet/IP CIP server on {}".format( svraddr ))
             enip_main( idle_service=idle_service, **kwargs )
         except Exception as exc:
-            assert isinstance( exc, OSError ) and exc.errno == errno.EADDRINUSE, \
+            assert hasattr( exc, 'errno' ) and exc.errno == errno.EADDRINUSE, \
                 "Failed to start EtherNet/IP CIP server on {}; failing: {!r}".format( svraddr, exc )
             log.warning( "Failed to start EtherNet/IP CIP server on {} due to port in use; trying again: {!r}".format( svraddr, exc ))
         else:
@@ -824,7 +824,7 @@ def test_logix_remote_pylogix( count=100 ):
     """
     enip.lookup_reset() # Flush out any existing CIP Objects for a fresh start
 
-    for svrport in range( 44818, 44818+10 ):
+    for svrport in range( 44858, 44858+10 ):
         svraddr		        = ('localhost', svrport)
         kwargs			= {
             'argv': [
@@ -870,7 +870,7 @@ def test_logix_remote_pylogix( count=100 ):
             log.normal( "Attempting to start EtherNet/IP CIP server on {}".format( svraddr ))
             enip_main( idle_service=idle_service, **kwargs )
         except Exception as exc:
-            assert isinstance( exc, OSError ) and exc.errno == errno.EADDRINUSE, \
+            assert hasattr( exc, 'errno' ) and exc.errno == errno.EADDRINUSE, \
                 "Failed to start EtherNet/IP CIP server on {}; failing: {!r}".format( svraddr, exc )
             log.warning( "Failed to start EtherNet/IP CIP server on {} due to port in use; trying again: {!r}".format( svraddr, exc ))
         else:
