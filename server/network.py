@@ -430,7 +430,9 @@ def server_main( address, target=None, kwargs=None, idle_service=None, thread_fa
 
 
 def bench( server_func, client_func, client_count,
-           server_kwds=None, client_kwds=None, client_max=10, server_join_timeout=1.0 ):
+           server_kwds=None, client_kwds=None, client_max=10, server_join_timeout=1.0,
+           address_latency=0.1, address_delay=None ): # soak up address/output iff address_delay > 0
+
     """Bench-test the server_func (with optional keyword args from server_kwds) as a process; will fail
     if one already bound to port.  Creates a thread pool (default 10) of client_func.  Each client
     is supplied a unique number argument, and the supplied client_kwds as keywords, and should
@@ -441,10 +443,16 @@ def bench( server_func, client_func, client_count,
     can't terminate a Thread).  This is implemented as a container (eg. dict-based cpppo.apidict)
     containing a done signal.
 
+    NOTE:
+
+    Any server Process that writes an "address = ..." to its stdout within address_delay seconds
+    will get that address passed to the client as address=... keyword argument.
+
     """
 
-    # Either multiprocessing.Process or threading.Thread will work as Process for the Server
-    from multiprocessing 	import Process
+    # Either multiprocessing.Process or threading.Thread should work as Process for the Server
+    # Server address binding is only detectable in multiprocessing.Process.
+    from multiprocessing	import Process
     #from threading 		import Thread as Process
 
     # Only multiprocessing.pool.ThreadPool works, as we cannot serialize some client API objects
@@ -452,18 +460,58 @@ def bench( server_func, client_func, client_count,
     #from multiprocessing.dummy	import Pool
     #from multiprocessing	import Pool
 
+    r,w				= None, None
+
     log.normal( "Server %r startup...", misc.function_name( server_func ))
-    server			= Process( target=server_func, kwargs=server_kwds or {} )
+
+    if address_delay:
+        def redirect_stdout_socket( target ):
+            def wrapper( stdout_socket, *args, **kwds ):
+                import socket
+                print( "Server started" )
+                sys.stdout = sys.stderr = stdout_socket.makefile( "w", 0 )
+                print( "Server redirected sys.stdout to socket", file=sys.stdout )
+                sys.stdout.flush()
+                return target( *args, **kwds )
+            return wrapper
+        r,w			= socket.socketpair() # two unix-domain sockets
+        server			= Process( target=redirect_stdout_socket( server_func ), args=(w, ), kwargs=server_kwds or {} )
+        r.setblocking( False )
+        server.stdout		= r.makefile( "r", 0 )
+    else:
+        server			= Process( target=server_func, args=(), kwargs=server_kwds or {} )
     server.daemon		= True
     server.start()
-    time.sleep( .25 )
+
+    # Harvest any "address = ..." from the Process' .stdout (if defined)
+    from ..modbus_test import soak, soakable
+
+    info			= dotdict( address=None )
+    if address_delay and soakable( server ):
+
+        begun			= misc.timer()
+        soaker			= threading.Thread( target=soak, args=(server,info,),
+                                                        kwargs=dict(
+                                                            address_latency=address_latency, ))
+        soaker.daemon		= True
+        soaker.start()
+        while info.address is None and misc.timer() - begun < address_delay:
+            time.sleep( address_latency )
+
+    # If we harvested an "address = ...', pass it to the client in client_kwds
+    if info.address:
+        if client_kwds is None:
+            client_kwds		= {}
+        log.normal( "Server {!r} address = {!r}; passing to client(s)".format(
+            server, info.address ))
+        client_kwds['address']	= info.address
 
     try:
         log.normal( "Client %r tests begin, over %d clients (up to %d simultaneously)",
                     misc.function_name( client_func ), client_count, client_max )
         pool			= Pool( processes=client_max )
         # Use list comprehension instead of generator, to force start of all asyncs!
-        asyncs			= [ pool.apply_async( client_func, args=(i,), kwds=client_kwds or {} )
+        asyncs			= [ pool.apply_async( client_func, args=(i,), kwds=client_kwds )
                                     for i in range( client_count )]
         log.normal( "Client %r started %d times in Pool; harvesting results",
                     misc.function_name( client_func ), client_count )

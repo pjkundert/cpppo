@@ -220,7 +220,7 @@ def hart_pass_thru( io, path, hart_data, data_size, route_path=None ):
                             enip.enip_format( req ), enip.enip_format( rpy ))
                 if rpy.status == 0 and rpy.init.status in (33,):	# 32 busy, 33 initiated, 35 device offline
                     handle	= rpy.init.handle
-    log.normal( "HART Pass-thru command Handle: %s", handle )
+    log.detail( "HART Pass-thru command Handle: %s", handle )
 
     # Query for success/failure (loop on running)
     operations		= [
@@ -242,7 +242,7 @@ def hart_pass_thru( io, path, hart_data, data_size, route_path=None ):
                     operations=client.parse_operations( operations ), **hart_kwds ):
                 log.detail( "Client %s: %s --> %r: %s", io, dsc, val, enip.enip_format( rpy ))
                 reply	= rpy
-        log.normal( "HART pass-thru command Status: %s", reply.get( 'query.status' ))
+        log.detail( "HART pass-thru command Status: %s", reply.get( 'query.status' ))
 
     return reply.get( 'query.reply_data.data', None )
 
@@ -333,7 +333,7 @@ def test_hart_pass_thru_poll( simulated_hart_gateway ):
             units		= data[0] if len( data ) > 4 else None
             packer		= struct.Struct( enip.REAL_network.struct_format )
             value,		= packer.unpack_from( buffer=bytearray( data[-4:] ))
-        log.normal( "Read primary variable Value: %s (units: %s), from: %r", value, units, data )
+        log.detail( "Read primary variable Value: %s (units: %s), from: %r", value, units, data )
 
         # HART Command 3 gets all 4 variables
         data			= hart_pass_thru(

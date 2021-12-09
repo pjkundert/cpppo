@@ -128,7 +128,6 @@ def parse_check_tag_records( tagdata, tagname, tagtype ):
 
 
 @pytest.mark.skipif( not has_pylogix, reason="Needs pylogix" )
-@pytest.mark.xfail # not yet reliable under CI
 def test_logix_remote_udt( count=1 ):
     """Performance of a client executing an operations on a CIP UDT.
 

@@ -1034,6 +1034,7 @@ def main( argv=None, attribute_class=device.Attribute, attribute_kwds=None,
     logging.basicConfig( **log_cfg )
     if args.verbose:
         logging.getLogger().setLevel( log_cfg['level'] )
+    log.info( "argv: {!r}".format( argv ))
 
     # If an alternative basename was supplied, we will re-compute the defaults.config_files to
     # reflect it.  Thus, a program that uses cpppo.server.enip.main:main can specify

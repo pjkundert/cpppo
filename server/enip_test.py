@@ -3717,15 +3717,16 @@ client_count, client_max	= 15, 10
 charrange, chardelay		= (2,10), .1	# split/delay outgoing msgs
 draindelay			= 10.  		# long in case server very slow (eg. logging), but immediately upon EOF
 
-def enip_cli( number, tests=None ):
+def enip_cli( number, tests=None, address=None ):
     """Sends a series of test messages, testing response for expected results."""
     conn			= None
     successes			= 0
+    log.normal( "EtherNet/IP Client {:3d} (cpppo) connecting to {!r}... PID [{:5d}]".format( number, address, os.getpid() ))
     try:
-        log.info( "EtherNet/IP Client %3d connecting... PID [%5d]", number, os.getpid() )
         conn			= socket.socket( socket.AF_INET, socket.SOCK_STREAM )
-        conn.connect( enip.address )
-        log.normal( "EtherNet/IP Client %3d connected to server at %s", number, enip.address )
+        address			= address or enip.address
+        conn.connect( address )
+        log.normal( "EtherNet/IP Client {:3d} connected to server at {!r}".format( number, address ))
 
         eof			= False
         source			= cpppo.chainable()
@@ -3829,7 +3830,8 @@ enip_cli_kwds_basic		= {
 
 enip_svr_kwds_basic		= { 
     'enip_process': 	enip_process_canned,
-    'argv':		[ 
+    'argv':		[
+        '-a', 'localhost:0', '-A',
         #'-v',
         'SCADA=INT[1000]',
     ],
@@ -3842,12 +3844,15 @@ enip_svr_kwds_basic		= {
 
 
 def enip_bench_basic():
-    failed			= cpppo.server.network.bench( server_func=enip_main,
-                                                              server_kwds=enip_svr_kwds_basic,
-                                                              client_func=enip_cli,
-                                                              client_kwds=enip_cli_kwds_basic,
-                                                              client_count=client_count,
-                                                                client_max=client_max)
+    failed			= cpppo.server.network.bench(
+        server_func	= enip_main,
+        server_kwds	= enip_svr_kwds_basic,
+        client_func	= enip_cli,
+        client_kwds	= enip_cli_kwds_basic,
+        client_count	= client_count,
+        client_max	= client_max,
+        address_delay	= 5.0,
+    )
     if failed:
         log.warning( "Failure" )
     else:
@@ -3900,6 +3905,7 @@ enip_cli_kwds_logix		= {
 enip_svr_kwds_logix 		= { 
     'enip_process': 	logix.process,
     'argv':		[
+        '-a', 'localhost:0', '-A',
         #'-v', 
         'SCADA=INT[1000]'
     ],
@@ -3912,12 +3918,15 @@ enip_svr_kwds_logix 		= {
 
 
 def enip_bench_logix():
-    failed			= cpppo.server.network.bench( server_func=enip_main,
-                                                              server_kwds=enip_svr_kwds_logix,
-                                                              client_func=enip_cli,
-                                                              client_kwds=enip_cli_kwds_logix,
-                                                              client_count=client_count,
-                                                                client_max=client_max)
+    failed			= cpppo.server.network.bench(
+        server_func	= enip_main,
+        server_kwds	= enip_svr_kwds_logix,
+        client_func	= enip_cli,
+        client_kwds	= enip_cli_kwds_logix,
+        client_count	= client_count,
+        client_max	= client_max,
+        address_delay	= 5.0,
+    )
     if failed:
         log.warning( "Failure" )
     else:
@@ -3931,11 +3940,13 @@ def test_enip_bench_logix():
     assert not enip_bench_logix(), "One or more enip_bench_logix clients reported failure"
 
 
-def enip_cli_pylogix( number, tests=None ):
+def enip_cli_pylogix( number, tests=None, address=None ):
     """Use pylogix to access the server, using Large Forward Open session (if pull request for
     PLC.ConnectionSize merged).
 
     """
+
+    log.normal( "EtherNet/IP Client {:3d} (pylogix) connecting to {!r}... PID [{:5d}]".format( number, address, os.getpid() ))
 
     tags			= [
         'SCADA',
@@ -3945,7 +3956,8 @@ def enip_cli_pylogix( number, tests=None ):
         ],
     ]
     with pylogix.PLC() as comm:
-        comm.IPAddress		= enip.address[0]
+        comm.IPAddress		= address[0]
+        comm.conn.Port		= int( address[1] )
         comm.ConnectionSize	= 4000
         results			= [
             comm.Read( t )
@@ -3965,12 +3977,15 @@ def enip_cli_pylogix( number, tests=None ):
     testval( tags, results )
 
 def enip_bench_pylogix():
-    failed			= cpppo.server.network.bench( server_func=enip_main,
-                                                              server_kwds=enip_svr_kwds_logix,
-                                                              client_func=enip_cli_pylogix,
-                                                              client_kwds=enip_cli_kwds_logix,
-                                                              client_count=client_count,
-                                                                client_max=client_max)
+    failed			= cpppo.server.network.bench(
+        server_func	= enip_main,
+        server_kwds	= enip_svr_kwds_logix,
+        client_func	= enip_cli_pylogix,
+        client_kwds	= enip_cli_kwds_logix,
+        client_count	= client_count,
+        client_max	= client_max,
+        address_delay	= 5.0,
+    )
     if failed:
         log.warning( "Failure" )
     else:

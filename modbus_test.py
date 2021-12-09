@@ -27,6 +27,7 @@ except Exception:
     log.warning( "Failed to import fcntl; skipping simulated Modbus/TCP PLC tests" )
 
 from . import misc
+from .dotdict import dotdict
 from .tools.waits import waitfor
 
 RTU_WAIT			= 2.0  # How long to wait for the simulator
@@ -85,6 +86,11 @@ class nonblocking_command( object ):
     def stdout( self ):
         return self.process.stdout
 
+    def is_alive( self ):
+        if hasattr( self.process, 'is_alive' ):
+            return self.process.is_alive()
+        return self.poll() is None
+
     # Return returncode on self.process exit, None if self.process is still running.
     def poll( self ):
         return self.process.poll()
@@ -118,6 +124,51 @@ class nonblocking_command( object ):
     __del__			= kill
 
 
+def soakable( command ):
+    return hasattr( command, 'is_alive' ) and hasattr( command, 'stdout' )
+
+
+def soak( command, info, address_latency=None, address_re=None ):
+    """Soak up output in a non-blocking fashion, passing it thru to logging.  Harvest any
+
+        address = ...
+
+    found on command.stdout into info['address'].  command.stdout is collected into info['data'],
+    and full lines are logged.
+
+    """
+    if address_latency is None:
+        address_latency		= 0.1
+    if address_re is None:
+        address_re		= r"TCP.*address =\s*(?P<address>.*)?"
+    assert isinstance( info, dict )
+    info.setdefault( 'data', '' )
+    info.setdefault( 'address', None )
+
+    log.normal( "Soaking {!r} stdout".format( command ))
+    while command.is_alive():
+        raw			= None
+        try:
+            raw		= command.stdout.read()
+        except IOError as exc:
+            log.debug( "Socket blocking...: {exc}".format( exc=exc ))
+            assert exc.errno == errno.EAGAIN, "Expected only Non-blocking IOError"
+        except Exception as exc:
+            log.warning("Socket read return Exception: %s", exc)
+            raise
+        if raw:
+            info['data']       += raw.decode( 'utf-8', 'backslashreplace' )
+            while info['data'].find( '\n' ) >= 0:
+                l,info['data']	= info['data'].split( '\n', 1 )
+                log.detail( ">>> %s", l )
+                if not info['address']:
+                    m	= re.search( address_re, l )
+                    if m:
+                        log.normal( "*** Server address = {!r}".format( m.group('address') ))
+                        info['address'] = misc.parse_ip_port( m.group('address').strip() )
+        time.sleep( address_latency )
+
+
 def start_simulator( simulator, *options, **kwds ):
     """Start a simple EtherNet/IP CIP simulator (execute this file as __main__), optionally with
     Tag=<type>[<size>] (or other) positional arguments appended to the command-line.  Return the
@@ -139,50 +190,30 @@ def start_simulator( simulator, *options, **kwds ):
     command_list		= [ sys.executable, simulator, ] + list( options )
 
     # For python 2/3 compatibility (can't mix positional wildcard, keyword parameters in Python 2)
-    CMD_WAIT			= kwds.pop( 'CMD_WAIT', 10.0 )
-    CMD_LATENCY			= kwds.pop( 'CMD_LATENCY', 0.1 )
-    RE_ADDRESS			= kwds.pop( 'RE_ADDRESS', r"TCP.*address =\s*(?P<address>.*)?" )
+    address_wait		= kwds.pop( 'CMD_WAIT', 1.0 )
+    address_latency		= kwds.pop( 'CMD_LATENCY', 0.1 )
+    address_re			= kwds.pop( 'RE_ADDRESS', None )
 
     command                     = nonblocking_command( command_list, **kwds )
 
     begun			= misc.timer()
-    # Soak up output in a non-blocking fashion, passing it thru to logging.  Harvest 
-    def soak():
-        while command.poll() is None:
-            raw			= None
-            try:
-                raw		= command.stdout.read()
-            except IOError as exc:
-                logging.debug( "Socket blocking...: {exc}".format( exc=exc ))
-                assert exc.errno == errno.EAGAIN, "Expected only Non-blocking IOError"
-            except Exception as exc:
-                logging.warning("Socket read return Exception: %s", exc)
-                raise
-            if raw:
-                soak.data       += raw.decode( 'utf-8', 'backslashreplace' )
-                while soak.data.find( '\n' ) >= 0:
-                    l,soak.data	= soak.data.split( '\n', 1 )
-                    logging.detail( ">>> %s", l )
-                    if not soak.address:
-                        m	= re.search( RE_ADDRESS, l )
-                        if m:
-                            logging.normal( ">>> found address {!r}".format( m.group('address') ))
-                            soak.address = misc.parse_ip_port( m.group('address').strip() )
-            time.sleep( CMD_LATENCY )
-    soak.data			= ''
-    soak.address		= None
 
-    soaker			= threading.Thread( target=soak )
+    info			= dotdict( address=None )
+    soaker			= threading.Thread( target=soak, args=(command,info,),
+                                                    kwargs=dict(
+                                                        address_latency	= address_latency,
+                                                        address_re	= address_re
+                                                    ))
     soaker.daemon		= True
     soaker.start()
-    while soak.address is None and misc.timer() - begun < CMD_WAIT:
-        time.sleep( CMD_LATENCY )
+    while info.address is None and misc.timer() - begun < address_wait:
+        time.sleep( address_latency )
 
-    assert soak.address, "Failed to harvest Simulator IP address"
+    assert info.address, "Failed to harvest Simulator IP address"
 
     logging.normal( "Simulator started after %7.3fs on %s:%d",
-                    misc.timer() - begun, soak.address[0], soak.address[1] )
-    return command,soak.address
+                    misc.timer() - begun, info.address[0], info.address[1] )
+    return command,info.address
 
 
 def start_modbus_simulator( *options ):
