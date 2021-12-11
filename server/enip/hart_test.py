@@ -1,7 +1,5 @@
-#! /usr/bin/env python
-from __future__ import absolute_import
-from __future__ import print_function
-from __future__ import division
+#! /usr/bin/env python3
+from __future__ import absolute_import, print_function, division
 
 import ast
 import errno
@@ -51,17 +49,6 @@ def start_hart_simulator( *options ):
         os.path.abspath( __file__ ), '-a', 'localhost:0', '-A', '-p', '--no-udp', '-v',
         *options
     )
-
-
-def command_logging( command, buf='' ):
-    """Log any further output from underlying simulator.  Takes (and returns) the developing buf of output (logging full lines)"""
-    raw				= command.stdout.read()
-    if raw:
-        buf                    += raw.decode( 'utf-8', 'backslashreplace' )
-    while buf.find( '\n' ) >= 0:
-        line,buf                = buf.split( '\n', 1 )
-        logging.info( "%s", line )
-    return buf
 
 
 @pytest.fixture( scope="module" )
@@ -177,7 +164,6 @@ def test_hart_pass_thru_simulated( simulated_hart_gateway ):
                                      hio, len( results ), len( operations ), rpy )
                     failures   += 1
                 results.append( (dsc,val,rpy) )
-                #cmdbuf		= command_logging( command, cmdbuf )
 
             # assert failures == 0 # statuses represent HART I/O status, not CIP response status
             assert results[0][-1].init.status in ( 32, 33, 35 )	# 32 busy, 33 initiated, 35 device offline
@@ -186,8 +172,6 @@ def test_hart_pass_thru_simulated( simulated_hart_gateway ):
     except Exception as exc:
         log.warning( "Test terminated with exception: %s", exc )
         raise
-    #finally:
-    #    cmdbuf			= command_logging( command, cmdbuf )
 
 
 def hart_pass_thru( io, path, hart_data, data_size, route_path=None ):

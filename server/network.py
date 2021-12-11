@@ -30,6 +30,7 @@ import functools
 import logging
 import multiprocessing
 import os
+import re
 import select
 import socket
 import sys
@@ -429,6 +430,62 @@ def server_main( address, target=None, kwargs=None, idle_service=None, thread_fa
     return 0
 
 
+@readable()
+def decodefrom( source, encoding, errors=None ):
+    """Python2/3 have wildly different socket.makefile blocking and encoding capabilities."""
+    return source.read().decode( encoding, errors=errors )
+
+
+def soakable( command ):
+    return hasattr( command, 'is_alive' ) and hasattr( command, 'stdout' ) and command.stdout
+
+
+def soak( command, info, address_latency=None, address_re=None ):
+    """Soak up output in a non-blocking fashion, passing it thru to logging.  Harvest any
+
+        address = ...
+
+    found on command.stdout into info['address'].  command.stdout is collected into info['data'],
+    and full lines are logged.
+
+    """
+    if address_latency is None:
+        address_latency		= 0.1
+    if address_re is None:
+        address_re		= r"TCP.*address =\s*(?P<address>.*)?"
+    assert isinstance( info, dict )
+    info.setdefault( 'data', '' )
+    info.setdefault( 'address', None )
+
+    log.normal( "Soaking {!r} stdout".format( command ))
+    while command.is_alive():
+        raw			= None
+        if hasattr( command.stdout, 'readable' ):
+            if command.stdout.readable():
+                raw		= command.stdout.read()
+        else:
+            raw			= decodefrom( command.stdout, encoding='utf-8', errors='backslashreplace' )
+        if not raw:
+            time.sleep( address_latency )
+            continue
+        else:
+            assert isinstance( raw, misc.type_str_base ), \
+                "Received non-encoded output from command.stdout {!r}: {!r}".format(
+                    command.stdout, raw )
+        
+        log.normal( "Read {:5d} bytes (had {:5d} bytes) from {!r}: {!r}".format(
+            len( raw ), len( info['data'] ), command.stdout, raw ))
+        info['data']           += raw
+        while info['data'].find( '\n' ) >= 0:
+            line,info['data']	= info['data'].split( '\n', 1 )
+            log.normal( ">>> {}".format( line ))
+            if not info['address']:
+                m		= re.search( address_re, line )
+                if m:
+                    log.normal( "*** Server TCP address = {!r}".format( m.group('address') ))
+                    info['address'] = misc.parse_ip_port( m.group('address').strip() )
+
+
 def bench( server_func, client_func, client_count,
            server_kwds=None, client_kwds=None, client_max=10, server_join_timeout=1.0,
            address_latency=0.1, address_delay=None ): # soak up address/output iff address_delay > 0
@@ -436,7 +493,7 @@ def bench( server_func, client_func, client_count,
     """Bench-test the server_func (with optional keyword args from server_kwds) as a process; will fail
     if one already bound to port.  Creates a thread pool (default 10) of client_func.  Each client
     is supplied a unique number argument, and the supplied client_kwds as keywords, and should
-    return 0 on success, !0 on failure.
+    return Falsey (eg. 0, False) on success, Truthy (eg. True, !0) on failure.
 
     Both threading.Thread and multiprocessing.Process work fine for running a bench server.
     However, Thread needs to use the out-of-band means to force server_main termination (since we
@@ -464,39 +521,76 @@ def bench( server_func, client_func, client_count,
 
     log.normal( "Server %r startup...", misc.function_name( server_func ))
 
+    server_args			= ()
+    server_stdout		= None
+    buffering			= None
     if address_delay:
         def redirect_stdout_socket( target ):
             def wrapper( stdout_socket, *args, **kwds ):
-                import socket
-                print( "Server started" )
-                sys.stdout = sys.stderr = stdout_socket.makefile( "w", 0 )
-                print( "Server redirected sys.stdout to socket", file=sys.stdout )
+                """Use the supplied socket as sys.stdout/stderr.  Sets up a file-like object over the socket.
+
+                """
+                #print( "Server started; redirect sys.stdout/stderr to sock {!r}".format( stdout_socket ))
+                try:
+                    stdout	= stdout_socket.makefile( "w", buffering=buffering, encoding='utf-8' )
+                except TypeError:
+                    stdout	= stdout_socket.makefile( "w", -1 if buffering is None else buffering )
+                #print( "Server started; redirect sys.stdout/stderr to file {!r}".format( stdout ))
                 sys.stdout.flush()
-                return target( *args, **kwds )
+                #sys.stderr.flush()
+                save		= sys.stdout#, sys.stderr
+                try:
+                    sys.stdout	= stdout
+                    #sys.stderr	= stdout
+                    #print( "Server has redirected sys.stdout/stderr to socket" )
+                    return target( *args, **kwds )
+                finally:
+                    sys.stdout.flush()
+                    #sys.stderr.flush()
+                    #sys.stdout, sys.stderr = save
+                    sys.stdout = save
+                    #print( "Server has restored sys.stdout/stderr" )
             return wrapper
-        r,w			= socket.socketpair() # two unix-domain sockets
-        server			= Process( target=redirect_stdout_socket( server_func ), args=(w, ), kwargs=server_kwds or {} )
+        r,w			= socket.socketpair()	# two unix-domain sockets
+        server_args		= (w, ) + server_args	# Pass the outgoing socket to the server
+        server_func		= redirect_stdout_socket( server_func )
+
+        # The incoming side of the socket.  Set non-blocking, to return whatever is available at the
+        # moment socket is read.  We must still detect readability, or non-blocking read will return
+        # None, breaking the stream's decoding.
         r.setblocking( False )
-        server.stdout		= r.makefile( "r", 0 )
-    else:
-        server			= Process( target=server_func, args=(), kwargs=server_kwds or {} )
+        try:
+            server_stdout	= r.makefile( "r", buffering=buffering, encoding='utf-8', errors='backslashreplace' )
+        except TypeError:
+            server_stdout	= r.makefile( "r", -1 if buffering is None else buffering )
+        log.normal( "Created receiving command.stdout: {!r}".format( server_stdout ))
+
+    server			= Process(
+        target	= server_func,
+        args	= server_args,
+        kwargs	= server_kwds or {}
+    )
     server.daemon		= True
+    server.stdout		= server_stdout
     server.start()
 
     # Harvest any "address = ..." from the Process' .stdout (if defined)
-    from ..modbus_test import soak, soakable
-
     info			= dotdict( address=None )
     if address_delay and soakable( server ):
-
         begun			= misc.timer()
-        soaker			= threading.Thread( target=soak, args=(server,info,),
-                                                        kwargs=dict(
-                                                            address_latency=address_latency, ))
+        soaker			= threading.Thread(
+            target	= soak,
+            args	= (server,info,),
+            kwargs	= dict(
+                address_latency	= address_latency,
+            )
+        )
         soaker.daemon		= True
         soaker.start()
         while info.address is None and misc.timer() - begun < address_delay:
             time.sleep( address_latency )
+        assert info.address, \
+            "Failed to harvest address with in {}s".format( address_delay )
 
     # If we harvested an "address = ...', pass it to the client in client_kwds
     if info.address:
@@ -511,7 +605,7 @@ def bench( server_func, client_func, client_count,
                     misc.function_name( client_func ), client_count, client_max )
         pool			= Pool( processes=client_max )
         # Use list comprehension instead of generator, to force start of all asyncs!
-        asyncs			= [ pool.apply_async( client_func, args=(i,), kwds=client_kwds )
+        asyncs			= [ pool.apply_async( client_func, args=(i,), kwds=client_kwds or {} )
                                     for i in range( client_count )]
         log.normal( "Client %r started %d times in Pool; harvesting results",
                     misc.function_name( client_func ), client_count )

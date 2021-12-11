@@ -27,6 +27,7 @@ except Exception:
     log.warning( "Failed to import fcntl; skipping simulated Modbus/TCP PLC tests" )
 
 from . import misc
+from .server.network import soak
 from .dotdict import dotdict
 from .tools.waits import waitfor
 
@@ -68,9 +69,17 @@ class nonblocking_command( object ):
         shell			= type( command ) is not list
         self.command		= ' '.join( command ) if not shell else command
         log.info( "Starting command: %s", self.command )
-        self.process		= subprocess.Popen(
-            command, stdout=subprocess.PIPE, stderr=stderr, stdin=stdin,
-            bufsize=bufsize, preexec_fn=os.setsid, shell=shell )
+        if sys.version_info[0] < 3:
+            # Python2 assumes plain ASCII encoding (just passes through the raw data)
+            self.process		= subprocess.Popen(
+                command, stdout=subprocess.PIPE, stderr=stderr, stdin=stdin,
+                bufsize=bufsize, preexec_fn=os.setsid, shell=shell )
+        else:
+            # Python3 supports encoding, so specify utf-8 support
+            self.process		= subprocess.Popen(
+                command, stdout=subprocess.PIPE, stderr=stderr, stdin=stdin,
+                bufsize=bufsize, preexec_fn=os.setsid, shell=shell,
+                encoding='utf-8' )
         log.normal( 'Started Server PID [%d]: %s', self.process.pid, self.command )
         if not blocking:
             self.non_blocking()
@@ -122,51 +131,6 @@ class nonblocking_command( object ):
                       self.process.pid, self.process.returncode, self.command )
 
     __del__			= kill
-
-
-def soakable( command ):
-    return hasattr( command, 'is_alive' ) and hasattr( command, 'stdout' )
-
-
-def soak( command, info, address_latency=None, address_re=None ):
-    """Soak up output in a non-blocking fashion, passing it thru to logging.  Harvest any
-
-        address = ...
-
-    found on command.stdout into info['address'].  command.stdout is collected into info['data'],
-    and full lines are logged.
-
-    """
-    if address_latency is None:
-        address_latency		= 0.1
-    if address_re is None:
-        address_re		= r"TCP.*address =\s*(?P<address>.*)?"
-    assert isinstance( info, dict )
-    info.setdefault( 'data', '' )
-    info.setdefault( 'address', None )
-
-    log.normal( "Soaking {!r} stdout".format( command ))
-    while command.is_alive():
-        raw			= None
-        try:
-            raw		= command.stdout.read()
-        except IOError as exc:
-            log.debug( "Socket blocking...: {exc}".format( exc=exc ))
-            assert exc.errno == errno.EAGAIN, "Expected only Non-blocking IOError"
-        except Exception as exc:
-            log.warning("Socket read return Exception: %s", exc)
-            raise
-        if raw:
-            info['data']       += raw.decode( 'utf-8', 'backslashreplace' )
-            while info['data'].find( '\n' ) >= 0:
-                l,info['data']	= info['data'].split( '\n', 1 )
-                log.detail( ">>> %s", l )
-                if not info['address']:
-                    m	= re.search( address_re, l )
-                    if m:
-                        log.normal( "*** Server address = {!r}".format( m.group('address') ))
-                        info['address'] = misc.parse_ip_port( m.group('address').strip() )
-        time.sleep( address_latency )
 
 
 def start_simulator( simulator, *options, **kwds ):

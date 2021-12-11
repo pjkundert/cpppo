@@ -49,7 +49,7 @@ def test_enip_format():
     )
 
     out				= parser.enip_format( obj, sort_keys=True )
-    print( out )
+    #print( out )
     assert out == """\
 {
     'boo.foo[ 0].a':                [],

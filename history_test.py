@@ -44,7 +44,7 @@ if has_pytz:
             parse_seconds,
         )
         got_localzone		= True
-    except pytz.UnknownTimeZoneError as exc:
+    except pytz.UnknownTimeZoneError:
         logging.warning( "Failed to determine local timezone; platform requires tzlocal; run 'pip install tzlocal'" )
 
 

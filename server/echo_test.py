@@ -84,9 +84,12 @@ def echo_cli( number, reps ):
 
 
 def test_echo_bench():
-    failed			= network.bench( server_func=echo.main,
-                                                 client_func=echo_cli, client_count=client_count, 
-                                                 client_kwds=echo_cli_kwds )
+    failed			= network.bench(
+        server_func	= echo.main,
+        client_func	= echo_cli,
+        client_count	= client_count, 
+        client_kwds	= echo_cli_kwds
+    )
     if failed:
         log.warning( "Failure" )
     else:

@@ -227,7 +227,7 @@ class poller_modbus( poller, threading.Thread ):
                         if (address, count) not in self.failing:
                             log.warning( "Failing: PLC %s %6d-%-6d (%5d): %s", self.description,
                                          address, address+count-1, count, str( exc ))
-                    except Exception as exc:
+                    except Exception:
                         # Something else; always log
                         fail.add( (address, count) )
                         log.warning( "Failing: PLC %s %6d-%-6d (%5d): %s", self.description,

@@ -467,7 +467,7 @@ def parse_route_path( route_path, trailer_parser=None ):
             while pl:
                 try:
                     rps.append( port_link( pl ))
-                except Exception as exc:
+                except Exception:
                     # Done processing; this wasn't a valid port_link element
                     break
                 pl		= list( itertools.islice( pls, 2 ))
@@ -490,7 +490,7 @@ def parse_route_path( route_path, trailer_parser=None ):
         while pl:
             try:
                 rps.append( port_link( pl ))
-            except Exception as exc:
+            except Exception:
                 break
             pl			= next( pls, None )
         trs			= ( [] if pl is None else [ pl ] ) + list( pls )

@@ -1,4 +1,4 @@
-#! /usr/bin/env python
+#! /usr/bin/env python3
 
 # 
 # Poll a simple CIP device IP (or DNS name) "<hostname>" (default: localhost)

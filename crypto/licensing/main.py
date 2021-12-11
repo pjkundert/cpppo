@@ -130,7 +130,7 @@ db				= None
 
 def db_setup():
     """Set up application-global db, db_lock, ...  Should be done after config_extras is initialized."""
-    
+
     init_db			= None
     db_file_path		= DB_FILE
     sqlfile_path		= SQLFILE
@@ -145,7 +145,7 @@ def db_setup():
         except ConfigNotFoundError:
             pass
         init_db			= sqlite3.connect( db_file_path )
-    
+
         # Load all licensing.sql* config files into the licensing.db Sqlite3 file.  We want to load
         # SQL files from most general/distant to most specific/nearest, so make reverse=False.
         global config_extra
@@ -167,14 +167,13 @@ def db_setup():
             init_db.close()
     assert os.access( db_file_path, os.W_OK ), \
         "Cannot access licensing DB: {}".format( db_file_path )
-    
+
     # OK, the DB has been initialized, and is at db_file_path
     global db
     db				= web.database( dbn='sqlite', db=db_file_path )
     assert hasattr( db, 'query' ), \
         "Unrecognized licensing DB connection: {!r}" % ( db )
 
-    
     # Various static values that should be saved/restored.  Always begins at defaults on start-up!
     # But, also read from database.  All floating point.
     global db_statics
@@ -414,7 +413,7 @@ def credentials_data( path ):
 
     pathsegs			= path.strip('/').split('/') if path else []
     assert 0 <= len( pathsegs ) <= 1, "Invalid credentials path {}".format( path )
-    
+
     for name,(username,password) in credentials():
         if pathsegs and pathsegs[0] and not fnmatch.fnmatch( name, pathsegs[0] ):
             log.detail( "Credential {} didn't match {}".format( name, path ))
@@ -438,7 +437,7 @@ def keypairs_data( path ):
 
     pathsegs			= path.strip('/').split('/') if path else []
     assert 0 <= len( pathsegs ) <= 1, "Invalid keypairs path {}".format( path )
-    
+
     # Get all credentials into creds: { name: (username,password), ... }, and build a reverse-lookup dict
     # creds_reverse: { (username,password): name, ... }
     creds			= dict( credentials() )
@@ -459,7 +458,7 @@ def keypairs_data( path ):
 
     return data
 
-                    
+
 # Set up signal handling (log rotation, log level, etc.)
 # Output logging to a file, and handle UNIX-y log file rotation via 'logrotate', which sends
 # signals to indicate that a service's log file has been moved/renamed and it should re-open
@@ -1526,45 +1525,13 @@ Disallow: /
         request			= keypairs_request
 
 
-    # Log web.py HTTP requests to licensing.access
-    class LogStdout( wsgilog.LogStdout ):
-        """Implement the missing flush API to avoid warnings"""
-        def flush(self):
-            pass
-
-
-    class Log( wsgilog.WsgiLog, object ):
-        """Direct log messages to the correct log file, including stdout/stderr.  Because we're running
-        a curses textual UI, we don't want stuff being printed to the screen accidentally -- make
-        sure it all goes to the log file.
+    class StaticAppDir( web.httpserver.StaticApp, object ):
+        """Implement our own version of StaticApp and StaticMiddleware so we can return proper caching
+        headers, and specify a specific basedir for static file access. Force new-style classes in
+        Python2 so super works.  Unfortunately, the Python2 SimpleHTTPRequest implementation baked
+        in os.getcwd so we have to transplant a Python2/3 compatible translate_path, too.
 
         """
-        def __init__( self, application ):
-            """Set up logging, and then make sure sys.stderr goes to whereever sys.stdout is now going.  This
-            ensures that environ['wsgi.errors'] (which is always set to sys.stderr by web.py) goes
-            to the .access log file; this is used to log each incoming HTTP request.
-
-            """
-            wsgilog.WsgiLog.__init__(
-                self, application,
-                logformat	= "%(message)s",
-                log		= True,
-                tohtml		= True,			# Exceptions generate HTML
-                tofile		= True,			# Send logging to file
-                file		= ACCFILE,
-                interval	= 'd',
-                backups		= 7,
-            )
-
-            sys.stdout		= LogStdout( self.logger, logging.INFO )
-            sys.stderr		= sys.stdout
-
-
-    # Implement our own version of StaticApp and StaticMiddleware so we can return proper caching
-    # headers, and specify a specific basedir for static file access. Force new-style classes in
-    # Python2 so super works.  Unfortunately, the Python2 SimpleHTTPRequest implementation baked in
-    # os.getcwd so we have to transplant a Python2/3 compatible translate_path, too.
-    class StaticAppDir( web.httpserver.StaticApp, object ):
         def __init__( self, environ, start_response, directory ):
             super( StaticAppDir, self ).__init__( environ, start_response )
             self.directory	= directory
@@ -1647,12 +1614,73 @@ Disallow: /
     # We can't use the stock runsimple; we have to build up our own chain of WSGI middleware and run
     # its server, in order to get our custom StaticMiddleware/StaticApp to serve static files from
     # the Python module installation directory.
+    access			= config.get( 'access' )
+
+    # Log web.py HTTP requests to licensing.access
+    class LogStdout( wsgilog.LogStdout ):
+        """Implement the missing flush API to avoid warnings"""
+        def flush(self):
+            pass
+
+
+    class Log( wsgilog.WsgiLog, object ):
+        """Direct log messages to the correct log file, including stdout/stderr.  Because we're running
+        a curses textual UI, we don't want stuff being printed to the screen accidentally -- make
+        sure it all goes to the log file.
+
+        """
+        def __init__( self, application ):
+            """Set up logging, and then make sure sys.stderr goes to whereever sys.stdout is now going.  This
+            ensures that environ['wsgi.errors'] (which is always set to sys.stderr by web.py) goes
+            to the .access log file; this is used to log each incoming HTTP request.
+
+            """
+            if access:
+                super( Log, self ).__init__(
+                    application,
+                    logformat	= "%(message)s",
+                    log		= True,
+                    tohtml	= True,				# Exceptions generate HTML
+                    tofile	= True,				# Logging goes to access log file
+                    file	= access,
+                    interval	= 'd',
+                    backups	= 7,
+                )
+                # toprint does this automatically for sys.stdout; sys.stderr remains unchanged.
+                # However, the default LogStdout is missing a required .flush method, so we'll set
+                # this up manually instead
+                sys.stdout = sys.stderr = LogStdout( self.logger, logging.INFO )
+            else:
+                super( Log, self ).__init__(
+                    application,
+                    logformat	= "%(message)s",
+                    log		= True,
+                    tohtml	= True,				# Exceptions generate HTML
+                    tostream	= True,				# Logging goes to stdout
+                )
+
     func			= app.wsgifunc( Log )
     func			= StaticMiddlewareDir( func, "/static/", os.path.dirname( __file__ ))
-    func			= LogMiddlewareCF( func ) # web.httpserver.LogMiddleware( func )
-    webpy.server		= web.httpserver.WSGIServer( config['address'], func )
+    func			= LogMiddlewareCF( func ) # web.httpserver.LogMiddleware( app )
 
-    logging.detail( "Web Interface Thread server starting" )
+    # webpy.server		= web.httpserver.WSGIServer( config['address'], app )
+
+    # This is a CherryPy (cheroot) Server.  We have to intercept .serve(), to print the actually
+    # bound web server address (eg. if using a dynamically allocated port).  This will be redirected
+    # to the access logfile, unless disabled via --no-access.
+    from cheroot import wsgi
+    class Server( wsgi.Server, object ):
+        def serve( self ):
+            print( "Web Interface starting: TCP address = {sockname!r}".format(
+                sockname	= self.socket.getsockname()
+            ))
+            sys.stdout.flush()
+            super( Server, self ).serve()
+
+    # Finally, make the Server available on the function's webpy.server for external access
+    webpy.server		= Server( config['address'], func, server_name="localhost" )
+    webpy.server.nodelay	= True
+
     try:
         webpy.server.start()
     except (KeyboardInterrupt, SystemExit) as exc:
@@ -1670,6 +1698,7 @@ Disallow: /
 
 # To stop the server externally, hit webpy.server.stop
 webpy.server			= None
+
 
 def txtgui( cnf ):
     """Run curses UI, catching all exceptions.  Returns True on failure."""
@@ -1715,12 +1744,18 @@ def main( argv=None, **kwds ):
                      default=0, 
                      help="Display logging information." )
     ap.add_argument( '-w', '--web', default="0.0.0.0:8000",
-                       help='enable web interface (default: 0.0.0.0:8000)' )
+                       help='enable web server on interface (default: 0.0.0.0:8000)' )
     ap.add_argument( '--no-web', dest='web', action="store_false",
-                       help='disable web interface (default: False)' )
+                       help='Disable web interface and access log file (default: False)' )
+    ap.add_argument( '--access', default=ACCFILE,
+                     help="Log all web server access to log file (default: {ACCFILE}".format(
+                         ACCFILE=ACCFILE ))
+    ap.add_argument( '--no-access', dest='access',
+                     action="store_const", const=None,
+                     help='Disable web server access log file, including stdout/stderr redirection' )
     ap.add_argument( '--no-gui', dest='gui',
                        action="store_false", default=True,
-                       help='disable Curses GUI interface (default: False)' )
+                       help='Disable Curses GUI interface (default: False)' )
     ap.add_argument( '-c', '--config', action='append',
                      help="Add another (higher priority) config file path." )
     ap.add_argument( '-l', '--log',
@@ -1743,7 +1778,7 @@ def main( argv=None, **kwds ):
     # Get some details about the Ed25519 version we're using, and suppress some nagging about
     # letting it generate random seeds.
     warnings.simplefilter('ignore') # We know about handling Ed25519 random seeds...
-    
+
     log.detail( "Ed25519 Version: {} / {} / {}".format(
         getattr( licensing.ed25519, '__version__', None ), licensing.ed25519.__package__, licensing.ed25519.__path__ ))
 
@@ -1764,7 +1799,7 @@ def main( argv=None, **kwds ):
             vk			= str( exc )
         log.detail( "{n:<20}: {vk} w/ {u:>20} / {p}".format(
             n=name, vk=vk, u=username, p='*' * len( password )))
-        
+
     # Start up Curses console GUI...
     txtcnf			= {
         'stop':		False,
@@ -1849,7 +1884,7 @@ def main( argv=None, **kwds ):
             txtthr		= txtthread( txtcnf, name='curses' )
             txtthr.start()
             threads.append( txtthr )
-    
+
         # Start the web UI (if desired)
         webthr			= None
         if args.web:
@@ -1858,8 +1893,16 @@ def main( argv=None, **kwds ):
             assert 1 <= len( address ) <= 2, "Web address must be in the form <interface>:<port>"
             address		= ( str( address[0] ),
                                     int( address[1] ) if len( address ) > 1 else 8000 )
-    
-            webthr		= webthread( config={ 'address': address }, name='web' )
+            # If all sys.stdout/stderr should got to the web server's access log file, (the
+            # default), then set it here.  If not (eg. we want to be able to harvest the actual
+            # dynamic IP address:port of the bound web server socket), then pass Falsey for access.
+            webthr		= webthread(
+                config	= dict(
+                    address	= address,
+                    access	= args.access,
+                ),
+                name	= 'web',
+            )
             webthr.name		= 'web.py'
             webthr.start()
             threads.append( webthr )

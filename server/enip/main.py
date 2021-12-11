@@ -820,7 +820,7 @@ def enip_srv_tcp( conn, addr, name, enip_process, delay=None, **kwds ):
                                 delayseconds = float( delay.value if hasattr( delay, 'value' ) else delay )
                                 if delayseconds > 0:
                                     time.sleep( delayseconds )
-                            except Exception as exc:
+                            except Exception:
                                 log.detail( "Unable to delay; invalid seconds: %r", delay )
                         try:
                             conn.send( rpy )

@@ -1,4 +1,4 @@
-#! /usr/bin/env python
+#! /usr/bin/env python3
 
 # 
 # Open a "Connected" Class-1 session to a C*Logix PLC

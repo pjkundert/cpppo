@@ -818,7 +818,7 @@ class duration( object ):
         """Parses a duration specifier, returning the matching timedelta"""
         durmatch		= cls.DURSPEC_RE.match( durspec )
         if not durmatch:
-            raise RuntimeError("Invalid duration specification: {durspec}".format( durpsec=durspec ))
+            raise RuntimeError("Invalid duration specification: {durspec}".format( durspec=durspec ))
         seconds			= (
             int( durmatch.group( 's' ) or durmatch.group( 's_man' ) or 0 )
             + cls.MN * int( durmatch.group( 'm' ) or '0' )

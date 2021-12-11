@@ -184,7 +184,7 @@ def test_state():
     to convert them to symbols."""
 
     unicodekwds			= {
-        'alphabet':	unicode if sys.version_info[0] < 3 else str,
+        'alphabet':	unicode if sys.version_info[0] < 3 else str, # noqa: F821
         'encoder':	cpppo.type_unicode_encoder,
     }
     s1				= cpppo.state(

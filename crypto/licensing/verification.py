@@ -292,7 +292,7 @@ def machine_UUIDv4( machine_id_path=None):
     try:
         with open( machine_id_path, 'r' ) as m_id:
             machine_id		= m_id.read().strip()
-    except Exception as exc:
+    except Exception:
         # Node number is typically a much shorter integer; fill to required UUID length.
         machine_id		= "{:0>32}".format( hex( uuid.getnode())[2:] )
     try:
@@ -1419,14 +1419,14 @@ def load_keys( basename=None, mode=None, extension=None,
                 else:
                     yield f_name, exc
             log.isEnabledFor( logging.INFO ) and log.info(
-                "Failed to decrypt KeypairEncrypted: {}".format(
-                    ''.join( traceback.format_exception( *sys.exc_info() )) if log.isEnabledFor( logging.DEBUG ) else exc ))
+                "Failed to decrypt KeypairEncrypted: {trace}".format(
+                    trace=''.join( traceback.format_exception( *sys.exc_info() )) if log.isEnabledFor( logging.DEBUG ) else exc ))
             continue
-        except Exception as exc:
+        except Exception:
             # Some other problem attempting to interpret this thing as a KeypairEncrypted; carry on and try again
             log.isEnabledFor( logging.DEBUG ) and log.debug(
-                "Failed to decode  KeypairEncrypted: {}".format(
-                    ''.join( traceback.format_exception( *sys.exc_info() ))))
+                "Failed to decode  KeypairEncrypted: {trace}".format(
+                    trace=''.join( traceback.format_exception( *sys.exc_info() ))))
 
         plaintext		= None
         try:
@@ -1452,8 +1452,8 @@ def load_keys( basename=None, mode=None, extension=None,
                 "Failed to decode KeypairPlaintext: {}".format(
                     ''.join( traceback.format_exception( *sys.exc_info() )) if log.isEnabledFor( logging.DEBUG ) else exc ))
     if not found:
-        log.detail( "Cannot load Keypair(s) from {}: ".format(
-            name, ', '.join( "{}: {}".format( fn, exc ) for fn, exc in issues )))
+        log.detail( "Cannot load Keypair(s) from {name}: {reasons}".format(
+            name=name, reasons=', '.join( "{}: {}".format( fn, exc ) for fn, exc in issues )))
 
 
 def check( basename=None, mode=None,		# Keypair/License file basename and open mode

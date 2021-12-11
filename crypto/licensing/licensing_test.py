@@ -46,7 +46,12 @@ licensing_cli_kwds		= {
 CFGPATH				=  __file__[:-3] # trim off .py
 
 licensing_svr_kwds		= {
-    "argv": [ "--no-gui", "--config", CFGPATH ]
+    "argv": [
+        "--no-gui",
+        "--config", CFGPATH,
+        "--web", "localhost:0",	# Use a dynamic bind port for testing the server
+        "--no-access"		# Do not redirect sys.stdout/stderr to an access log file
+    ]
 }
 
 
@@ -81,13 +86,17 @@ signature=kDCDoWJ2xDcIg5HicihQeJBxbo8LK%2BDCI2FPogQD2q4Slxylyq7G5xuEaV%2BWa6STD7
     return query
 
 
-def licensing_cli( number, tests=None ):
+def licensing_cli( number, tests=None, address=None ):
     """Makes a series of HTTP requests to the licensing server, testing the response.
 
     """
-    time.sleep( 1 )
     query			= test_licensing_issue_query()
-    response			= urlopen( "http://localhost:8000/api/issue.json?" + query ).read()
+    url				= "http://{host}:{port}/api/issue.json?{query}".format(
+        host	= address[0] if address else "localhost",
+        port	= address[1] if address else 8000,
+        query	= query,
+    )
+    response			= urlopen( url ).read()
     assert response
     data			= json.loads( response )
     #print( data )
@@ -95,13 +104,14 @@ def licensing_cli( number, tests=None ):
 
 
 def licensing_bench():
-    logging.getLogger().setLevel(logging.INFO)
+    # Start up the Web interface on a dynamic port, eg. "localhost:0"
     failed			= cpppo.server.network.bench(
         server_func	= licensing_main,
         server_kwds	= licensing_svr_kwds,
         client_func	= licensing_cli,
         client_count	= client_count,
-        client_kwds	= licensing_cli_kwds
+        client_kwds	= licensing_cli_kwds,
+        address_delay	= 5.0,
     )
 
     if failed:

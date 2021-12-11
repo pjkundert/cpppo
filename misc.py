@@ -58,6 +58,23 @@ Miscellaneous functionality used by various other modules.
 """
 
 # 
+# Python2/3 Compatibility Types
+# 
+
+# Types produced by iterators over various input stream types
+type_bytes_iter			= str if sys.version_info[0] < 3 else int
+type_str_iter			= str
+
+# The base class of string types
+type_str_base			= basestring if sys.version_info[0] < 3 else str # noqa: F821
+
+# The array.array typecode for iterated items of various input stream types
+type_unicode_array_symbol	= 'u'
+type_str_array_symbol		= 'c' if sys.version_info[0] < 3 else 'u'
+type_bytes_array_symbol		= 'c' if sys.version_info[0] < 3 else 'B'
+
+
+# 
 # misc.mutexmethod -- apply a synchronization mutex around a method invocation
 # 
 def mutexmethod( mutex='lock', blocking=True ):
@@ -454,10 +471,8 @@ def natural( string, fmt="%9s", ):
                    else itm )
                   for itm in res )
 
-natural.str_type 	= ( basestring if sys.version_info[0] < 3
-                            else str )
-natural.num_types	= ( (float, int, long) if sys.version_info[0] < 3
-                            else (float, int))
+natural.str_type 	= basestring if sys.version_info[0] < 3 else str # noqa: F821
+natural.num_types	= (float, int, long) if sys.version_info[0] < 3 else (float, int) # noqa: F821
 
 
 def non_value( number ):
@@ -610,7 +625,7 @@ def hexloader( dump, offset=0, fill=False, skip=False ):
     if fill:
         assert isinstance( fill, bytes ) and len( fill ) == 1, \
             "fill must be a bytes singleton, not {fill!r}".format( fill=fill )
-    if isinstance( dump, basestring if sys.version_info[0] < 3 else str ):
+    if isinstance( dump, basestring if sys.version_info[0] < 3 else str ): # noqa: F821
         dump			= dump.split( '\n' )
     for row in dump:
         if not row.strip():
@@ -672,9 +687,6 @@ def hexload( dump, offset=0, fill=False, skip=False ):
 if sys.version_info[0] >= 3:
     def unicode( s ):
         return str( s )
-    type_str_base	= str
-else:
-    type_str_base	= basestring
 
 def ip( a ):
     return ip_address( unicode( a ))

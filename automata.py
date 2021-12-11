@@ -32,6 +32,16 @@ import greenery.fsm
 
 from . import misc
 
+# Historically, these types were defined here
+from .misc import (
+    type_bytes_iter,
+    type_str_iter,
+    type_str_base,
+    type_unicode_array_symbol,
+    type_str_array_symbol,
+    type_bytes_array_symbol
+)
+
 __author__                      = "Perry Kundert"
 __email__                       = "perry@hardconsulting.com"
 __copyright__                   = "Copyright (c) 2013 Hard Consulting Corporation"
@@ -45,19 +55,6 @@ log_cfg				= {
     "format":	'%(asctime)s.%(msecs).03d %(threadName)10.10s %(name)-8.8s %(levelname)-8.8s %(funcName)-10.10s %(message)s',
 }
 
-# Python2/3 compatibility types, for ascii/unicode str type
-
-# Types produced by iterators over various input stream types
-type_bytes_iter			= str if sys.version_info[0] < 3 else int
-type_str_iter			= str
-
-# The base class of string types
-type_str_base			= basestring if sys.version_info[0] < 3 else str
-
-# The array.array typecode for iterated items of various input stream types
-type_unicode_array_symbol	= 'u'
-type_str_array_symbol		= 'c' if sys.version_info[0] < 3 else 'u'
-type_bytes_array_symbol		= 'c' if sys.version_info[0] < 3 else 'B'
 
 # Various default data path contexts/extensions
 path_ext_input			= '.input'	# default destination input
