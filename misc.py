@@ -20,6 +20,7 @@ try:
 except ImportError:
     pass
 
+import contextlib
 import ast
 import functools
 import logging
@@ -47,6 +48,40 @@ try:
     xrange(0,1)
 except NameError:
     xrange 			= range
+
+try:
+    unicode
+except NameError:
+    unicode			= str
+
+# Arrange to redirect sys.stdout via the provided raw socket, provided as the first
+# argument to the supplied target function.
+try:
+    # Python3+ has redirect_stdout, and <socket>.makefile w/ encoding support
+    from contextlib import redirect_stdout
+    def redirect_stdout_socket( target, buffering=None ):
+        def wrapper( stdout_socket, *args, **kwds ):
+            with contextlib.redirect_stdout( stdout_socket.makefile( "w", buffering=buffering, encoding='utf-8' )):
+                return target( *args, **kwds )
+        return wrapper
+except ImportError:
+    # Python2 assumes raw/ASCII encoding, manual sys.stdout control
+    def redirect_stdout_socket( target, buffering=None ):
+        def wrapper( stdout_socket, *args, **kwds ):
+            """Use the supplied socket as sys.stdout/stderr.  Sets up a file-like object over the socket.
+
+            """
+            stdout		= stdout_socket.makefile( "w", -1 if buffering is None else buffering )
+            sys.stdout.flush()
+            save		= sys.stdout
+            try:
+                sys.stdout	= stdout
+                return target( *args, **kwds )
+            finally:
+                sys.stdout.flush()
+                sys.stdout = save
+        return wrapper
+
 
 __author__                      = "Perry Kundert"
 __email__                       = "perry@hardconsulting.com"
@@ -679,15 +714,11 @@ def hexload( dump, offset=0, fill=False, skip=False ):
 
 
 # 
-# unicode, ip/network, parse_ip_port -- handle unicode/str IP addresses
+# ip/network, parse_ip_port -- handle unicode/str IP addresses
 # 
 #     Converts str (assumed unicode) to IP address (ipaddress.ip_address).  Provides a Python-2
 # compatible unicode shim to re-interpret a str as unicode in a Python version-agnosic fashion.
 # 
-if sys.version_info[0] >= 3:
-    def unicode( s ):
-        return str( s )
-
 def ip( a ):
     return ip_address( unicode( a ))
 

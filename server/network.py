@@ -25,6 +25,7 @@ __email__                       = "perry@hardconsulting.com"
 __copyright__                   = "Copyright (c) 2013 Hard Consulting Corporation"
 __license__                     = "Dual License: GPLv3 (or later) and Commercial (see LICENSE)"
 
+import contextlib
 import errno
 import functools
 import logging
@@ -525,35 +526,9 @@ def bench( server_func, client_func, client_count,
     server_stdout		= None
     buffering			= None
     if address_delay:
-        def redirect_stdout_socket( target ):
-            def wrapper( stdout_socket, *args, **kwds ):
-                """Use the supplied socket as sys.stdout/stderr.  Sets up a file-like object over the socket.
-
-                """
-                #print( "Server started; redirect sys.stdout/stderr to sock {!r}".format( stdout_socket ))
-                try:
-                    stdout	= stdout_socket.makefile( "w", buffering=buffering, encoding='utf-8' )
-                except TypeError:
-                    stdout	= stdout_socket.makefile( "w", -1 if buffering is None else buffering )
-                #print( "Server started; redirect sys.stdout/stderr to file {!r}".format( stdout ))
-                sys.stdout.flush()
-                #sys.stderr.flush()
-                save		= sys.stdout#, sys.stderr
-                try:
-                    sys.stdout	= stdout
-                    #sys.stderr	= stdout
-                    #print( "Server has redirected sys.stdout/stderr to socket" )
-                    return target( *args, **kwds )
-                finally:
-                    sys.stdout.flush()
-                    #sys.stderr.flush()
-                    #sys.stdout, sys.stderr = save
-                    sys.stdout = save
-                    #print( "Server has restored sys.stdout/stderr" )
-            return wrapper
         r,w			= socket.socketpair()	# two unix-domain sockets
         server_args		= (w, ) + server_args	# Pass the outgoing socket to the server
-        server_func		= redirect_stdout_socket( server_func )
+        server_func		= misc.redirect_stdout_socket( server_func, buffering=buffering )
 
         # The incoming side of the socket.  Set non-blocking, to return whatever is available at the
         # moment socket is read.  We must still detect readability, or non-blocking read will return

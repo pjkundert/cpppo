@@ -17,10 +17,6 @@ from ...dotdict import dotdict
 from . import parser
 from ... import misc
 
-try:
-    unicode('')
-except NameError:
-    unicode = str
 
 # Set up logging to use our log format (instead of default Pytest format), while
 # retaining any logging level eg. python -m pytest --log-cli-level=25 ...

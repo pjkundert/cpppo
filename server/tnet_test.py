@@ -96,10 +96,10 @@ tnet_cli_kwds			= {
     ],
 }
 
-def tnet_cli( number, tests=None ):
+def tnet_cli( number, tests=None, address=None ):
     log.info( "%3d client connecting... PID [%5d]", number, os.getpid() )
     conn			= socket.socket( socket.AF_INET, socket.SOCK_STREAM )
-    conn.connect( tnet.address )
+    conn.connect( address or tnet.address )
     log.info( "%3d client connected", number )
         
     rcvd			= ''
@@ -163,17 +163,20 @@ def tnet_cli( number, tests=None ):
 
 
 tnet_svr_kwds			= {
-    "argv": [ "-vv" ]
+    "argv": [ "-vv", '-a', 'localhost:0', ]
 }
 
 
 def tnet_bench():
     logging.getLogger().setLevel(logging.INFO)
     failed			= cpppo.server.network.bench(
-        server_func=tnet.main,
-        server_kwds=tnet_svr_kwds,
-        client_func=tnet_cli, client_count=client_count, 
-        client_kwds=tnet_cli_kwds )
+        server_func	= tnet.main,
+        server_kwds	= tnet_svr_kwds,
+        client_func	= tnet_cli,
+        client_kwds	= tnet_cli_kwds,
+        client_count	= client_count,
+        address_delay	= 5.0,
+    )
 
     if failed:
         log.warning( "Failure" )

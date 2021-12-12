@@ -485,8 +485,7 @@ class IPADDR( UDINT ):
         if isinstance( value, type_str_base ):
             # Parse the supplied IP address string to an integer.  ip_address requires unicode
             # value, even in Python2; there is no Python2/3 agnostic method for casting to unicode!
-            ipaddr		= ipaddress.ip_address(
-                ( unicode if sys.version_info[0] < 3 else str )( value )) # noqa: F821
+            ipaddr		= ipaddress.ip_address( misc.unicode( value ))
             value		= int( ipaddr )
             log.info( "Converted IP %r --> %d", ipaddr, value )
         return UDINT.produce( value )
@@ -507,8 +506,7 @@ class IPADDR_network( UDINT_network ):
     @classmethod
     def produce( cls, value ):
         if isinstance( value, type_str_base ):
-            ipaddr		= ipaddress.ip_address(
-                ( unicode if sys.version_info[0] < 3 else str )( value )) # noqa: F821
+            ipaddr		= ipaddress.ip_address( misc.unicode( value ))
             value		= int( ipaddr )
             log.info( "Converted IP %r --> %d (network byte ordered)", ipaddr, value )
         return UDINT_network.produce( value )
