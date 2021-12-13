@@ -55,17 +55,20 @@ except ImportError:
 
 @pytest.fixture( scope="module" )
 def simulated_modbus_tcp( request ):
-    """Start a simulator over a range of ports; parse the port successfully bound."""
-    command,address		= start_modbus_simulator(
-        '-vv', '--log', 'remote_test.modbus_sim.log.localhost:11502',
+    """Start a simulator over a range of ports; parse the port successfully bound.  Downstream fixtures
+    require the i'face to be a str.
+
+    """
+    command,(iface,port)	= start_modbus_simulator(
+        '-v', '--log', 'remote_test.modbus_sim.log.localhost:0',
         '--evil', 'delay:.25',
-        '--address', 'localhost:11502',
-        '--range', '10',
+        '--address', 'localhost:0',
+        #'--range', '10',
         '    1 -  1000 = 0',
         '40001 - 41000 = 0',
     )
     request.addfinalizer( command.kill )
-    return command,address
+    return command,(str(iface),port)
 
 
 @pytest.mark.skipif( not has_pymodbus, reason="Needs pymodbus" )

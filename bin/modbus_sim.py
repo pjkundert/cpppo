@@ -335,9 +335,10 @@ def StartTcpServerLogging( registers, identity=None, framer=ModbusSocketFramer, 
     server			= modbus_server_tcp( context, framer, identity, address,
                                                    **kwds )
     # Print the address successfully bound; this is useful, if attempts are made
-    # to bind over a range of ports.
+    # to bind over a range of ports.  If the port is dynamic, we must use the
+    # socket.getsockname() result , which is available on .server_address.
     print( "Success; Started Modbus/TCP Simulator; PID = %d; address = %s:%s" % (
-        os.getpid(), address[0] if address else "", address[1] if address else Defaults.Port ))
+        os.getpid(), server.server_address[0], server.server_address[1] ))
     sys.stdout.flush()
     server.serve_forever()
 
@@ -358,8 +359,7 @@ def StartRtuServerLogging( registers, identity=None, framer=modbus_rtu_framer_co
     server			= modbus_server_rtu( context, framer, identity, port=address,
                                                       **kwds )
 
-    # Print the address successfully bound; this is useful, if attempts are made
-    # to bind over a range of ports.
+    # Print the address successfully bound; a serial device in this case.
     print( "Success; Started Modbus/RTU Simulator; PID = %d; address = %s" % (
         os.getpid(), address ))
     sys.stdout.flush()

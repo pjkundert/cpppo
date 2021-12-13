@@ -150,6 +150,9 @@ def start_simulator( simulator, *options, **kwds ):
     and parse the 'running on ...'!  We assume that server/network.py flushes stdout when printing
     the bindings.  We could use #!/usr/bin/env -S python3 -u instead to have all output unbuffered.
 
+
+    The address soaked/harvested from the output of the simulator will be an (<interface>,<port>) tuple;
+    the <interface> may be either a str, or an IPv[4
     """
     command_list		= [ sys.executable, simulator, ] + list( options )
 
@@ -175,7 +178,7 @@ def start_simulator( simulator, *options, **kwds ):
 
     assert info.address, "Failed to harvest Simulator IP address"
 
-    logging.normal( "Simulator started after %7.3fs on %s:%d",
+    logging.normal( "Simulator started after %7.3fs on %r:%d",
                     misc.timer() - begun, info.address[0], info.address[1] )
     return command,info.address
 
