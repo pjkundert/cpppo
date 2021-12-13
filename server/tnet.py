@@ -250,6 +250,9 @@ def main( argv=None ):
     ap.add_argument( '-a', '--address', default=None,
                      help="The local interface[:port] to bind to (default: {iface}:{port})".format(
                          iface=address[0], port=address[1] ))
+    ap.add_argument( '-A', '--address-output', action='store_true',
+                     default=False,
+                     help="Output server network binding as '... running on (<interface>, <port>)' to stdout" )
     args			= ap.parse_args( argv )
     
     # Set up logging level (-v...) and --log <file>, handling log-file rotation
@@ -277,9 +280,10 @@ def main( argv=None ):
         bind			= str(host),int(port)
 
     return network.server_main(
-        address	= bind,
-        target	= tnet_server_json,
-        kwargs	= dict(
+        address		= bind,
+        address_output	= args.address_output,
+        target		= tnet_server_json,
+        kwargs		= dict(
             timeout	= timeout,
             latency	= latency,
             ignore	= b'\n'

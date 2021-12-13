@@ -163,7 +163,7 @@ def tnet_cli( number, tests=None, address=None ):
 
 
 tnet_svr_kwds			= {
-    "argv": [ "-vv", '-a', 'localhost:0', ]
+    "argv": [ "-vv", '-a', 'localhost:0', '-A' ]
 }
 
 
