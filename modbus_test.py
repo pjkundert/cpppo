@@ -116,19 +116,20 @@ class nonblocking_command( object ):
         return self.process.wait( timeout=timeout )
 
     def kill( self, timeout=None ):
-        log.normal( 'Sending SIGTERM to PID [%d]: %s, via: %s', self.process.pid, self.command,
-                        ''.join( traceback.format_stack() ) if log.isEnabledFor( logging.DEBUG ) else '' )
-        try:
-            self.process.terminate()
-        except OSError: # Python2.7 doesn't check/ignore problems sending signals to already-dead processes
-            pass
-        if self.wait( timeout=timeout ) is None:
-            log.normal( 'Sending SIGKILL to PID [%d]: %s', self.process.pid, self.command )
+        if self.is_alive():
+            log.normal( 'Sending SIGTERM to PID [%d]: %s, via: %s', self.process.pid, self.command,
+                            ''.join( traceback.format_stack() ) if log.isEnabledFor( logging.DEBUG ) else '' )
             try:
-                self.process.kill()
-            except OSError:
+                self.process.terminate()
+            except OSError: # Python2.7 doesn't check/ignore problems sending signals to already-dead processes
                 pass
-            self.process.wait()
+            if self.wait( timeout=timeout ) is None:
+                log.normal( 'Sending SIGKILL to PID [%d]: %s', self.process.pid, self.command )
+                try:
+                    self.process.kill()
+                except OSError:
+                    pass
+                self.process.wait()
         log.info( "Command (PID [%d]) finished with status %r: %s",
                       self.process.pid, self.process.returncode, self.command )
 
