@@ -50,7 +50,7 @@ except NameError:
     xrange 			= range
 
 try:
-    unicode
+    unicode			= unicode
 except NameError:
     unicode			= str
 

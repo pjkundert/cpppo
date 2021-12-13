@@ -75,11 +75,13 @@ class nonblocking_command( object ):
                 command, stdout=subprocess.PIPE, stderr=stderr, stdin=stdin,
                 bufsize=bufsize, preexec_fn=os.setsid, shell=shell )
         else:
-            # Python3 supports encoding, so specify utf-8 support
+            # Python3 supports encoding, so specify encoding='utf-8' support?  No, we must retain
+            # binary data from the target process and decode it as received.  This retains
+            # consistency with Python2, and also is necessary to support non-blocking sockets --
+            # which defeat the built-in Python codecs, which do *not* offer non-blocking support.
             self.process		= subprocess.Popen(
                 command, stdout=subprocess.PIPE, stderr=stderr, stdin=stdin,
-                bufsize=bufsize, preexec_fn=os.setsid, shell=shell,
-                encoding='utf-8' )
+                bufsize=bufsize, preexec_fn=os.setsid, shell=shell )
         log.normal( 'Started Server PID [%d]: %s', self.process.pid, self.command )
         if not blocking:
             self.non_blocking()
@@ -151,8 +153,9 @@ def start_simulator( simulator, *options, **kwds ):
     the bindings.  We could use #!/usr/bin/env -S python3 -u instead to have all output unbuffered.
 
 
-    The address soaked/harvested from the output of the simulator will be an (<interface>,<port>) tuple;
-    the <interface> may be either a str, or an IPv[4
+    The address soaked/harvested from the output of the simulator will be an (<interface>,<port>)
+    tuple; the <interface> may be either a str, or an IPv[46]Address (convertible to a str).
+
     """
     command_list		= [ sys.executable, simulator, ] + list( options )
 

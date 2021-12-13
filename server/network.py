@@ -433,8 +433,14 @@ def server_main( address, target=None, kwargs=None, idle_service=None, thread_fa
 
 @readable()
 def decodefrom( source, encoding, errors=None ):
-    """Python2/3 have wildly different socket.makefile blocking and encoding capabilities."""
-    return source.read().decode( encoding, errors=errors )
+    """Python2/3 have wildly different socket.makefile blocking and encoding capabilities.  Also,
+    codecs cannot handle non-blocking sources, so discard empty but not EOF sources here.
+
+    """
+    binary		= source.read()
+    if binary:
+        return binary.decode( encoding, errors=errors ) 
+    return ''
 
 
 def soakable( command ):
@@ -449,6 +455,9 @@ def soak( command, info, address_latency=None, address_re=None ):
     found on command.stdout into info['address'].  command.stdout is collected into info['data'],
     and full lines are logged.
 
+    The command.stdout stream is assumed to be in *binary* mode, and may be non-blocking.
+    Therefore, the .read() may return None.
+
     """
     if address_latency is None:
         address_latency		= 0.1
@@ -460,20 +469,14 @@ def soak( command, info, address_latency=None, address_re=None ):
 
     log.normal( "Soaking {!r} stdout".format( command ))
     while command.is_alive():
-        raw			= None
-        if hasattr( command.stdout, 'readable' ):
-            if command.stdout.readable():
-                raw		= command.stdout.read()
-        else:
-            raw			= decodefrom( command.stdout, encoding='utf-8', errors='backslashreplace' )
+        raw			= decodefrom( command.stdout, encoding='utf-8', errors='backslashreplace' )
         if not raw:
             time.sleep( address_latency )
             continue
-        else:
-            assert isinstance( raw, misc.type_str_base ), \
-                "Received non-encoded output from command.stdout {!r}: {!r}".format(
-                    command.stdout, raw )
-        
+        assert isinstance( raw, misc.type_str_base ), \
+            "Received non-encoded output from command.stdout {!r}: {!r}".format(
+                command.stdout, raw )
+
         log.normal( "Read {:5d} bytes (had {:5d} bytes) from {!r}: {!r}".format(
             len( raw ), len( info['data'] ), command.stdout, raw ))
         info['data']           += raw
@@ -532,12 +535,25 @@ def bench( server_func, client_func, client_count,
 
         # The incoming side of the socket.  Set non-blocking, to return whatever is available at the
         # moment socket is read.  We must still detect readability, or non-blocking read will return
-        # None, breaking the stream's decoding.
+        # None, breaking the stream's decoding.  Actually, we the Python io/codecs infrastructure
+        # cannot handle non-blocking IO at all: https://bugs.python.org/issue13322.  The codecs.py
+        # could be fixed with a quite simple change to allow input data of either None or b'' to be
+        # handled equivalently in BufferedIncrementalDecoder:
+        # 
+        #     def decode(self, input, final=False):
+        #         # decode input (taking the buffer into account, and None for non-blocking input)
+        #         data = self.buffer + ( input or b'' )
+        #         ...
+        # 
+        # However, these ideas have been rejected since ~2011, so are unlikely to be fixed.
+        # Therefore, we can transmit UTF-8 encoded data via the "write" half of the socket, but must
+        # receive raw binary data via the non-blocking "read" half of the socket, and
+        # accumulate/decode it ourselves.
         r.setblocking( False )
         try:
-            server_stdout	= r.makefile( "r", buffering=buffering, encoding='utf-8', errors='backslashreplace' )
+            server_stdout	= r.makefile( "rb", buffering=buffering )
         except TypeError:
-            server_stdout	= r.makefile( "r", -1 if buffering is None else buffering )
+            server_stdout	= r.makefile( "rb", -1 if buffering is None else buffering )
         log.normal( "Created receiving command.stdout: {!r}".format( server_stdout ))
 
     server			= Process(

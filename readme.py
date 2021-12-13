@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#! /usr/bin/env python3
 #
 # readme.py: A demo of plain and composite cpppo state machinery; works under python 2 or 3 
 #
