@@ -300,7 +300,7 @@ def powerflex_routed_cli( number, address=None ):
     return not near( freq, 456.78 )    
 
 
-#@pytest.mark.xfail # unreliable
+@pytest.mark.xfail # unreliable
 def test_powerflex_poll_routing_bench( simulated_powerflex_gateway ):
     command,address             = simulated_powerflex_gateway
 
