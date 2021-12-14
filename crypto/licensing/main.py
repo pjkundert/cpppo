@@ -963,6 +963,7 @@ def issue_request( render, path, environ, accept, framework,
     client_pubkey		= variables.get( 'client_pubkey' ) # Must sign the issue request
     machine			= variables.get( 'machine' )
     signature			= variables.get( 'signature' )
+    number			= variables.get( 'number' ) # optional client-supplied serialization
 
     # TODO: verify the signature is that of the original canonicalized, serialized IssueRequest payload
     # 
@@ -974,7 +975,8 @@ def issue_request( render, path, environ, accept, framework,
     issue_request		= licensing.IssueRequest(
         author=author, author_pubkey=author_pubkey, product=product,
         client=client, client_pubkey=client_pubkey, machine=machine )
-    log.info( "Issue request: {req}, w/ signature: {sig!r}".format( req=str( issue_request ), sig=signature ))
+    log.info( "Issue request number={number}; {req}, w/ signature: {sig!r}".format(
+        number=number, req=str( issue_request ), sig=signature ))
     try:
         issue_request.verify( pubkey=client_pubkey, signature=signature )
     except Exception as exc:
@@ -1008,13 +1010,13 @@ def issue_request( render, path, environ, accept, framework,
             """Scan the loaded/stored Licenses for  """
             stored			= list( db.select( 'licenses' ))
             for sig, lic in licenses( confirm=False, stored=stored ):
-                log.info( "{}'s {}: mismatched keys: {}".format(
-                    lic.author['name'], lic.author['product'],
-                    ', '.join( n for n in names if skip_tab[n]( lic ) )))
+                log.info( "Issue request number={number}; {name}'s {product}: mismatched keys: {keys}".format(
+                    number=number, name=lic.author['name'], product=lic.author['product'],
+                    keys=', '.join( n for n in names if skip_tab[n]( lic ) )))
                 if any( skip_tab[n]( lic ) for n in names ):
                     continue
-                log.info( "{}'s {} accepted: {}".format(
-                    lic.author['name'], lic.author['product'], lic ))
+                log.info( "Issue request number={number}; {name}'s {product} accepted: {lic}".format(
+                    number=number, name=lic.author['name'], product=lic.author['product'], lic=lic ))
                 yield sig, lic
 
         # Ideally, everything matches exactly one specific License already issued to this Client for
@@ -1027,7 +1029,8 @@ def issue_request( render, path, environ, accept, framework,
             pass
         else:
             if lic.client and lic.machine: # Exact match, with specific client and machine
-                log.detail( "Reissuing existing License: {}".format( lic ))
+                log.normal( "Issue request number={number}; Reissuing existing License: {lic}".format(
+                    number=number, lic=lic if log.isEnabledFor( logging.DETAIL ) else licensing.into_b64( sig )))
                 return licensing.LicenseSigned(
                     license=lic, signature=sig, confirm=False, machine_id_path=False )
 
@@ -1043,7 +1046,8 @@ def issue_request( render, path, environ, accept, framework,
             pass
         else:
             if not lic.machine or lic['machine'] == issue_request['machine']:
-                log.detail( "Specializing existing License: {}".format( lic ))
+                log.detail( "Issue request number={number}; Specializing existing License: {lic}".format(
+                    number=number, lic=lic if log.isEnabledFor( logging.INFO ) else licensing.into_b64( sig)))
                 author_sigkey	= None
                 for name,keypair,cred in keypairs():
                     vk, sk	= keypair.into_keypair( **cred )
@@ -1061,6 +1065,8 @@ def issue_request( render, path, environ, accept, framework,
                                     signature=prov['signature'],
                                     license=str( prov.license ))
                 assert insert, "Specializing license insert failed"
+                log.normal( "Issue request number={number}; Issued specialized License: {lic}".format(
+                    number=number, lic=prov.license if log.isEnabledFor( logging.DETAIL ) else licensing.into_b64( prov.signature )))
                 return prov
 
         raise http_exception( framework, 409, "No matching Licenses found matching request: {}".format(
@@ -1068,7 +1074,8 @@ def issue_request( render, path, environ, accept, framework,
 
     with db_lock:
         prov			= prov_to_issue()
-    log.detail( "Issuing License for {}' {}".format( prov.license.author['name'], prov.license.author['product'] ))
+    log.info( "Issue request number={number}; Issuing License for {name}' {product}".format(
+        number=number, name=prov.license.author['name'], product=prov.license.author['product'] ))
 
     data			= {}
     data["title"]		= path or "Issue"
@@ -1085,7 +1092,8 @@ def issue_request( render, path, environ, accept, framework,
         license		= prov.license,
     )
     if confirm:
-        log.detail( "Confirming DKIM for {}' {}".format( prov.license.author['name'], prov.license.author['product'] ))
+        log.normal( "Issue request number={number}; Confirming DKIM for {name}' {product}".format(
+            number=number, name=prov.license.author['name'], product=prov.license.author['product'] ))
         try:
             licensing.verify( prov, confirm=confirm, machine_id_path=False )
         except Exception as exc:
@@ -1106,7 +1114,7 @@ def issue_request( render, path, environ, accept, framework,
     else:
         raise http_exception( framework, 406, "Unable to produce %s content" % (
                 content or accept or "unknown" ))
-
+    log.info("Issue request number={number}; done".format( number=number ))
     return content, response
 
 
@@ -1738,7 +1746,14 @@ def main( argv=None, **kwds ):
 
     ap				= argparse.ArgumentParser(
         description	= "A Cpppo Crypto Licensing Server",
-        epilog		= ""
+        formatter_class = argparse.RawDescriptionHelpFormatter,
+        epilog		= """\
+Implements Ed25519-signed cryptographic licensing web service and API.
+
+Performance benefits greatly from installation of (optional) ed25519ll package:
+
+    python3 -m pip install ed25519ll
+"""
     )
     ap.add_argument( '-v', '--verbose', action="count",
                      default=0, 
@@ -1760,6 +1775,9 @@ def main( argv=None, **kwds ):
                      help="Add another (higher priority) config file path." )
     ap.add_argument( '-l', '--log',
                      help="Log file, if desired (default, if text gui: {LOGFILE})".format( LOGFILE=LOGFILE ))
+    ap.add_argument( '-P', '--profile',
+                     default=None,
+                     help="Profile to stderr (only, if '-' specified), optionally saving data to a file (default: None)" )
 
     args = ap.parse_args( argv )
 
@@ -1769,6 +1787,19 @@ def main( argv=None, **kwds ):
     if args.log or args.gui:
         log_cfg['filename']	= args.log or LOGFILE
     logging.basicConfig( **log_cfg )
+
+
+    profiler			= None
+    profiler_limit		= 25
+    if args.profile:
+        import pstats
+        try:
+            from mtprof import Profile
+        except ImportError:
+            from cProfile import Profile
+
+        profiler		= Profile()
+        profiler.enable()
 
     # Any configuration files and licensing.load/load_keys should inspect these extra dirs
     global config_extras
@@ -1871,6 +1902,8 @@ def main( argv=None, **kwds ):
                 logging.normal( "Control system exiting" )
                 self.stop()
 
+    # Some of these threads may need to redirect sys.stdout/stderr; save and restore
+    sys_stream_save		= sys.stdout, sys.stderr
     threads			= []
     try:
         # Start the control system Thread.
@@ -1915,9 +1948,21 @@ def main( argv=None, **kwds ):
         logging.error( "Main thread Exception: %s", traceback.format_exc() )
     finally:
         # Either the Web or the Curses GUI completed, or something blew up.  Shut all the
-        # threads down, and save state.
+        # threads down, restore sys.stdout/stderr and save state.
         for t in threads:
             t.join( timeout=10.0 )
+        sys.stdout, sys.stderr	= sys_stream_save
+
         logging.detail( "Saving state..." )
         db_state_save()
 
+        if args.profile:
+            profiler.disable()
+            if args.profile != '-': # optionally dump stats to a filename
+                profiler.dump_stats( args.profile )
+            prof		= pstats.Stats( profiler, stream=sys.stderr )
+            print( "\n\nTIME:", file=sys.stderr )
+            prof.sort_stats(  'time' ).print_stats( profiler_limit )
+
+            print( "\n\nCUMULATIVE:", file=sys.stderr )
+            prof.sort_stats(  'cumulative' ).print_stats( profiler_limit )

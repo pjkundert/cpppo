@@ -31,7 +31,8 @@ except:
 
 log				= logging.getLogger( "lic.svr")
 
-client_count			= 15
+client_count			= 25
+client_max			= 10
 
 licensing_cli_kwds		= {
     "tests": [
@@ -49,8 +50,9 @@ licensing_svr_kwds		= {
     "argv": [
         "--no-gui",
         "--config", CFGPATH,
-        "--web", "localhost:0",	# Use a dynamic bind port for testing the server
-        "--no-access"		# Do not redirect sys.stdout/stderr to an access log file
+        "--web", "127.0.0.1:0",	# Use a dynamic bind port for testing the server (force ipv4 localhost)
+        "--no-access",		# Do not redirect sys.stdout/stderr to an access log file
+        #"--profile", "licensing.prof", # Optionally, enable profiling (pip install ed25519ll helps...)
     ]
 }
 
@@ -90,17 +92,22 @@ def licensing_cli( number, tests=None, address=None ):
     """Makes a series of HTTP requests to the licensing server, testing the response.
 
     """
+    log.info( "Client number={}; starting".format( number ))
     query			= test_licensing_issue_query()
-    url				= "http://{host}:{port}/api/issue.json?{query}".format(
+    url				= "http://{host}:{port}/api/issue.json?{query}&number={number}".format(
         host	= address[0] if address else "localhost",
         port	= address[1] if address else 8000,
         query	= query,
+        number	= number,
     )
+    log.detail( "Client number={}; url: {}".format( number, misc.reprlib.repr( url )))
     response			= urlopen( url ).read()
     assert response
+    log.detail( "Client number={}; response: {}".format( number, misc.reprlib.repr( response )))
     data			= json.loads( response )
     #print( data )
     assert data['list'] and data['list'][0]['signature'] == 'xnSfp/GDWsAvxVqarn+7AG8l0TIlSXD5kdHzb0sRxZsrm7o3uYLbPNxkcgvLV62m9V7BhKCU0unaMweSWX8TCA=='
+    log.info( "Client number={}; done".format( number ))
 
 
 def licensing_bench():
@@ -110,6 +117,7 @@ def licensing_bench():
         server_kwds	= licensing_svr_kwds,
         client_func	= licensing_cli,
         client_count	= client_count,
+        client_max	= client_max,
         client_kwds	= licensing_cli_kwds,
         address_delay	= 5.0,
     )

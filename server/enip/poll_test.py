@@ -23,12 +23,10 @@ if __name__ == "__main__":
     if __package__ is None:
         __package__	= "cpppo.server.enip"
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))))
-    '''
-    print( "Set sys.path: {path!r}".format( path=sys.path ))
     from cpppo.automata import log_cfg
     log_cfg['level']	= logging.NORMAL
     logging.basicConfig( **log_cfg )
-    '''
+
 
 from cpppo.dotdict import dotdict, apidict
 from cpppo.misc import timer, near
@@ -125,7 +123,6 @@ def test_powerflex_simple( simulated_powerflex_gateway ):
 
 
 def test_powerflex_poll_success( simulated_powerflex_gateway ):
-    #logging.getLogger().setLevel( logging.INFO )
     command,address             = simulated_powerflex_gateway
     try:
         assert address, "Unable to detect PowerFlex EtherNet/IP CIP Gateway IP address"
@@ -303,10 +300,10 @@ def powerflex_routed_cli( number, address=None ):
     return not near( freq, 456.78 )    
 
 
-@pytest.mark.xfail # unreliable
+#@pytest.mark.xfail # unreliable
 def test_powerflex_poll_routing_bench( simulated_powerflex_gateway ):
-
     command,address             = simulated_powerflex_gateway
+
     class UCMM_routing_to_powerflex( ucmm.UCMM ):
         route			= {
             "1/1": "{}:{}".format( *address ),

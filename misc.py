@@ -54,33 +54,59 @@ try:
 except NameError:
     unicode			= str
 
-# Arrange to redirect sys.stdout via the provided raw socket, provided as the first
-# argument to the supplied target function.
+
+# 
+# Arrange to redirect sys.stdout via the provided raw socket.  Python2/3 have radically differing
+# <socket>.makefile capabilities.  For the outgoing socket, we can specify encoding in Python3;
+# Python2 assumes raw/ASCII.
+# 
+# The incoming side of the socket; Set non-blocking, to return whatever is available at the moment
+# socket is read.  We must still detect readability, or non-blocking read will return None, breaking
+# the stream's decoding.  Actually, we the Python io/codecs infrastructure cannot handle
+# non-blocking IO at all: https://bugs.python.org/issue13322.  The codecs.py could be fixed with a
+# quite simple change to allow input data of either None or b'' to be handled equivalently in
+# BufferedIncrementalDecoder:
+# 
+#     def decode(self, input, final=False):
+#         # decode input (taking the buffer into account, and None for non-blocking input)
+#         data = self.buffer + ( input or b'' )
+#         ...
+# 
+# However, these ideas have been rejected since ~2011, so are unlikely to be fixed.  Therefore, we
+# can transmit UTF-8 encoded data via the "write" half of the socket, but must receive raw binary
+# data via the non-blocking "read" half of the socket, and accumulate/decode it ourselves.
+# 
 try:
-    # Python3+ has redirect_stdout, and <socket>.makefile w/ encoding support
     from contextlib import redirect_stdout
-    def redirect_stdout_socket( target, buffering=None ):
-        def wrapper( stdout_socket, *args, **kwds ):
-            with contextlib.redirect_stdout( stdout_socket.makefile( "w", buffering=buffering, encoding='utf-8' )):
-                return target( *args, **kwds )
-        return wrapper
+
+    def make_socket_stream( sock, mode, buffering=None, encoding=None ):
+        if 'b' in mode:
+            return sock.makefile( mode, buffering=buffering )
+        else:
+            return sock.makefile( mode, buffering=buffering, encoding=encoding )
 except ImportError:
     # Python2 assumes raw/ASCII encoding, manual sys.stdout control
-    def redirect_stdout_socket( target, buffering=None ):
-        def wrapper( stdout_socket, *args, **kwds ):
-            """Use the supplied socket as sys.stdout/stderr.  Sets up a file-like object over the socket.
-
-            """
-            stdout		= stdout_socket.makefile( "w", -1 if buffering is None else buffering )
+    class redirect_stdout( object ):
+        def __init__( self, stream ):
+            self.stream		= stream
+        def __enter__( self ):
             sys.stdout.flush()
-            save		= sys.stdout
-            try:
-                sys.stdout	= stdout
-                return target( *args, **kwds )
-            finally:
-                sys.stdout.flush()
-                sys.stdout = save
-        return wrapper
+            self.save		= sys.stdout
+            sys.stdout		= self.stream
+        def __exit__( self, *_exc_info ):
+            sys.stdout.flush()
+            sys.stdout		= self.save
+
+    def make_socket_stream( sock, mode, buffering=None, encoding=None ):
+        return sock.makefile( mode, -1 if buffering is None else buffering )
+
+def redirect_stdout_socket( target, buffering=None ):
+    @functools.wraps( target )
+    def wrapper( write_socket, *args, **kwds ):
+        stdout		= make_socket_stream( write_socket, "w", buffering=buffering, encoding='utf-8' )
+        with redirect_stdout( stdout ):
+            return target( *args, **kwds )
+    return wrapper
 
 
 __author__                      = "Perry Kundert"

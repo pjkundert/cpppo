@@ -20,10 +20,10 @@ def test_soak_basic():
     force a sys.stdout.flush().
 
     """
-    r,w = socket.socketpair()
-    wf=w.makefile( "w" )
+    r,w				= socket.socketpair()
+    wf				= w.makefile( "w" )
     r.setblocking(False)
-    rf=r.makefile( "r" )
+    rf				= r.makefile( "r" )
     wf.write('abc\n')
     wf.flush()
     assert rf.read() == 'abc\n'
@@ -31,7 +31,7 @@ def test_soak_basic():
 
 def bench_cli( n, address=None ):
     log.normal( "Client {} connecting to {}".format( n, address ))
-    success		= address == ("localhost", 12345)
+    success			= address == ("localhost", 12345)
     return not success
 
 
@@ -43,7 +43,7 @@ def bench_srv( server ):
         time.sleep( .1 )
 
     
-bench_srv_kwds		= dict(
+bench_srv_kwds			= dict(
     server	= dotdict(
         control	= apidict(
             timeout	= 1.0,

@@ -529,34 +529,27 @@ def bench( server_func, client_func, client_count,
     server_stdout		= None
     buffering			= None
     if address_delay:
-        r,w			= socket.socketpair()	# two unix-domain sockets
-        server_args		= (w, ) + server_args	# Pass the outgoing socket to the server
-        server_func		= misc.redirect_stdout_socket( server_func, buffering=buffering )
+        assert Process is multiprocessing.Process, \
+            "Must use multiprocessing.Process when detecting server address"
 
-        # The incoming side of the socket.  Set non-blocking, to return whatever is available at the
-        # moment socket is read.  We must still detect readability, or non-blocking read will return
-        # None, breaking the stream's decoding.  Actually, we the Python io/codecs infrastructure
-        # cannot handle non-blocking IO at all: https://bugs.python.org/issue13322.  The codecs.py
-        # could be fixed with a quite simple change to allow input data of either None or b'' to be
-        # handled equivalently in BufferedIncrementalDecoder:
-        # 
-        #     def decode(self, input, final=False):
-        #         # decode input (taking the buffer into account, and None for non-blocking input)
-        #         data = self.buffer + ( input or b'' )
-        #         ...
-        # 
-        # However, these ideas have been rejected since ~2011, so are unlikely to be fixed.
-        # Therefore, we can transmit UTF-8 encoded data via the "write" half of the socket, but must
-        # receive raw binary data via the non-blocking "read" half of the socket, and
-        # accumulate/decode it ourselves.
-        r.setblocking( False )
-        try:
-            server_stdout	= r.makefile( "rb", buffering=buffering )
-        except TypeError:
-            server_stdout	= r.makefile( "rb", -1 if buffering is None else buffering )
+        read_sock,write_sock	= socket.socketpair()	# two unix-domain sockets
+
+        class Server( Process ):
+            _write_socket	= write_sock
+
+            def run( self ):
+                with misc.redirect_stdout(
+                        misc.make_socket_stream(
+                            self._write_socket, "w", buffering=buffering, encoding='utf-8' )):
+                    return super( Server, self ).run()
+
+        read_sock.setblocking( False )
+        server_stdout		= misc.make_socket_stream( read_sock, "rb", buffering=buffering )
         log.normal( "Created receiving command.stdout: {!r}".format( server_stdout ))
+    else:
+        Server			= Process
 
-    server			= Process(
+    server			= Server(
         target	= server_func,
         args	= server_args,
         kwargs	= server_kwds or {}
@@ -617,18 +610,27 @@ def bench( server_func, client_func, client_count,
                   successes, client_count, failures )
         return failures
     finally:
-        # Shut down server; use 'server.control.done = True' to stop server, if
-        # available in server_kwds.  If this doesn't work (eg. using Process), we can try terminate
+        # Shut down server; use 'server.control.done = True' to stop server, if available in
+        # server_kwds; this will experience the apidict's timeout as the signal is received by the
+        # server.  If this doesn't work (eg. using Process), we can try terminate
         control			= server_kwds.get( 'server', {} ).get( 'control', {} ) if server_kwds else {}
         if 'done' in control:
             log.detail( "Server %r done signalled", misc.function_name( server_func ))
             control['done']	= True	# only useful for threading.Thread; Process cannot see this
-        if hasattr( server, 'terminate' ):
-            log.normal( "Server %r done via .terminate()", misc.function_name( server_func ))
-            server.terminate() 		# only if using multiprocessing.Process(); Thread doesn't have
+        if server.is_alive():
+            if hasattr( server, 'terminate' ): # only if using multiprocessing.Process(); Thread doesn't have
+                log.normal( "Server %r done via .terminate()", misc.function_name( server_func ))
+                server.terminate()
+            elif hasattr( server, 'pid' ):
+                log.normal( "Server %r done via SIGTERM", misc.function_name( server_func ))
+                os.kill( server.pid, signal.SIGTERM )
         server.join( timeout=server_join_timeout )
         if server.is_alive():
-            log.warning( "Server %r remains running; killing...", misc.function_name( server_func ))
-            server.kill() if hasattr( server, 'kill' ) else os.kill( server.pid, signal.SIGKILL )
+            if hasattr( server, 'kill' ):
+                log.warning( "Server %r remains running; kill()...", misc.function_name( server_func ))
+                server.kill()
+            elif hasattr( server, 'pid' ):
+                log.warning( "Server %r remains running; SIGKILL...", misc.function_name( server_func ))
+                os.kill( server.pid, signal.SIGKILL )
         else:
             log.normal( "Server %r stopped.", misc.function_name( server_func ))

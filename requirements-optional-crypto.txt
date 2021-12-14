@@ -1,1 +1,1 @@
-git+https://github.com/pjkundert/ed25519ll.git@master
+ed25519ll
