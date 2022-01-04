@@ -4,16 +4,19 @@ try:
 except ImportError:
     pass
 
+import json
 import logging
+import multiprocessing
+import os
 import sys
 import threading
 import time
 
 from . import misc
-from .dotdict import dotdict, apidict
+from .dotdict import dotdict, apidict, apidict_proxy
 
 
-def test_dotdict():
+def test_dotdict_smoke():
     # Like dict, construct from mapping, iterable and/or keywords
     assert "a" in dotdict({"a":1})
     assert dotdict({"a":1})["a"] == 1
@@ -126,7 +129,7 @@ def test_dotdict():
     assert "x" not in d.a
 
 
-def test_indexes():
+def test_dotdict_indexes():
     """Indexing presently only works for __getitem__, get; not implemented/tested for __setitem__,
     setdefault, del, pop, etc."""
     d = dotdict()
@@ -170,7 +173,7 @@ def test_indexes():
         pass
     
 
-def test_hasattr():
+def test_dotdict_hasattr():
     """Indexing failures returns KeyError, attribute access failures return AttributeError for hasattr
     etc. work.  Also, the concept of attributes is roughly equivalent to our top-level dict keys."""
     d = dotdict()
@@ -197,13 +200,16 @@ def test_dotdict_performance():
     count = repeat
     while count:
         count -= 1
-        test_dotdict()
-        test_indexes()
+        test_dotdict_smoke()
+        test_dotdict_indexes()
 
 
-def test_apidict():
-    # Ensure that latency doesn't apply to initial import of values by constructor, or to setting
-    # items by indexing; only setting by attribute assignment.
+def apidict_latency( concurrency_fun ):
+    """Ensure that latency doesn't apply to initial import of values by constructor, or to setting items
+    by indexing; only setting by attribute assignment.  This must occur whether the dotdict/apidict
+    is shared between threading.Threads, *or* between multiprocessing.Processes.
+
+    """
 
     latency = 0.5
     significance = .2 # w/in 20%, for leeway on slow testing hosts
@@ -248,9 +254,11 @@ def test_apidict():
             val = ad[item]		# Won't release apidict
         logging.debug( "got: %s", val )
 
+    # Make sure a single concurrent counterparty releases the condition by performing an
+    # getattr(<apidict>,'<attr>')
     for kwargs in [ {'attr': 'boo'}, {'item': 'boo'}, {'attr': 'noo'}, {'item': 'noo'} ]:
         beg = misc.timer()
-        t = threading.Thread( target=release, args=(beg, shorter, ad), kwargs=kwargs )
+        t = concurrency_fun( target=release, args=(beg, shorter, ad), kwargs=kwargs )
         t.start()
         #print( "set; significance: ", significance )
         ad.noo = 3 # blocks 'til Thread releases apidict
@@ -259,7 +267,269 @@ def test_apidict():
         logging.debug( "end; dif: %s, err: %s ==> %s", dif, err, err/shorter )
         # There are unexplained issues with some version of Python (ie. 3.4), with occasional
         # larger than expected delays...  So, just test </>= against full latency 
-        assert dif < latency if 'attr' in kwargs else dif >= latency
+        assert dif < latency if 'attr' in kwargs else dif >= latency, \
+            "Expected {} {} {}, due to use of __get{}__ in counterparty".format(
+                dif, '< ' if 'attr' in kwargs else '>=', latency,
+                'attr' if 'attr' in kwargs else 'item'
+            )
         #assert misc.near( dif, shorter if 'attr' in kwargs else latency, significance=significance )
         assert ad.noo == 3
         t.join()
+
+    # Ensure multiple concurrent counterparties are each unblocked by an attribute access in one (or
+    # more) of them.  This means that all writers of attribute value should be received by at least
+    # one reader.
+
+    def grind( thing, number_range=2, getter_count=2 ):
+
+        def setter( shared, i, beg, end ):
+            """Sets inputs["#"].value to a range of values, one at a time."""
+            for value in range( beg, end ):
+                # An apidict should block 'til *someone* retrieves this value.  A dotdict/dict not
+                # so much.
+                time.sleep(0.001)
+                shared.inputs[i].value = value
+            shared.inputs[i].value = None
+
+        def getter( shared, i ):
+            def finder():
+                """Iterate over the shared.inputs[...].value, until all of them are exhausted (are None)"""
+                found			= True
+                while found:
+                    found		= False
+                    for s_i in dict.keys( shared.inputs ):
+                        time.sleep(0.001)
+                        # should unblock all counterparties to proceed
+                        v		= shared.inputs[s_i].value
+                        if v is not None:
+                            found	= True
+                            yield v
+            # Take not of each unique value found in any of the inputs["#"].value
+            results			= set()
+            for v in finder():
+                results.add( v )
+            shared['results'][i] = results
+
+        thing.results		= {} # lists of inputs[...].value seen by each getter
+
+        thrs			= []
+        for s_num in dict.keys( thing.inputs ): # want "0", "1", ... not "0.value", ...
+            beg			= ( int( s_num ) + 0 ) * number_range
+            end			= ( int( s_num ) + 1 ) * number_range
+            s			= concurrency_fun(
+                target	= setter,
+                args	= (thing, str( s_num ), beg, end,)
+            )
+            s.start()
+            logging.normal( "setter {} starts {:3d} - {:3d}".format( s.name, beg, end ))
+            thrs.append( s )
+
+        for g_num in range( getter_count ):
+            g			= concurrency_fun(
+                target	= getter,
+                args	= ( thing, str( g_num ))
+            )
+            g.start()
+            logging.normal( "getter {} starts".format( g.name ))
+            thrs.append( g )
+
+        for t in thrs:
+            t.join()
+            logging.normal( "thread {} done".format( t.name ))
+
+        return thing
+
+    inputs_range		= 3
+    dd_result			= grind( dotdict( inputs = { str(i): dotdict( value=-1 ) for i in range( inputs_range ) } ))
+    ad_result			= grind( dotdict( inputs = { str(i): apidict( timeout=1.0, value=-1 ) for i in range( inputs_range ) } ))
+
+    import json
+    logging.normal( "w/ dotdict: {}".format( json.dumps( dd_result, indent=4, default=str )))
+    logging.normal( "w/ apidict: {}".format( json.dumps( ad_result, indent=4, default=str )))
+
+
+def test_apidict_threading():
+    apidict_latency( threading.Thread )
+
+
+def test_apidict_multiprocessing():
+    apidict_latency( multiprocessing.Process )
+
+
+def test_multiprocessing_proxies():
+    """Ensure that we understand the 3 ways Python objects can be passed to and accessed by remote
+    multiprocessing.Process processes:
+
+    1) Plain classes, with underlying code copied to remote Process.  No synchronization.
+    2) The remote instance(s) contain multiprocessing.RLock, .Condition, etc., which cooperate via a central Manager() instance.
+    3) The central Manager houses the one true instance, and remote instance API calls are proxied back to the central instance.
+
+    Since a proxy cannot call a function that returns a proxy (ie. itself), and since dot/apidict
+    works by returning the *next* layer of dotdict/apidict on an __getattr__ call (eg. a.b.c), we
+    cannot use option 3) -- the underlying dict calls must be proxied, not the class itself.
+
+    So, each dot/apidict must be implemented in terms of either a plain dict(), or a
+    multiprocessing Manager.dict(), provisioned by a specific Manager instance.  Therefore,
+    it must not be a sub-class.
+
+    """
+
+    def caller():
+        return os.getpid(),threading.current_thread().ident
+    
+
+    class where_am_i( object ):
+        def __init__( self, calls ):
+            self._calls		= calls
+            logging.normal( "Created where_am_i id({}): {}".format(
+                id( self ), repr( self.calls )))
+
+        def function( self, rem_pid, rem_tid ):
+            loc_pid,loc_tid	= caller()
+            logging.normal( "Called  where_am_i id({}) .function here {}, from {}".format(
+                id(self), (loc_pid, loc_tid), (rem_pid, rem_tid) ))
+            self._calls.append( ((rem_pid, rem_tid), (loc_pid, loc_tid)) )
+
+        def calls( self ):
+            return list( self._calls )
+
+
+    def call_function( w ):
+        try:
+            by			= caller()
+            logging.normal( "{!r}.function{!r} call...".format( w, by ))
+            w.function( *by )
+        except Exception as exc:
+            logging.warning( "{!r}.function() failed: {}".format( w, exc ))
+
+
+    # Simple object, threading.Thread.  Everything in local process' PID and same Thread.ident
+    wai				= where_am_i( [] )
+    assert isinstance( wai, where_am_i )
+    assert wai.calls() == []
+            
+    t				= threading.Thread(
+        target		= call_function,
+        args		= (wai,),
+    )
+    t.start()
+    t.join()
+
+    logging.normal( "Threading where_am_i.calls: {}".format(
+        json.dumps( wai.calls(), indent=4 )))
+    assert len( wai.calls() ) == 1
+    assert all( rp == lp == os.getpid() and rt == lt for (rp,rt),(lp,lt) in wai.calls() )
+
+    # Use multiprocessing.Manager instance to host just the data contents of an object; the object
+    # itself is still local in each of the Main Thread and the remote Process.
+    
+    # Simple object, multiprocess.Process.  Everything in remote process' PID and same Thread.ident
+    with multiprocessing.Manager() as m:
+        wai_mp_list		= where_am_i( m.list() )
+
+        p			= multiprocessing.Process(
+            target	= call_function,
+            args	= (wai_mp_list,),
+        )
+        p.start()
+        p.join()
+
+        logging.normal( "Process PID == {} where_am_i.calls: {}".format(
+            p.pid, json.dumps( list( wai_mp_list.calls() ), indent=4 )))
+        assert len( wai_mp_list.calls() ) == 1
+        assert all( rp == lp == p.pid and rt == lt for (rp,rt),(lp,lt) in wai_mp_list.calls() )
+
+    # Use multiprocessing.Manager instance to host the entire object.  Calls from both the Main
+    # Thread the remote Process come back to the Manager Process.
+
+    # Custom proxied object, multiprocess.Process.  Local method called by remote caller.
+    class where_am_i_proxy( multiprocessing.managers.BaseProxy ):
+        _exposed_		= ("function", "calls")
+        def function( self, *args, **kwds ):
+            return self._callmethod( "function", args, kwds )
+        def calls( self, *args, **kwds ):
+            return self._callmethod( "calls", args, kwds )
+
+    class MySyncManager(multiprocessing.managers.SyncManager):
+        if sys.version_info[0] < 3:
+            def shutdown( self ):
+                pass
+
+    MySyncManager.register("where_am_i_proxy", where_am_i, where_am_i_proxy )
+
+    with MySyncManager() as m:
+        if sys.version_info[0] < 3:
+            m.start()
+        wai_proxy		= m.where_am_i_proxy( [] )
+        
+        p2			= multiprocessing.Process(
+            target	= call_function,
+            args	= (wai_proxy,),
+        )
+        p2.start()
+        p2.join()
+
+        logging.normal( "Process PID == {}, SyncManager PID == {} w/ proxied where_am_i.calls: {}".format(
+            p2.pid, m.address, json.dumps( list( wai_proxy.calls() ), indent=4 )))
+        assert len( wai_proxy.calls() ) == 1
+        assert all( rp == p2.pid
+                    and lp != os.getpid() # Manager is in a different process
+                    and rt != lt
+                    for (rp,rt),(lp,lt) in wai_proxy.calls() )
+    
+
+
+    # Auto-proxied object, multiprocess.Process.  Local method called by remote caller.
+    MySyncManager.register( 'where_am_i', where_am_i )
+
+    with MySyncManager() as m:
+        if sys.version_info[0] < 3:
+            m.start()
+        wai_autoproxied		= m.where_am_i( [] )
+        
+        p2			= multiprocessing.Process(
+            target	= lambda w: w.function( *caller() ),
+            args	= (wai_autoproxied,),
+        )
+        p2.start()
+        p2.join()
+
+        logging.normal( "Process PID == {} w/ proxied where_am_i.calls: {}".format(
+            p2.pid, json.dumps( list( wai_autoproxied.calls() ), indent=4 )))
+        assert len( wai_autoproxied.calls() ) == 1
+        assert all(
+            rp == p2.pid
+            and lp != os.getpid() # Manager is in a different process
+            and rt != lt
+            for (rp,rt),(lp,lt) in wai_autoproxied.calls() )
+
+
+    # We want a proxy dict provided to the Main Thread and all sub-Processes, where a sub-Process
+    # can receive data and place values, such that the Main Thread can retrieve them.
+    with MySyncManager() as m:
+        if sys.version_info[0] < 3:
+            m.start()
+        logging.normal( "Here is m.dict: {d!r}, and its type: {dt!r}".format(
+            d=m.dict, dt=type( m.dict )))
+        dict_proxied		= m.dict()
+        logging.normal( "Here is an m.dict(): {d!r}, and its type: {dt!r}".format(
+            d=m.dict(), dt=type( m.dict() )))
+
+    
+    MySyncManager.register( 'apidict', apidict, apidict_proxy )
+
+    def apidict_target( ad ):
+        ad.world		= 'Hello'
+        ad.pid,ad.tid		= caller()
+
+    with MySyncManager() as m:
+        ad_proxied		= m.apidict(1000)
+        p2			= multiprocessing.Process(
+            target	= apidict_target,
+            args	= (ad_proxied, ),
+        )
+        p2.start()
+        p2.join()
+        
+        logging.normal( "apidict_proxied = {}".format(
+             json.dumps( ad_proxied, indent=4 )))

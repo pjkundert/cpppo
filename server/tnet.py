@@ -153,18 +153,19 @@ def tnet_machine( name="TNET", context="tnet" ):
 
 
 def tnet_from( conn, addr,
-               server	= cpppo.dotdict({'done': False}),
                timeout	= None,
                latency	= None,
                ignore	= None,
-               source	= None ):	# Provide a cpppo.chainable, if desire, to receive into and parse from
-    """Parse and yield TNET messages from a socket w/in timeout, blocking 'til server.done or EOF
+               source	= None,
+               control	= None, # eg. cpppo.dotdict( done = False )
+              ):	# Provide a cpppo.chainable, if desire, to receive into and parse from
+    """Parse and yield TNET messages from a socket w/in timeout, blocking 'til control.done or EOF
     between messages.  If ignore contains symbols, they are ignored between TNET messages (eg. b'\n').
 
     An absense of a TNET string within 'timeout' will yield None, allowing the user to decide to
     fail or continue trying for another 'timeout' period.  A 0 timeout will "poll", and a None
     timeout will simply wait forever (the default).  If desired, a separate 'latency' can be
-    supplied, in order to pop out regularly and check server.done (eg. to allow a server Thread to
+    supplied, in order to pop out regularly and check control.done (eg. to allow a server Thread to
     exit cleanly).
 
     """
@@ -172,7 +173,7 @@ def tnet_from( conn, addr,
         source			= cpppo.chainable()
     with tnet_machine( "tnet_%s" % addr[1] ) as engine:
         eof			= False
-        while not ( eof or server.done ):
+        while not ( eof or ( control and control.get( 'done' ))):
             while ignore and source.peek() and source.peek() in ignore:
                 next( source )
             data		= cpppo.dotdict()
@@ -184,7 +185,7 @@ def tnet_from( conn, addr,
                 # Waits up to latency, or remainder of timeout -- or forever, if both are None.
                 duration	= cpppo.timer() - started
                 msg		= None
-                while msg is None and not server.done: # Get input, forever or 'til server.done
+                while msg is None and not ( control and control.get( 'done' )): # Get input, forever or 'til control.done
                     remains	= latency if timeout is None else min(	# If no timeout, wait for latency (or forever, if None)
                         timeout if latency is None else latency,	# Or, we know timeout is numeric; get min of any latency
                         max( timeout - duration, 0 ))			#  ... and remaining unused timeout
@@ -199,8 +200,8 @@ def tnet_from( conn, addr,
                               engine.name_centered(), duration, remains )
                         yield None
                         started	= cpppo.timer()
-                # Only way to get here without EOF/data, is w/ server.done
-                if server.done:
+                # Only way to get here without EOF/data, is w/ control.done
+                if control and control.get( 'done' ):
                     break
                 assert msg is not None
                 # Got EOF or data
@@ -212,19 +213,22 @@ def tnet_from( conn, addr,
                     break
                 source.chain( msg )
 
-            # Terminal state, or EOF, or server.done.  Only yield another TNET message if terminal. 
+            # Terminal state, or EOF, or control.done.  Only yield another TNET message if terminal. 
             duration		= cpppo.timer() - started
             if engine.terminal:
                 log.debug( "%s: After %7.3fs, found a TNET: %r", engine.name_centered(), duration, data.tnet.type.input )
                 yield data.tnet.type.input # Could be a 0:~ / null ==> None
 
         log.detail( "%s: done w/ %s", engine.name_centered(),
-                    ', '.join( ['EOF'] if eof else [] + ['done'] if server.done else [] ))
+                    ', '.join( ['EOF'] if eof else [] + ['done'] if ( control and control.get( 'done' )) else [] ))
 
 
-def tnet_server_json( conn, addr, timeout=None, latency=None, ignore=None ):
+def tnet_server_json( conn, addr, timeout=None, latency=None, ignore=None, server=None ):
     """Wait forever for TNET messages, and echo the JSON-encoded payload back to the client."""
-    for msg in tnet_from( conn, addr, timeout=timeout, latency=latency, ignore=ignore ):
+    for msg in tnet_from( conn, addr,
+                          timeout=timeout, latency=latency, ignore=ignore,
+                          control=server.get( 'control' ) if server else None,
+                         ):
         try:
             res			= json.dumps( msg, indent=4, sort_keys=True )
             rpy			= ( res + "\n\n" ).encode( "utf-8" )
@@ -233,7 +237,7 @@ def tnet_server_json( conn, addr, timeout=None, latency=None, ignore=None ):
         conn.sendall( rpy )
 
 
-def main( argv=None ):
+def main( argv=None, **tnet_kwds ):
     ap				= argparse.ArgumentParser(
         description = "TNET Network Client",
         epilog = "" )
@@ -279,15 +283,14 @@ def main( argv=None ):
         host,port		= cpppo.parse_ip_port( args.address, default=address )
         bind			= str(host),int(port)
 
+    tnet_kwds.setdefault( 'timeout', timeout )
+    tnet_kwds.setdefault( 'latency', latency )
+    tnet_kwds.setdefault( 'ignore', b'\n' )
     return network.server_main(
         address		= bind,
         address_output	= args.address_output,
         target		= tnet_server_json,
-        kwargs		= dict(
-            timeout	= timeout,
-            latency	= latency,
-            ignore	= b'\n'
-        )
+        kwargs		= tnet_kwds,
     )
 
 

@@ -30,17 +30,27 @@ def test_soak_basic():
 
 
 def bench_cli( n, address=None ):
-    log.normal( "Client {} connecting to {}".format( n, address ))
-    success			= address == ("localhost", 12345)
+    log.normal( "Client {} connecting to {!r}".format( n, address ))
+    success			= address == ("127.0.0.1", 12345)
     return not success
 
 
 def bench_srv( server ):
     import sys
-    print( "Server TCP address = {}:{}".format( "localhost", 12345 ))
+    address			= "127.0.0.1",12345
+
+    # Transmit address on stdout and via control dict.
+    print( "Server TCP address = {}:{}".format( *address ))
     sys.stdout.flush()
-    while not server.control.done:
-        time.sleep( .1 )
+    control			= server.get( 'control' )
+    if control:
+        control['address']	= address
+
+    while not control or not control.get( 'done' ):
+        print( "control {}: {}".format( server.get( 'control' ).__class__, server.get( 'control' )))
+        sys.stdout.flush()
+        time.sleep( .5 )
+    print( "Server TCP address = {}:{}: done signaled".format( *address ))
 
     
 bench_srv_kwds			= dict(
@@ -52,8 +62,8 @@ bench_srv_kwds			= dict(
     )
 )
 
-
-def test_soak():
+def test_soak_Process():
+    from multiprocessing import Process as server_cls
     bench(
         server_func		= bench_srv,
         server_kwds		= bench_srv_kwds,
@@ -61,5 +71,19 @@ def test_soak():
         client_count		= 10,
         client_max		= 5,
         client_kwds		= None,
-        address_delay		= 5.0
+        address_delay		= 5.0,
+        server_cls		= server_cls,
+    )
+
+def test_soak_Thread():
+    from threading import Thread as server_cls
+    bench(
+        server_func		= bench_srv,
+        server_kwds		= bench_srv_kwds,
+        client_func		= bench_cli,
+        client_count		= 10,
+        client_max		= 5,
+        client_kwds		= None,
+        address_delay		= 5.0,
+        server_cls		= server_cls,
     )

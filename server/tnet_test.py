@@ -162,9 +162,16 @@ def tnet_cli( number, tests=None, address=None ):
     return failed
 
 
-tnet_svr_kwds			= {
-    "argv": [ "-vv", '-a', 'localhost:0', '-A' ]
-}
+tnet_svr_kwds			= dict(
+    argv		= [
+        "-vv", '-a', 'localhost:0', '-A'
+    ],
+    server			= dict(
+        control		= dict(
+            done	= False,
+        ),
+    ),
+)
 
 
 def tnet_bench():

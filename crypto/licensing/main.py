@@ -584,7 +584,7 @@ def panloc( c, rows, cols ):
     return rows//15, ( c < cols//2 ) and ( cols//2 + cols//10 ) or ( 0 + cols//10 )
 
 
-def txt( win, cnf ):
+def txt( win, config ):
 
     global now
     last			= now
@@ -597,12 +597,11 @@ def txt( win, cnf ):
         ', '.join( [ t.name for t in threading.enumerate() ] )))
 
 
-
     display			= 'licenses'		# Start off displaying Licenses
     input			= 0
     delta			= 0.0
     pansel			= None
-    while not cnf['stop']:
+    while not config.get( 'done' ):
         message( win, "%s (%7.3f): (%3d == '%c') Quit [qy/n]?"
                  % (  daytime( now ), delta,
                       input, curses.ascii.isprint( input ) and chr( input ) or '?'),
@@ -616,7 +615,7 @@ def txt( win, cnf ):
         input			= win.getch()
 
         # Refresh the things to include in the selected display.
-        include			= cnf[display]
+        include			= config[display]
         if hasattr( include, '__call__' ):
             include		= list( include() )
 
@@ -636,7 +635,7 @@ def txt( win, cnf ):
 
         # Process input, adjusting parameters
         if 0 < input <= 255 and chr( input ) == 'q':
-            cnf['stop'] = True
+            config['control']['done'] = True
             return
 
         if 0 < input <= 255 and chr( input ) == '\f': # FF, ^L
@@ -1675,14 +1674,14 @@ Disallow: /
 
     # This is a CherryPy (cheroot) Server.  We have to intercept .serve(), to print the actually
     # bound web server address (eg. if using a dynamically allocated port).  This will be redirected
-    # to the access logfile, unless disabled via --no-access.
+    # to the access logfile, unless disabled via --no-access.  Also, this class weirdly captures config, so we can update
     from cheroot import wsgi
     class Server( wsgi.Server, object ):
         def serve( self ):
-            print( "Web Interface starting: TCP address = {sockname!r}".format(
-                sockname	= self.socket.getsockname()
-            ))
+            sockname		= self.socket.getsockname()
+            print( "Web Interface TCP address = {sockname!r}".format( sockname=sockname ))
             sys.stdout.flush()
+            config['control']['address'] = sockname
             super( Server, self ).serve()
 
     # Finally, make the Server available on the function's webpy.server for external access
@@ -1690,6 +1689,7 @@ Disallow: /
     webpy.server.nodelay	= True
 
     try:
+        log.normal( "Web Interface starting" )
         webpy.server.start()
     except (KeyboardInterrupt, SystemExit) as exc:
         logging.warning( "Web Interface Thread uncontrolled shutdown: %s", exc )
@@ -1708,7 +1708,7 @@ Disallow: /
 webpy.server			= None
 
 
-def txtgui( cnf ):
+def txtgui( config ):
     """Run curses UI, catching all exceptions.  Returns True on failure."""
     failure			= None
     try:        # Initialize curses
@@ -1718,11 +1718,11 @@ def txtgui( cnf ):
         curses.halfdelay( 1 )
         stdscr.keypad( 1 )
 
-        txt( stdscr, cnf )               # Enter the mainloop
+        txt( stdscr, config )               # Enter the Curses mainloop
     except:
         failure			= traceback.format_exc()
     finally:
-        cnf['stop']		= True
+        config.setdefault( 'control', {} )['done'] = True
         stdscr.keypad(0)
         curses.echo() ; curses.nocbreak()
         curses.endwin()
@@ -1733,12 +1733,12 @@ def txtgui( cnf ):
     return False
 
 
-def control( beg, cnf ):
+def ctlloop( beg, cnf ):
     """Execute one loop of the control system"""
     pass
 
 
-def main( argv=None, **kwds ):
+def main( argv=None, **licensing_kwds ):
     """Pass the desired argv (excluding the program name in sys.arg[0]; typically pass argv=None, which
     is equivalent to argv=sys.argv[1:], the default for argparse.  Requires at least one tag to be
     defined.
@@ -1831,24 +1831,17 @@ Performance benefits greatly from installation of (optional) ed25519ll package:
         log.detail( "{n:<20}: {vk} w/ {u:>20} / {p}".format(
             n=name, vk=vk, u=username, p='*' * len( password )))
 
-    # Start up Curses console GUI...
-    txtcnf			= {
-        'stop':		False,
-        'title':	'Licensing',
-        'licenses':	licenses,
-        'credentials':	credentials,
-        'keypairs': 	keypairs,
-    }
-
     class daemon( threading.Thread ):
+        """Every daemon must have a config['control']; sets its done = True to stop."""
         def __init__( self, config=None, **kwds ):
             super( daemon, self ).__init__( **kwds )
             self.daemon		= True
             self.config		= config or {}
+            self.config.setdefault( 'control', {} ).setdefault( 'done', False )
 
         def stop( self ):
             logging.detail( "Stopping %s Thread", self.name )
-            self.config['stop']	= True
+            self.config['control']['done'] = True
 
         def join( self, *args, **kwds ):
             self.stop()
@@ -1859,7 +1852,7 @@ Performance benefits greatly from installation of (optional) ed25519ll package:
     class txtthread( daemon ):
         def run( self ):
             try:
-                while not self.config.get( 'stop' ):
+                while not self.config.get( 'control', {} ).get( 'done' ):
                     if txtgui( self.config ):
                         # Textual GUI has failed!  Don't restart.
                         break
@@ -1880,6 +1873,10 @@ Performance benefits greatly from installation of (optional) ed25519ll package:
                 logging.normal( "Web GUI exiting" )
 
         def stop( self ):
+            """In addition to the normal stop procedure (perhaps signaling other Threads via a shared
+            control dict), webpy.server has its own stop mechanism.
+
+            """
             super( webthread, self ).stop()
             if webpy.server:
                 logging.detail( "Web GUI stopping..." )
@@ -1889,9 +1886,9 @@ Performance benefits greatly from installation of (optional) ed25519ll package:
     class ctlthread( daemon ):
         def run( self ):
             try:
-                while not self.config.get( 'stop' ):
+                while not self.config.get( 'control', {} ).get( 'done' ):
                     beg		= timer()
-                    control( beg, self.config )
+                    ctlloop( beg, self.config )
                     dur		= timer() - beg
                     cyc		= self.config.get( 'cycle', 1.0 )
                     if dur < cyc:
@@ -1905,13 +1902,26 @@ Performance benefits greatly from installation of (optional) ed25519ll package:
     # Some of these threads may need to redirect sys.stdout/stderr; save and restore
     sys_stream_save		= sys.stdout, sys.stderr
     threads			= []
+
+    server			= licensing_kwds.pop( 'server', {} )
+    control			= server.pop( 'control', {} )
     try:
         # Start the control system Thread.
-        ctlthr			= ctlthread( config={ 'cycle': 1.0 }, name='control' )
+        ctlcnf			= licensing_kwds.pop( 'ctl', {} )
+        ctlcnf.setdefault( 'cycle', 1.0 )
+        ctlcnf.setdefault( 'control', control )
+        ctlthr			= ctlthread( config=ctlcnf, name='control' )
         ctlthr.start()
         threads.append( ctlthr )
 
-        # Start the Text UI (if desired)
+        # Start the Curses Text GUI (if desired)
+        txtcnf			= licensing_kwds.pop( 'txt', {} )
+        txtcnf.setdefault( 'control', control )
+        txtcnf.setdefault( 'title', 'Licensing' )
+        # By default, accesses the local functions yielding the stored licenses, credentials and keypairs
+        txtcnf.setdefault( 'licenses',		licenses )
+        txtcnf.setdefault( 'credentials',	credentials )
+        txtcnf.setdefault( 'keypairs',		keypairs )
         txtthr			= None
         if args.gui:
             txtthr		= txtthread( txtcnf, name='curses' )
@@ -1926,17 +1936,18 @@ Performance benefits greatly from installation of (optional) ed25519ll package:
             assert 1 <= len( address ) <= 2, "Web address must be in the form <interface>:<port>"
             address		= ( str( address[0] ),
                                     int( address[1] ) if len( address ) > 1 else 8000 )
+
+            # Command-line parameters in argv are overridden by specific configurations
+            # passed in licensing_kwds['web']
+            webcnf		= licensing_kwds.pop( 'web', {} )
+            webcnf.setdefault( 'control', control )
+            webcnf.setdefault( 'address', address )
+            webcnf.setdefault( 'access', args.access )
+
             # If all sys.stdout/stderr should got to the web server's access log file, (the
             # default), then set it here.  If not (eg. we want to be able to harvest the actual
             # dynamic IP address:port of the bound web server socket), then pass Falsey for access.
-            webthr		= webthread(
-                config	= dict(
-                    address	= address,
-                    access	= args.access,
-                ),
-                name	= 'web',
-            )
-            webthr.name		= 'web.py'
+            webthr		= webthread( webcnf,  name='web' )
             webthr.start()
             threads.append( webthr )
 
@@ -1949,8 +1960,9 @@ Performance benefits greatly from installation of (optional) ed25519ll package:
     finally:
         # Either the Web or the Curses GUI completed, or something blew up.  Shut all the
         # threads down, restore sys.stdout/stderr and save state.
+        logging.normal( "Cleaning up threads" )
         for t in threads:
-            t.join( timeout=10.0 )
+            t.join( timeout=1.0 )
         sys.stdout, sys.stderr	= sys_stream_save
 
         logging.detail( "Saving state..." )

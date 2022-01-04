@@ -294,7 +294,7 @@ class UCMM( device.Object ):
                         data.enip.status= 0x65
                         try:
                             if target not in self.route_conn:
-                                log.normal( "UCMM: port/link %s --> %r; creating route", portlink, target )
+                                log.normal( "UCMM: port/link %s --> %r; creating route w/ timeout %fms", portlink, target, timeoutms )
                                 self.route_conn[target] \
                                         = client.connector( host=target[0], port=target[1], timeout=timeout )
                             with self.route_conn[target] as conn:

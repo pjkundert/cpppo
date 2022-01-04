@@ -1050,21 +1050,22 @@ def main( argv=None, attribute_class=device.Attribute, attribute_kwds=None,
         loaded			= device.Object.config_loader.read( defaults.config_files + ( args.config or [] ))
         log.normal( "Loaded config files: %r", loaded )
 
-    # Pull out a 'server.control...' supplied in the keywords, and make certain it's a
-    # cpppo.apidict.  We'll use this to transmit control signals to the server thread.  Set the
-    # current values to sane initial defaults/conditions.
+    # Pull out a 'server.control...' supplied in the keywords, and make certain it has 'done' and
+    # 'disable'.  We'll use this to transmit control signals to the server thread.  Set the current
+    # values to sane initial defaults/conditions.  Otherwise, we'll use the supplied global srv_ctl,
+    # assuming it's a dict-like object.
     if 'server' in kwds:
         assert 'control' in kwds['server'], "A 'server' keyword provided without a 'control' attribute"
-        srv_ctl			= dotdict( kwds.pop( 'server' ))
-        assert isinstance( srv_ctl['control'], apidict ), "The server.control... must be a cpppo.apidict"
+        srv_ctl			= kwds.pop( 'server' )
         log.detail( "External server.control in object %s", id( srv_ctl['control'] ))
     else:
-        srv_ctl.control		= apidict( timeout=defaults.timeout )
+        if 'control' not in srv_ctl:
+            srv_ctl['control']	= apidict( timeout=defaults.timeout )
         log.detail( "Internal server.control in object %s", id( srv_ctl['control'] ))
 
-    srv_ctl.control['done']	= False
-    srv_ctl.control['disable']	= False
-    srv_ctl.control.setdefault( 'latency', defaults.latency )
+    srv_ctl['control']['done']	= False
+    srv_ctl['control']['disable']= False
+    srv_ctl['control'].setdefault( 'latency', defaults.latency )
 
     # Global options data.  Copy any remaining keyword args supplied to main().  This could
     # include an alternative enip_process, for example, instead of defaulting to logix.process.
@@ -1295,8 +1296,12 @@ def main( argv=None, attribute_class=device.Attribute, attribute_kwds=None,
 
     try:
         disabled		= False	# Recognize toggling between en/disabled
-        while not srv_ctl.control.done:
-            if not srv_ctl.control.disable:
+        while not ( srv_ctl['control'].done
+                    if hasattr( srv_ctl['control'], 'done' )
+                    else srv_ctl['control'].get( 'done' )):
+            if not ( srv_ctl['control'].disable
+                     if hasattr( srv_ctl['control'], 'disable' )
+                     else srv_ctl['control'].get( 'disable' )):
                 if disabled:
                     log.detail( "EtherNet/IP Server enabled" )
                     disabled= False

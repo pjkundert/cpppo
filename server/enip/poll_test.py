@@ -296,8 +296,11 @@ def powerflex_routed_cli( number, address=None ):
     with powerflex_routed( host=address[0], port=address[1], route_path="1/1" ) as via:
         (freq,), = via.read( via.parameter_substitution( 'Output Frequency' ))
         logging.normal( "Output Frequency == {}".format( freq ))
+        (velo,), = via.read( via.parameter_substitution( 'Motor Velocity' ))
+        logging.normal( "Motor Velocity == {}".format( velo ))
+
     # .bench client_funcs return Falsey on Success
-    return not near( freq, 456.78 )    
+    return not ( near( freq, 456.78 ) and near( velo, 789.01 ))
 
 
 @pytest.mark.xfail # unreliable

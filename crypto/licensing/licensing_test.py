@@ -46,15 +46,44 @@ licensing_cli_kwds		= {
 
 CFGPATH				=  __file__[:-3] # trim off .py
 
-licensing_svr_kwds		= {
-    "argv": [
+# All licensing server sub-threads share the same control signals.
+control				= dict(
+    done		= False,
+)
+
+licensing_svr_kwds		= dict(
+    argv		= [
         "--no-gui",
         "--config", CFGPATH,
-        "--web", "127.0.0.1:0",	# Use a dynamic bind port for testing the server (force ipv4 localhost)
-        "--no-access",		# Do not redirect sys.stdout/stderr to an access log file
+        "--web", "127.0.0.1:0",
+        #"--no-access",		# Do not redirect sys.stdout/stderr to an access log file
         #"--profile", "licensing.prof", # Optionally, enable profiling (pip install ed25519ll helps...)
-    ]
-}
+    ],
+
+    # The master server control dict; 'control' may be converted to a different form (eg. a
+    # multiprocessing.Manager().dict()) if necessary.  Each of the Licensing server thread-specific
+    # configs will be provided a reverence to this control (unless, for some reason, you don't want
+    # them to share it).  If *any* thread shuts down, they will all be stopped.
+    server		= dict(
+        control		= control,
+    ),
+
+    # The licensing control system loop.  This runs various licensing state machinery
+    ctl			= dict(
+        cycle		= 1.0,
+    ),
+
+    # The Web API.  Remote web API access and web page.
+    web			= dict(
+        #access		= False,	# Do not redirect sys.stdout/stderr to an access log file
+        #address	= "127.0.0.1:0",# Use a dynamic bind port for testing the server (force ipv4 localhost)
+    ),
+
+    # The Text GUI.  Controls the internals of the Licensing server from the server text console
+    txt			= dict(
+        title		= "Licensing",
+    ),
+)
 
 
 def test_licensing_issue_query():
