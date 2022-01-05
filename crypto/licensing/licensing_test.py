@@ -7,6 +7,7 @@ except ImportError:
 
 import json
 import logging
+import multiprocessing
 import os
 import pytest
 import time
@@ -45,45 +46,6 @@ licensing_cli_kwds		= {
 }
 
 CFGPATH				=  __file__[:-3] # trim off .py
-
-# All licensing server sub-threads share the same control signals.
-control				= dict(
-    done		= False,
-)
-
-licensing_svr_kwds		= dict(
-    argv		= [
-        "--no-gui",
-        "--config", CFGPATH,
-        "--web", "127.0.0.1:0",
-        #"--no-access",		# Do not redirect sys.stdout/stderr to an access log file
-        #"--profile", "licensing.prof", # Optionally, enable profiling (pip install ed25519ll helps...)
-    ],
-
-    # The master server control dict; 'control' may be converted to a different form (eg. a
-    # multiprocessing.Manager().dict()) if necessary.  Each of the Licensing server thread-specific
-    # configs will be provided a reverence to this control (unless, for some reason, you don't want
-    # them to share it).  If *any* thread shuts down, they will all be stopped.
-    server		= dict(
-        control		= control,
-    ),
-
-    # The licensing control system loop.  This runs various licensing state machinery
-    ctl			= dict(
-        cycle		= 1.0,
-    ),
-
-    # The Web API.  Remote web API access and web page.
-    web			= dict(
-        #access		= False,	# Do not redirect sys.stdout/stderr to an access log file
-        #address	= "127.0.0.1:0",# Use a dynamic bind port for testing the server (force ipv4 localhost)
-    ),
-
-    # The Text GUI.  Controls the internals of the Licensing server from the server text console
-    txt			= dict(
-        title		= "Licensing",
-    ),
-)
 
 
 def test_licensing_issue_query():
@@ -140,16 +102,55 @@ def licensing_cli( number, tests=None, address=None ):
 
 
 def licensing_bench():
-    # Start up the Web interface on a dynamic port, eg. "localhost:0"
-    failed			= cpppo.server.network.bench(
-        server_func	= licensing_main,
-        server_kwds	= licensing_svr_kwds,
-        client_func	= licensing_cli,
-        client_count	= client_count,
-        client_max	= client_max,
-        client_kwds	= licensing_cli_kwds,
-        address_delay	= 5.0,
-    )
+    with multiprocessing.Manager() as m:
+
+        licensing_svr_kwds		= dict(
+            argv	= [
+                "--no-gui",
+                "--config", CFGPATH,
+                "--web", "127.0.0.1:0",
+                #"--no-access",		# Do not redirect sys.stdout/stderr to an access log file
+                #"--profile", "licensing.prof", # Optionally, enable profiling (pip install ed25519ll helps...)
+            ],
+
+            # The master server control dict; 'control' may be converted to a different form (eg. a
+            # multiprocessing.Manager().dict()) if necessary.  Each of the Licensing server thread-specific
+            # configs will be provided a reverence to this control (unless, for some reason, you don't want
+            # them to share it).  If *any* thread shuts down, they will all be stopped.
+            server	= dict(
+                control		= m.apidict(
+                    1.0,
+                    done	= False
+                ),
+            ),
+
+            # The licensing control system loop.  This runs various licensing state machinery
+            ctl		= dict(
+                cycle		= 1.0,
+            ),
+
+            # The Web API.  Remote web API access and web page.
+            web		= dict(
+                #access		= False,	# Do not redirect sys.stdout/stderr to an access log file
+                #address	= "127.0.0.1:0",# Use a dynamic bind port for testing the server (force ipv4 localhost)
+            ),
+
+            # The Text GUI.  Controls the internals of the Licensing server from the server text console
+            txt		= dict(
+                title		= "Licensing",
+            ),
+        )
+        
+        # Start up the Web interface on a dynamic port, eg. "localhost:0"
+        failed			= cpppo.server.network.bench(
+            server_func	= licensing_main,
+            server_kwds	= licensing_svr_kwds,
+            client_func	= licensing_cli,
+            client_count= client_count,
+            client_max	= client_max,
+            client_kwds	= licensing_cli_kwds,
+            address_delay= 5.0,
+        )
 
     if failed:
         log.warning( "Failure" )

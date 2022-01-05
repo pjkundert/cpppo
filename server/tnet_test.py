@@ -8,10 +8,12 @@ except ImportError:
 import contextlib
 import json
 import logging
+import multiprocessing
 import os
 import pytest
 import random
 import socket
+import sys
 import traceback
 
 import cpppo
@@ -162,28 +164,28 @@ def tnet_cli( number, tests=None, address=None ):
     return failed
 
 
-tnet_svr_kwds			= dict(
-    argv		= [
-        "-vv", '-a', 'localhost:0', '-A'
-    ],
-    server			= dict(
-        control		= dict(
-            done	= False,
-        ),
-    ),
-)
-
-
 def tnet_bench():
-    logging.getLogger().setLevel(logging.INFO)
-    failed			= cpppo.server.network.bench(
-        server_func	= tnet.main,
-        server_kwds	= tnet_svr_kwds,
-        client_func	= tnet_cli,
-        client_kwds	= tnet_cli_kwds,
-        client_count	= client_count,
-        address_delay	= 5.0,
-    )
+    with multiprocessing.Manager() as m:
+        tnet_svr_kwds		= dict(
+            argv	= [
+                "-vv", '-a', 'localhost:0', '-A'
+            ],
+            server	= dict(
+                control		= m.apidict(
+                    timeout	= 1.0,
+                    done	= False,
+                ),
+            ),
+        )
+
+        failed			= cpppo.server.network.bench(
+            server_func	= tnet.main,
+            server_kwds	= tnet_svr_kwds,
+            client_func	= tnet_cli,
+            client_kwds	= tnet_cli_kwds,
+            client_count= client_count,
+            address_delay= 5.0,
+        )
 
     if failed:
         log.warning( "Failure" )

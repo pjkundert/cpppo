@@ -1065,7 +1065,8 @@ def main( argv=None, attribute_class=device.Attribute, attribute_kwds=None,
 
     srv_ctl['control']['done']	= False
     srv_ctl['control']['disable']= False
-    srv_ctl['control'].setdefault( 'latency', defaults.latency )
+    if srv_ctl['control'].get( 'latency' ) is None:
+        srv_ctl['control']['latency'] = defaults.latency
 
     # Global options data.  Copy any remaining keyword args supplied to main().  This could
     # include an alternative enip_process, for example, instead of defaulting to logix.process.

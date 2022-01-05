@@ -169,22 +169,26 @@ def start_simulator( simulator, *options, **kwds ):
 
     begun			= misc.timer()
 
-    info			= dotdict( address=None )
-    soaker			= threading.Thread( target=soak, args=(command,info,),
-                                                    kwargs=dict(
-                                                        address_latency	= address_latency,
-                                                        address_re	= address_re
-                                                    ))
+    control			= dotdict( address=None )
+    soaker			= threading.Thread(
+        target	= soak,
+        args	= (),
+        kwargs	= dict(
+            command		= command,
+            control		= control,
+            address_latency	= address_latency,
+            address_re		= address_re,
+        ))
     soaker.daemon		= True
     soaker.start()
-    while info.address is None and misc.timer() - begun < address_wait:
+    while control.address is None and misc.timer() - begun < address_wait:
         time.sleep( address_latency )
 
-    assert info.address, "Failed to harvest Simulator IP address"
+    assert control.address, "Failed to harvest Simulator IP address"
 
     logging.normal( "Simulator started after %7.3fs on %r:%d",
-                    misc.timer() - begun, info.address[0], info.address[1] )
-    return command,info.address
+                    misc.timer() - begun, control.address[0], control.address[1] )
+    return command,control.address
 
 
 def start_modbus_simulator( *options ):

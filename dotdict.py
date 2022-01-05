@@ -80,8 +80,10 @@ class dotdict_base( object ):
     __slots__			= ()
     __invalid_keys__		= (
         'clear', 'copy', 'get', 'set', 'items', 
-        'iteritems', 'iterkeys', 'itervalues', 'keys',
-        'pop', 'popitem', 'setdefault', 'update', 'values'
+        'iteritems', 'iterkeys', 'itervalues',
+        'listitems', 'listkeys', 'listvalues',
+        'keys', 'values',
+        'pop', 'popitem', 'setdefault', 'update',
     )
 
     #def __repr__( self ):
@@ -316,14 +318,22 @@ class dotdict_base( object ):
 
     set			= __setitem__
 
-    def iteritems( self ):
+    def iteritems( self, depth=None ):
         """Issue keys for layers of dotdict() in a.b.c... form.  For dotdicts containing a list of
         dotdict, issue keys in a.b[0].c form, since we can handle simple indexes in paths for
-        indexing (we'll arbitrarily limit it to just one layer deep)."""
+        indexing (we'll arbitrarily limit it to just one layer deep).
+
+        An optional depth limits the key length; by default, we'll issue full-depth keys; To
+        approximate the normal dict.items() (which returns only the current dict's key/value pairs),
+        call with depth=1.
+
+        This flows through to all {iter,list}{items,values,keys} API calls.
+        """
         items			= super( dotdict_base, self ).iteritems if sys.version_info[0] < 3 else super( dotdict_base, self ).items
         for key,val in items():
-            if isinstance( val, dotdict_base ) and val: # a non-empty sub-dotdict layer
-                for subkey,subval in val.iteritems():
+            if isinstance( val, dotdict_base ) and val and ( depth is None or depth > 0 ):
+                # a non-empty sub-dotdict layer, and we have depth remaining
+                for subkey,subval in val.iteritems( None if depth is None else depth - 1 ):
                     yield key+'.'+subkey, subval
             elif isinstance( val, list ) and val and all( isinstance( subelm, dotdict_base ) for subelm in val ):
                 # Non-empty list of dicts
@@ -334,18 +344,28 @@ class dotdict_base( object ):
             else: # non-list elements, empty dotdict layers, empty lists
                 yield key, val
 
-    def itervalues( self ):
-        for key,val in self.iteritems():
+
+    def listitems( self, depth=None ):
+        return list( self.iteritems( depth=depth ))
+
+    def itervalues( self, depth=None ):
+        for key,val in self.iteritems( depth=depth ):
             yield val
 
-    def iterkeys( self ):
-        for key,val in self.iteritems():
+    def listvalues( self, depth=None ):
+        return list( self.itervalues( depth=depth ))
+
+    def iterkeys( self, depth=None ):
+        for key,val in self.iteritems( depth=depth ):
             yield key
 
+    def listkeys( self, depth=None ):
+        return list( self.iterkeys( depth=depth ))
+
     __iter__			= iterkeys
-    keys 			= iterkeys     if sys.version_info[0] > 2 else lambda self: list( self.iterkeys() )
-    values			= itervalues   if sys.version_info[0] > 2 else lambda self: list( self.itervalues() )
-    items			= iteritems    if sys.version_info[0] > 2 else lambda self: list( self.iteritems() )
+    keys 			= iterkeys     if sys.version_info[0] > 2 else listkeys
+    values			= itervalues   if sys.version_info[0] > 2 else listvalues
+    items			= iteritems    if sys.version_info[0] > 2 else listitems
 
     def __deepcopy__( self, memo ):
         """Must copy each layer, to avoid copying keys that reference non-existent members."""
@@ -380,11 +400,17 @@ class apidict_base( dotdict ):
     __slots__			= ('_lck', '_cnd', '_tmo')
 
     def __init__( self, timeout, *args, **kwds ):
-        assert isinstance( timeout, (float,int) ), \
-            "First argument to apidict must be a numeric timeout"
         object.__setattr__( self, '_lck', self._sync_mod.RLock() )
         object.__setattr__( self, '_cnd', self._sync_mod.Condition( self._lck ))
-        object.__setattr__( self, '_tmo', timeout )
+        if isinstance( timeout, apidict_base ):
+            # Special case for copying another apidict; pass k,v pairs as 1st args
+            assert not args, "Unable to support copying apidict w/ iterable of k,v"
+            object.__setattr__( self, '_tmo', timeout._tmo )
+            args		= (timeout.listitems( depth=1 ), )
+        else:
+            assert isinstance( timeout, (float,int) ), \
+                "First argument to apidict must be a numeric timeout (or another apidict)"
+            object.__setattr__( self, '_tmo', timeout )
         super( apidict_base, self ).__init__( *args, **kwds )
 
     def __setitem__( self, key, value ):
@@ -449,10 +475,14 @@ def make_apidict_proxy( apidict_class ):
     apidict_proxy		= multiprocessing.managers.MakeProxyType(
         apidict_class.__name__ + '_proxy', (
             '__contains__', '__delitem__', '__getitem__', '__iter__', '__len__',
-            '__setitem__', 'clear', 'copy', 'get', 'items', 'keys',
+            '__setitem__', 'clear', 'copy', 'get', 'set'
+            # These will not work in python3, as they return generators; use list( <apidict> )
+            # instead, as the __iter__ method is supported and returns the keys.
+            'items', 'keys',
             'pop', 'popitem', 'setdefault', 'update', 'values'
             '__dir__', 'set', # '__setattr__', '__getattr__',
-            'iteritems', 'iterkeys', 'itervalues',
+            # 'iteritems', 'iterkeys', 'itervalues',  # These cannot be proxied, as they return generations
+            'listitems', 'listkeys', 'listvalues',
         )
     )
     apidict_proxy._method_to_typeid_ = {

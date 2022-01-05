@@ -28,6 +28,7 @@ __license__                     = "Dual License: GPLv3 (or later) and Commercial
 import contextlib
 import errno
 import functools
+import json
 import logging
 import multiprocessing
 import os
@@ -329,17 +330,8 @@ def server_main( address, target=None, kwargs=None, idle_service=None, thread_fa
         kwargs			= {} # Thread can take None; Process requires a dict
     control			= kwargs.get( 'server', {} ).get( 'control', {} )
     if 'done' in control or 'disable' in control:
-        if isinstance( control, dotdict ):
-            log.normal( "%s server PID [%5d] responding to external done/disable signal in object %s",
-                        name, os.getpid(), id( control ))
-        elif isinstance( control, multiprocessing.managers.DictProxy ):
-            log.normal( "%s server PID [%5d] responding to external done/disable signal via multiprocessing %s",
-                        name, os.getpid(), control.__class__.__name__ )
-        else:
-            assert isinstance( control, dict ), \
-                "Unknown control strategy: {!r}".format( control )
-            log.normal( "%s server PID [%5d] responding to external done/disable signal via plain dict",
-                        name, os.getpid() )
+        log.normal( "{} server PID [{:5d}] responding to external done/disable signal via {!r} {!r}".format(
+            name, os.getpid(), control.__class__, control ))
 
     # Establish some defaults for the server; done/disable False, .5s latency, 1s timeout.
     control['done']		= False
@@ -460,13 +452,13 @@ def soakable( command ):
     return hasattr( command, 'is_alive' ) and hasattr( command, 'stdout' ) and command.stdout
 
 
-def soak( command, command_kwds=None, address_latency=None, address_re=None ):
+def soak( command, control=None, address_latency=None, address_re=None ):
     """Soak up output in a non-blocking fashion, passing it thru to logging.  Optionally harvest any
 
         TCP ... address = ...
 
-    found on command.stdout into command_kwds['soak']['address'].  The command.stdout is collected
-    into server['soak']['data'], and full lines are logged.
+    found on command.stdout into control['address'].  The command.stdout is collected into local
+    variable 'data', and full lines are logged.
 
     The command.stdout stream is assumed to be in *binary* mode, and may be non-blocking.
     Therefore, the .read() may return None.
@@ -477,13 +469,12 @@ def soak( command, command_kwds=None, address_latency=None, address_re=None ):
     if address_re is None:
         address_re		= r"TCP.*address =\s*(?P<address>.*)?"
 
-    assert address_latency is None or isinstance( command_kwds, dict )
-    info			= command_kwds.setdefault( 'soak', {} )
-    info.setdefault( 'data', '' )
-    info.setdefault( 'address', None )
+    assert address_latency is None or control, \
+        "Must supply a control dict to receive address"
+    data			= ''
 
     log.normal( "Soaking {!r} stdout".format( command ))
-    while command.is_alive() and not command_kwds.get( 'control', {} ).get( 'done' ):
+    while command.is_alive() and not ( control and control.get( 'done', False )):
         raw			= decodefrom( command.stdout, encoding='utf-8', errors='backslashreplace' )
         if not raw:
             time.sleep( address_latency )
@@ -494,21 +485,24 @@ def soak( command, command_kwds=None, address_latency=None, address_re=None ):
 
         #log.normal( "Read {:5d} bytes (had {:5d} bytes) from {!r}: {!r}".format(
         #    len( raw ), len( info['data'] ), command.stdout, raw ))
-        info['data'] += raw
-        while info['data'].find( '\n' ) >= 0:
-            line,info['data']	= info['data'].split( '\n', 1 )
+        data		       += raw
+        while data.find( '\n' ) >= 0:
+            line,data		= data.split( '\n', 1 )
             log.detail( ">>> {}".format( line ))
-            if not info['address'] and address_re:
+            if address_re and not ( control and control.get( 'address' )):
                 m		= re.search( address_re, line )
                 if m:
-                    log.normal( "*** Server TCP address = {!r}".format( m.group('address') ))
-                    info['address'] = misc.parse_ip_port( m.group('address').strip() )
+                    address_str	= m.group('address').strip()
+                    log.normal( "*** Server TCP address = {!r}".format( address_str ))
+                    host,port	= misc.parse_ip_port( address_str )  # May be IPv4Address,int
+                    control['address'] = str(host),int(port)
     log.normal( "Soaking {!r} done.".format( command ))
 
 
 def bench( server_func, client_func, client_count,
            server_kwds=None, client_kwds=None, client_max=10, server_join_timeout=1.0,
-           address_latency=0.1, address_delay=None, server_cls=None ): # soak up address/output iff address_delay > 0
+           address_latency=0.1, address_delay=None, address_via_stdout=False,
+           server_cls=None ): # soak up address/output iff address_delay > 0, optionally via stdout
 
     """Bench-test the server_func (with optional keyword args from server_kwds) as a process; will fail
     if one already bound to port.  Creates a thread pool (default 10) of client_func.  Each client
@@ -526,29 +520,26 @@ def bench( server_func, client_func, client_count,
     will get that address passed to the client as address=... keyword argument.
 
     """
-    # If an address is desired, we'll be transmitting that back via server['control']
+    # If an address is desired, we'll be transmitting that back via server['control'], so ensure
+    # that we at least have a dict at that path.
     if address_delay:
         if server_kwds is None:
             server_kwds		= {}
-        server_kwds.setdefault( 'control', {} )
+        assert 'server' in server_kwds and 'control' in server_kwds['server'], \
+            "Must provide a server_kwds['server']['control'] dict to receive server's address: {!r}".format(
+                server_kwds
+            )
     
-    # Either multiprocessing.Process or threading.Thread should work as the Server.
+    # Either multiprocessing.Process (default) or threading.Thread should work as the Server.
     if server_cls is None:
-        #from threading		import Thread as server_cls
-        from multiprocessing	import Process as server_cls
+        server_cls		= multiprocessing.Process
 
     # For threading, since the server Thread is in the same process and has direct access to the
     # provided server_kwds.server.control... dict, it can directly write data (eg. address) to it.
 
-    # For multiprocessing, replace the server['control'] dict with multiprocessing.Manager().dict().
+    # For multiprocessing, the server['control'] dict must be multiprocessing.Manager().dict().
     # This will result in any change to the control['done'] and control['address'] signal passing
     # thru to/from the sub-process.
-    manager			= None
-    if issubclass( server_cls, multiprocessing.Process ):
-        manager			= multiprocessing.Manager()
-        if server_kwds and 'control' in server_kwds.get( 'server', {} ):
-            server_kwds['server']['control'] = manager.dict( list( server_kwds['server']['control'].items() ))
-
 
     # Only multiprocessing.pool.ThreadPool works, as we cannot serialize some client API objects
     from multiprocessing.pool	import ThreadPool as Pool
@@ -557,20 +548,20 @@ def bench( server_func, client_func, client_count,
 
     log.normal( "Server %r startup...", misc.function_name( server_func ))
 
-
     log.detail( "Server {!r} keywords: {!r}".format( misc.function_name( server_func ), server_kwds ))
     server_args			= ()
-    '''
+
     server_stdout		= None
     buffering			= None
 
-    if address_delay:
-        assert Process is multiprocessing.Process, \
-            "Must use multiprocessing.Process when detecting server address"
+    if address_delay and address_via_stdout:
+        assert server_cls is multiprocessing.Process, \
+            "Must use multiprocessing.Process when detecting server address via stdout"
 
         read_sock,write_sock	= socket.socketpair()	# two unix-domain sockets
 
-        class Server( Process ):
+        # Create a shim that redirects stdout for the started server Process
+        class Server( server_cls ):
             _write_socket	= write_sock
 
             def run( self ):
@@ -578,58 +569,62 @@ def bench( server_func, client_func, client_count,
                         misc.make_socket_stream(
                             self._write_socket, "w", buffering=buffering, encoding='utf-8' )):
                     return super( Server, self ).run()
+        server_cls		= Server
 
         read_sock.setblocking( False )
         server_stdout		= misc.make_socket_stream( read_sock, "rb", buffering=buffering )
         log.normal( "Created receiving command.stdout: {!r}".format( server_stdout ))
-    '''
 
+
+    # Ready to fire up the server!  Its address will be harvested either via shared apidict (proxy,
+    # if multiprocessing), or from server stdout.
     server			= server_cls(
         target	= server_func,
         args	= server_args,
         kwargs	= server_kwds or {},
     )
     server.daemon		= True
-    #server.stdout		= server_stdout
+    if server_stdout:
+        server.stdout		= server_stdout
     server.start()
     begun			= misc.timer()
 
-    '''
-    # Harvest any "address = ..." from the Process' .stdout (if defined).  Also monitors the shared
-    # server_kwds['control']['done'] to detect server exit condition.  Puts collected data
-    # (eg. address, data) in server_kwds['soak'].
-    if address_delay and soakable( server ):
-        soaker			= threading.Thread(
-            target	= soak,
-            args	= (),
-            kwargs	= dict(
-                command		= server,
-                command_kwds	= server_kwds,
-                address_latency	= address_latency,
-            )
-        )
-        soaker.daemon		= True
-        soaker.start()
-        while server_kwds.get( 'soak', {} ).get( 'address' ) is None and misc.timer() - begun < address_delay:
-            print( "Current server_kwds: {}".format( server_kwds ))
-            time.sleep( address_latency )
-        assert server_kwds.get( 'soak', {} ).get( 'address' ), \
-            "Failed to harvest address with in {}s".format( address_delay )
-
-    '''
     if address_delay:
-        # Wait for the control['address'] to show up
-        while server_kwds.get( 'server', {} ).get( 'control', {} ).get( 'address' ) is None and misc.timer() - begun < address_delay:
-            #print( "Current server_kwds.server.control: {}".format( dict( server_kwds.get( 'server', {} ).get( 'control', {} ))))
-            time.sleep( address_latency )
+        # Wait for the address to be harvested, failing if not
+        if address_via_stdout:
+            # Harvest any "address = ..." from the Process' .stdout (if defined).  Also monitors the shared
+            # server_kwds['control']['done'] to detect server exit condition.  Puts collected data
+            # (eg. address, data) in server_kwds['soak'].
+            assert soakable( server ), "Cannot soak address via stdout from server {!r}".format( server )
+            soaker		= threading.Thread(
+                target	= soak,
+                args	= (),
+                kwargs	= dict(
+                    command		= server,
+                    control		= server_kwds['server']['control'],
+                    address_latency	= address_latency,
+                )
+            )
+            soaker.daemon		= True
+            soaker.start()
+            while server_kwds['server']['control'].get( 'address' ) is None and misc.timer() - begun < address_delay:
+                print( "Current server_kwds: {}".format( server_kwds ))
+                time.sleep( address_latency )
+            assert server_kwds['server']['control'].get( 'address' ), \
+                "Failed to harvest address with in {}s".format( address_delay )
+        else:
+            # Wait for the control['address'] to show up via apidict
+            while server_kwds.get( 'server', {} ).get( 'control', {} ).get( 'address' ) is None and misc.timer() - begun < address_delay:
+                #print( "Current server_kwds.server.control: {}".format( dict( server_kwds.get( 'server', {} ).get( 'control', {} ))))
+                time.sleep( address_latency )
         assert server_kwds.get( 'server', {} ).get( 'control', {} ).get( 'address' ), \
             "Failed to harvest address with in {}s".format( address_delay )
-    import json
-    print( "Final server_kwds: {}".format( json.dumps( server_kwds, indent=4, default=str )))
+
+    log.detail( "Final server_kwds: {}".format( json.dumps( server_kwds, indent=4, default=str )))
 
     # If we harvested an "address = ...', pass it to the client in client_kwds
     if address_delay:
-        address			= server_kwds.get( 'server', {} ).get( 'control', {} ).get( 'address' ) if server_kwds else None
+        address			= server_kwds['server']['control']['address']
         if address:
             if client_kwds is None:
                 client_kwds	= {}

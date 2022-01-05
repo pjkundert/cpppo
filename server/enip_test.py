@@ -8,6 +8,7 @@ import array
 import codecs
 import contextlib
 import logging
+import multiprocessing
 import os
 import platform
 import pytest
@@ -3830,31 +3831,33 @@ enip_cli_kwds_basic		= {
         ]
 }
 
-enip_svr_kwds_basic		= { 
-    'enip_process': 	enip_process_canned,
-    'argv':		[
-        '-a', 'localhost:0', '-A',
-        #'-v',
-        'SCADA=INT[1000]',
-    ],
-    'server': 		{
-        'control':	cpppo.apidict( enip.timeout, {
-            'done':	False,
-        }),
-    },
-}
 
 
 def enip_bench_basic():
-    failed			= cpppo.server.network.bench(
-        server_func	= enip_main,
-        server_kwds	= enip_svr_kwds_basic,
-        client_func	= enip_cli,
-        client_kwds	= enip_cli_kwds_basic,
-        client_count	= client_count,
-        client_max	= client_max,
-        address_delay	= 5.0,
-    )
+    with multiprocessing.Manager() as m:
+        
+        enip_svr_kwds_basic		= { 
+            'enip_process': 	enip_process_canned,
+            'argv':		[
+                '-a', 'localhost:0', '-A',
+                #'-v',
+                'SCADA=INT[1000]',
+            ],
+            'server': 		{
+                'control':	m.apidict( enip.timeout, {
+                    'done':	False,
+                }),
+            },
+        }
+        failed			= cpppo.server.network.bench(
+            server_func	= enip_main,
+            server_kwds	= enip_svr_kwds_basic,
+            client_func	= enip_cli,
+            client_kwds	= enip_cli_kwds_basic,
+            client_count= client_count,
+            client_max	= client_max,
+            address_delay= 5.0,
+        )
     if failed:
         log.warning( "Failure" )
     else:
@@ -3904,31 +3907,32 @@ enip_cli_kwds_logix		= {
         ]
 }
 
-enip_svr_kwds_logix 		= { 
-    'enip_process': 	logix.process,
-    'argv':		[
-        '-a', 'localhost:0', '-A',
-        #'-v', 
-        'SCADA=INT[1000]'
-    ],
-    'server': 		{
-        'control': 	cpppo.apidict( enip.timeout, {
-            'done':	False,
-        }),
-    },
-}
-
 
 def enip_bench_logix():
-    failed			= cpppo.server.network.bench(
-        server_func	= enip_main,
-        server_kwds	= enip_svr_kwds_logix,
-        client_func	= enip_cli,
-        client_kwds	= enip_cli_kwds_logix,
-        client_count	= client_count,
-        client_max	= client_max,
-        address_delay	= 5.0,
-    )
+    with multiprocessing.Manager() as m:
+        enip_svr_kwds_logix 		= { 
+            'enip_process': 	logix.process,
+            'argv':		[
+                '-a', 'localhost:0', '-A',
+                #'-v', 
+                'SCADA=INT[1000]'
+            ],
+            'server': 		{
+                'control': 	m.apidict( enip.timeout, {
+                    'done':	False,
+                }),
+            },
+        }
+
+        failed			= cpppo.server.network.bench(
+            server_func	= enip_main,
+            server_kwds	= enip_svr_kwds_logix,
+            client_func	= enip_cli,
+            client_kwds	= enip_cli_kwds_logix,
+            client_count= client_count,
+            client_max	= client_max,
+            address_delay= 5.0,
+        )
     if failed:
         log.warning( "Failure" )
     else:
@@ -3995,15 +3999,29 @@ def enip_cli_pylogix( number, tests=None, address=None ):
 
 
 def enip_bench_pylogix():
-    failed			= cpppo.server.network.bench(
-        server_func	= enip_main,
-        server_kwds	= enip_svr_kwds_logix,
-        client_func	= enip_cli_pylogix,
-        client_kwds	= enip_cli_kwds_logix,
-        client_count	= client_count,
-        client_max	= client_max,
-        address_delay	= 5.0,
-    )
+    with multiprocessing.Manager() as m:
+        enip_svr_kwds_pylogix 		= { 
+            'enip_process': 	logix.process,
+            'argv':		[
+                '-a', 'localhost:0', '-A',
+                #'-v', 
+                'SCADA=INT[1000]'
+            ],
+            'server': 		{
+                'control': 	m.apidict( enip.timeout, {
+                    'done':	False,
+                }),
+            },
+        }
+        failed			= cpppo.server.network.bench(
+            server_func	= enip_main,
+            server_kwds	= enip_svr_kwds_pylogix,
+            client_func	= enip_cli_pylogix,
+            client_kwds	= enip_cli_kwds_logix,
+            client_count= client_count,
+            client_max	= client_max,
+            address_delay= 5.0,
+        )
     if failed:
         log.warning( "Failure" )
     else:

@@ -240,20 +240,6 @@ def test_client_api_random():
     """
     taglen			= 100 # able to fit request for Attribute into 1 packet
 
-    svrkwds			= dotdict({
-        'argv': [
-            '-a', 'localhost:0', '-A',
-            #'-v',
-            'Int@0x99/1/1=INT[%d]' % ( taglen ),
-            'Real@0x99/1/2=REAL[%d]' % ( taglen ),
-            'DInt@0x99/1/3=DINT[%d]' % ( taglen ),
-        ],
-        'server': {
-            'control':	apidict( enip.timeout, { 
-                'done': False
-            }),
-        },
-    })
     clitimes			= 100
     clitimeout			= 15.0
     clidepth			= 5		# max. requests in-flight
@@ -396,13 +382,28 @@ def test_client_api_random():
             clitest_svc,
         ] )( n, address )
 
-    
-    failed			= network.bench(
-        server_func	= enip_main,
-        server_kwds	= svrkwds,
-        client_func	= clitest,
-        client_count	= clicount,
-        client_max	= clipool,
-        address_delay	= 5.0,
-    )
+    with multiprocessing.Manager() as m:
+        svrkwds			= dotdict({
+            'argv': [
+                '-a', 'localhost:0', '-A',
+                #'-v',
+            'Int@0x99/1/1=INT[%d]' % ( taglen ),
+                'Real@0x99/1/2=REAL[%d]' % ( taglen ),
+                'DInt@0x99/1/3=DINT[%d]' % ( taglen ),
+            ],
+            'server': {
+                'control':	m.apidict( enip.timeout, { 
+                    'done': False
+                }),
+            },
+        })
+
+        failed			= network.bench(
+            server_func	= enip_main,
+            server_kwds	= svrkwds,
+            client_func	= clitest,
+            client_count= clicount,
+            client_max	= clipool,
+            address_delay= 5.0,
+        )
     assert failed == 0

@@ -8,6 +8,7 @@ except ImportError:
 import ast
 import errno
 import logging
+import multiprocessing
 import os
 import re
 import socket
@@ -303,7 +304,7 @@ def powerflex_routed_cli( number, address=None ):
     return not ( near( freq, 456.78 ) and near( velo, 789.01 ))
 
 
-@pytest.mark.xfail # unreliable
+#@pytest.mark.xfail # unreliable
 def test_powerflex_poll_routing_bench( simulated_powerflex_gateway ):
     command,address             = simulated_powerflex_gateway
 
@@ -312,28 +313,29 @@ def test_powerflex_poll_routing_bench( simulated_powerflex_gateway ):
             "1/1": "{}:{}".format( *address ),
         }
 
-    server_kwds			= dict(
-        argv		= [
-             "-v", "--address", "localhost:0", '-A', '--no-udp',
-        ],
-        UCMM_class	= UCMM_routing_to_powerflex,
-        server		= dotdict(
-            control	= apidict(
-                timeout	= 1.0,
-                done	= False
-            )
-        ),
-    )
+    with multiprocessing.Manager() as m:
+        server_kwds		= dict(
+            argv	= [
+                "-v", "--address", "localhost:0", '-A', '--no-udp',
+            ],
+            UCMM_class	= UCMM_routing_to_powerflex,
+            server	= dotdict(
+                control	= m.apidict(
+                    timeout	= 1.0,
+                    done	= False
+                )
+            ),
+        )
 
-    failed			= network.bench(
-        server_func	= enip_main,
-        server_kwds	= server_kwds,
-        client_func	= powerflex_routed_cli,
-        client_kwds	= None,
-        client_count	= 1,
-        client_max	= 1,
-        address_delay	= 5.0,
-    )
+        failed			= network.bench(
+            server_func	= enip_main,
+            server_kwds	= server_kwds,
+            client_func	= powerflex_routed_cli,
+            client_kwds	= None,
+            client_count= 1,
+            client_max	= 1,
+            address_delay= 5.0,
+        )
     assert not failed, \
         "Failed Powerflex poll routing via network.bench"
 
