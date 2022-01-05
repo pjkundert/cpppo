@@ -8,12 +8,13 @@ import json
 import logging
 import multiprocessing
 import os
+import random
 import sys
 import threading
 import time
 
 from . import misc
-from .dotdict import dotdict, apidict, apidict_proxy
+from .dotdict import dotdict, apidict, make_apidict_proxy
 
 
 def test_dotdict_smoke():
@@ -204,10 +205,17 @@ def test_dotdict_performance():
         test_dotdict_indexes()
 
 
-def apidict_latency( concurrency_fun ):
+def apidict_latency(
+    concurrency_fun,
+    apidict_factory		= lambda *args, **kwds: apidict( *args, **kwds ),
+    use_attr			= True
+):
     """Ensure that latency doesn't apply to initial import of values by constructor, or to setting items
     by indexing; only setting by attribute assignment.  This must occur whether the dotdict/apidict
     is shared between threading.Threads, *or* between multiprocessing.Processes.
+
+    Unfortunately, since multiprocessing.Process proxies don't allow __getattr__/__setattr__ to be
+    proxied, we must use set/get
 
     """
 
@@ -217,10 +225,13 @@ def apidict_latency( concurrency_fun ):
     ad = apidict( latency, something='a', another='b' )
     dif = misc.timer() - beg
     assert dif < latency*significance # should be nowhere near latency (close to zero)
-    assert ad.something == 'a'
+    assert ( ad.something if use_attr else ad.get( 'something' )) == 'a'
 
     beg = misc.timer()
-    ad.boo = 1
+    if use_attr:
+        ad.boo = 1
+    else:
+        ad.set( 'boo', 1 )
     dif = misc.timer() - beg
     assert dif >= latency
     #assert misc.near( dif, latency, significance=significance ) # rare failures on some Pythons
@@ -249,19 +260,26 @@ def apidict_latency( concurrency_fun ):
         if when > now:
             time.sleep( when - now )
         if attr:
-            val = getattr( ad, attr )	# Will release apidict
+            if use_attr:		# Will release apidict
+                val = getattr( ad, attr )
+            else:
+                val = ad.get( attr )
         else:
             val = ad[item]		# Won't release apidict
         logging.debug( "got: %s", val )
 
     # Make sure a single concurrent counterparty releases the condition by performing an
-    # getattr(<apidict>,'<attr>')
+    # getattr(<apidict>,'<attr>') on any attr.
     for kwargs in [ {'attr': 'boo'}, {'item': 'boo'}, {'attr': 'noo'}, {'item': 'noo'} ]:
+        # Start the release function, waiting 'til beg+shorter to get/__getattr__ or __getitem__
         beg = misc.timer()
         t = concurrency_fun( target=release, args=(beg, shorter, ad), kwargs=kwargs )
         t.start()
-        #print( "set; significance: ", significance )
-        ad.noo = 3 # blocks 'til Thread releases apidict
+        logging.debug( "set; significance: {significance}".format( significance=significance ))
+        if use_attr:   # blocks 'til Thread releases apidict
+            ad.noo = 3
+        else:
+            ad.set( 'noo', 3 )
         dif = misc.timer() - beg
         err = abs( shorter - dif )
         logging.debug( "end; dif: %s, err: %s ==> %s", dif, err, err/shorter )
@@ -280,7 +298,7 @@ def apidict_latency( concurrency_fun ):
     # more) of them.  This means that all writers of attribute value should be received by at least
     # one reader.
 
-    def grind( thing, number_range=2, getter_count=2 ):
+    def grind( thing, number_range, getter_count ):
 
         def setter( shared, i, beg, end ):
             """Sets inputs["#"].value to a range of values, one at a time."""
@@ -288,29 +306,37 @@ def apidict_latency( concurrency_fun ):
                 # An apidict should block 'til *someone* retrieves this value.  A dotdict/dict not
                 # so much.
                 time.sleep(0.001)
-                shared.inputs[i].value = value
-            shared.inputs[i].value = None
+                if use_attr:
+                    shared.inputs[i].value = value
+                else:
+                    shared.inputs[i].set( 'value', value )
+            shared.inputs[i].set( 'value', None )
 
         def getter( shared, i ):
+
             def finder():
                 """Iterate over the shared.inputs[...].value, until all of them are exhausted (are None)"""
                 found			= True
                 while found:
                     found		= False
                     for s_i in dict.keys( shared.inputs ):
-                        time.sleep(0.001)
+                        time.sleep(random.random() * 0.1) # 0.0-0.1 seconds
                         # should unblock all counterparties to proceed
-                        v		= shared.inputs[s_i].value
+                        v		= shared.inputs[s_i].value if use_attr else shared.inputs[s_i].get( 'value' )
                         if v is not None:
                             found	= True
                             yield v
+
             # Take not of each unique value found in any of the inputs["#"].value
             results			= set()
             for v in finder():
+                logging.detail( "Got value {v} in pid,tid: {caller}".format( v=v, caller=caller() ))
                 results.add( v )
-            shared['results'][i] = results
+            logging.normal( "Found {rlen} values in pid,tid: {caller}: {results!r}".format(
+                rlen=len(results), caller=caller(), results=results))
+            shared.results[i] = results
 
-        thing.results		= {} # lists of inputs[...].value seen by each getter
+        # thing.results is an apidict that will contain lists of inputs[...].value seen by each enumerated getter
 
         thrs			= []
         for s_num in dict.keys( thing.inputs ): # want "0", "1", ... not "0.value", ...
@@ -321,42 +347,123 @@ def apidict_latency( concurrency_fun ):
                 args	= (thing, str( s_num ), beg, end,)
             )
             s.start()
-            logging.normal( "setter {} starts {:3d} - {:3d}".format( s.name, beg, end ))
+            logging.info( "setter {} starts {:3d} - {:3d}".format( s.name, beg, end ))
             thrs.append( s )
 
         for g_num in range( getter_count ):
             g			= concurrency_fun(
                 target	= getter,
-                args	= ( thing, str( g_num ))
+                args	= (thing, str( g_num ))
             )
             g.start()
-            logging.normal( "getter {} starts".format( g.name ))
+            logging.info( "getter {} starts".format( g.name ))
             thrs.append( g )
 
         for t in thrs:
             t.join()
-            logging.normal( "thread {} done".format( t.name ))
+            logging.info( "thread {} done".format( t.name ))
 
         return thing
 
-    inputs_range		= 3
-    dd_result			= grind( dotdict( inputs = { str(i): dotdict( value=-1 ) for i in range( inputs_range ) } ))
-    ad_result			= grind( dotdict( inputs = { str(i): apidict( timeout=1.0, value=-1 ) for i in range( inputs_range ) } ))
+    inputs_range		= 7
+    number_range		= 10
+    getter_count		= 5
+
+    ad_result			= grind(
+        dotdict(
+            inputs	= {
+                str(i): apidict_factory( timeout=1.0, value=-1 )
+                for i in range( inputs_range )
+            },
+            results	= apidict_factory( timeout=1.0 ),
+        ),
+        number_range	= number_range,
+        getter_count	= getter_count,
+    )
 
     import json
-    logging.normal( "w/ dotdict: {}".format( json.dumps( dd_result, indent=4, default=str )))
+    # logging.normal( "w/ dotdict: {}".format( json.dumps( dd_result, indent=4, default=str )))
     logging.normal( "w/ apidict: {}".format( json.dumps( ad_result, indent=4, default=str )))
-
+    seen			= set()
+    for i in ad_result.results:
+        seen			= seen.union( ad_result.results[i] )
+    logging.normal( "seen: {}".format( json.dumps( seen, indent=4, default=str )))
+    assert seen == set( range( inputs_range * number_range ))
+    
 
 def test_apidict_threading():
-    apidict_latency( threading.Thread )
+    apidict_latency( threading.Thread, use_attr=True )
+    apidict_latency( threading.Thread, use_attr=False )
+
+
+class MySyncManager(multiprocessing.managers.SyncManager):
+    if sys.version_info[0] < 3:
+        def shutdown( self ):
+            pass
+
+
+def caller():
+    return os.getpid(),threading.current_thread().ident
+
+
+class apidict_recording( apidict ):
+    """An apidict that records some stats"""
+    def set( self, key, value ):
+        logging.normal( "set {key:16} in pid,tid: {caller!r} = {value}...".format(
+            key		= key,
+            caller	= caller(),
+            value	= value,
+        ))
+        beg			= misc.timer()
+        exc			= None
+        try:
+            super( apidict_recording, self ).set( key, value )
+        except Exception as exc:
+            raise
+        finally:
+            end			= misc.timer()
+            dur			= end - beg
+            pct			= int( 100 * dur / self._tmo )
+        logging.normal( "set {key:16} in {dur:8.3f}s ({pct:>3d}% of timeout) w/ exc: {exc!r}".format(
+            key	= key,
+            dur	= dur,
+            pct	= pct,
+            exc	= exc,
+        ))
+
+    def get( self, key, default=None ):
+        value			= None
+        exc			= None
+        try:
+            value		= super( apidict_recording, self ).get( key, default=default )
+            return value
+        except Exception as exc:
+            raise
+        finally:
+            logging.normal( "got {key:16} in pid,tid: {caller!r} = {value} w/ exc: {exc!r}".format(
+                key	= key,
+                caller	= caller(),
+                value	= value,
+                exc	= exc,
+            ))
+
+
+MySyncManager.register( *make_apidict_proxy( apidict_recording ))
 
 
 def test_apidict_multiprocessing():
-    apidict_latency( multiprocessing.Process )
+
+    with MySyncManager() as m:
+        if sys.version_info[0] < 3:
+            m.start()
+        apidict_latency(
+            multiprocessing.Process,
+            apidict_factory	= lambda *args, **kwds: m.apidict_recording( *args, **kwds ),
+            use_attr		= False,
+        )
 
 
-def test_multiprocessing_proxies():
+def test_dotdict_multiprocessing_proxies():
     """Ensure that we understand the 3 ways Python objects can be passed to and accessed by remote
     multiprocessing.Process processes:
 
@@ -373,10 +480,6 @@ def test_multiprocessing_proxies():
     it must not be a sub-class.
 
     """
-
-    def caller():
-        return os.getpid(),threading.current_thread().ident
-    
 
     class where_am_i( object ):
         def __init__( self, calls ):
@@ -450,10 +553,6 @@ def test_multiprocessing_proxies():
         def calls( self, *args, **kwds ):
             return self._callmethod( "calls", args, kwds )
 
-    class MySyncManager(multiprocessing.managers.SyncManager):
-        if sys.version_info[0] < 3:
-            def shutdown( self ):
-                pass
 
     MySyncManager.register("where_am_i_proxy", where_am_i, where_am_i_proxy )
 
@@ -477,8 +576,6 @@ def test_multiprocessing_proxies():
                     and rt != lt
                     for (rp,rt),(lp,lt) in wai_proxy.calls() )
     
-
-
     # Auto-proxied object, multiprocess.Process.  Local method called by remote caller.
     MySyncManager.register( 'where_am_i', where_am_i )
 
@@ -506,30 +603,86 @@ def test_multiprocessing_proxies():
 
     # We want a proxy dict provided to the Main Thread and all sub-Processes, where a sub-Process
     # can receive data and place values, such that the Main Thread can retrieve them.
+
+    # Confirm that apidict timeout and bi-directional communication works between the Main Thread
+    # and sub-Processes.
+
     with MySyncManager() as m:
         if sys.version_info[0] < 3:
             m.start()
-        logging.normal( "Here is m.dict: {d!r}, and its type: {dt!r}".format(
-            d=m.dict, dt=type( m.dict )))
-        dict_proxied		= m.dict()
-        logging.normal( "Here is an m.dict(): {d!r}, and its type: {dt!r}".format(
-            d=m.dict(), dt=type( m.dict() )))
+        logging.normal( "MySyncManger w/ PID {pid!r}".format( pid=m._process.pid ))
+        latency			= 2.0
+        ad_proxied		= m.apidict_recording( latency, value=0 )
+        def ad_target( ad, beg, wait ):
+            ad['world']		= 'Hello'
+            ad['pid'],ad['tid']	= caller()
+            ad['value']	       += 1
+            time.sleep( max( 0, misc.timer() - beg + wait ))
+            ad.get( 'target' )
 
-    
-    MySyncManager.register( 'apidict', apidict, apidict_proxy )
+        def dd_target( dd, beg, wait ):
+            dd.ad['world']	= 'There'
+            dd.ad['pid'],dd.ad['tid'] = caller()
+            dd.ad['value']     += 1
+            time.sleep( max( 0, misc.timer() - beg + wait ))
+            dd.ad.get( 'target' )
 
-    def apidict_target( ad ):
-        ad.world		= 'Hello'
-        ad.pid,ad.tid		= caller()
-
-    with MySyncManager() as m:
-        ad_proxied		= m.apidict(1000)
+        now			= misc.timer()
         p2			= multiprocessing.Process(
-            target	= apidict_target,
-            args	= (ad_proxied, ),
+            target	= ad_target,
+            args	= (ad_proxied, now, latency/2 ),
         )
         p2.start()
+        # Should delay by ~1.0s (half of apidict's latency) from when p2 was created
+        now			= misc.timer()
+        ad_proxied.set( 'target', "set by pid,tid: {caller!r}".format( caller=caller() ))
+        dur		= misc.timer() - now
+        pct		= int( 100 * dur / latency )
+        logging.normal( "set of target took {dur:8.3f}s; about {pct:>3d}% of apidict latency {latency}".format(
+            dur		= dur,
+            pct		= pct,
+            latency	= latency
+        ))
         p2.join()
         
         logging.normal( "apidict_proxied = {}".format(
-             json.dumps( ad_proxied, indent=4 )))
+             json.dumps( dict([
+                 (k, ad_proxied[k]) for k in ('world', 'pid', 'tid', 'value')
+             ]), indent=4, default=dict )))
+
+        assert ad_proxied.get( 'world' ) == 'Hello'
+        assert ad_proxied.get( 'pid' ) == p2.pid
+        assert ad_proxied.get( 'value' ) == 1
+        assert 50 <= pct <= 60  # Allow for slow testing hosts
+
+        # OK, now lets try a dotdict tree with a proxied apidict inside it.  The dotdict should be
+        # sent through intact, and the aptdict_proxy should be accessible via __getitem__/__setitem__
+
+        dd			= dotdict( ad=ad_proxied )
+        now			= misc.timer()
+        p3			= multiprocessing.Process(
+            target	= dd_target,
+            args	= (dd, now, latency/2 ),
+        )
+        p3.start()
+        # Should delay by ~1.0s (half of apidict's latency) from when p2 was created
+        now			= misc.timer()
+        ad_proxied.set( 'target', "set by pid,tid: {caller!r}".format( caller=caller() ))
+        dur		= misc.timer() - now
+        pct		= int( 100 * dur / latency )
+        logging.normal( "set of target took {dur:8.3f}s; about {pct:>3d}% of apidict latency {latency}".format(
+            dur		= dur,
+            pct		= pct,
+            latency	= latency
+        ))
+        p3.join()
+
+        logging.normal( "apidict_proxied = {}".format(
+             json.dumps( dict([
+                 (k, ad_proxied[k]) for k in ('world', 'pid', 'tid', 'value')
+             ]), indent=4, default=dict )))
+
+        assert ad_proxied.get( 'world' ) == 'There'
+        assert ad_proxied.get( 'pid' ) == p3.pid
+        assert ad_proxied.get( 'value' ) == 2
+        assert 50 <= pct <= 60

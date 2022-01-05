@@ -79,7 +79,7 @@ class dotdict_base( object ):
     """
     __slots__			= ()
     __invalid_keys__		= (
-        'clear', 'copy', 'get', 'items', 
+        'clear', 'copy', 'get', 'set', 'items', 
         'iteritems', 'iterkeys', 'itervalues', 'keys',
         'pop', 'popitem', 'setdefault', 'update', 'values'
     )
@@ -181,10 +181,14 @@ class dotdict_base( object ):
                 raise KeyError( 'cannot set "%s" in "%s" (%r)' % ( rest, mine, target ))
             target[rest]        = value
         else:
-            if hasattr( value, 'keys' ) and hasattr( value, '__getitem__' ) and not isinstance( value, dotdict_base ):
-                # When inserting other dicts (things w/ the mapping protocol), convert them to dotdict layers (recursively)
-                # See: https://stackoverflow.com/questions/35282222/in-python-how-do-i-cast-a-class-object-to-a-dict
-                value           = dotdict( value )
+            if isinstance( value, dict ) and not isinstance( value, dotdict_base ):
+                # We considered converting anything with the "mapping protocol" (.keys() and
+                # .__getitem__) to a dotdict, here.
+                # https://stackoverflow.com/questions/35282222/in-python-how-do-i-cast-a-class-object-to-a-dict
+                # However, we want to be able to add complex proxies for dotdicts here (such as
+                # multiprocessing proxies for apidict).  Therefore, only identify plain dicts that
+                # are not already some derivation of dotdict_base, adn convert them to our class.
+                value           = self.__class__( value )
             if '[' in mine and mine[-1] == ']':
                 # If indexing used within the final item/attr key, it must encompass the entire
                 # final portion of the key; break out the attr[indx], and safely eval it to get the
@@ -300,11 +304,17 @@ class dotdict_base( object ):
         return self[key]
 
     def get( self, key, default=None ):
-        """The default dict.get is not implemented in terms of __getitem__."""
+        """The default dict.get is not implemented in terms of __getitem__.  Provide it, and also a set
+        implemented in terms of __setitem__ (eg. for use by derived classes or proxies that cannot
+        use __setattr__.
+
+        """
         try:
             return self.__getitem__( key )
         except KeyError:
             return default
+
+    set			= __setitem__
 
     def iteritems( self ):
         """Issue keys for layers of dotdict() in a.b.c... form.  For dotdicts containing a list of
@@ -353,18 +363,19 @@ class dotdict( dotdict_base, dict ):
 
 
 class apidict_base( dotdict ):
-    """A dotdict that ensures that any new values assigned to its attributes are very likely received by
-    some other thread (via getattr) before the corresponding setattr returns; setting/getting values
-    by indexing (ie. like a normal dict) is *not* affected (except for locking), allowing the user
-    to selectively force timeout 'til read on some assignments but not others, and to indicate
-    reception of the value on some reads and not others.
+    """A dotdict that ensures that any new values assigned to its attributes are very likely received
+    by some other thread (via .__getattr__ or .get) before the corresponding __setattr__, setdefault
+    or set returns; setting/getting values by indexing (ie. like a normal dict) is *not* affected
+    (except for locking), allowing the user to selectively force timeout 'til read on some
+    assignments but not others, and to indicate reception of the value on some reads and not others.
 
-    A specified timeout (required as first argument) is enforced after setattr, which is only
-    shortened when another thread executes a getattr.
+    A specified timeout (required as first argument) is enforced after __setattr__, setdefault or
+    set, which is only shortened when another thread executes a __getattr__/get.
 
     Note that getting *any* attr on the apidict releases all threads blocked setting *any* attr!
-    So, use index access to read the bulk of values, and finally a single getattr to access the last
-    value, and indicate completion of access.
+    So, use index access to read the bulk of values, and finally a single __getattr__/get to access
+    the last value, and indicate completion of access.
+
     """
     __slots__			= ('_lck', '_cnd', '_tmo')
 
@@ -385,6 +396,17 @@ class apidict_base( dotdict ):
             super( apidict_base, self ).__setattr__( key, value )
             self._cnd.wait( self._tmo )
 
+    def set( self, key, value ):
+        with self._cnd:
+            super( apidict_base, self ).set( key, value )
+            self._cnd.wait( self._tmo )
+
+    def setdefault( self, key, default ):
+        with self._cnd:
+            was			= super( apidict_base, self ).setdefault( key, default )
+            self._cnd.wait( self._tmo )
+            return was
+
     def __getitem__( self, key ):
         with self._cnd:
             return super( apidict_base, self ).__getitem__( key )
@@ -393,6 +415,13 @@ class apidict_base( dotdict ):
         with self._cnd:
             try:
                 return super( apidict_base, self ).__getattr__( key )
+            finally:
+                self._cnd.notify_all()
+
+    def get( self, key, default=None ):
+        with self._cnd:
+            try:
+                return super( apidict_base, self ).get( key, default=default )
             finally:
                 self._cnd.notify_all()
 
@@ -406,14 +435,29 @@ class apidict( apidict_base ):
     _sync_mod			= multiprocessing
 
 
-apidict_proxy			= multiprocessing.managers.MakeProxyType( 'apidict_proxy', (
-    '__contains__', '__delitem__', '__getitem__', '__iter__', '__len__',
-    '__setitem__', 'clear', 'copy', 'get', 'items', 'keys',
-    'pop', 'popitem', 'setdefault', 'update', 'values'
+#
+# To use apidict via multiprocessing.Process, we can proxy the API -- but these proxies cannot
+# successfully proxy __getattr__/__setattr__.  So, users must employ set/get instead;
+# .set/.setdefault will block 'til a counterparty executes .get().
+#
+def make_apidict_proxy( apidict_class ):
+    """Product a tuple usable to call SyncManager.register, for the given apidict derived class.
+    Supplies its __name__ as "<name>_proxy" for the proxy, and registers the bare "<name>" with the
+    multiprocessing Manager.
 
-    '__dir__', '__getattr__', '__setattr__',
-    'iteritems', 'iterkeys', 'itervalues',
-))
-apidict_proxy._method_to_typeid_ = {
-    '__iter__': 'Iterator',
-}
+    """
+    apidict_proxy		= multiprocessing.managers.MakeProxyType(
+        apidict_class.__name__ + '_proxy', (
+            '__contains__', '__delitem__', '__getitem__', '__iter__', '__len__',
+            '__setitem__', 'clear', 'copy', 'get', 'items', 'keys',
+            'pop', 'popitem', 'setdefault', 'update', 'values'
+            '__dir__', 'set', # '__setattr__', '__getattr__',
+            'iteritems', 'iterkeys', 'itervalues',
+        )
+    )
+    apidict_proxy._method_to_typeid_ = {
+        '__iter__': 'Iterator',
+    }
+    return apidict_class.__name__, apidict_class, apidict_proxy
+
+multiprocessing.managers.SyncManager.register( *make_apidict_proxy( apidict ))
