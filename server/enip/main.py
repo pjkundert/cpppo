@@ -908,15 +908,23 @@ def logrotate_perform():
 # 
 # main		-- Run the EtherNet/IP Controller Simulation
 # 
-def main( argv=None, attribute_class=device.Attribute, attribute_kwds=None,
-          idle_service=None, identity_class=None,
-          UCMM_class=None, message_router_class=None, connection_manager_class=None, **kwds ):
+def main(
+        argv		= None,
+        attribute_class	= device.Attribute,
+        attribute_kwds	= None,
+        idle_service	= None,
+        identity_class	= None,
+        UCMM_class	= None,
+        message_router_class = None,
+        connection_manager_class = None,
+        **kwds ):
     """Pass the desired argv (excluding the program name in sys.arg[0]; typically pass argv=None, which
     is equivalent to argv=sys.argv[1:], the default for argparse.  Requires at least one tag to be
     defined.
 
-    If a cpppo.apidict() is passed for kwds['server']['control'], we'll use it to transmit server
-    control signals via its .done, .disable, .timeout and .latency attributes.
+    If a cpppo.apidict() (or proxy) is passed for kwds['server']['control'], we'll use it to
+    transmit server control signals via its .done, .disable, .timeout and .latency attributes.
+    Also, it will be used to transport the bound addresses back to the caller.
 
     Uses the provided attribute_class (default: device.Attribute) to process all EtherNet/IP
     attribute I/O (eg. Read/Write Tag [Fragmented]) requests.  By default, device.Attribute stores
@@ -1053,15 +1061,21 @@ def main( argv=None, attribute_class=device.Attribute, attribute_kwds=None,
     # Pull out a 'server.control...' supplied in the keywords, and make certain it has 'done' and
     # 'disable'.  We'll use this to transmit control signals to the server thread.  Set the current
     # values to sane initial defaults/conditions.  Otherwise, we'll use the supplied global srv_ctl,
-    # assuming it's a dict-like object.
-    if 'server' in kwds:
+    # assuming it's a dict-like object (it is used by the web interface to provide external control)
+    log.detail( "EtherNet/IP Server starting w/ {kwds}".format( kwds=kwds ))
+    log.detail( " - server specified: {}{} (has: {})".format(
+        kwds.__class__.__name__,
+        'server' in kwds,
+        ', '.join( kwds.listkeys( depth=1 ) if isinstance( kwds, dotdict ) else ( k for k in kwds ))))
+    #if 'server' in kwds
+    if kwds.get( 'server' ):
         assert 'control' in kwds['server'], "A 'server' keyword provided without a 'control' attribute"
         srv_ctl			= kwds.pop( 'server' )
-        log.detail( "External server.control in object %s", id( srv_ctl['control'] ))
+        log.detail( "External server.control in object %s: %r", id( srv_ctl['control'] ), srv_ctl['control'] )
     else:
         if 'control' not in srv_ctl:
             srv_ctl['control']	= apidict( timeout=defaults.timeout )
-        log.detail( "Internal server.control in object %s", id( srv_ctl['control'] ))
+        log.detail( "Internal server.control in object %s: %r", id( srv_ctl['control'] ), srv_ctl['control'] )
 
     srv_ctl['control']['done']	= False
     srv_ctl['control']['disable']= False
@@ -1287,7 +1301,13 @@ def main( argv=None, attribute_class=device.Attribute, attribute_kwds=None,
     # timeout; this will block the web API for several seconds to allow all threads to respond to
     # the signals delivered via the web API.
     log.normal( "EtherNet/IP Simulator: {!r}".format( bind ))
-    kwargs			= dict( options, latency=defaults.latency, size=args.size, tags=tags, server=srv_ctl )
+    kwargs			= dict(
+        options,
+        latency		= defaults.latency,
+        size		= args.size,
+        tags		= tags,
+        server		= srv_ctl,		# bound address returned via this dict
+    )
 
     tf				= network.server_thread
     tf_kwds			= dict()
@@ -1297,20 +1317,24 @@ def main( argv=None, attribute_class=device.Attribute, attribute_kwds=None,
 
     try:
         disabled		= False	# Recognize toggling between en/disabled
-        while not ( srv_ctl['control'].done
-                    if hasattr( srv_ctl['control'], 'done' )
-                    else srv_ctl['control'].get( 'done' )):
-            if not ( srv_ctl['control'].disable
-                     if hasattr( srv_ctl['control'], 'disable' )
-                     else srv_ctl['control'].get( 'disable' )):
+        while not srv_ctl['control'].get( 'done' ):
+            if not srv_ctl['control'].get( 'disable' ):
                 if disabled:
                     log.detail( "EtherNet/IP Server enabled" )
                     disabled= False
                 log.debug( "Starting server on {bind}, with {idle_count} idle services".format(
                         bind=bind, idle_count=len( idle_service )))
-                network.server_main( address=bind, address_output=args.address_output, target=enip_srv, kwargs=kwargs,
-                                     idle_service=lambda: list( map( lambda f: f(), idle_service )),
-                                     udp=args.udp, tcp=args.tcp, thread_factory=tf, **tf_kwds )
+                network.server_main(
+                    address		= bind,
+                    address_output	= args.address_output,
+                    target		= enip_srv,
+                    kwargs		= kwargs,
+                    idle_service	= lambda: list( map( lambda f: f(), idle_service )),
+                    udp			= args.udp,
+                    tcp			= args.tcp,
+                    thread_factory	= tf,
+                    **tf_kwds
+                )
             else:
                 if not disabled:
                     log.detail( "EtherNet/IP Server disabled" )

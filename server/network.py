@@ -273,8 +273,17 @@ class server_process_profiling( server_profiler, server_process ):
     pass
 
 
-def server_main( address, target=None, kwargs=None, idle_service=None, thread_factory=server_thread,
-                 reuse=True, tcp=True, udp=False, address_output=None, **kwds ):
+def server_main(
+        address,
+        target		= None,
+        kwargs		= None,
+        idle_service	= None,
+        thread_factory	= server_thread,
+        reuse		= True,
+        tcp		= True,
+        udp		= False,
+        address_output	= None,
+        **kwds ):
     """A generic server main, binding to address (on TCP/IP but not UDP/IP by default), and serving
     each incoming connection with a separate thread_factory (server_thread by default, a
     threading.Thread) instance running the target function (or its overridden run method, if
@@ -320,12 +329,13 @@ def server_main( address, target=None, kwargs=None, idle_service=None, thread_fa
     # detect and use the server, so don't remove!
     log.normal( "%s server PID [%5d] starting on %r", name, os.getpid(), address )
 
-    # Ensure that any server.control in kwds is a dotdict.  Specifically, we can handle an
-    # cpppo.apidict, which responds to getattr by releasing the corresponding setattr.  We will
-    # respond to server.control.done and .disable.  When this loop awakens it will sense
+    # Ensure that any server['control'] in kwds is a dict, {dot,api}dict or proxy.  Specifically, we
+    # can handle an cpppo.apidict or cpppo.apidict_proxy via multiprocessing.Manager().apidict,
+    # which responds to get/getattr by releasing the corresponding set/setdefault/setattr.  We will
+    # respond to server['control']['done'] and ['disable'].  When this loop awakens it will sense
     # done/disable (without releasing the setattr, if an apidict was used!), and attempt to join the
     # server thread(s).  This will (usually) invoke a clean shutdown procedure.  Finally, after all
-    # threads have been joined, the .disable/done will be released (via getattr) at top of loop
+    # threads have been joined, the .disable/done will be released (via get) at top of loop
     if kwargs is None:
         kwargs			= {} # Thread can take None; Process requires a dict
     control			= kwargs.get( 'server', {} ).get( 'control', {} )
@@ -376,11 +386,12 @@ def server_main( address, target=None, kwargs=None, idle_service=None, thread_fa
             if hasattr( socket, 'SO_REUSEPORT' ):
                 tcp_sock.setsockopt( socket.SOL_SOCKET, socket.SO_REUSEPORT, 1 )
         tcp_sock.bind( address )
-        tcp_sock.listen( 100 ) # How may simultaneous unaccepted connection requests Transmit the
-        # bound local i'face:port address to any interested parties.  This is done via the control
-        # dict (for threading counterparties in the same Process, or multiprocessing counterparties
-        # connecting via Manager().dict()), or via stdout for those listening to output
-        # (eg. via subprocess.Popen)
+        tcp_sock.listen( 100 ) # How may simultaneous unaccepted connection requests
+
+        # Transmit the bound local i'face:port address to any interested parties.  This is done via
+        # the control dict (for threading counterparties in the same Process, or multiprocessing
+        # counterparties connecting via Manager().dict()), or via stdout for those listening to
+        # output (eg. via subprocess.Popen)
         control['address']	= tcp_sock.getsockname()
         if address_output:
             print( "Network TCP Server address = {locl!r}".format( locl=control['address'] ))
@@ -395,9 +406,8 @@ def server_main( address, target=None, kwargs=None, idle_service=None, thread_fa
             sys.stdout.flush()
         thread_start( udp_sock, None )
 
-    # and report completion to external API (eg. web) via apidict by triggering __getattr__
-    while ( not ( control.disable if hasattr( control, 'disable' ) else control.get( 'disable' ))
-            and not ( control.done if hasattr( control, 'done' ) else control.get( 'done' ))):
+    # and report completion to external API (eg. web) via apidict by triggering get
+    while ( not control.get( 'disable' ) and not control.get( 'done' )):
         started			= misc.timer()
         try:
             acceptable		= None
@@ -499,10 +509,18 @@ def soak( command, control=None, address_latency=None, address_re=None ):
     log.normal( "Soaking {!r} done.".format( command ))
 
 
-def bench( server_func, client_func, client_count,
-           server_kwds=None, client_kwds=None, client_max=10, server_join_timeout=1.0,
-           address_latency=0.1, address_delay=None, address_via_stdout=False,
-           server_cls=None ): # soak up address/output iff address_delay > 0, optionally via stdout
+def bench(
+        server_func,
+        client_func,
+        client_count,
+        server_kwds		= None,
+        client_kwds		= None,
+        client_max		= 10,
+        server_join_timeout	= 1.0,
+        address_latency		= 0.1,
+        address_delay		= None,   # soak up address/output iff address_delay > 0
+        address_via_stdout	= False,  # optionally via stdout
+        server_cls		= None ):
 
     """Bench-test the server_func (with optional keyword args from server_kwds) as a process; will fail
     if one already bound to port.  Creates a thread pool (default 10) of client_func.  Each client
@@ -520,11 +538,14 @@ def bench( server_func, client_func, client_count,
     will get that address passed to the client as address=... keyword argument.
 
     """
+    if server_kwds is None:
+        server_kwds		= {}
+    assert server_kwds.__class__ is dict, \
+        "Must use a plain dict for server_kwds, as it is passed as kwds parameter to Thread/Process"
+
     # If an address is desired, we'll be transmitting that back via server['control'], so ensure
     # that we at least have a dict at that path.
     if address_delay:
-        if server_kwds is None:
-            server_kwds		= {}
         assert 'server' in server_kwds and 'control' in server_kwds['server'], \
             "Must provide a server_kwds['server']['control'] dict to receive server's address: {!r}".format(
                 server_kwds
@@ -581,7 +602,7 @@ def bench( server_func, client_func, client_count,
     server			= server_cls(
         target	= server_func,
         args	= server_args,
-        kwargs	= server_kwds or {},
+        kwargs	= server_kwds or {},  # Must be a plain dict for this to work reliably
     )
     server.daemon		= True
     if server_stdout:
@@ -608,21 +629,28 @@ def bench( server_func, client_func, client_count,
             soaker.daemon		= True
             soaker.start()
             while server_kwds['server']['control'].get( 'address' ) is None and misc.timer() - begun < address_delay:
-                print( "Current server_kwds: {}".format( server_kwds ))
+                log.detail( "Current server_kwds.server.control: {!r} {}".format(
+                    server_kwds['server']['control'].__class__.__name__,
+                    server_kwds['server']['control'] )
+                )
                 time.sleep( address_latency )
             assert server_kwds['server']['control'].get( 'address' ), \
                 "Failed to harvest address with in {}s".format( address_delay )
         else:
             # Wait for the control['address'] to show up via apidict
             while server_kwds.get( 'server', {} ).get( 'control', {} ).get( 'address' ) is None and misc.timer() - begun < address_delay:
-                #print( "Current server_kwds.server.control: {}".format( dict( server_kwds.get( 'server', {} ).get( 'control', {} ))))
+                log.detail( "Current server_kwds.server.control: {!r} {}".format(
+                    server_kwds['server']['control'].__class__.__name__,
+                    server_kwds['server']['control'] )
+                )
                 time.sleep( address_latency )
         assert server_kwds.get( 'server', {} ).get( 'control', {} ).get( 'address' ), \
             "Failed to harvest address with in {}s".format( address_delay )
+        log.detail( "Final server_kwds: {}".format( server_kwds ))
 
     log.detail( "Final server_kwds: {}".format( json.dumps( server_kwds, indent=4, default=str )))
 
-    # If we harvested an "address = ...', pass it to the client in client_kwds
+    # If we harvested an "address = ...' (or were provided one), pass it to the client in client_kwds
     if address_delay:
         address			= server_kwds['server']['control']['address']
         if address:
