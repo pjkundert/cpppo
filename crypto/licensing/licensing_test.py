@@ -140,7 +140,7 @@ def licensing_bench():
                 title		= "Licensing",
             ),
         )
-        
+
         # Start up the Web interface on a dynamic port, eg. "localhost:0"
         failed			= cpppo.server.network.bench(
             server_func	= licensing_main,

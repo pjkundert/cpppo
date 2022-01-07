@@ -90,8 +90,8 @@ doctest3:
 doctest23: doctest2 doctest3
 
 analyze:
-	flake8 -j 1 --max-line-length=110					\
-	  --ignore=F401,E221,E201,E202,E203,E223,E225,E226,E231,E241,E242,E261,E272,E302,W503,E701,E702,E,W	\
+	flake8 -j 1 --max-line-length=110 \
+	  --ignore=F401,E201,E202,E221,E223,E226,E231,E242,E272,E701,E702,W191,W291,W503,W293,W391,E \
 	  --exclude="__init__.py" \
 	  .
 

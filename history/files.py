@@ -880,7 +880,7 @@ class loader( reader ):
                 self.state	= self.FAILED, "Playback failed: %s" % exc
                 log.detail( "%s", traceback.format_exc() )
 
-	# We're in a state >= AWAITING; either we have remaining unprocessed records in self.future
+        # We're in a state >= AWAITING; either we have remaining unprocessed records in self.future
         # or in the history file and we'll evaluate True (caller should come back later for more
         # history), or we're COMPLETE/FAILED and we'll evaluate False (no more history to process).
         # Return the events processed, and the current advancing historical timestamp.

@@ -19,11 +19,13 @@ import traceback
 import cpppo
 from   cpppo        import misc
 from   cpppo.server import network, tnet, tnetstrings
+#from   cpppo.server import network, tnetraw as tnet, tnetstrings # test tnetraw.py instead
 
 #logging.basicConfig( **cpppo.log_cfg )
 log				= logging.getLogger( "tnet.cli")
 #log.setLevel( logging.DEBUG )
 
+@pytest.mark.skipif( not hasattr( tnet, 'data_parser' ), reason="tnet missing cpppo automata 'data_parser'" )
 def test_tnet_machinery():
     # parsing integers
     path			= "machinery"
@@ -48,6 +50,7 @@ def test_tnet_machinery():
         log.info( "After DATA: %r", data )
     
 
+@pytest.mark.skipif( not hasattr( tnet, 'tnet_machine' ), reason="tnet missing cpppo automata 'tnet_machine'" )
 def test_tnet_string():
     testvec			= [
         "The π character is called pi",

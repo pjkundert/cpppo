@@ -454,8 +454,8 @@ class Serializable( object ):
         signature		= into_bytes( signature, ('base64',) )
         assert pubkey and signature, \
             "Missing required {}".format(
-                ', '.join( () if pubkey else ('public key',) + 
-                           () if signature else ('signature',) ))
+                ', '.join( () if pubkey else ('public key',)
+                          +() if signature else ('signature',) ))
         return ed25519.crypto_sign_open( signature + self.serialize(), pubkey )
 
     def digest( self, encoding=None, decoding=None ):
@@ -773,7 +773,7 @@ class License( Serializable ):
         for other in others:
             # If we determine a 0-length overlap, we have failed.
             start, length, begun, ended \
-                		= overlap_intersect( start, length, other )	
+                                = overlap_intersect( start, length, other )
             if length is not None and length.seconds == 0:
                 # Overlap was computable, and was zero
                 raise LicenseIncompatibility(

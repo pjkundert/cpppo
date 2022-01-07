@@ -276,7 +276,7 @@ class timestamp( object ):
                 ins,out		= ( tzinfo._utc_transition_times[nxt] - oneday,
                                     tzinfo._utc_transition_times[nxt] + oneday )
                 insloc,outloc	= ( tzinfo.normalize( pytz.UTC.localize( dt ).astimezone( tzinfo ))
-                                    			for dt in ( ins, out ))
+                                                        for dt in ( ins, out ))
                 insoff,outoff	= ( dt.utcoffset()	for dt in ( insloc, outloc ))	# The net UTC offset
                 insabb,outabb	= ( dt.strftime( "%Z" ) for dt in ( insloc, outloc ))	# The timezone abbrev.
                 insdst,outdst	= ( bool( dt.dst() )    for dt in ( insloc, outloc ))	# Is there a DST offset?
@@ -958,4 +958,3 @@ parse_datetime.DATETIME_RE	= re.compile(
 def zulu_datetime( dt ):
     """Format a datetime as a standard ZULU datetime string."""
     return dt.astimezone( pytz.UTC ).strftime("%Y-%m-%dT%H:%M:%SZ")
-

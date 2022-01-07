@@ -418,7 +418,7 @@ class apidict_recording( apidict ):
         exc			= None
         try:
             super( apidict_recording, self ).set( key, value )
-        except Exception as exc:
+        except Exception:
             raise
         finally:
             end			= misc.timer()
@@ -437,7 +437,7 @@ class apidict_recording( apidict ):
         try:
             value		= super( apidict_recording, self ).get( key, default=default )
             return value
-        except Exception as exc:
+        except Exception:
             raise
         finally:
             logging.normal( "got {key:16} in pid,tid: {caller!r} = {value} w/ exc: {exc!r}".format(

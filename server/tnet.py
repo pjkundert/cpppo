@@ -156,9 +156,8 @@ def tnet_from( conn, addr,
                timeout	= None,
                latency	= None,
                ignore	= None,
-               source	= None,
-               control	= None, # eg. cpppo.dotdict( done = False )
-              ):	# Provide a cpppo.chainable, if desire, to receive into and parse from
+               source	= None,		# Provide a cpppo.chainable, if desire, to receive into and parse from
+               control	= None ):	# eg. cpppo.dotdict( done = False )
     """Parse and yield TNET messages from a socket w/in timeout, blocking 'til control.done or EOF
     between messages.  If ignore contains symbols, they are ignored between TNET messages (eg. b'\n').
 
@@ -227,8 +226,7 @@ def tnet_server_json( conn, addr, timeout=None, latency=None, ignore=None, serve
     """Wait forever for TNET messages, and echo the JSON-encoded payload back to the client."""
     for msg in tnet_from( conn, addr,
                           timeout=timeout, latency=latency, ignore=ignore,
-                          control=server.get( 'control' ) if server else None,
-                         ):
+                          control=server.get( 'control' ) if server else None ):
         try:
             res			= json.dumps( msg, indent=4, sort_keys=True )
             rpy			= ( res + "\n\n" ).encode( "utf-8" )
