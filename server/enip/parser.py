@@ -1198,7 +1198,7 @@ class unconnected_send( dfa ):
     We cannot parse the encapsulated message, because it may not be destined for local Objects, so
     we may not have the correct parser; leave it in .octets.
 
-    If we see a C*Logix 0x52 Unconnected Send encapsulation, parse it routing.  Otherwise, any other
+    If we see a C*Logix 0x52 Unconnected Send encapsulation, parse its routing.  Otherwise, any other
     requests/replies (eg. simple Get Attributes All Request (0x01) and Reply (0x81) to non-routing
     CIP devices) are passed through unparsed.
 
@@ -1208,6 +1208,7 @@ class unconnected_send( dfa ):
 
         slct			= octets_noop(	'sel_unc' )
 
+        # Parser for an Unconnected Send request
         usnd			= USINT(	context='service' )
         usnd[True]	= path	= EPATH(	context='path' )
         # All Unconnected Send (0x52) encapsulated request.input have a length, followed by an
@@ -1230,9 +1231,30 @@ class unconnected_send( dfa ):
         # But, if no pad, go parse the route path
         mesg[None]		= rout
 
-        # So; 0x52 Unconnected Send parses a request with a Route Path, but anything else is just
-        # an opaque encapsulated request; just copy all remaining bytes to the request.input.
+        # Parser for an Unconnected Send response (only seen if Unconnected Send itself fails, eg.
+        # was sent to a Non-Routing (simple) CIP device, or was otherwise malformed.
+        uerr			= USINT(			context='service' )
+        uerr[True] 	= uers	= octets_drop(	'reserved',	repeat=1 )
+        uers[True]	= uest	= status()
+        uest[None]		= octets_noop( terminal=True )
+
+        # So; 0x52 Unconnected Send parses a request with a Route Path, and 0x52|0x80 *with a length
+        # of exactly 4 bytes* (ie. carrying no other data) is an Unconnected Send response carrying
+        # an error status; but anything else is just an opaque encapsulated request; just copy all
+        # remaining bytes to the request.input.  This is especially complex to distinguish from a
+        # single enecapsulated C*Logix Read Tag Fragmented response (0x52/0xD2) carrying an error
+        # status.  In fact, it is impossible to distinguish -- they are exactly the same size and
+        # carry the same server == 0xD2 and status coded.
+        def u_s_err( path=None, data=None, **kwds ):
+            log.normal( "%s -- checking data[%r] for unconnected_send error: %s", self, path, enip_format( data ) )
+            return False
+
         slct[b'\x52'[0]]	= usnd
+        slct[b'\xD2'[0]]	= decide(
+	    'u_s_err',
+            predicate	= u_s_err, #lambda path=None, data=None, **kwds: data[path].length == 4,
+            state	= uerr
+        )
         slct[True]	= othr	= octets(	context='request', terminal=True )
         othr[True]		= othr
 

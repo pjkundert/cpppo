@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 from __future__ import absolute_import, print_function, division
 try:
     from future_builtins import zip, map # Use Python 3 "lazy" zip, map
@@ -1876,11 +1877,18 @@ snd_u01_rpy		= bytes(bytearray([
 lst_svc1_req		= b'\x04\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00Funstuff\x00\x00\x00\x00'
 lst_svc2_req		= b'\x04\x00\x19\x00\xdc\xa5\xeaN\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\x01\x13\x00\x01\x00 \x00Communications\x00'
 empty_req		= b''
+unc_snd_bad		= b'o\x00\x14\x00\x14\x00\x00\x00\x00\x00\x00\x000\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x02\x00\x00\x00\x00\x00\xb2\x00\x04\x00\xd2\x00\x08\x00'
 
 CIP_tests			= [
             ( 
                 # An empty request (usually indicates termination of session)
                 'empty_req', enip.Message_Router, {}
+            ), (
+                # An invalid unconnected_send response; parsed incorrectly as an encapsulted read_frag response, due to the 0x52 request / 0xD2 response type.
+                'unc_snd_bad', enip.Message_Router,
+                {
+                    "boo": 1,
+                }
             # ), (
             #     # Not a valid unconnected_send.path (symbolic tag name, instead of @6/1); can't reconstruct...
             #     'rfg_gg1_req', logix.Logix,
@@ -3567,7 +3575,7 @@ def test_enip_device_symbolic():
             {'segment':[{'class':5},{'symbolic':'BOO','length':5},{'element':4}]} )
         assert False, "Should not have succeeded: %r" % result
     except AssertionError as exc:
-        assert "Unrecognized symbolic name 'BOO'" in str(exc)
+        assert "Unrecognized symbolic name" in str(exc)
 
     try:
         result			= enip.device.resolve( {'segment':[{'instance':1}]} )
@@ -3587,7 +3595,20 @@ def test_enip_device_symbolic():
             {'segment':[{'symbolic': 'Tag'}, {'symbolic':'Incorrect'}]}, attribute=True )
         assert False, "Should not have succeeded: %r" % result
     except AssertionError as exc:
-        assert "Unrecognized symbolic name 'Tag.Incorrect'" in str(exc)
+        assert "Unrecognized symbolic name" in str(exc)
+
+    # Test ISO-8859-1 support.
+    enip.device.redirect_tag( u'Å', {'class':0x401, 'instance':1, 'attribute':4} )
+    path			= {
+        'segment':[{'symbolic':u'å'}, {'element':4}]
+    }
+    assert enip.device.resolve( path, attribute=1 ) == (0x401,1,4)
+    
+    try:
+        enip.device.redirect_tag( u'π', {'class':0x401, 'instance':1, 'attribute':4} )
+        assert False, "Should not be able to make UTF-8 tags"
+    except Exception as exc:
+        assert "codec can't encode character" in str(exc)
 
 
 def test_enip_device():

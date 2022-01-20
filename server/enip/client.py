@@ -640,18 +640,18 @@ class client( object ):
                 # A Connected/Unconnected Send that contained an encapsulated request (ie. not just a Get
                 # Attribute All).  Use the globally-defined cpppo.server.enip.client's dialect's
                 # (eg. logix.Logix) parser to parse the contents of the CIP payload's CPF items.
-                dialect	= self.dialect or device.dialect # May be (temporarily) changed
+                dialect		= self.dialect or device.dialect # May be (temporarily) changed
                 with dialect.parser as machine:
                     with contextlib.closing( machine.run( # for pypy, where gc may delay destruction of generators
-                            source=peekable( request.input ),
-                            data=request )) as engine:
+                            source	= peekable( request.input ),
+                            data	= request )) as engine:
                         for m,s in engine:
                             pass
                         assert machine.terminal, "No %r request in the EtherNet/IP CIP CPF frame: %r" % (
                             dialect, result )
-            if log.isEnabledFor( logging.DETAIL ):
-                log.detail( "Client CIP Rcvd: %s", parser.enip_format(
-                    result if log.isEnabledFor( logging.INFO ) else result.enip.CIP ))
+        if log.isEnabledFor( logging.DETAIL ):
+            log.detail( "Client CIP Rcvd: %s", parser.enip_format(
+                result if log.isEnabledFor( logging.INFO ) or not result or 'enip.CIP' not in result else result.enip.CIP ))
         return result
 
     next = __next__ # Python 2/3 compatibility

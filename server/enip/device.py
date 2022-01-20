@@ -170,6 +170,18 @@ def lookup_reset():
     symbol			= {}
 
 
+def canonicalize_tag( tag ):
+    """The ISO-8859-1 character set is supported for tags, but the lookup is case-insensitive.  """
+    tag_canonical		= tag.lower()
+    try:
+        tag_canonical.encode( 'iso-8859-1' )  # Just confirms that only the ISO-5589-1 character set was used
+    except Exception as exc:
+        log.warning( "Tag {!r} (canonicalized to {!r}) uses symbols beyond the ISO-8859-1 character set: {}\n{}".format(
+                     tag, tag_canonical, exc, ''.join( traceback.format_stack() ) ))
+        raise
+    return tag_canonical
+
+
 def redirect_tag( tag, address ):
     """Establish (or change) a tag, redirecting it to the specified class/instance/attribute address.
     Make sure we stay with only str type tags (mostly for Python2, in case somehow we get a Unicode
@@ -180,13 +192,21 @@ def redirect_tag( tag, address ):
     assert isinstance( address, dict )
     assert all( k in symbol_keys for k in address )
     assert all( k in address     for k in symbol_keys )
-    symbol[str( tag ).lower()]	= address
-    return tuple( address[k] for k in symbol_keys )
+    tag_canonical		= canonicalize_tag( tag )
+    symbol[tag_canonical]	= address
+    ids				= tuple( address[k] for k in symbol_keys )
+    if log.isEnabledFor( logging.NORMAL ):
+        log.normal( u"Redirecting: {tag:24} --> {ids}".format(
+            tag		= tag_canonical,
+            ids		= ', '.join( "{} {}".format( *pair ) for pair in zip( ('Class', 'Inst.', 'Attr.' ), ids )),
+        ))
+    return ids
 
 
 def resolve_tag( tag ):
     """Return the (class_id, instance_id, attribute_id) tuple corresponding to tag, or None if not specified"""
-    address			= symbol.get( str( tag ).lower(), None )
+    tag_canonical		= canonicalize_tag( tag )
+    address			= symbol.get( tag_canonical, None )
     if address:
         return tuple( address[k] for k in symbol_keys )
     return None
@@ -210,7 +230,7 @@ def resolve( path, attribute=False ):
     """
 
     result			= { 'class': None, 'instance': None, 'attribute': None }
-    tag				= '' # developing symbolic tag "Symbol.Subsymbol"
+    tag				= u'' # developing ISO-8859-1 symbolic tag "Symbol.Subsymbol"
 
     for term in path['segment']:
         if ( result['class'] is not None		# Got Class already
@@ -240,10 +260,13 @@ def resolve( path, attribute=False ):
                     ( "Unrecognized symbolic name %r found in path %r" % ( tag, path['segment'] )
                       if tag
                       else "Invalid term %r found in path %r" % ( working, path['segment'] ))
-                tag	       += ( '.' if tag else '' ) + str( working['symbolic'] )
+                if tag:
+                    tag	       += u'.'
+                tag	       += working['symbolic']
                 working		= None
-                if tag.lower() in symbol:
-                    working	= dict( symbol[tag.lower()] )
+                tag_canonical	= canonicalize_tag( tag )
+                if tag_canonical in symbol:
+                    working	= dict( symbol[tag_canonical] )
                     tag		= ''
 
     # Any tag not recognized will remain after all resolution complete
@@ -2243,6 +2266,12 @@ class Connection_Manager( Object ):
             # We have the service and path. Find the target Object (see state_multiple_service.closure)
             ids			= resolve( targetpath.path )
             target		= lookup( *ids )
+            if log.isEnabledFor( logging.DETAIL ):
+                log.detail( u"{} Found target object for address {} resolves to {}: {!r}".format(
+                    self,
+                    enip_format( targetpath ),
+                    ', '.join( "{} {}".format( *pair ) for pair in zip( ('Class', 'Inst.', 'Attr.' ), ids )),
+                    target ))
             assert target, "Unknown CIP Object in request: %s" % ( enip_format( targetpath ))
             source		= rememberable( data.request.input )
             with target.parser as machine:
