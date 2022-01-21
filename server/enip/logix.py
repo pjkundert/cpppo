@@ -853,7 +853,12 @@ def setup( **kwds ):
                 key_utf8	= key.decode( 'utf-8' )
             else:
                 key_utf8	= key
-            key_bytes		= key_utf8.encode( 'iso-8859-1' )
+            try:
+                key_bytes	= key_utf8.encode( 'iso-8859-1' )
+            except UnicodeEncodeError as exc:
+                message = u"Setup tag {!r}; contains non-ISO-8859-1 symbols".format( key_utf8 )
+                log.error( message )
+                raise ValueError( message )
             key_8859		= key_bytes.decode('iso-8859-1')
             log.info( u"Setup tag {!r}, to UTF-8: {!r}, to bytes: {!r}, to ISO-8859-1: {!r}".format(
                 key, key_utf8, key_bytes, key_8859 ))
