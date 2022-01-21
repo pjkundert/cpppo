@@ -1231,8 +1231,8 @@ class unconnected_send( dfa ):
         # But, if no pad, go parse the route path
         mesg[None]		= rout
 
-        # Parser for an Unconnected Send response (only seen if Unconnected Send itself fails, eg.
-        # was sent to a Non-Routing (simple) CIP device, or was otherwise malformed.
+        # Parser for an Unconnected Send error response (only seen if Unconnected Send itself fails, eg.
+        # was sent to a Non-Routing (simple) CIP device, or was otherwise malformed.  From 
         uerr			= USINT(			context='service' )
         uerr[True] 	= uers	= octets_drop(	'reserved',	repeat=1 )
         uers[True]	= uest	= status()
@@ -1245,14 +1245,42 @@ class unconnected_send( dfa ):
         # single enecapsulated C*Logix Read Tag Fragmented response (0x52/0xD2) carrying an error
         # status.  In fact, it is impossible to distinguish -- they are exactly the same size and
         # carry the same server == 0xD2 and status coded.
-        def u_s_err( path=None, data=None, **kwds ):
-            log.normal( "%s -- checking data[%r] for unconnected_send error: %s", self, path, enip_format( data ) )
-            return False
+        def u_s_err( path=None, data=None, source=None, **kwds ):
+            log.isEnabledFor( logging.INFO ) and log.info(
+                "%s -- checking data[%r] (kwds %r) for unconnected_send error: %s",
+                self, path, kwds, enip_format( data )
+            )
+            if data[path+'..length'] > 6:
+                return False
+            # Might be a Unconnected Send error, perhaps with a remaining path size; peek at the
+            # error code and extended status; if the code is < 0x10 and there is NO extended status,
+            # then it must *not* be a Read Tag Fragmented error code, as ALL of its <0x10 status
+            # codes are required to have an extended status (which may be 0x0000, but must be
+            # there).  HOWEVER, there are many (many) devices that DO NOT comply with the subtleties
+            # of the ODVA EtherNet/IP CIP spec -- and simply return eg. a status = 0x05 WITHOUT a
+            # 0x0000 extended status code.  This makes it *impossible* to determine whether or not a
+            # Read Tag Fragmented response status belongs to the encapsulating Unconnected Send, or
+            # not.  The only possible option is for the CLIENT to avoid sending Read Tag Fragmented
+            # requests in an Unconnected Send, or use a Multiple Service packet to encapsulate them.
+            svc			= next( source )
+            pad			= next( source )
+            sts			= next( source )
+            ext_siz		= next( source )
+            source.push( ext_siz )
+            source.push( sts )
+            source.push( pad )
+            source.push( svc )
+            log.isEnabledFor( logging.DETAIL ) and log.detail(
+                "{} -- found an Unconnected Send response error status 0x{:02x}: {}".format(
+                    self, sts, enip_format( data ))
+            )
+            return sts < 0x10 and ext_siz == 0
+
 
         slct[b'\x52'[0]]	= usnd
         slct[b'\xD2'[0]]	= decide(
 	    'u_s_err',
-            predicate	= u_s_err, #lambda path=None, data=None, **kwds: data[path].length == 4,
+            predicate	= u_s_err,
             state	= uerr
         )
         slct[True]	= othr	= octets(	context='request', terminal=True )
@@ -1263,16 +1291,24 @@ class unconnected_send( dfa ):
     @classmethod
     def produce( cls, data ):
         result			= b''
-        if data.get( 'service' ) == 0x52:
-            result	       += USINT.produce( data.service )
-            result	       += EPATH.produce( data.path )
-            result	       += USINT.produce( data.priority )
-            result	       += USINT.produce( data.timeout_ticks )
-            result	       += UINT.produce( len( data.request.input ))
-            result	       += octets_encode( data.request.input )
+        service			= data.get( 'service' )
+        if service == 0x52:
+            # An Unconnected Send request
+            result	       += USINT.produce(	data.service )
+            result	       += EPATH.produce(	data.path )
+            result	       += USINT.produce(	data.priority )
+            result	       += USINT.produce(	data.timeout_ticks )
+            result	       += UINT.produce(	   len( data.request.input ))
+            result	       += octets_encode(	data.request.input )
             if len( data.request.input ) % 2:
                 result	       += b'\x00'
             result	       += route_path.produce( data.get( 'route_path', {} ))
+        elif service == 0x52|0x80 and data.get( 'status' ):
+            # An Unconnected Send response w/ a non-zero status code
+            result	       += USINT.produce(	data.service )
+            result	       += b'\x00' # reserved
+            result	       += status.produce( 	data )
+            #TODO: Support optional "path remaining" words
         else:
             # Not an Unconnected Send; just return the encapsulated request.input payload
             result	       += octets_encode( data.request.input )
@@ -1848,14 +1884,31 @@ class CIP( dfa ):
         (0x0066,):		unregister,
         (0x006f,0x0070):	send_data,	# 0x006f (SendRRData) is default if CIP.send_data seen
     }
+
     def __init__( self, name=None, **kwds ):
         name 			= name or kwds.setdefault( 'context', self.__class__.__name__ )
 
         slct			= octets_noop(	'sel_CIP' )
         for cmd,cls in self.COMMAND_PARSERS.items():
-            slct[None]		= decide( cls.__name__,
-                    state=cls( limit='...length', terminal=True ),
-                    predicate=lambda path=None, data=None, cmd=cmd, **kwds: data[path+'..command'] in cmd )
+            slct[None]		= decide(
+                cls.__name__,
+                state	= cls( limit='...length', terminal=True ),
+                predicate	= lambda path=None, data=None, cmd=cmd, **kwds: data[path+'..command'] in cmd
+            )
+
+        def unrec_CIP( path=None, data=None, source=None, **kwds ):
+            log.warning(
+                "{} -- unrecognized CIP command in data[{}]: 0x{:04x} in: {}".format(
+                    self, path+'..command', data.get(path+'..command', 0), enip_format( data ))
+            )
+            return False
+            
+        # Unrecognized CIP request code?  Log a reasonable error
+        slct[True]		= decide(
+            'unrec_CIP',
+            state	= None,
+            predicate	= unrec_CIP,
+        )
         super( CIP, self ).__init__( name=name, initial=slct, **kwds )
 
     @classmethod

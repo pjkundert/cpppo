@@ -1884,10 +1884,25 @@ CIP_tests			= [
                 # An empty request (usually indicates termination of session)
                 'empty_req', enip.Message_Router, {}
             ), (
-                # An invalid unconnected_send response; parsed incorrectly as an encapsulted read_frag response, due to the 0x52 request / 0xD2 response type.
+                # An invalid unconnected_send response; was parsed incorrectly as an encapsulated
+                # read_frag response, due to the 0x52 request / 0xD2 response type.
                 'unc_snd_bad', enip.Message_Router,
                 {
-                    "boo": 1,
+                    'enip.command':                 111,
+                    'enip.length':                  20,
+                    'enip.session_handle':          20,
+                    'enip.status':                  0,
+                    'enip.options':                 0,
+                    'enip.CIP.send_data.interface': 0,
+                    'enip.CIP.send_data.timeout':   0,
+                    'enip.CIP.send_data.CPF.count': 2,
+                    'enip.CIP.send_data.CPF.item[0].type_id': 0,
+                    'enip.CIP.send_data.CPF.item[0].length': 0,
+                    'enip.CIP.send_data.CPF.item[1].type_id': 178,
+                    'enip.CIP.send_data.CPF.item[1].length': 4,
+                    'enip.CIP.send_data.CPF.item[1].unconnected_send.service': 210,
+                    'enip.CIP.send_data.CPF.item[1].unconnected_send.status': 8,
+                    'enip.CIP.send_data.CPF.item[1].unconnected_send.status_ext.size': 0,
                 }
             # ), (
             #     # Not a valid unconnected_send.path (symbolic tag name, instead of @6/1); can't reconstruct...
@@ -3498,13 +3513,14 @@ def test_enip_CIP( repeat=1 ):
 
         try:
             # First reconstruct any SendRRData CPF items, containing encapsulated requests/responses
+            # (pass through any Un/Connected Send error status)
             if 'enip.CIP.send_data' in data:
                 cpf		= data.enip.CIP.send_data
                 for item in cpf.CPF.item:
-                    if 'unconnected_send' in item:
+                    if 'unconnected_send.request' in item:
                         item.unconnected_send.request.input	= bytearray( cls.produce( item.unconnected_send.request ))
                         log.detail("Produce %s message from: %r", cls,item.unconnected_send.request )
-                    elif 'connection_data' in item:
+                    elif 'connection_data.request' in item:
                         item.connection_data.request.input	= bytearray( cls.produce( item.connection_data.request ))
                         log.detail("Produce %s message from: %r", cls,item.connection_data.request )
 
