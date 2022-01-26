@@ -31,6 +31,7 @@ enip.logix	-- Implements a Logix-like PLC subset
 
 """
 
+import contextlib
 import json
 import logging
 import sys
@@ -958,11 +959,13 @@ def process( addr, data, **kwds ):
             if 'input' in data.request.enip:
                 source.chain( data.request.enip.input )
             with ucmm.parser as machine:
-                for i,(m,s) in enumerate( machine.run( path='request.enip', source=source, data=data )):
-                    #log.detail( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %s",
-                    #            machine.name_centered(), i, s, source.sent, source.peek(),
-                    #            repr( data ) if log.getEffectiveLevel() < logging.DETAIL else misc.reprlib.repr( data ))
-                    pass
+                with contextlib.closing( machine.run( source=source, data=data.request.enip )) as engine:
+                    for m,s in engine:
+                        pass
+                    # for i,(m,s) in enumerate( engine ):
+                    #     log.detail( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %s",
+                    #                 machine.name_centered(), i, s, source.sent, source.peek(),
+                    #                 repr( data ) if log.getEffectiveLevel() < logging.DETAIL else misc.reprlib.repr( data ))
         if log.isEnabledFor( logging.DETAIL ):
             log.detail( "EtherNet/IP CIP Request  (Client %16s): %s", addr, enip_format( data.request ))
 

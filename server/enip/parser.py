@@ -1891,6 +1891,7 @@ class CIP( dfa ):
         slct			= octets_noop(	'sel_CIP' )
         for cmd,cls in self.COMMAND_PARSERS.items():
 
+            '''
             def recog_CIP( path=None, data=None, cmd=cmd, **kwds ):
                 found		= data[path+'..command'] in cmd
                 log.isEnabledFor( logging.INFO ) and log.info(
@@ -1902,12 +1903,12 @@ class CIP( dfa ):
                         enip_format( data ))
                 )
                 return data[path+'..command'] in cmd
-
+            '''
             slct[None]		= decide(
                 cls.__name__,
                 state		= cls( limit='...length', terminal=True ),
-                predicate	= recog_CIP,
-                #predicate	= lambda path=None, data=None, cmd=cmd, **kwds: data[path+'..command'] in cmd
+                #predicate	= recog_CIP,
+                predicate	= lambda path=None, data=None, cmd=cmd, **kwds: data[path+'..command'] in cmd,
             )
 
         def unrec_CIP( path=None, data=None, **kwds ):

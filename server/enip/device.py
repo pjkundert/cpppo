@@ -1897,8 +1897,8 @@ class state_multiple_service( state ):
                     log.detail( "%s Parsing: %3d-%3d of %r", target, beg, end, reqdata )
                 req		= dotdict()
                 req.input	= reqdata[beg:end]
+                source		= peekable( req.input )
                 with target.parser as machine:
-                    source	= peekable( req.input )
                     with contextlib.closing( machine.run( source=source, data=req )) as engine:
                         for m,s in engine:
                             pass
@@ -2259,8 +2259,12 @@ class Connection_Manager( Object ):
                 source		= rememberable( data.request.input )
                 with self.parser_service_path as machine:
                     with contextlib.closing( machine.run( source=source, data=targetpath )) as engine:
-                        for i,(m,s) in enumerate( engine ):
+                        for m,s in engine:
                             pass
+                        # for i,(m,s) in enumerate( engine ):
+                        #     log.detail( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %s",
+                        #                 machine.name_centered(), i, s, source.sent, source.peek(),
+                        #                 repr( data ) if log.getEffectiveLevel() < logging.DETAIL else misc.reprlib.repr( data ))
             if log.isEnabledFor( logging.DETAIL ):
                 log.detail( "%s Routing request to target Object at address %s", self, enip_format( targetpath ))
             # We have the service and path. Find the target Object (see state_multiple_service.closure)
@@ -2275,12 +2279,13 @@ class Connection_Manager( Object ):
             assert target, "Unknown CIP Object in request: %s" % ( enip_format( targetpath ))
             source		= rememberable( data.request.input )
             with target.parser as machine:
-                with contextlib.closing( machine.run( path='request', source=source, data=data )) as engine:
-                    for i,(m,s) in enumerate( engine ):
+                with contextlib.closing( machine.run( source=source, data=data.request )) as engine:
+                    for m,s in engine:
                         pass
-                        #log.detail( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %s",
-                        #            machine.name_centered(), i, s, source.sent, source.peek(),
-                        #            repr( data ) if log.getEffectiveLevel() < logging.DETAIL else misc.reprlib.repr( data ))
+                    # for i,(m,s) in enumerate( engine ):
+                    #     log.detail( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %s",
+                    #                 machine.name_centered(), i, s, source.sent, source.peek(),
+                    #                 repr( data ) if log.getEffectiveLevel() < logging.DETAIL else misc.reprlib.repr( data ))
 
             target.request( data.request, addr=addr )
         except:
