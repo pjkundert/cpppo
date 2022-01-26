@@ -1,8 +1,0 @@
-/*
- * Test authors "End User LLC" and "Awesome, Inc." are both encrypted with 'a@b.c' : 'password'
- */
-INSERT INTO "authors" VALUES( 'End User LLC',		'000000000000000000000000',
-  'd211f72ba97e9cdb68d864e362935a5170383e70ea10e2307118c6d955b814918ad7e28415e2bfe66a5b34dddf12d275' );
-INSERT INTO "authors" VALUES( 'Awesome, Inc.',		'010101010101010101010101', 
-  'aea5129b033c3072be503b91957dbac0e4c672ab49bb1cc981a8955ec01dc47280effc21092403509086caa8684003c7' );
-

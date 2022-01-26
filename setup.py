@@ -7,31 +7,6 @@ import fnmatch
 
 HERE				= os.path.dirname( os.path.abspath( __file__ ))
 
-def find_data_files( directory, *pats, skip="*~" ):
-    """Using glob patterns in ``package_data`` that matches a directory can result in setuptools trying
-    to install that directory as a file and the installation to fail.
-
-    This function walks over the contents of each of the supplied *paths* in *directory* and returns
-    a list of only filenames found -- relative to *directory*.
-
-    """
-
-    def walk( path ):
-        for root, dirs, files in os.walk( path ):
-            for filename in files:
-                yield os.path.join( root, filename )
-
-    strip = os.path.join( HERE, directory )
-    result = []
-    for pat in pats:
-        for path in glob.glob( os.path.join( strip, pat )):
-            for filename in walk( path ) if os.path.isdir( path ) else [ path ]:
-                if not fnmatch.fnmatch( filename, skip ):
-                    result.append( os.path.relpath( filename, strip ))
-
-    return result
-
-
 __version__			= None
 __version_info__		= None
 exec( open( 'version.py', 'r' ).read() )
@@ -65,9 +40,6 @@ tests_require			= open( os.path.join( HERE, "requirements-optional.txt" )).readl
 
 package_dir			= {
     "cpppo":			".",
-    "cpppo/crypto":		"./crypto",
-    "cpppo/crypto/ed25519ll":	"./crypto/ed25519ll",
-    "cpppo/crypto/licensing":	"./crypto/licensing",
     "cpppo/server":		"./server",
     "cpppo/server/enip":	"./server/enip",
     "cpppo/remote":		"./remote",
@@ -75,20 +47,6 @@ package_dir			= {
     "cpppo/tools":		"./tools",
     "cpppo/bin":		"./bin",
 }
-
-# Including data in the package is complex: https://sinoroc.gitlab.io/kb/python/package_data.html
-# 
-# Ship the static data for the cpppo.crypto.licensing server, and some demo test data.  From the
-# parent of your cpppo source, run:
-# 
-#     rm -f licensing.* && python3 -m cpppo.crypto.licensing -vv --config cpppo/crypto/licensing/licensing_test --no-gui
-# 
-package_data			= {
-        'cpppo/crypto/licensing': find_data_files( 'crypto/licensing', 'licensing.sql*', 'licensing_test', 'static' )
-}
-
-import json
-print( json.dumps( package_data, indent=4 ))
 
 long_description		= """\
 Cpppo is used to create event-driven state machines which consume a stream
@@ -129,8 +87,6 @@ setup(
     install_requires		= install_requires,
     packages			= package_dir.keys(),
     package_dir			= package_dir,
-    package_data		= package_data,
-    include_package_data	= True,
     zip_safe			= False,
     entry_points		= entry_points,
     author			= "Perry Kundert",

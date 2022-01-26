@@ -1,2 +1,3 @@
-greenery>=2.0,<3.0
+crypto_licensing
 dnspython
+greenery>=2.0,<3.0

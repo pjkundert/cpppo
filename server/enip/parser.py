@@ -1890,13 +1890,27 @@ class CIP( dfa ):
 
         slct			= octets_noop(	'sel_CIP' )
         for cmd,cls in self.COMMAND_PARSERS.items():
+
+            def recog_CIP( path=None, data=None, cmd=cmd, **kwds ):
+                found		= data[path+'..command'] in cmd
+                log.isEnabledFor( logging.INFO ) and log.info(
+                    "{} -- {} CIP command in data[{}]: 0x{:04x} in: {}".format(
+                        self,
+                        "matched" if found else "skipped", 
+                        path+'..command',
+                        data.get(path+'..command', 0),
+                        enip_format( data ))
+                )
+                return data[path+'..command'] in cmd
+
             slct[None]		= decide(
                 cls.__name__,
-                state	= cls( limit='...length', terminal=True ),
-                predicate	= lambda path=None, data=None, cmd=cmd, **kwds: data[path+'..command'] in cmd
+                state		= cls( limit='...length', terminal=True ),
+                predicate	= recog_CIP,
+                #predicate	= lambda path=None, data=None, cmd=cmd, **kwds: data[path+'..command'] in cmd
             )
 
-        def unrec_CIP( path=None, data=None, source=None, **kwds ):
+        def unrec_CIP( path=None, data=None, **kwds ):
             log.warning(
                 "{} -- unrecognized CIP command in data[{}]: 0x{:04x} in: {}".format(
                     self, path+'..command', data.get(path+'..command', 0), enip_format( data ))
@@ -1904,7 +1918,7 @@ class CIP( dfa ):
             return False
             
         # Unrecognized CIP request code?  Log a reasonable error
-        slct[True]		= decide(
+        slct[None]		= decide(
             'unrec_CIP',
             state	= None,
             predicate	= unrec_CIP,
