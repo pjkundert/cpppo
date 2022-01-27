@@ -99,12 +99,12 @@ pylint:
 	cd .. && pylint cpppo --disable=W,C,R
 
 
-build-check:
+build3-check:
 	@$(PY3) -m build --version \
 	    || ( echo "\n*** Missing Python modules; run:\n\n        $(PY3) -m pip install --upgrade pip setuptools build\n" \
 	        && false )
 
-build3:	build-check clean
+build3:	build3-check clean
 	$(PY3) -m build
 	@ls -last dist
 build: build3
@@ -168,7 +168,6 @@ jessie64-%:
 	@if ! vagrant box list | grep -q '^jessie64.*($*'; then		\
 	    vagrant box add jessie64 http://box.hardconsulting.com/jessie64-$*.box --provider $*; \
 	fi
-
 
 
 # Run only tests with a prefix containing the target string, eg test-blah

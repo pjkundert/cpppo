@@ -3872,7 +3872,6 @@ enip_cli_kwds_basic		= {
 
 def enip_bench_basic():
     with multiprocessing.Manager() as m:
-        
         enip_svr_kwds_basic		= { 
             'enip_process': 	enip_process_canned,
             'argv':		[
@@ -3886,6 +3885,7 @@ def enip_bench_basic():
                 }),
             },
         }
+
         failed			= cpppo.server.network.bench(
             server_func	= enip_main,
             server_kwds	= enip_svr_kwds_basic,
@@ -3901,6 +3901,7 @@ def enip_bench_basic():
         log.info( "Succeeded" )
 
     return failed
+
 
 def test_enip_bench_basic():
     assert not enip_bench_basic(), "One or more enip_bench_basic clients reported failure"
@@ -3952,7 +3953,7 @@ def enip_bench_logix():
             'argv':		[
                 '-a', 'localhost:0', '-A',
                 #'-v', 
-                'SCADA=INT[1000]'
+                'SCADA=INT[1000]',
             ],
             'server': 		{
                 'control': 	m.apidict( enip.timeout, {
@@ -3976,6 +3977,7 @@ def enip_bench_logix():
         log.info( "Succeeded" )
 
     return failed
+
 
 @pytest.mark.skipif( platform.system() == "Darwin" and sys.version_info[0] >= 3,
                      reason="No Python3 support for pickling Rlock on Mac" )
@@ -4042,7 +4044,7 @@ def enip_bench_pylogix():
             'argv':		[
                 '-a', 'localhost:0', '-A',
                 #'-v', 
-                'SCADA=INT[1000]'
+                'SCADA=INT[1000]',
             ],
             'server': 		{
                 'control': 	m.apidict( enip.timeout, {
@@ -4050,6 +4052,7 @@ def enip_bench_pylogix():
                 }),
             },
         }
+
         failed			= cpppo.server.network.bench(
             server_func	= enip_main,
             server_kwds	= enip_svr_kwds_pylogix,
