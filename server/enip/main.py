@@ -635,7 +635,7 @@ def enip_srv_udp( conn, name, enip_process, **kwds ):
                 # Exception (dfa exits in non-terminal state).  Build data.request.enip:
                 begun		= misc.timer() # waiting for next transaction
                 addr,stats	= None,None
-                with contextlib.closing( machine.run( source=source, data=data.request )) as engine:
+                with contextlib.closing( machine.run( path='request', source=source, data=data )) as engine:
                     for mch,sta in engine:
                         if sta is not None:
                             # No more transitions available.  Wait for input.  
@@ -736,7 +736,7 @@ def enip_srv_tcp( conn, addr, name, enip_process, delay=None, **kwds ):
                 # If no/partial EtherNet/IP header received, parsing will fail with a NonTerminal
                 # Exception (dfa exits in non-terminal state).  Build data.request.enip:
                 begun		= misc.timer()
-                with contextlib.closing( machine.run( source=source, data=data.request )) as engine:
+                with contextlib.closing( machine.run( path='request', source=source, data=data )) as engine:
                     for mch,sta in engine:
                         if sta is not None:
                             continue
