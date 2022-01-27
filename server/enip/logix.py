@@ -850,13 +850,13 @@ def setup( **kwds ):
         # These tags come from external sources, and may be ASCII or Unicode (UTF-8).  Normalize them to
         # ISO-8859-1.
         for key,val in dict.items( kwds.get( 'tags', {} )): # Don't want dotdict depth-first iteration...
-            if sys.version_info[0] < 3 and type(key) != unicode:
+            if sys.version_info[0] < 3 and type(key) != unicode:  # noqa: F821
                 key_utf8	= key.decode( 'utf-8' )
             else:
                 key_utf8	= key
             try:
                 key_bytes	= key_utf8.encode( 'iso-8859-1' )
-            except UnicodeEncodeError as exc:
+            except UnicodeEncodeError:
                 message = u"Setup tag {!r}; contains non-ISO-8859-1 symbols".format( key_utf8 )
                 log.error( message )
                 raise ValueError( message )
