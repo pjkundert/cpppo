@@ -1232,11 +1232,10 @@ class unconnected_send( dfa ):
         mesg[None]		= rout
 
         # Parser for an Unconnected Send error response (only seen if Unconnected Send itself fails, eg.
-        # was sent to a Non-Routing (simple) CIP device, or was otherwise malformed.  From 
+        # was sent to a Non-Routing (simple) CIP device, or was otherwise malformed.
         uerr			= USINT(			context='service' )
         uerr[True] 	= uers	= octets_drop(	'reserved',	repeat=1 )
-        uers[True]	= uest	= status()
-        uest[None]		= octets_noop( terminal=True )
+        uers[True]		= status( terminal=True )
 
         # So; 0x52 Unconnected Send parses a request with a Route Path, and 0x52|0x80 *with a length
         # of exactly 4 bytes* (ie. carrying no other data) is an Unconnected Send response carrying
@@ -1245,10 +1244,10 @@ class unconnected_send( dfa ):
         # single enecapsulated C*Logix Read Tag Fragmented response (0x52/0xD2) carrying an error
         # status.  In fact, it is impossible to distinguish -- they are exactly the same size and
         # carry the same server == 0xD2 and status coded.
-        def u_s_err( path=None, data=None, source=None, **kwds ):
+        def is_uerr( path=None, data=None, source=None, **kwds ):
             log.isEnabledFor( logging.INFO ) and log.info(
-                "%s -- checking data[%r] (kwds %r) for unconnected_send error: %s",
-                self, path, kwds, enip_format( data )
+                "%s -- checking data[%r] (kwds %r) for unconnected_send error (%5s): %s",
+                self, path, kwds, data[path+'..length'] <= 6, enip_format( data ),
             )
             if data[path+'..length'] > 6:
                 return False
@@ -1276,15 +1275,14 @@ class unconnected_send( dfa ):
             )
             return sts < 0x10 and ext_siz == 0
 
+        othr			= octets(	context='request', terminal=True )
+        othr[True]		= othr
 
         slct[b'\x52'[0]]	= usnd
-        slct[b'\xD2'[0]]	= decide(
-	    'u_s_err',
-            predicate	= u_s_err,
-            state	= uerr
-        )
-        slct[True]	= othr	= octets(	context='request', terminal=True )
-        othr[True]		= othr
+        slct[b'\xD2'[0]]	= decide( 'uerr', predicate=is_uerr,
+                                          state=uerr )
+        slct[b'\xD2'[0]]	= othr
+        slct[True]		= othr
 
         super( unconnected_send, self ).__init__( name=name, initial=slct, **kwds )
 

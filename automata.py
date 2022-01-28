@@ -465,12 +465,16 @@ class state( dict ):
         here, for use in setting up the parser tables.
 
         """
-        if inp is True or inp is None:
-            return self.ANY if inp else self.NON
+        if inp is True:
+            return self.ANY
+        if inp is None:
+            return self.NON
         if self.encoder is None:
             return inp
         enc			= tuple( self.encoder( inp ))
-        return enc if len( enc ) > 1 else enc[0]
+        if len( enc ) > 1:
+            return enc
+        return enc[0]
 
     def __setitem__( self, inp, target ):
         """After ensuring that target is a state or a callable (that should return a state), remember a

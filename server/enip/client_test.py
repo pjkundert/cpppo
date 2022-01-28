@@ -386,7 +386,7 @@ def test_client_api_random():
         svrkwds			= dict(
             argv	= [
                 '-a', 'localhost:0', '-A',
-                '-vvv',
+                '-v',
                 'Int@0x99/1/1=INT[%d]' % ( taglen ),
                 'Real@0x99/1/2=REAL[%d]' % ( taglen ),
                 'DInt@0x99/1/3=DINT[%d]' % ( taglen ),
@@ -406,6 +406,5 @@ def test_client_api_random():
             client_count= clicount,
             client_max	= clipool,
             address_delay= 5.0,
-            #address_via_stdout=True,
         )
     assert failed == 0
