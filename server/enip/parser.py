@@ -1246,36 +1246,36 @@ class unconnected_send( dfa ):
         # carry the same server == 0xD2 and status coded.
         def is_uerr( path=None, data=None, source=None, **kwds ):
             log.isEnabledFor( logging.INFO ) and log.info(
-                "%s -- checking data[%r] (kwds %r) for unconnected_send error (%5s): %s",
-                self, path, kwds, data[path+'..length'] <= 6, enip_format( data ),
+                "{} -- checking data[{!r}] (kwds {!r}) for unconnected_send error ({:5}) ({}, next {!r}): {}".format(
+                self, path, kwds, data[path+'..length'] <= 6, source, source.peek(), enip_format( data ) )
             )
-            if data[path+'..length'] > 6:
-                return False
-            # Might be a Unconnected Send error, perhaps with a remaining path size; peek at the
-            # error code and extended status; if the code is < 0x10 and there is NO extended status,
-            # then it must *not* be a Read Tag Fragmented error code, as ALL of its <0x10 status
-            # codes are required to have an extended status (which may be 0x0000, but must be
-            # there).  HOWEVER, there are many (many) devices that DO NOT comply with the subtleties
-            # of the ODVA EtherNet/IP CIP spec -- and simply return eg. a status = 0x05 WITHOUT a
-            # 0x0000 extended status code.  This makes it *impossible* to determine whether or not a
-            # Read Tag Fragmented response status belongs to the encapsulating Unconnected Send, or
-            # not.  The only possible option is for the CLIENT to avoid sending Read Tag Fragmented
-            # requests in an Unconnected Send, or use a Multiple Service packet to encapsulate them.
-            svc			= next( source )
-            pad			= next( source )
-            sts			= next( source )
-            ext_siz		= next( source )
-            source.push( ext_siz )
-            source.push( sts )
-            source.push( pad )
-            source.push( svc )
-            log.isEnabledFor( logging.DETAIL ) and log.detail(
-                "{} -- found an Unconnected Send response error status 0x{:02x}: {}".format(
-                    self, sts, enip_format( data ))
-            )
-            return sts < 0x10 and ext_siz == 0
+            if data[path+'..length'] <= 6:
+                # Might be a Unconnected Send error, perhaps with a remaining path size; peek at the
+                # error code and extended status; if the code is < 0x10 and there is NO extended status,
+                # then it must *not* be a Read Tag Fragmented error code, as ALL of its <0x10 status
+                # codes are required to have an extended status (which may be 0x0000, but must be
+                # there).  HOWEVER, there are many (many) devices that DO NOT comply with the subtleties
+                # of the ODVA EtherNet/IP CIP spec -- and simply return eg. a status = 0x05 WITHOUT a
+                # 0x0000 extended status code.  This makes it *impossible* to determine whether or not a
+                # Read Tag Fragmented response status belongs to the encapsulating Unconnected Send, or
+                # not.  The only possible option is for the CLIENT to avoid sending Read Tag Fragmented
+                # requests in an Unconnected Send, or use a Multiple Service packet to encapsulate them.
+                svc		= next( source )
+                pad		= next( source )
+                sts		= next( source )
+                ext_siz		= next( source )
+                source.push( ext_siz )
+                source.push( sts )
+                source.push( pad )
+                source.push( svc )
+                log.isEnabledFor( logging.DETAIL ) and log.detail(
+                    "{} -- found an Unconnected Send response error status {!r} ({}, next {!r}): {}".format(
+                        self, sts, source, source.peek(), enip_format( data ) )
+                )
+                if sts < b'\x10'[0] and ext_siz == b'\x00'[0]:  # Python 2/3 compatible b'..' comparisons
+                    return True
 
-        othr			= octets(	context='request', terminal=True )
+        othr			= octets( 'usnd_req', context='request', terminal=True )
         othr[True]		= othr
 
         slct[b'\x52'[0]]	= usnd
