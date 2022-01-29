@@ -17,6 +17,15 @@ from . import misc
 from .dotdict import dotdict, apidict, make_apidict_proxy
 
 
+def test_dotdict_slots():
+    # Ensure resultant dotdict doesn't have a __dict__
+
+    dd			= dotdict( a=1, b=dict( c=3 ))
+    assert not hasattr( dd, '__dict__' )
+
+    ad			= apidict( 1.0, dd )
+    assert not hasattr( ad, '__dict__' )
+
 def test_dotdict_smoke():
     # Like dict, construct from mapping, iterable and/or keywords
     assert "a" in dotdict({"a":1})

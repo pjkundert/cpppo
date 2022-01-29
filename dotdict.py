@@ -379,6 +379,7 @@ class dotdict_base( object ):
 
 
 class dotdict( dotdict_base, dict ):
+    __slots__			= ()
     pass
 
 
@@ -453,11 +454,13 @@ class apidict_base( dotdict ):
 
 
 class apidict_threading( apidict_base):
+    __slots__			= ()
     _sync_mod			= threading
 
 
 class apidict( apidict_base ):
     """Works in both threading and multiprocessing environments."""
+    __slots__			= ()
     _sync_mod			= multiprocessing
 
 
