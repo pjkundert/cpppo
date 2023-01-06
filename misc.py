@@ -136,41 +136,29 @@ def change_function( function, **kwds ):
 
     will change the func's co_filename to the specified string.
 
-    The types.CodeType constructor differs between Python 2 and 3; see
-    type help(types.CodeType) at the interpreter prompt for information:
-
-    Python2:
-        code(argcount,                nlocals, stacksize, flags, codestring,
-         |        constants, names, varnames, filename, name, firstlineno,
-         |        lnotab[, freevars[, cellvars]])
-
-    Python3:
-        code(argcount, kwonlyargcount, nlocals, stacksize, flags, codestring,
-         |        constants, names, varnames, filename, name, firstlineno,
-         |        lnotab[, freevars[, cellvars]])
-
+    The types.CodeType constructor differs between Python versions; see
+    type help(types.CodeType) at the interpreter prompt for information.
 
     """
-    # Enumerate  all the __code__ attributes in the same order; types.CodeTypes
-    # doesn't accept keyword args, only position.
-    attrs			= [ "co_argcount" ]
-    if sys.version_info[0] >= 3:
-        attrs		       += [ "co_kwonlyargcount" ]
-        if sys.version_info[1] >= 8:
-            attrs	       += [ "co_posonlyargcount" ]
-    attrs		       += [ "co_nlocals",
-                                    "co_stacksize",
-                                    "co_flags",
-                                    "co_code",
-                                    "co_consts",
-                                    "co_names",
-                                    "co_varnames",
-                                    "co_filename",
-                                    "co_name",
-                                    "co_firstlineno",
-                                    "co_lnotab",
-                                    "co_freevars",
-                                    "co_cellvars" ]
+
+    version_lookup = {
+        (2, 7):  ["co_argcount", "co_nlocals", "co_stacksize", "co_flags", "co_code", "co_consts", "co_names", "co_varnames", "co_filename", "co_name", "co_firstlineno", "co_lnotab", "co_freevars", "co_cellvars"],
+        (3, 7):  ["co_argcount", "co_kwonlyargcount", "co_nlocals", "co_stacksize", "co_flags", "co_code", "co_consts", "co_names", "co_varnames", "co_filename", "co_name", "co_firstlineno", "co_lnotab", "co_freevars", "co_cellvars"],
+        (3, 8):  ["co_argcount", "co_posonlyargcount", "co_kwonlyargcount", "co_nlocals", "co_stacksize", "co_flags", "co_code", "co_consts", "co_names", "co_varnames", "co_filename", "co_name", "co_firstlineno", "co_lnotab", "co_freevars", "co_cellvars"],
+        (3, 9):  ["co_argcount", "co_posonlyargcount", "co_kwonlyargcount", "co_nlocals", "co_stacksize", "co_flags", "co_code", "co_consts", "co_names", "co_varnames", "co_filename", "co_name", "co_firstlineno", "co_lnotab", "co_freevars", "co_cellvars"],
+        (3, 10): ["co_argcount", "co_posonlyargcount", "co_kwonlyargcount", "co_nlocals", "co_stacksize", "co_flags", "co_code", "co_consts", "co_names", "co_varnames", "co_filename", "co_name", "co_firstlineno", "co_linetable", "co_freevars", "co_cellvars"],
+        (3, 11): ["co_argcount", "co_posonlyargcount", "co_kwonlyargcount", "co_nlocals", "co_stacksize", "co_flags", "co_code", "co_consts", "co_names", "co_varnames", "co_filename", "co_name", "co_qualname", "co_firstlineno", "co_linetable", "co_exceptiontable", "co_freevars", "co_cellvars"]
+    }
+
+    version, minor = sys.version_info[0], sys.version_info[1]
+
+    # Clamp major version to 2 or 3
+    version = max(min(version, 3), 2)
+
+    # Clamp minor version to 7-11
+    minor = max(min(minor, 11), 7)
+
+    attrs = version_lookup[(version, minor)]
 
     assert all( k in attrs for k in kwds ), \
         "Invalid function keyword(s) supplied: %s" % ( ", ".join( kwds.keys() ))
