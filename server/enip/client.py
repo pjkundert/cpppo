@@ -147,7 +147,7 @@ def parse_context( sender_context ):
 # 
 
 def int_validate( x, lo, hi ):
-    res			= int( x )
+    res			= int( x, base = 0)
     assert lo <= res <= hi, "Invalid %d; not in range (%d,%d)" % ( res, lo, hi)
     return res
 
@@ -857,6 +857,32 @@ class client( object ):
                 sender_context=sender_context, **kwds )
         return req
 
+    def set_attributes_all( self, path, data, elements=1, tag_type=None,
+              route_path=None, send_path=None, timeout=None, send=True,
+              sender_context=b'', **kwds):
+
+        if elements is None:
+            elements        = len( data )
+        else:
+            assert elements == len( data ), \
+                "Inconsistent elements: %d doesn't match data length: %d" % ( elements, len( data ))
+
+        req         = dotdict()
+        req.path        = { 'segment': [
+            dotdict( d ) for d in device.parse_path( path )
+        ]}
+        req.set_attributes_all= {
+            'data':     data,
+            'elements':     elements,
+        }
+        
+        if send:
+            self.req_send(
+                request=req, route_path=route_path, send_path=send_path, timeout=timeout,
+                sender_context=sender_context, **kwds )
+        
+        return req
+
     def get_attribute_single( self, path,
               route_path=None, send_path=None, timeout=None, send=True,
               data_size=None, elements=None, tag_type=None, # for response data_size estimation
@@ -1373,6 +1399,11 @@ class connector( client ):
                         tag_type=op.get( 'tag_type' ) or parser.DINT.tag_type, size=op.get( 'elements', 1 ))
                 else:
                     rpyest	= multiple
+            elif method == "set_attributes_all":
+                descr          += "S_A_A"
+                req     = self.set_attributes_all( timeout=timeout, send=not multiple, **op )
+                reqest      = 8 + parser.typed_data.datasize( parser.USINT.tag_type, size=len( op['data'] ))
+                rpyest      = 4
             elif method == "service_code":
                 req		= self.service_code( timeout=timeout, send=not multiple, **op )
                 reqest		= 1 + len( req.input ) # We've rendered the Service Request payload
@@ -1504,7 +1535,7 @@ class connector( client ):
                 elif reply.status in (0x00,0x06) and 'get_attributes_all' in reply:
                     val		= reply.get_attributes_all.data
                 elif reply.status in (0x00,):
-                    # eg. 'set_attribute_single', 'write_{tag,frag}', 'service_code', etc...
+                    # eg. 'set_attribute_single', 'set_attributes_all', 'write_{tag,frag}', 'service_code', etc...
                     val		= True
                 else:					# Failure; val is Falsey
                     if 'status_ext' in reply and reply.status_ext.size:
