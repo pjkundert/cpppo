@@ -1,9 +1,7 @@
 minimalmodbus
-pylogix>=0.7.5
-pymodbus>=1.2.0
-pytest>=4.6
-pytz>=2014.7
-tzlocal>=1.1.1
-web.py>=0.51
-wsgilog>=0.3
-chacha20poly1305>=0.0.3
+pylogix		>=0.7.5
+pymodbus	>=1.2.0,	<2.0.0
+pytest		>=4.6
+tzlocal		>=1.1.1
+web.py		>=0.51
+wsgilog		>=0.3

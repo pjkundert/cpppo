@@ -230,14 +230,18 @@ def change_function( function, **kwds ):
 
 
     """
-    # Enumerate  all the __code__ attributes in the same order; types.CodeTypes
-    # doesn't accept keyword args, only position.
-    attrs			= [ "co_argcount" ]
-    if sys.version_info[0] >= 3:
-        attrs		       += [ "co_kwonlyargcount" ]
-        if sys.version_info[1] >= 8:
-            attrs	       += [ "co_posonlyargcount" ]
-    attrs		       += [ "co_nlocals",
+    if hasattr( function.__code__, 'replace' ):
+        function.__code__	= function.__code__.replace( **kwds )
+        return
+
+    # Enumerate all the __code__ attributes in the same order; types.CodeTypes doesn't accept
+    # keyword args, only positional.  This must be updated if new releases of Python have additional
+    # parameters, but should be backward-compatible (the positional ordering should be consistent
+    # for any parameters in use by a version)
+    attrs			= [ "co_argcount",
+                                    "co_posonlyargcount",
+                                    "co_kwonlyargcount",
+                                    "co_nlocals",
                                     "co_stacksize",
                                     "co_flags",
                                     "co_code",
@@ -246,16 +250,24 @@ def change_function( function, **kwds ):
                                     "co_varnames",
                                     "co_filename",
                                     "co_name",
+                                    "co_qualname",
                                     "co_firstlineno",
                                     "co_lnotab",
+                                    "co_exceptiontable",
                                     "co_freevars",
-                                    "co_cellvars" ]
+                                    "co_cellvars", ]
 
-    assert all( k in attrs for k in kwds ), \
-        "Invalid function keyword(s) supplied: %s" % ( ", ".join( kwds.keys() ))
+    assert all( k in attrs and hasattr( function.__code__, k ) for k in kwds ), \
+        "Invalid function keyword(s) supplied: %s" % ( ", ".join( kwds ))
 
-    # Alter the desired function attributes, and update the function's __code__
-    modi_args			= [ kwds.get( a, getattr( function.__code__, a )) for a in attrs ]
+    # Alter the desired function attributes w/ any supplied keywaords, and update the function's
+    # __code__.  Deduces what positional args are required by which attrs exist in this function's
+    # code object
+    modi_args			= [
+        kwds.get( a, getattr( function.__code__, a ))
+        for a in attrs
+        if hasattr( function.__code__, a )
+    ]
     modi_code			= types.CodeType( *modi_args )
     modi_func			= types.FunctionType( modi_code, function.__globals__ )
     function.__code__		= modi_func.__code__
@@ -267,7 +279,7 @@ def change_function( function, **kwds ):
 # 
 #     Augment logging with some new levels, between INFO and WARNING, used for normal/detail output.
 # 
-#     Unfortunationly, logging uses a fragile method to find the logging function's name in the call
+#     Unfortunately, logging uses a fragile method to find the logging function's name in the call
 # stack; it looks for the first function whose co_filename is *not* the logger source file.  So, we
 # need to change our functions to appear as if they originated from logging._srcfile.
 # 
@@ -279,7 +291,7 @@ logging.DETAIL			= logging.INFO+3
 #      .INFO    	       == 20
 #      .DEBUG    	       == 10
 logging.TRACE			= logging.NOTSET+5
-#      .NOTSETG    	       == 0
+#      .NOTSET    	       == 0
 
 logging.addLevelName( logging.NORMAL,	'NORMAL' )
 logging.addLevelName( logging.DETAIL,	'DETAIL' )

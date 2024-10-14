@@ -42,14 +42,14 @@ def main():
     Begin polling the designated register range(s), optionally writing initial values to them.
 
     Register range(s) and value(s) must be supplied:
-    
+
       <begin>[-<end>]
       <begin>[-<end>]=<val>,...
-    
+
     EXAMPLE
-    
+
       modbus_poll --address localhost:7502 40001-40100
-    
+
     """ )
     parser.add_argument( '-v', '--verbose',
                          default=0, action="count", help="Display logging information." )
@@ -59,13 +59,15 @@ def main():
                          help="Default [interface][:port] to bind to (default: any, port 502)" )
     parser.add_argument( '-r', '--reach',	default=1,
                          help="Merge polls within <reach> registers of each-other" )
+    parser.add_argument( '-u', '--unit',	default=None,
+                         help="Specify a Modbus device number (default: %s)" % ( Defaults.UnitId ))
     parser.add_argument( '-R', '--rate',	default=1.0,
                          help="Target poll rate" )
     parser.add_argument( '-t', '--timeout',	default=Defaults.Timeout,
                          help="I/O Timeout (default: %s)" % ( Defaults.Timeout ))
     parser.add_argument( 'registers', nargs="+" )
     args			= parser.parse_args()
-    
+
     # Deduce logging level and target file (if any)
     levelmap 			= {
         0: logging.WARNING,
@@ -98,7 +100,13 @@ def main():
 
     # Start the PLC poller (and perform any initial writes indicated)
     poller			= poller_modbus(
-        "Modbus/TCP", host=address[0], port=address[1], reach=int( args.reach ), rate=float( args.rate ))
+        "Modbus/TCP",
+        host	= address[0],
+        port	= address[1],
+        reach	= int( args.reach ),
+        rate	= float( args.rate ),
+        unit	= int( args.unit ) if args.unit else None
+    )
 
     for txt in args.registers:
         beg,end,val		= register_decode( txt ) # beg-end is inclusive
@@ -112,7 +120,7 @@ def main():
             for base,length in merge( [ (beg,end-beg+1) ] ):
                 poller.write( base, val[0] if length == 1 else val[:length] )
                 val		= val[length:]
-    
+
     load			= ''
     fail			= ''
     poll			= ''

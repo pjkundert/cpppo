@@ -28,27 +28,24 @@ from cpppo import timer, near, reprlib
 
 
 has_pytz			= False
+got_localzone			= False
 try:
-    import pytz
+    from cpppo.history import (
+        timestamp, parse_offset, format_offset, timedelta_total_seconds,
+        AmbiguousTimeZoneError, HistoryExhausted, IframeError, DataError, 
+        opener, loader, reader, logger,
+        parse_seconds,
+        has_pytz_classic, pytz,
+    )
+    got_localzone		= True
     has_pytz			= True
+except pytz.UnknownTimeZoneError:
+    logging.warning( "Failed to determine local timezone; platform requires tzlocal; run 'pip install tzlocal'" )
 except ImportError:
     logging.warning( "Failed to import pytz module; skipping history related tests; run 'pip install pytz'" )
 
-got_localzone			= False
-if has_pytz:
-    try:
-        from cpppo.history import (
-            timestamp, parse_offset, format_offset, timedelta_total_seconds,
-            AmbiguousTimeZoneError, HistoryExhausted, IframeError, DataError, 
-            opener, loader, reader, logger,
-            parse_seconds,
-        )
-        got_localzone		= True
-    except pytz.UnknownTimeZoneError:
-        logging.warning( "Failed to determine local timezone; platform requires tzlocal; run 'pip install tzlocal'" )
 
-
-@pytest.mark.skipif( not has_pytz or not got_localzone, reason="Needs pytz and localzone" )
+@pytest.mark.skipif( not has_pytz or not got_localzone or not has_pytz_classic, reason="Needs pytz classic and localzone" )
 def test_history_timestamp_abbreviations():
     """Test timezone abbreviation support. """
     abbrev			= timestamp.support_abbreviations( 'CA', reset=True )
@@ -65,7 +62,7 @@ def test_history_timestamp_abbreviations():
         abbrev			= timestamp.support_abbreviations( 'America', first=False )
         assert False, "Many zones should have been ambiguously abbreviated"
     except AmbiguousTimeZoneError as exc:
-        assert "America/Mazatlan" in str( exc )
+        assert "America/Havana" in str( exc )
 
     exclude			= [
         'America/Mazatlan', 'America/Merida', 'America/Mexico_City', 'America/Monterrey',
@@ -132,7 +129,7 @@ def test_history_timestamp_abbreviations():
     assert near( parse_offset( '>1:0.001' ),		   60.001 )
     assert near( parse_offset( '>1' ), 			    1 )
 
-    # While Asia is internally very inconsistent (eg. EEST), countries should be internally consisent
+    # While Asia is internally very inconsistent (eg. EEST), countries should be internally consistent
     abbrev			= timestamp.support_abbreviations( 'JO', reset=True ) # Jordan
     #print( sorted( abbrev ))
     assert sorted( abbrev ) == [ 'EEST', 'EET']
@@ -188,7 +185,7 @@ def test_history_timestamp_abbreviations():
         assert str(z) == 'America/Eirunepe'		and dst == False and format_offset( timedelta_total_seconds( off ), ms=None ) == "< 4:00:00"
 
 
-@pytest.mark.skipif( not has_pytz or not got_localzone, reason="Needs pytz and localzone" )
+@pytest.mark.skipif( not has_pytz or not got_localzone or not has_pytz_classic, reason="Needs pytz classic and localzone" )
 def test_history_timestamp():
     """Test timestamp, ensuring comparison deals in UTC only.  Supports testing in local timezones:
     
@@ -769,7 +766,7 @@ def test_history_performance():
                 os.unlink( f )
                 files.pop( files.index( f ))
 
-        logging.warning( "Generated data in %.3fs; lines: %d", timer() - start, linecnt )
+        logging.normal( "Generated data in %.3fs; lines: %d", timer() - start, linecnt )
 
         # Start somewhere within 0-1% the dur of the beg, forcing the load the look back to
         # find the first file.  Try to do it all in the next 'playback' second (just to push it to
@@ -786,7 +783,7 @@ def test_history_performance():
 
         begoff		= historical.value - beg
         endoff		= 0 if duration is None else (( historical.value + duration ) - ( beg + dur ))
-        logging.warning( "Playback starts at beginning %s %s, duration %s, ends at ending %s %s",
+        logging.normal( "Playback starts at beginning %s %s, duration %s, ends at ending %s %s",
                          timestamp( beg ), format_offset( begoff, ms=False ),
                          None if duration is None else format_offset( duration, ms=False, symbols='-+' ),
                          timestamp( beg + dur ), format_offset( endoff, ms=False ))
@@ -817,7 +814,7 @@ def test_history_performance():
                                 format_offset( upcoming.value - advance.value ) if upcoming is not None else None,
                                 len( ld.future ), len( ld.values ), len( events ), limit )
 
-            logging.warning( "%s loaded up to %s; %3d future, %4d values: %6d events total",
+            logging.normal( "%s loaded up to %s; %3d future, %4d values: %6d events total",
                                 ld, cur, len( ld.future ), len( ld.values ), eventcnt )
             try:
                 snapshot	= tracemalloc.take_snapshot()
@@ -830,7 +827,7 @@ def test_history_performance():
 
         elapsed		= timer() - basis
         eventtps	= eventcnt // ( elapsed - slept )
-        logging.error( "Playback in %.3fs (slept %.3fs); events: %d ==> %d historical records/sec",
+        logging.normal( "Playback in %.3fs (slept %.3fs); events: %d ==> %d historical records/sec",
                        elapsed, slept, eventcnt, eventtps )
         if not logging.getLogger().isEnabledFor( logging.NORMAL ):
             # Ludicrously low threshold, to pass tests on very slow machines

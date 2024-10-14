@@ -25,9 +25,12 @@ __email__                       = "perry@hardconsulting.com"
 __copyright__                   = "Copyright (c) 2013 Hard Consulting Corporation"
 __license__                     = "Dual License: GPLv3 (or later) and Commercial (see LICENSE)"
 
-__all__				= ["timestamp", "get_localzone", "zone_names", "timedelta_total_seconds",
-                                   "parse_offset", "format_offset", "AmbiguousTimeZoneError", "TZ_wrapper",
-                                   "duration", "parse_datetime", "parse_seconds"]
+__all__				= [
+    "timestamp", "get_localzone", "zone_names", "timedelta_total_seconds",
+    "parse_offset", "format_offset", "AmbiguousTimeZoneError", "TZ_wrapper",
+    "duration", "parse_datetime", "parse_seconds",
+    "has_pytz_classic", "pytz",  # or a ~equivalent shim based on zoneinfo and tzdata
+]
 
 import bisect
 import calendar
@@ -52,8 +55,48 @@ from ..automata		import type_str_base
 
 log				= logging.getLogger( __package__ )
 
-# Installed packages (eg. pip/setup.py install pytz tzlocal)
-import pytz
+# Installed packages (eg. pip/setup.py install pytz tzlocal).  If zoneinfo and tzdata are used, try
+# to reconstruct some of the missing pytz APIs.  Selectively install either pytz_deprecation_shim or
+# pytz (classic), to determine which implementation is used for cpppo.history's timestamp.
+has_pytz_classic		= False
+try:
+    import pytz_deprecation_shim as pytz
+    import tzdata
+    import zoneinfo
+
+    pytz.__version__		= tuple( tzdata.__version__.split( '.' ))
+
+    try:
+        available		= {
+            tz.upper(): tz
+            for tz in zoneinfo.available_timezones()
+        }
+        pytz.country_timezones	= {}
+
+        with open( os.path.join( os.path.dirname( tzdata.__file__ ), 'zoneinfo', 'zone.tab' )) as zone_tab:
+            for clz in zone_tab:
+                # ['#', '...'...]
+                # ['UM', '+1917+16637', 'Pacific/Wake', 'Wake Island\n']
+                # ['US', '+404251-0740023', 'America/New_York', 'Eastern (most areas)\n']
+                cc,*tz	= map( str.upper, re.split( r"\s+", clz, maxsplit=3 ))
+                if (not cc and not tz) or cc.startswith( '#' ):
+                    continue
+                if tz[1] in available:
+                    pytz.country_timezones.setdefault( cc, [] ).append( available[tz[1]] )
+                else:
+                    log.warning( "Ignoring unhandled {cc} timezone: {tz}".format(
+                        cc=cc, tz=' '.join( tz )))
+    except Exception as exc:
+        log.warning( "Failed to deduce pytz.country_timezones using : {exc}".format( exc=exc ))
+        pytz.country_timezones	= {}
+
+except ImportError:
+    # No pytz_deprecation_shim and/or tzdata!  Try to get pytz for compatible Python versions.  If
+    # not available, cpppo.history.times should fail to load w/ an ImportError.
+    import pytz  # Python 2, < 3.9
+    has_pytz_classic = True
+
+
 try:
     from tzlocal import get_localzone
 except ImportError:
@@ -83,7 +126,7 @@ def TZ_wrapper():
     """
     def decorate( func ):
         def call( *args, **kwds ):
-            # TZ environment variable?  Either a tzinfo file or a timezone name.  Make this 
+            # TZ environment variable?  Either a tzinfo file or a timezone name.
             tzenv		= os.environ.get( 'TZ' )
             if tzenv:
                 if os.path.exists( tzenv ):
@@ -216,6 +259,8 @@ class timestamp( object ):
         Timezone definitions change over time.  A 'reach' timedelta (default: 1/2 year) on either side
         of the 'at' (a naive UTC datetime, default: current time) is required, in order for multiple
         zones to use the same abbreviation with guaranteed consistent definitions.
+
+        Only supported with pytz (classic), not pytz_deprecation_shim + zoneinfo.
 
         """
         if reset and cls._tzabbrev:

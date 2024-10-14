@@ -13,6 +13,9 @@ import sys
 import threading
 import time
 
+from collections import namedtuple
+from multiprocessing.managers import BaseManager
+
 from . import misc
 from .dotdict import dotdict, apidict, make_apidict_proxy
 
@@ -405,14 +408,15 @@ def test_apidict_threading():
     apidict_latency( threading.Thread, use_attr=False )
 
 
-class MySyncManager(multiprocessing.managers.SyncManager):
+class MySyncManager(BaseManager):
     if sys.version_info[0] < 3:
         def shutdown( self ):
             pass
 
+Caller				= namedtuple( "Caller", ("PID", "TID") )
 
 def caller():
-    return os.getpid(),threading.current_thread().ident
+    return Caller( os.getpid(),threading.current_thread().ident )
 
 
 class apidict_recording( apidict ):
@@ -457,12 +461,21 @@ class apidict_recording( apidict ):
             ))
 
 
-MySyncManager.register( *make_apidict_proxy( apidict_recording ))
+# MySyncManager.register( *make_apidict_proxy( apidict_recording ))
+multiprocessing.managers.SyncManager.register(  *make_apidict_proxy( apidict_recording ))
+print( "SyncManager: " + json.dumps( multiprocessing.managers.SyncManager._registry, indent=4, default=repr ))
 
+class MyManager(multiprocessing.managers.BaseManager):
+    pass
+MyManager.register(  *make_apidict_proxy( apidict_recording ))
+print( "MyManager: " + json.dumps( MyManager._registry, indent=4, default=repr ))
 
 def test_apidict_multiprocessing():
 
-    with MySyncManager() as m:
+    #with MySyncManager() as m:
+    #with multiprocessing.managers.SyncManager() as m:
+    #print( f"multiprocessing.managers.apidict_recording: {multiprocessing.managers.apidict_recording!r}" )
+    with MyManager() as m:
         if sys.version_info[0] < 3:
             m.start()
         apidict_latency(
@@ -470,6 +483,31 @@ def test_apidict_multiprocessing():
             apidict_factory	= lambda *args, **kwds: m.apidict_recording( *args, **kwds ),
             use_attr		= False,
         )
+
+
+class where_am_i( object ):
+    def __init__( self, calls ):
+        self._calls		= calls
+        logging.normal( "Created where_am_i id({}): {}".format(
+            id( self ), repr( self.calls )))
+
+    def function( self, rem_pid, rem_tid ):
+        loc_pid,loc_tid	= caller()
+        logging.normal( "Called  where_am_i id({}) .function here {}, from {}".format(
+            id(self), (loc_pid, loc_tid), (rem_pid, rem_tid) ))
+        self._calls.append( ((rem_pid, rem_tid), (loc_pid, loc_tid)) )
+
+    def calls( self ):
+        return list( self._calls )
+
+
+def call_function( w ):
+    try:
+        by			= caller()
+        logging.normal( "{!r}.function{!r} call...".format( w, by ))
+        w.function( *by )
+    except Exception as exc:
+        logging.warning( "{!r}.function() failed: {}".format( w, exc ))
 
 
 def test_dotdict_multiprocessing_proxies():
@@ -489,31 +527,6 @@ def test_dotdict_multiprocessing_proxies():
     it must not be a sub-class.
 
     """
-
-    class where_am_i( object ):
-        def __init__( self, calls ):
-            self._calls		= calls
-            logging.normal( "Created where_am_i id({}): {}".format(
-                id( self ), repr( self.calls )))
-
-        def function( self, rem_pid, rem_tid ):
-            loc_pid,loc_tid	= caller()
-            logging.normal( "Called  where_am_i id({}) .function here {}, from {}".format(
-                id(self), (loc_pid, loc_tid), (rem_pid, rem_tid) ))
-            self._calls.append( ((rem_pid, rem_tid), (loc_pid, loc_tid)) )
-
-        def calls( self ):
-            return list( self._calls )
-
-
-    def call_function( w ):
-        try:
-            by			= caller()
-            logging.normal( "{!r}.function{!r} call...".format( w, by ))
-            w.function( *by )
-        except Exception as exc:
-            logging.warning( "{!r}.function() failed: {}".format( w, exc ))
-
 
     # Simple object, threading.Thread.  Everything in local process' PID and same Thread.ident
     wai				= where_am_i( [] )
@@ -621,7 +634,7 @@ def test_dotdict_multiprocessing_proxies():
             m.start()
         logging.normal( "MySyncManger w/ PID {pid!r}".format( pid=m._process.pid ))
         latency			= 2.0
-        ad_proxied		= m.apidict_recording( latency, value=0 )
+        ad_proxied		= m.apidict_recording_proxy( latency, value=0 )
         def ad_target( ad, beg, wait ):
             ad['world']		= 'Hello'
             ad['pid'],ad['tid']	= caller()
@@ -695,3 +708,5 @@ def test_dotdict_multiprocessing_proxies():
         assert ad_proxied.get( 'pid' ) == p3.pid
         assert ad_proxied.get( 'value' ) == 2
         assert 50 <= pct <= 60
+
+

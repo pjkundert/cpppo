@@ -120,9 +120,10 @@ def register_parse( txt ):
     """Tokenizer yields integers; any other character (except space), one at a time. """
     b, i, e			= 0, 0, len( txt )
     while i <= e:
-        if i == e or not( '0' <= txt[i] <= '9' ):
+        if i == e or not( '0' <= txt[i] <= '9' or txt[i].lower() in ('x','a','b','c','d','e','f') ):
             if i > b:
-                yield int( txt[b:i] )			# "123..."   Parsed 1+ digits
+                v		= txt[b:i]
+                yield int( v, 16 if 'x' in v.lower() else 10 ) # "123..."   Parsed 1+ digits
                 b, i		= i, i-1
             elif i < e:
                 if txt[b] != ' ':

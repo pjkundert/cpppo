@@ -4,11 +4,20 @@
 
 # PY[3] is the target Python interpreter.  It must have pytest installed.
 
-PY=python
-PY2=python2
-PY3=python3
+PY	?= python
+PY2	?= python2
+PY2_V	= $(shell $(PY2) -c "import sys; print('-'.join((next(iter(filter(None,sys.executable.split('/')))),sys.platform,sys.subversion[0].lower(),''.join(map(str,sys.version_info[:2])))))"  )
+PY3	?= python3
+PY3_V	= $(shell $(PY3) -c "import sys; print('-'.join((next(iter(filter(None,sys.executable.split('/')))),sys.platform,sys.implementation.cache_tag)))" 2>/dev/null )
+
 
 VERSION=$(shell $(PY3) -c 'exec(open("version.py").read()); print( __version__ )')
+
+# TARGET=... nix-shell  # CPython version targets: py2, py3{10,11,12,13}
+TARGET	?= cpppo_py312
+export TARGET
+
+
 
 # PY[23]TEST is the desired method of invoking py.test; either as a command, or
 # loading it as module, by directly invoking the target Python interpreter.
@@ -40,8 +49,22 @@ VERSION=$(shell $(PY3) -c 'exec(open("version.py").read()); print( __version__ )
 # Some tests assume the local time-zone is:
 TZ=Canada/Mountain
 
+
+GIT_SSH_COMMAND	= ssh -o StrictHostKeyChecking=no
+export GIT_SSH_COMMAND
+
+GHUB_NAME	= cpppo
+GHUB_REPO	= git@github.com:pjkundert/$(GHUB_NAME).git
+GHUB_BRCH	= $(shell git rev-parse --abbrev-ref HEAD )
+
+# We'll agonizingly find the directory above this makefile's path
+VENV_DIR	= $(abspath $(dir $(abspath $(lastword $(MAKEFILE_LIST))))/.. )
+VENV_NAME	= $(GHUB_NAME)-$(VERSION)-$(PY3_V)
+VENV		= $(VENV_DIR)/$(VENV_NAME)
+VENV_OPTS	=
+
 # To see all pytest output, uncomment --capture=no
-PYTESTOPTS=-vv # --capture=no --log-cli-level=25 # INFO # 25 == NORMAL 23 == DETAIL
+PYTESTOPTS=-vv --capture=no --log-cli-level=WARNING # INFO # 25 == NORMAL 23 == DETAIL
 
 PY_TEST=TZ=$(TZ) $(PY)  -m pytest $(PYTESTOPTS)
 PY2TEST=TZ=$(TZ) $(PY2) -m pytest $(PYTESTOPTS)
@@ -72,6 +95,41 @@ help:
 	@echo "  vmware-debian-up	Brings up Jessie VM w/ Docker capability" 
 	@echo "  vmware-debian-ssh	Log in to the VM" 
 
+analyze:
+	$(PY3) -m flake8 --color never -j 1 --max-line-length=250 \
+	  --exclude lib,bin,dist,build,signals,.git \
+	  --ignore=W503,E201,E202,E203,E127,E211,E221,E222,E223,E225,E226,E231,E241,E242,E251,E265,E272,E274,E291 \
+
+pylint:
+	pylint . --disable=W,C,R
+
+#
+# nix-...:
+#
+# Use a NixOS environment to execute the make target, eg.
+#
+#     nix-venv-activate
+#
+#     The default is the Python 3 crypto_licensing target in default.nix; choose
+# TARGET=cpppo_py2 to test under Python 2 (more difficult as time goes on).  See default.nix for
+# other Python version targets.
+#
+
+nix-%:
+	nix-shell --pure --run "make $*"
+
+
+#
+# test...:	Perform Unit Tests
+#
+#     Assumes that the requirements.txt has been installed in the target Python environment.  This
+# is probably best accomplished by first creating/activating a venv, and then running the test:
+#
+#     $ make nix-venv-activate
+#     (crypto-licensing-4.0.0) [perry@Perrys-MBP crypto-licensing (feature-py-3.12)]$ make test
+#     make[1]: Entering directory '/Users/perry/src/crypto-licensing'
+#     ...
+#
 test:
 	$(PY_TEST)
 test2:
@@ -101,7 +159,7 @@ pylint:
 
 build3-check:
 	@$(PY3) -m build --version \
-	    || ( echo "\n*** Missing Python modules; run:\n\n        $(PY3) -m pip install --upgrade pip setuptools build\n" \
+	    || ( echo "\n*** Missing Python modules; run:\n\n        $(PY3) -m pip install --upgrade -r requirements-dev.txt\n" \
 	        && false )
 
 build3:	build3-check clean
@@ -119,6 +177,8 @@ install3:	dist/cpppo-$(VERSION)-py3-none-any.whl
 install23: install2 install3
 install: install3
 
+install-%:  # ...-dev, -tests
+	$(PY3) -m pip install --upgrade -r requirements-$*.txt
 
 # Support uploading a new version of cpppo to pypi.  Must:
 #   o advance __version__ number in cpppo/version.py
@@ -129,45 +189,6 @@ upload: clean
 
 clean:
 	@rm -rf MANIFEST *.png build dist auto *.egg-info $(shell find . -name '*.pyc' -o -name '__pycache__' )
-
-# Virtualization management, eg:
-#     make {vmware,vagrant}-up/halt/ssh/destroy
-# 
-# To use a different Vagrant box than precise64 (eg. raring), Vagrantfile must be altered
-.PHONY: vagrant vagrant_boxes						\
-	precise64_virtualbox precise64_vmware_fusion			\
-	raring_virtualbox
-
-# The vagrant/ubuntu/Vagrantfile doesn't contain a config.vm.box_url; we must
-# supply.  The precise64 VMware image presently supports only VMware Fusion 5;
-# if you see an error regarding hgfs kernel modules, you may be running a
-# version of VMware Fusion incompatible with the VMware Tools in the image.
-# TODO: remove; no longer supported.
-vmware-ubuntu-%:	precise64-vmware_fusion
-	cd vagrant/ubuntu; vagrant $* $(if $(filter up, $*), --provider=vmware_fusion,)
-
-virtualbox-ubuntu-%:	precise64-virtualbox
-	cd vagrant/ubuntu; vagrant $* $(if $(filter up, $*), --provider=virtualbox,)
-
-# The jessie64 VMware image is compatible with VMware Fusion 6, and the VirtualBox image is
-# compatible with VirtualBox 4.3.  Obtains the box, if necessary.  The packer.io generated VMware
-# boxes identify themselves as being for vmware_desktop; these are compatible with vmware_fusion
-vmware-debian-%:	jessie64-vmware_desktop
-	cd vagrant/debian; vagrant $* $(if $(filter up, $*), --provider=vmware_fusion,)
-
-virtualbox-debian-%:	jessie64-virtualbox
-	cd vagrant/debian; vagrant $* $(if $(filter up, $*), --provider=virtualbox,)
-
-vagrant:
-	@vagrant --help >/dev/null || ( echo "Install vagrant: http://vagrantup.com"; exit 1 )
-
-
-# Check if jessie64-{virtualbox,vmware_desktop} exists in the vagrant box list.
-# If not, install it.
-jessie64-%:
-	@if ! vagrant box list | grep -q '^jessie64.*($*'; then		\
-	    vagrant box add jessie64 http://box.hardconsulting.com/jessie64-$*.box --provider $*; \
-	fi
 
 
 # Run only tests with a prefix containing the target string, eg test-blah
@@ -190,6 +211,34 @@ unit3-%:
 unit23-%:
 	$(PY2TEST) -k $*
 	$(PY3TEST) -k $*
+
+
+#
+# venv:		Create a Virtual Env containing the installed repo
+#
+.PHONY: venv venv-activate.sh venv-activate
+venv:			$(VENV)
+venv-activate.sh:	$(VENV)/venv-activate.sh
+venv-activate:		$(VENV)/venv-activate.sh
+	@echo; echo "*** Activating $< VirtualEnv for Interactive $(SHELL)"
+	@bash --init-file $< -i
+# Create the venv, and then install cpppo from the current directory
+$(VENV):
+	@echo; echo "*** Building $@ VirtualEnv..."
+	@rm -rf $@ && $(PY3) -m venv $(VENV_OPTS) $@ \
+	    && source $@/bin/activate \
+	    && make install-dev install
+
+# Activate a given VirtualEnv, and go to its routeros_ssh installation
+# o Creates a custom venv-activate.sh script in the venv, and uses it start
+#   start a sub-shell in that venv, with a CWD in the contained routeros_ssh installation
+$(VENV)/venv-activate.sh: $(VENV)
+	( \
+	    echo "PS1='[\u@\h \W)]\\$$ '";	\
+	    echo "[ -r ~/.git-completion.bash ] && source ~/.git-completion.bash"; \
+	    echo "[ -r ~/.git-prompt.sh ] && source ~/.git-prompt.sh && PS1='[\u@\h \W\$$(__git_ps1 \" (%s)\")]\\$$ '"; \
+	    echo "source $</bin/activate";	\
+	) > $@
 
 
 #
