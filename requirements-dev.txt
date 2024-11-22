@@ -1,6 +1,5 @@
 build
-flake8
+packaging
 pip
-pytest		>=4.6
 setuptools
 wheel

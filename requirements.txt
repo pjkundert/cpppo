@@ -1,2 +1,2 @@
-crypto_licensing	>=2.0
+crypto_licensing	>=4.2.0
 greenery		>=2.0,<3.0

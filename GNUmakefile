@@ -4,18 +4,22 @@
 
 # PY[3] is the target Python interpreter.  It must have pytest installed.
 
-PY	?= python
-PY2	?= python2
-PY2_V	= $(shell $(PY2) -c "import sys; print('-'.join((next(iter(filter(None,sys.executable.split('/')))),sys.platform,sys.subversion[0].lower(),''.join(map(str,sys.version_info[:2])))))"  )
-PY3	?= python3
-PY3_V	= $(shell $(PY3) -c "import sys; print('-'.join((next(iter(filter(None,sys.executable.split('/')))),sys.platform,sys.implementation.cache_tag)))" 2>/dev/null )
+PY		?= python
+PY2		?= python2
+PY2_V		= $(shell $(PY2) -c "import sys; print('-'.join((next(iter(filter(None,sys.executable.split('/')))),sys.platform,sys.subversion[0].lower(),''.join(map(str,sys.version_info[:2])))))"  )
+PY3		?= python3
+PY3_V		= $(shell $(PY3) -c "import sys; print('-'.join((next(iter(filter(None,sys.executable.split('/')))),sys.platform,sys.implementation.cache_tag)))" 2>/dev/null )
 
 
-VERSION=$(shell $(PY3) -c 'exec(open("version.py").read()); print( __version__ )')
+VERSION		= $(shell $(PY3) -c 'exec(open("version.py").read()); print( __version__ )')
+WHEEL		= dist/cpppo-$(VERSION)-py3-none-any.whl
 
-# TARGET=... nix-shell  # CPython version targets: py2, py3{10,11,12,13}
-TARGET	?= cpppo_py312
+# TARGET=... nix-shell  # CPython version targets: py27, py3{10,11,12,13}
+# (py27 requires reverting to an older nixpkgs.nix)
+#TARGET		?= py312
 export TARGET
+
+NIX_OPTS	?= # --pure
 
 
 
@@ -70,7 +74,7 @@ PY_TEST=TZ=$(TZ) $(PY)  -m pytest $(PYTESTOPTS)
 PY2TEST=TZ=$(TZ) $(PY2) -m pytest $(PYTESTOPTS)
 PY3TEST=TZ=$(TZ) $(PY3) -m pytest $(PYTESTOPTS)
 
-.PHONY: all test clean upload
+.PHONY: all test clean upload FORCE
 all:			help
 
 help:
@@ -114,9 +118,8 @@ pylint:
 # TARGET=cpppo_py2 to test under Python 2 (more difficult as time goes on).  See default.nix for
 # other Python version targets.
 #
-
 nix-%:
-	nix-shell --pure --run "make $*"
+	nix-shell $(NIX_OPTS) --run "make $*"
 
 
 #
@@ -131,21 +134,10 @@ nix-%:
 #     ...
 #
 test:
-	$(PY_TEST)
-test2:
-	$(PY2TEST)
-test3:
 	$(PY3TEST)
-test23: test2 test3
-
 
 doctest:
-	cd crypto/licensing && $(PY_TEST) --doctest-modules
-doctest2:
-	cd crypto/licensing && $(PY2TEST) --doctest-modules
-doctest3:
 	cd crypto/licensing && $(PY3TEST) --doctest-modules
-doctest23: doctest2 doctest3
 
 analyze:
 	flake8 -j 1 --max-line-length=110 \
@@ -157,25 +149,22 @@ pylint:
 	cd .. && pylint cpppo --disable=W,C,R
 
 
-build3-check:
+build-check:
 	@$(PY3) -m build --version \
 	    || ( echo "\n*** Missing Python modules; run:\n\n        $(PY3) -m pip install --upgrade -r requirements-dev.txt\n" \
 	        && false )
 
-build3:	build3-check clean
-	$(PY3) -m build
+build:	build-check clean wheel
+
+wheel:	$(WHEEL)
+
+$(WHEEL):	FORCE
+	$(PY3) -m pip install -r requirements-dev.txt
+	$(PY3) -m build .
 	@ls -last dist
-build: build3
 
-dist/cpppo-$(VERSION)-py3-none-any.whl: build3
-
-install2:
-	$(PY2) setup.py install
-install3:	dist/cpppo-$(VERSION)-py3-none-any.whl
-	$(PY3) -m pip install --force-reinstall $^
-
-install23: install2 install3
-install: install3
+install:	$(WHEEL) FORCE
+	$(PY3) -m pip install --force-reinstall $<[all]
 
 install-%:  # ...-dev, -tests
 	$(PY3) -m pip install --upgrade -r requirements-$*.txt
@@ -193,53 +182,24 @@ clean:
 
 # Run only tests with a prefix containing the target string, eg test-blah
 test-%:
-	$(PY_TEST) *$*_test.py
-test2-%:
-	$(PY2TEST) *$*_test.py
-test3-%:
-	$(PY3TEST) *$*_test.py
-test23-%:
-	$(PY2TEST) *$*_test.py
 	$(PY3TEST) *$*_test.py
 
 unit-%:
-	$(PY_TEST) -k $*
-unit2-%:
-	$(PY2TEST) -k $*
-unit3-%:
 	$(PY3TEST) -k $*
-unit23-%:
-	$(PY2TEST) -k $*
-	$(PY3TEST) -k $*
-
 
 #
 # venv:		Create a Virtual Env containing the installed repo
 #
 .PHONY: venv venv-activate.sh venv-activate
 venv:			$(VENV)
-venv-activate.sh:	$(VENV)/venv-activate.sh
-venv-activate:		$(VENV)/venv-activate.sh
 	@echo; echo "*** Activating $< VirtualEnv for Interactive $(SHELL)"
-	@bash --init-file $< -i
-# Create the venv, and then install cpppo from the current directory
+	@bash --init-file $</bin/activate -i
+
 $(VENV):
 	@echo; echo "*** Building $@ VirtualEnv..."
 	@rm -rf $@ && $(PY3) -m venv $(VENV_OPTS) $@ \
 	    && source $@/bin/activate \
-	    && make install-dev install
-
-# Activate a given VirtualEnv, and go to its routeros_ssh installation
-# o Creates a custom venv-activate.sh script in the venv, and uses it start
-#   start a sub-shell in that venv, with a CWD in the contained routeros_ssh installation
-$(VENV)/venv-activate.sh: $(VENV)
-	( \
-	    echo "PS1='[\u@\h \W)]\\$$ '";	\
-	    echo "[ -r ~/.git-completion.bash ] && source ~/.git-completion.bash"; \
-	    echo "[ -r ~/.git-prompt.sh ] && source ~/.git-prompt.sh && PS1='[\u@\h \W\$$(__git_ps1 \" (%s)\")]\\$$ '"; \
-	    echo "source $</bin/activate";	\
-	) > $@
-
+	    && make install install-tests
 
 #
 # Target to allow the printing of 'make' variables, eg:

@@ -29,13 +29,36 @@ entry_points			= {
     'console_scripts': 		console_scripts,
 }
 
+# Build the install options.  By default, only support EtherNet/IP CIP via IP networking
+
 install_requires		= open( os.path.join( HERE, "requirements.txt" )).readlines()
 if sys.version_info[0:2] < (2,7):
     install_requires.append( "argparse" )
 if sys.version_info[0:2] < (3,0):
     install_requires.append( "configparser" )
     install_requires.append( "ipaddress" )
-tests_require			= open( os.path.join( HERE, "requirements-optional.txt" )).readlines()
+tests_require			= open( os.path.join( HERE, "requirements-tests.txt" )).readlines()
+options_require			= [
+    'modbus',		# Modbus TCP/RTU via pymodbus
+    'logix',		# Alt. Logix I/O via pylogix
+    'serial',
+    'dev',
+    'timestamp',
+]
+extras_require			= {
+    option: list(
+        # Remove whitespace, elide blank lines and comments
+        ''.join( r.split() )
+        for r in open( os.path.join( HERE, f"requirements-{option}.txt" )).readlines()
+        if r.strip() and not r.strip().startswith( '#' )
+    )
+    for option in options_require
+}
+# Make python-slip39[all] install all extra (non-tests) requirements, excluding duplicates
+extras_require['all']		= list( set( sum( extras_require.values(), [] )))
+
+# Since setuptools is retiring tests_require, add it as another option (but not included in 'all')
+extras_require['tests']		= tests_require
 
 
 package_dir			= {
