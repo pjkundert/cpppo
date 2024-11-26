@@ -3,6 +3,7 @@
 # 
 
 # PY[3] is the target Python interpreter.  It must have pytest installed.
+SHELL		= /bin/bash
 
 PY		?= python
 PY2		?= python2
@@ -74,7 +75,7 @@ PY_TEST=TZ=$(TZ) $(PY)  -m pytest $(PYTESTOPTS)
 PY2TEST=TZ=$(TZ) $(PY2) -m pytest $(PYTESTOPTS)
 PY3TEST=TZ=$(TZ) $(PY3) -m pytest $(PYTESTOPTS)
 
-.PHONY: all test clean upload FORCE
+.PHONY: all test clean FORCE
 all:			help
 
 help:
@@ -83,7 +84,6 @@ help:
 	@echo "  test			Run unit tests under Python2/3 (no serial_test w/o 'make SERIAL_TEST=1 test')"
 	@echo "  install		Install in /usr/local for Python2/3"
 	@echo "  clean			Remove build artifacts"
-	@echo "  upload			Upload new version to pypi (package maintainer only)"
 	@echo
 	@echo "    virtualbox-*		Manage VirtualBox    virtual machine"
 	@echo "    vmware-*		Manage VMWare Fusion virtual machine (recommended; requires license)"
@@ -115,7 +115,7 @@ pylint:
 #     nix-venv-activate
 #
 #     The default is the Python 3 crypto_licensing target in default.nix; choose
-# TARGET=cpppo_py2 to test under Python 2 (more difficult as time goes on).  See default.nix for
+# TARGET=py27 to test under Python 2 (more difficult as time goes on).  See default.nix for
 # other Python version targets.
 #
 nix-%:
@@ -169,12 +169,6 @@ install:	$(WHEEL) FORCE
 install-%:  # ...-dev, -tests
 	$(PY3) -m pip install --upgrade -r requirements-$*.txt
 
-# Support uploading a new version of cpppo to pypi.  Must:
-#   o advance __version__ number in cpppo/version.py
-#   o log in to your pypi account (ie. for package maintainer only)
-
-upload: clean
-	$(PY3) setup.py sdist upload
 
 clean:
 	@rm -rf MANIFEST *.png build dist auto *.egg-info $(shell find . -name '*.pyc' -o -name '__pycache__' )
@@ -190,7 +184,7 @@ unit-%:
 #
 # venv:		Create a Virtual Env containing the installed repo
 #
-.PHONY: venv venv-activate.sh venv-activate
+.PHONY: venv
 venv:			$(VENV)
 	@echo; echo "*** Activating $< VirtualEnv for Interactive $(SHELL)"
 	@bash --init-file $</bin/activate -i
