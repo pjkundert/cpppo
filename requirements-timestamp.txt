@@ -1,2 +1,3 @@
-pytz-deprecation-shim
+pytz-deprecation-shim		; python_version >= "3.9"
+pytz				; python_version <= "3.8"
 tzlocal		>=1.1.1

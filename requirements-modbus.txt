@@ -1,2 +1,2 @@
-minimalmodbus
-pymodbus	>=1.2.0,	<2.0.0
+minimalmodbus	>=2.1,
+pymodbus	>=3.7,	<4.0

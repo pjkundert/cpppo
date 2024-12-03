@@ -44,13 +44,12 @@ log				= logging.getLogger(__name__)
 has_pymodbus			= False
 try:
     import pymodbus
-    from pymodbus.constants import Defaults
     from pymodbus.exceptions import ModbusException
     from .remote.plc_modbus import poller_modbus, merge, shatter
-    from .remote.pymodbus_fixes import modbus_client_tcp, modbus_server_tcp
+    from .remote.pymodbus_fixes import modbus_client_tcp, modbus_server_tcp, Defaults
     has_pymodbus		= True
 except ImportError:
-    logging.warning( "Failed to import pymodbus module; skipping Modbus/TCP related tests; run 'pip install pymodbus'" )
+    logging.warning( "Failed to import pymodbus module; skipping Modbus/TCP related tests; run 'pip install pymodbus': {exc}".format( exc=exc ))
 
 
 @pytest.fixture( scope="module" )

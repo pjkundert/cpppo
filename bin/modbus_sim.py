@@ -74,6 +74,7 @@ EXAMPLE
 
 '''
 import argparse
+import asyncio
 import json
 import logging
 import os
@@ -82,15 +83,17 @@ import sys
 import time
 import traceback
 
+from contextlib import suppress
+
 #---------------------------------------------------------------------------#
 # import the various server implementations
 #---------------------------------------------------------------------------#
 from pymodbus.datastore import ModbusSlaveContext, ModbusServerContext
-from pymodbus.constants import Defaults
-from pymodbus.register_read_message import ReadRegistersResponseBase
-from pymodbus.register_write_message import WriteSingleRegisterResponse, WriteMultipleRegistersResponse
-from pymodbus.transaction import ModbusSocketFramer
+from pymodbus.pdu.register_read_message import ReadRegistersResponseBase
+from pymodbus.pdu.register_write_message import WriteSingleRegisterResponse, WriteMultipleRegistersResponse
+from pymodbus.framer import FramerType, FRAMER_NAME_TO_CLASS
 from pymodbus.exceptions import NotImplementedException
+from pymodbus.datastore.store import ModbusSparseDataBlock
 
 if __name__ == "__main__" and __package__ is None:
     # Ensure that importing works (whether cpppo installed or not) with:
@@ -107,7 +110,8 @@ except ImportError:
     import cpppo
 
 from cpppo.remote.pymodbus_fixes import (
-    modbus_sparse_data_block, modbus_server_rtu, modbus_rtu_framer_collecting, modbus_server_tcp )
+    modbus_sparse_data_block, modbus_server_rtu_printing, modbus_server_tcp_printing, Defaults
+)
 
 
 #---------------------------------------------------------------------------#
@@ -291,10 +295,10 @@ def register_context( registers, slaves=None ):
     hrd				= definitions.get( 'hr' )
     ird				= definitions.get( 'ir' )
     store = ModbusSlaveContext(
-        di = modbus_sparse_data_block( did ) if did else None,
-        co = modbus_sparse_data_block( cod ) if cod else None,
-        hr = modbus_sparse_data_block( hrd ) if hrd else None,
-        ir = modbus_sparse_data_block( ird ) if ird else None )
+        di = ModbusSparseDataBlock( did ) if did else None,
+        co = ModbusSparseDataBlock( cod ) if cod else None,
+        hr = ModbusSparseDataBlock( hrd ) if hrd else None,
+        ir = ModbusSparseDataBlock( ird ) if ird else None )
 
     # If slaves is None, then just pass the store with single=True; it will be
     # used for every slave.  Otherwise, map all the specified slave IDs to the
@@ -313,7 +317,7 @@ def register_context( registers, slaves=None ):
 
 
 # Global 'context'; The caller of 'main' may want a separate Thread to be able
-# to access/modify the data store...
+# to access/modify the data store of their single Start...ServerLogging instance
 context				= None
 
 #---------------------------------------------------------------------------#
@@ -322,49 +326,53 @@ context				= None
 #   - passes any remaining keywords to underlying Modbus...Server (eg.
 #     serial port parameters)
 #---------------------------------------------------------------------------#
-def StartTcpServerLogging( registers, identity=None, framer=ModbusSocketFramer, address=None,
-                           slaves=None, **kwds ):
-    ''' A factory to start and run a Modbus/TCP server
+class StartAsyncServer( object ):
+    '''An asyncio program to start and run an eg. Modbus/TCP server.  Runs
+    forever, or until its instance .stop is invoked, which attempts a graceful
+    shutdown of the asynio event loop.  Exactly one may be run in a Thread.
 
     :param registers: The register ranges (and optional values) to serve
     :param identity: An optional identify structure
     :param address: An optional (interface, port) to bind to.
     :param slaves: An optional single (or list of) Slave IDs to serve
-    '''
-    global context
-    context			= register_context( registers, slaves=slaves )
-    server			= modbus_server_tcp( context, framer, identity, address,
-                                                   **kwds )
-    # Print the address successfully bound; this is useful, if attempts are made
-    # to bind over a range of ports.  If the port is dynamic, we must use the
-    # socket.getsockname() result , which is available on .server_address.
-    print( "Success; Started Modbus/TCP Simulator; PID = %d; address = %s:%s" % (
-        os.getpid(), server.server_address[0], server.server_address[1] ))
-    sys.stdout.flush()
-    server.serve_forever()
-
-
-def StartRtuServerLogging( registers, identity=None, framer=modbus_rtu_framer_collecting,
-                           address=None, slaves=None, **kwds ):
-    '''A factory to start and run a Modbus/RTU server
-
-    :param registers: The register ranges (and optional values) to serve
-    :param identity: An optional identify structure
-    :param address: An optional serial port device to bind to (passes 'address' as 'port').
-    :param slaves: An optional single (or list of) Slave IDs to serve
-
 
     '''
-    global context
-    context			= register_context( registers, slaves=slaves )
-    server			= modbus_server_rtu( context, framer, identity, port=address,
-                                                      **kwds )
+    def __init__( self, *args, registers=None, slaves=None, **kwds ):
+        global context
+        self.context = context	= register_context( registers, slaves=slaves )
+        asyncio.run( self.server_async( *args, **kwds ))
 
-    # Print the address successfully bound; a serial device in this case.
-    print( "Success; Started Modbus/RTU Simulator; PID = %d; address = %s" % (
-        os.getpid(), address ))
-    sys.stdout.flush()
-    server.serve_forever()
+
+class StartTcpServerLogging( StartAsyncServer ):
+
+    async def server_async( self, identity=None, framer=FramerType.SOCKET, address=None, **kwds ):
+        logging.info( "Starting Modbus TCP/IP Server on {address}".format( address=address ))
+        server			= modbus_server_tcp_printing(
+            address	= address,
+            context	= self.context,
+            framer	= framer,
+            identity	= identity,
+            **kwds
+        )
+
+        with suppress(asyncio.exceptions.CancelledError):
+            await server.serve_forever()
+
+
+class StartRtuServerLogging( StartAsyncServer ):
+
+    async def server_async( self, identity=None, framer=FramerType.RTU, address=None, **kwds ):
+        logging.info( "Starting Modbus Serial Server on {address}".format( address=address ))
+        server			= modbus_server_rtu_printing(
+            port	= address,
+            context	= self.context,
+            framer	= framer,
+            identity	= identity,
+            **kwds
+        )
+
+        with suppress(asyncio.exceptions.CancelledError):
+            await server.serve_forever()
 
 
 def main( argv=None ):
@@ -441,16 +449,31 @@ def main( argv=None ):
     # Deduce interface:port to bind, and correct types.  Interface defaults to
     # '' (INADDR_ANY) if only :port is supplied.  Port defaults to 502 if only
     # interface is supplied.  After this block, 'address' is always a tuple like
-    # ("interface",502).  If '/', then start a Modbus/RTU serial server,
-    # otherwise a Modbus/TCP network server.  Create an address_sequence
-    # yielding all the relevant target addresses we might need to try.
+    # ("interface",502).  If the device address is a file, then start a
+    # Modbus/RTU serial server, otherwise a Modbus/TCP network server.  Create
+    # an address_sequence yielding all the relevant target addresses we might
+    # need to try.
 
     # We must initialize 'framer' here (even if its the same as the 'starter'
     # default), because we may make an Evil...() derived class below...
     starter_kwds		= {}
-    if args.address.startswith( '/' ):
+    try:
+        # See if it's an <interface>[:<port>].  If it has '/' in it, assume its a device
+        assert '/' not in address
+        starter			= StartTcpServerLogging
+        framer			= FramerType.SOCKET
+        address			= cpppo.parse_ip_port( args.address, default=(None,Defaults.Port) )
+        address			= str(address[0]),int(address[1])
+        log.info( "--server '%s' produces address=%r", args.address, address )
+        address_sequence	= (
+            (address[0],port)
+            for port in range( address[1], address[1] + int( args.range ))
+        )
+    except Exception as exc:
+        # Not an address[:port]; assume it's a serial port
+        logging.debug( "Not an interface address: {exc}".format( exc=exc ))
         starter			= StartRtuServerLogging
-        framer			= modbus_rtu_framer_collecting
+        framer			= FramerType.RTU
         try:
             import serial
         except ImportError:
@@ -470,19 +493,9 @@ def main( argv=None ):
         address_sequence	= [ args.address ]
         assert args.range == 1, \
             "A range of serial ports is unsupported"
-    else:
-        starter			= StartTcpServerLogging
-        framer			= ModbusSocketFramer
-        address			= args.address.split(':')
-        assert 1 <= len( address ) <= 2
-        address			= (
-            str( address[0] ),
-            int( address[1] ) if len( address ) > 1 else Defaults.Port )
-        log.info( "--server '%s' produces address=%r", args.address, address )
-        address_sequence	= (
-            (address[0],port)
-            for port in range( address[1], address[1] + int( args.range ))
-        )
+
+    logging.info( "Modbus Framer: {framer}".format( framer=framer ))
+    framer			= FRAMER_NAME_TO_CLASS[framer]
 
     #---------------------------------------------------------------------------#
     # Evil Framers, manipulate packets resulting from underlying Framers
@@ -490,13 +503,13 @@ def main( argv=None ):
     if args.evil == "truncate":
 
         class EvilFramerTruncateResponse( framer ):
-            def buildPacket(self, message):
+            def buildFrame(self, message):
                 ''' Creates a *truncated* ready to send modbus packet.  Truncates from 1
                 to all of the bytes, before returning response.
 
                 :param message: The populated request/response to send
                 '''
-                packet		= super( EvilFramerTruncateResponse, self ).buildPacket( message )
+                packet		= super( EvilFramerTruncateResponse, self ).buildFrame( message )
                 datalen		= len( packet )
                 corrlen		= datalen - random.randint( 1, datalen )
 
@@ -512,12 +525,12 @@ def main( argv=None ):
         class EvilFramerDelayResponse( framer ):
             delay		= 5
 
-            def buildPacket(self, message):
+            def buildFrame(self, message):
                 ''' Creates a ready to send modbus packet but delays the return.
 
                 :param message: The populated request/response to send
                 '''
-                packet		= super( EvilFramerDelayResponse, self ).buildPacket( message )
+                packet		= super( EvilFramerDelayResponse, self ).buildFrame( message )
 
                 log.info( "Delaying response for %s seconds", self.delay )
                 delay		= self.delay
@@ -546,7 +559,7 @@ def main( argv=None ):
         class EvilFramerCorruptResponse( framer ):
             what			= "transaction"
 
-            def buildPacket(self, message):
+            def buildFrame(self, message):
                 ''' Creates a *corrupted* ready to send modbus packet.  Truncates from 1
                 to all of the bytes, before returning response.
 
@@ -561,7 +574,7 @@ def main( argv=None ):
 
                     if self.what == "transaction":
                         message.transaction_id ^= 0xFFFF
-                        packet	= super( EvilFramerCorruptResponse, self ).buildPacket( message )
+                        packet	= super( EvilFramerCorruptResponse, self ).buildFrame( message )
                         message.transaction_id ^= 0xFFFF
                     elif self.what == "registers":
                         if isinstance( message, ReadRegistersResponseBase ):
@@ -572,32 +585,32 @@ def main( argv=None ):
                                 message.registers += [999]
                             else:
                                 message.registers = message.registers[:-1]
-                            packet		= super( EvilFramerCorruptResponse, self ).buildPacket( message )
+                            packet		= super( EvilFramerCorruptResponse, self ).buildFrame( message )
                             message.registers	= saveregs
                         elif isinstance( message, WriteSingleRegisterResponse ):
                             # Flip the responses address bits and then flip them back.
                             message.address    ^= 0xFFFF
-                            packet		= super( EvilFramerCorruptResponse, self ).buildPacket( message )
+                            packet		= super( EvilFramerCorruptResponse, self ).buildFrame( message )
                             message.address    ^= 0xFFFF
                         elif isinstance( message, WriteMultipleRegistersResponse ):
                             # Flip the responses address bits and then flip them back.
                             message.address    ^= 0xFFFF
-                            packet		= super( EvilFramerCorruptResponse, self ).buildPacket( message )
+                            packet		= super( EvilFramerCorruptResponse, self ).buildFrame( message )
                             message.address    ^= 0xFFFF
                         else:
                             raise NotImplementedException(
                                 "Unhandled class for register corruption; not implemented" )
                     elif self.what == "protocol":
                         message.protocol_id    ^= 0xFFFF
-                        packet			= super( EvilFramerCorruptResponse, self ).buildPacket( message )
+                        packet			= super( EvilFramerCorruptResponse, self ).buildFrame( message )
                         message.protocol_id    ^= 0xFFFF
                     elif self.what == "unit":
                         message.unit_id	       ^= 0xFF
-                        packet			= super( EvilFramerCorruptResponse, self ).buildPacket( message )
+                        packet			= super( EvilFramerCorruptResponse, self ).buildFrame( message )
                         message.unit_id	       ^= 0xFF
                     elif self.what == "function":
                         message.function_code  ^= 0xFF
-                        packet			= super( EvilFramerCorruptResponse, self ).buildPacket( message )
+                        packet			= super( EvilFramerCorruptResponse, self ).buildFrame( message )
                         message.function_code  ^= 0xFF
                     else:
                         raise NotImplementedException(
@@ -635,6 +648,7 @@ def main( argv=None ):
             for k in sorted( starter_kwds.keys() ):
                 log.info( "config: %24s: %s", k, starter_kwds[k] )
             starter( registers=args.registers, framer=framer, address=address, **starter_kwds )
+            return 0
         except KeyboardInterrupt:
             return 1
         except Exception:

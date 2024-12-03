@@ -36,16 +36,16 @@ import time
 import traceback
 
 from .. import misc
-from .pymodbus_fixes import modbus_client_timeout, modbus_client_tcp
+from .pymodbus_fixes import modbus_client_timeout, modbus_client_tcp, Defaults
 from .plc import poller, PlcOffline
 
-from pymodbus.constants import Defaults
+
 from pymodbus.exceptions import ModbusException, ParameterException
-from pymodbus.bit_read_message import ReadDiscreteInputsRequest, ReadCoilsRequest
-from pymodbus.bit_write_message import WriteSingleCoilRequest, WriteMultipleCoilsRequest
-from pymodbus.register_read_message import ReadHoldingRegistersRequest, ReadInputRegistersRequest
-from pymodbus.register_write_message import WriteSingleRegisterRequest, WriteMultipleRegistersRequest
-from pymodbus.pdu import ExceptionResponse, ModbusResponse
+from pymodbus.pdu.bit_read_message import ReadDiscreteInputsRequest, ReadCoilsRequest
+from pymodbus.pdu.bit_write_message import WriteSingleCoilRequest, WriteMultipleCoilsRequest
+from pymodbus.pdu.register_read_message import ReadHoldingRegistersRequest, ReadInputRegistersRequest
+from pymodbus.pdu.register_write_message import WriteSingleRegisterRequest, WriteMultipleRegistersRequest
+from pymodbus.pdu import ExceptionResponse, ModbusPDU as ModbusResponse
 
 log				= logging.getLogger( __package__ )
 

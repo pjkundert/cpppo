@@ -69,7 +69,7 @@ VENV		= $(VENV_DIR)/$(VENV_NAME)
 VENV_OPTS	=
 
 # To see all pytest output, uncomment --capture=no
-PYTESTOPTS=-vv --capture=no --log-cli-level=WARNING # INFO # 25 == NORMAL 23 == DETAIL
+PYTESTOPTS=-vv --capture=no --log-cli-level=INFO # 25 == NORMAL 23 == DETAIL
 
 PY_TEST=TZ=$(TZ) $(PY)  -m pytest $(PYTESTOPTS)
 PY2TEST=TZ=$(TZ) $(PY2) -m pytest $(PYTESTOPTS)
