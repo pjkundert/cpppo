@@ -48,7 +48,7 @@ try:
     from .remote.plc_modbus import poller_modbus, merge, shatter
     from .remote.pymodbus_fixes import modbus_client_tcp, modbus_server_tcp, Defaults
     has_pymodbus		= True
-except ImportError:
+except ImportError as exc:
     logging.warning( "Failed to import pymodbus module; skipping Modbus/TCP related tests; run 'pip install pymodbus': {exc}".format( exc=exc ))
 
 

@@ -2296,14 +2296,6 @@ val, = via.write( operations )
      input buffer which (in concert with our proper serial read
      =modbus_rtu_read=) allows us to implement correct Modbus/RTU framing.
 
-**** =modbus_sparse_data_block=
-
-     The provided =ModbusSparseDataBlock= incorrectly deduces the base address,
-     and is wildly inefficient for large data blocks.  We correctly deduce the
-     base register address.  The provided =.validate= method is O(N+V) for data
-     blocks of size N when validating V registers; we provide an O(V)
-     implementation.
-
 * Deterministic Finite Automata
 
   A cpppo.dfa will consume symbols from its source iterable, and yield
@@ -2326,6 +2318,9 @@ val, = via.write( operations )
                                   |       |
                                   +-------+
    #+END_SRC
+
+   #+RESULTS:
+   [[file:abplus.png]]
 
    This machine is easily created like this:
 
@@ -2363,6 +2358,9 @@ val, = via.write( operations )
        |                             +-------+  |        +-------+
        +----------------------------------------+
    #+END_SRC
+
+   #+RESULTS:
+   [[file:abplus_csv.png]]
 
    This is implemented:
 
@@ -2406,6 +2404,9 @@ val, = via.write( operations )
         v             v             v             v
        None          None          None          None
    #+END_SRC
+
+   #+RESULTS:
+   [[file:abplus_regex.png]]
 
    The =True= transition out of each state ensures that the =cpppo.state=
    machine will yield a None (non-transition) when encountering an invalid

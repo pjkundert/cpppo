@@ -32,7 +32,7 @@ from .dotdict import dotdict
 from .tools.waits import waitfor
 
 RTU_WAIT			= 2.0  # How long to wait for the simulator
-RTU_LATENCY			= 0.05 # poll for command-line I/O response 
+RTU_LATENCY			= 0.05 # poll for command-line I/O response
 
 class nonblocking_command( object ):
     """Set up a non-blocking command producing output.  Read the output using:
@@ -186,8 +186,8 @@ def start_simulator( simulator, *options, **kwds ):
 
     assert control.address, "Failed to harvest Simulator IP address"
 
-    logging.normal( "Simulator started after %7.3fs on %r:%d",
-                    misc.timer() - begun, control.address[0], control.address[1] )
+    logging.normal( "Simulator started after %7.3fs on %s",
+                    misc.timer() - begun, ':'.join( map( repr, control.address )))
     return command,control.address
 
 
@@ -196,7 +196,7 @@ def start_modbus_simulator( *options ):
     here.
 
     """
-    return start_simulator( 
+    return start_simulator(
         os.path.join( os.path.dirname( os.path.abspath( __file__ )), 'bin', 'modbus_sim.py' ),
         *options
     )
@@ -213,12 +213,12 @@ def run_plc_modbus_polls( plc ):
     wfkw			= dict( timeout=timeout, intervals=intervals )
 
     plc.poll( 40001, rate=rate )
-    
+
     success,elapsed		= waitfor( lambda: plc.read( 40001 ) is not None, "40001 polled", **wfkw )
     assert success
     assert elapsed < 1.0
     assert plc.read( 40001 ) == 0
-    
+
     assert plc.read(     1 ) == None
     assert plc.read( 40002 ) == None
     success,elapsed		= waitfor( lambda: plc.read( 40002 ) is not None, "40002 polled", **wfkw )
@@ -234,11 +234,11 @@ def run_plc_modbus_polls( plc ):
     # number of distinct poll ranges will increase, and then decrease as we in-fill and the
     # inter-register range drops below the merge reach 10, allowing the polling to merge ranges.
     # Thus, keep track of the number of registers added, and allow
-    # 
-    # avg. 
+    #
+    # avg.
     # poll
     # time
-    #  
+    #
     #   |
     #   |
     # 4s|         ..
@@ -252,7 +252,7 @@ def run_plc_modbus_polls( plc ):
     # need to more than double the Nyquist-rate timeout
     wfkw['timeout']	       *= 2.5
     wfkw['intervals']	       *= 2.5
-    
+
     regs			= {}
     extent			= 100 # how many each of coil/holding registers
     total			= extent*2 # total registers in play

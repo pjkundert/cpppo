@@ -177,14 +177,14 @@ Table of Contents
   `enip_server':
 
   ┌────
-  │     enip_server --print SCADA=INT[1000] TEXT=SSTRING[100] FLOAT=REAL
+  │ enip_server --print SCADA=INT[1000] TEXT=SSTRING[100] FLOAT=REAL
   └────
   Each Tag references a specific CIP Class/Instance/Attribute, which can
   be specified, if you desire (eg. to use numeric CIP addressing,
   typically required for Get/Set Attribute Single requests):
 
   ┌────
-  │     enip_server --print SCADA@22/1/1=INT[1000] TEXT@22/1/2=SSTRING[100] FLOAT@22/1/3=REAL
+  │ enip_server --print SCADA@22/1/1=INT[1000] TEXT@22/1/2=SSTRING[100] FLOAT@22/1/3=REAL
   └────
   (See `cpppo/server/enip/poll_test.py''s `main' method (at the end of
   the file) for an example of how to implement a completely custom set
@@ -302,20 +302,20 @@ Table of Contents
   create a `cpppo.cfg' file containing:
 
   ┌────
-  │     [Identity]
-  │     # Generally, strings are not quoted
-  │     Product Name                = 1756-L61/B LOGIX5561
+  │ [Identity]
+  │ # Generally, strings are not quoted
+  │ Product Name                = 1756-L61/B LOGIX5561
   │ 
-  │     [TCPIP]
-  │     # However, some complex structures require JSON configuration:
-  │     Interface Configuration     = {
-  │         "ip_address":             "192.168.0.201",
-  │         "network_mask":           "255.255.255.0",
-  │         "dns_primary":            "8.8.8.8",
-  │         "dns_secondary":          "8.8.4.4",
-  │         "domain_name":            "example.com"
-  │         }
-  │     Host Name                   = controller
+  │ [TCPIP]
+  │ # However, some complex structures require JSON configuration:
+  │ Interface Configuration     = {
+  │     "ip_address":             "192.168.0.201",
+  │     "network_mask":           "255.255.255.0",
+  │     "dns_primary":            "8.8.8.8",
+  │     "dns_secondary":          "8.8.4.4",
+  │     "domain_name":            "example.com"
+  │     }
+  │ Host Name                   = controller
   └────
   See <https://github.com/pjkundert/cpppo/blob/master/cpppo.cfg> for
   details on the file format
@@ -324,20 +324,20 @@ Table of Contents
   Place this file in one of the above-mentioned locations, and run:
 
   ┌────
-  │     $ python -m cpppo.server.enip -v
-  │     01-20 07:01:29.125 ...  NORMAL  main  Loaded config files: ['cpppo.cfg']
-  │     ...
+  │ $ python -m cpppo.server.enip -v
+  │ 01-20 07:01:29.125 ...  NORMAL  main  Loaded config files: ['cpppo.cfg']
+  │ ...
   └────
   Use the new EtherNet/IP CIP `cpppo.server.enip.poll' API to poll the
   Identity and TCPIP Objects and see the results:
 
   ┌────
-  │     $ python3 -m cpppo.server.enip.poll -v TCPIP Identity
-  │     01-20 07:04:46.253 ...  NORMAL run    Polling begins \
-  │           via: 1756-L61/C LOGIX5561 via localhost:44818[850764823]
-  │        TCPIP: [2, 48, 0, [{'class': 246}, {'instance': 1}], '192.168.0.201', \
-  │           '255.255.255.0', '0.0.0.0', '8.8.8.8', '8.8.4.4', 'example.com', 'controller']
-  │     Identity: [1, 15, 54, 2836, 12640, 7079450, '1756-L61/C LOGIX5561', 255]
+  │ $ python3 -m cpppo.server.enip.poll -v TCPIP Identity
+  │ 01-20 07:04:46.253 ...  NORMAL run    Polling begins \
+  │       via: 1756-L61/C LOGIX5561 via localhost:44818[850764823]
+  │    TCPIP: [2, 48, 0, [{'class': 246}, {'instance': 1}], '192.168.0.201', \
+  │       '255.255.255.0', '0.0.0.0', '8.8.8.8', '8.8.4.4', 'example.com', 'controller']
+  │ Identity: [1, 15, 54, 2836, 12640, 7079450, '1756-L61/C LOGIX5561', 255]
   └────
 
 
@@ -364,11 +364,11 @@ Table of Contents
   handled), and the <IP>:<port> it should be routed to:
 
   ┌────
-  │     [UCMM]
-  │     Route Path                 = 1/0
-  │     Route                      = {
-  │             "1/1-15":  "localhost:44819"
-  │         }
+  │ [UCMM]
+  │ Route Path                 = 1/0
+  │ Route                      = {
+  │         "1/1-15":  "localhost:44819"
+  │     }
   └────
   This example (see `cpppo/cpppo-router.cfg' and `cpppo/cpppo.cfg' for
   more details) accepts and handles CIP requests to `route_path' port 1,
@@ -415,16 +415,16 @@ Table of Contents
   EtherNet/IP Controller Communications Simulator, above:
 
   ┌────
-  │      $ python -m cpppo.server.enip.historize some_file.hst Tag_Name=INT[1000] &
-  │      $ tail -f some_file.txt
-  │      # 2014-07-15 22:03:35.945: Started recording Tag: Tag_Name
-  │      2014-07-15 22:03:44.186 ["Tag_Name", [0, 3]]    {"write": [0, 1, 2, 3]}
-  │      ...
+  │ $ python -m cpppo.server.enip.historize some_file.hst Tag_Name=INT[1000] &
+  │ $ tail -f some_file.txt
+  │ # 2014-07-15 22:03:35.945: Started recording Tag: Tag_Name
+  │ 2014-07-15 22:03:44.186 ["Tag_Name", [0, 3]]    {"write": [0, 1, 2, 3]}
+  │ ...
   └────
   (in another terminal)
 
   ┌────
-  │      $ python -m cpppo.server.enip.client Tag_Name[0-3]=[0,1,2,3]
+  │ $ python -m cpppo.server.enip.client Tag_Name[0-3]=[0,1,2,3]
   └────
   You can examine the code in `cpppo/server/enip/historize.py' to see
   how to easily implement your own customization of the EtherNet/IP CIP
@@ -448,52 +448,52 @@ Table of Contents
   `cpppo/server/enip/weather.py'):
 
   ┌────
-  │      import sys, logging, json
-  │      try: # Python2
-  │          from urllib2 import urlopen
-  │          from urllib import urlencode
-  │      except ImportError: # Python3
-  │          from urllib.request import urlopen
-  │          from urllib.parse import urlencode
-  │      
-  │      from cpppo.server.enip import device, REAL
-  │      from cpppo.server.enip.main import main as enip_main
-  │      
-  │      class Attribute_weather( device.Attribute ):
-  │          OPT                    = {
-  │              "appid": "078b5bd46e99c890482fc1252e9208d5",
-  │              "units": "metric",
-  │              "mode":     "json",
-  │          }
-  │          URI                    = "http://api.openweathermap.org/data/2.5/weather"
-  │      
-  │          def url( self, **kwds ):
-  │              """Produce a url by joining the class' URI and OPTs with any keyword parameters"""
-  │              return self.URI + "?" + urlencode( dict( self.OPT, **kwds ))
-  │      
-  │          def __getitem__( self, key ):
-  │              """Obtain the temperature of the city's matching our Attribute's name, convert
-  │              it to an appropriate type; return a value appropriate to the request."""
-  │              try:
-  │                  # eg. "http://api.openweathermap.org/...?...&q=City Name"
-  │                  data           = urlopen( self.url( q=self.name )).read()
-  │                  if type( data ) is not str: # Python3 urlopen.read returns bytes
-  │                      data       = data.decode( 'utf-8' )
-  │                  weather        = json.loads( data )
-  │                  assert weather.get( 'cod' ) == 200 and 'main' in weather, \
-  │                      weather.get( 'message', "Unknown error obtaining weather data" )
-  │                  cast           = float if isinstance( self.parser, REAL ) else int
-  │                  temperature    = cast( weather['main']['temp'] )
-  │              except Exception as exc:
-  │                  logging.warning( "Couldn't get temperature for %s via %r: %s",
-  │                                   self.name, self.url( q=self.name ), exc )
-  │                  raise
-  │              return [ temperature ] if self._validate_key( key ) is slice else temperature
-  │      
-  │          def __setitem__( self, key, value ):
-  │              raise Exception( "Changing the weather isn't that easy..." )
-  │      
-  │      sys.exit( enip_main( attribute_class=Attribute_weather ))
+  │ import sys, logging, json
+  │ try: # Python2
+  │     from urllib2 import urlopen
+  │     from urllib import urlencode
+  │ except ImportError: # Python3
+  │     from urllib.request import urlopen
+  │     from urllib.parse import urlencode
+  │ 
+  │ from cpppo.server.enip import device, REAL
+  │ from cpppo.server.enip.main import main as enip_main
+  │ 
+  │ class Attribute_weather( device.Attribute ):
+  │     OPT                    = {
+  │         "appid": "078b5bd46e99c890482fc1252e9208d5",
+  │         "units": "metric",
+  │         "mode":     "json",
+  │     }
+  │     URI                    = "http://api.openweathermap.org/data/2.5/weather"
+  │ 
+  │     def url( self, **kwds ):
+  │         """Produce a url by joining the class' URI and OPTs with any keyword parameters"""
+  │         return self.URI + "?" + urlencode( dict( self.OPT, **kwds ))
+  │ 
+  │     def __getitem__( self, key ):
+  │         """Obtain the temperature of the city's matching our Attribute's name, convert
+  │         it to an appropriate type; return a value appropriate to the request."""
+  │         try:
+  │             # eg. "http://api.openweathermap.org/...?...&q=City Name"
+  │             data           = urlopen( self.url( q=self.name )).read()
+  │             if type( data ) is not str: # Python3 urlopen.read returns bytes
+  │                 data       = data.decode( 'utf-8' )
+  │             weather        = json.loads( data )
+  │             assert weather.get( 'cod' ) == 200 and 'main' in weather, \
+  │                 weather.get( 'message', "Unknown error obtaining weather data" )
+  │             cast           = float if isinstance( self.parser, REAL ) else int
+  │             temperature    = cast( weather['main']['temp'] )
+  │         except Exception as exc:
+  │             logging.warning( "Couldn't get temperature for %s via %r: %s",
+  │                              self.name, self.url( q=self.name ), exc )
+  │             raise
+  │         return [ temperature ] if self._validate_key( key ) is slice else temperature
+  │ 
+  │     def __setitem__( self, key, value ):
+  │         raise Exception( "Changing the weather isn't that easy..." )
+  │ 
+  │ sys.exit( enip_main( attribute_class=Attribute_weather ))
   └────
   By providing a specialized implementation of device.Attribute's
   `__getitem__' (which is invoked each time an Attribute is accessed),
@@ -576,12 +576,12 @@ Table of Contents
   Attribute:
 
   ┌────
-  │     $ python -m cpppo.server.enip -v 'Motor_Velocity@0x93/3/10=REAL' # In another terminal...
-  │     $ python -m cpppo.server.enip.get_attribute '@0x93/3/10=(REAL)1.0' '@0x93/3/10'
-  │     Sat Feb 20 08:24:13 2016:   0: Single S_A_S      @0x0093/3/10 == True
-  │     Sat Feb 20 08:24:13 2016:   1: Single G_A_S      @0x0093/3/10 == [0, 0, 128, 63]
-  │     $ python -m cpppo.server.enip.client --print Motor_Velocity
-  │       Motor_Velocity              == [1.0]: 'OK'
+  │ $ python -m cpppo.server.enip -v 'Motor_Velocity@0x93/3/10=REAL' # In another terminal...
+  │ $ python -m cpppo.server.enip.get_attribute '@0x93/3/10=(REAL)1.0' '@0x93/3/10'
+  │ Sat Feb 20 08:24:13 2016:   0: Single S_A_S      @0x0093/3/10 == True
+  │ Sat Feb 20 08:24:13 2016:   1: Single G_A_S      @0x0093/3/10 == [0, 0, 128, 63]
+  │ $ python -m cpppo.server.enip.client --print Motor_Velocity
+  │   Motor_Velocity              == [1.0]: 'OK'
   └────
   To access Get Attribute data with CIP type conversion, use
   `cpppo.server.enip.get_attribute''s `proxy' classes, instead.
@@ -618,75 +618,75 @@ Table of Contents
   respond to broadcast List Identity via UDP/IP):
 
   ┌────
-  │     $ python -m cpppo.server.enip.client --udp --broadcast --list-identity -a 192.168.1.255
-  │     List Identity  0 from ('192.168.1.5', 44818): {
-  │         "count": 1,
-  │         "item[0].length": 58,
-  │         "item[0].identity_object.sin_addr": "192.168.1.5",
-  │         "item[0].identity_object.status_word": 48,
-  │         "item[0].identity_object.vendor_id": 1,
-  │         "item[0].identity_object.product_name": "1769-L18ER/A LOGIX5318ER",
-  │         "item[0].identity_object.sin_port": 44818,
-  │         "item[0].identity_object.state": 3,
-  │         "item[0].identity_object.version": 1,
-  │         "item[0].identity_object.device_type": 14,
-  │         "item[0].identity_object.sin_family": 2,
-  │         "item[0].identity_object.serial_number": 1615052645,
-  │         "item[0].identity_object.product_code": 154,
-  │         "item[0].identity_object.product_revision": 2837,
-  │         "item[0].type_id": 12
-  │     }
-  │     List Identity  1 from ('192.168.1.4', 44818): {
-  │         "count": 1,
-  │         "item[0].length": 63,
-  │         "item[0].identity_object.sin_addr": "192.168.1.4",
-  │         "item[0].identity_object.status_word": 48,
-  │         "item[0].identity_object.vendor_id": 1,
-  │         "item[0].identity_object.product_name": "1769-L23E-QBFC1 Ethernet Port",
-  │         "item[0].identity_object.sin_port": 44818,
-  │         "item[0].identity_object.state": 3,
-  │         "item[0].identity_object.version": 1,
-  │         "item[0].identity_object.device_type": 12,
-  │         "item[0].identity_object.sin_family": 2,
-  │         "item[0].identity_object.serial_number": 3223288659,
-  │         "item[0].identity_object.product_code": 191,
-  │         "item[0].identity_object.product_revision": 3092,
-  │         "item[0].type_id": 12
-  │     }
-  │     List Identity  2 from ('192.168.1.3', 44818): {
-  │         "count": 1,
-  │         "item[0].length": 53,
-  │         "item[0].identity_object.sin_addr": "192.168.1.3",
-  │         "item[0].identity_object.status_word": 4,
-  │         "item[0].identity_object.vendor_id": 1,
-  │         "item[0].identity_object.product_name": "1766-L32BXBA A/7.00",
-  │         "item[0].identity_object.sin_port": 44818,
-  │         "item[0].identity_object.state": 0,
-  │         "item[0].identity_object.version": 1,
-  │         "item[0].identity_object.device_type": 14,
-  │         "item[0].identity_object.sin_family": 2,
-  │         "item[0].identity_object.serial_number": 1078923367,
-  │         "item[0].identity_object.product_code": 90,
-  │         "item[0].identity_object.product_revision": 1793,
-  │         "item[0].type_id": 12
-  │     }
-  │     List Identity  3 from ('192.168.1.2', 44818): {
-  │         "count": 1,
-  │         "item[0].length": 52,
-  │         "item[0].identity_object.sin_addr": "192.168.1.2",
-  │         "item[0].identity_object.status_word": 4,
-  │         "item[0].identity_object.vendor_id": 1,
-  │         "item[0].identity_object.product_name": "1763-L16DWD B/7.00",
-  │         "item[0].identity_object.sin_port": 44818,
-  │         "item[0].identity_object.state": 0,
-  │         "item[0].identity_object.version": 1,
-  │         "item[0].identity_object.device_type": 12,
-  │         "item[0].identity_object.sin_family": 2,
-  │         "item[0].identity_object.serial_number": 1929488436,
-  │         "item[0].identity_object.product_code": 185,
-  │         "item[0].identity_object.product_revision": 1794,
-  │         "item[0].type_id": 12
-  │     }
+  │ $ python -m cpppo.server.enip.client --udp --broadcast --list-identity -a 192.168.1.255
+  │ List Identity  0 from ('192.168.1.5', 44818): {
+  │     "count": 1,
+  │     "item[0].length": 58,
+  │     "item[0].identity_object.sin_addr": "192.168.1.5",
+  │     "item[0].identity_object.status_word": 48,
+  │     "item[0].identity_object.vendor_id": 1,
+  │     "item[0].identity_object.product_name": "1769-L18ER/A LOGIX5318ER",
+  │     "item[0].identity_object.sin_port": 44818,
+  │     "item[0].identity_object.state": 3,
+  │     "item[0].identity_object.version": 1,
+  │     "item[0].identity_object.device_type": 14,
+  │     "item[0].identity_object.sin_family": 2,
+  │     "item[0].identity_object.serial_number": 1615052645,
+  │     "item[0].identity_object.product_code": 154,
+  │     "item[0].identity_object.product_revision": 2837,
+  │     "item[0].type_id": 12
+  │ }
+  │ List Identity  1 from ('192.168.1.4', 44818): {
+  │     "count": 1,
+  │     "item[0].length": 63,
+  │     "item[0].identity_object.sin_addr": "192.168.1.4",
+  │     "item[0].identity_object.status_word": 48,
+  │     "item[0].identity_object.vendor_id": 1,
+  │     "item[0].identity_object.product_name": "1769-L23E-QBFC1 Ethernet Port",
+  │     "item[0].identity_object.sin_port": 44818,
+  │     "item[0].identity_object.state": 3,
+  │     "item[0].identity_object.version": 1,
+  │     "item[0].identity_object.device_type": 12,
+  │     "item[0].identity_object.sin_family": 2,
+  │     "item[0].identity_object.serial_number": 3223288659,
+  │     "item[0].identity_object.product_code": 191,
+  │     "item[0].identity_object.product_revision": 3092,
+  │     "item[0].type_id": 12
+  │ }
+  │ List Identity  2 from ('192.168.1.3', 44818): {
+  │     "count": 1,
+  │     "item[0].length": 53,
+  │     "item[0].identity_object.sin_addr": "192.168.1.3",
+  │     "item[0].identity_object.status_word": 4,
+  │     "item[0].identity_object.vendor_id": 1,
+  │     "item[0].identity_object.product_name": "1766-L32BXBA A/7.00",
+  │     "item[0].identity_object.sin_port": 44818,
+  │     "item[0].identity_object.state": 0,
+  │     "item[0].identity_object.version": 1,
+  │     "item[0].identity_object.device_type": 14,
+  │     "item[0].identity_object.sin_family": 2,
+  │     "item[0].identity_object.serial_number": 1078923367,
+  │     "item[0].identity_object.product_code": 90,
+  │     "item[0].identity_object.product_revision": 1793,
+  │     "item[0].type_id": 12
+  │ }
+  │ List Identity  3 from ('192.168.1.2', 44818): {
+  │     "count": 1,
+  │     "item[0].length": 52,
+  │     "item[0].identity_object.sin_addr": "192.168.1.2",
+  │     "item[0].identity_object.status_word": 4,
+  │     "item[0].identity_object.vendor_id": 1,
+  │     "item[0].identity_object.product_name": "1763-L16DWD B/7.00",
+  │     "item[0].identity_object.sin_port": 44818,
+  │     "item[0].identity_object.state": 0,
+  │     "item[0].identity_object.version": 1,
+  │     "item[0].identity_object.device_type": 12,
+  │     "item[0].identity_object.sin_family": 2,
+  │     "item[0].identity_object.serial_number": 1929488436,
+  │     "item[0].identity_object.product_code": 185,
+  │     "item[0].identity_object.product_revision": 1794,
+  │     "item[0].type_id": 12
+  │ }
   └────
   Sends certain "Legacy" EtherNet/IP CIP requests:
   ┌────
@@ -714,54 +714,54 @@ Table of Contents
   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
   ┌────
-  │     $ python -m cpppo.server.enip.client --udp --broadcast --legacy 0x0001 -a
-  │         192.168.1.255
-  │     Legacy 0x0001  0 from ('192.168.1.3', 44818): {
-  │         "count": 1,
-  │         "item[0].legacy_CPF_0x0001.sin_addr": "192.168.1.3",
-  │         "item[0].legacy_CPF_0x0001.unknown_1": 0,
-  │         "item[0].legacy_CPF_0x0001.sin_port": 44818,
-  │         "item[0].legacy_CPF_0x0001.version": 1,
-  │         "item[0].legacy_CPF_0x0001.sin_family": 2,
-  │         "item[0].legacy_CPF_0x0001.ip_address": "192.168.1.3",
-  │         "item[0].length": 36,
-  │         "item[0].type_id": 1
-  │     }
-  │     Legacy 0x0001  1 from ('192.168.1.5', 44818): {
-  │         "peer": [
-  │             "192.168.1.5",
-  │             44818
-  │         ],
-  │         "enip.status": 1,
-  │         "enip.sender_context.input": "array('c',
-  │         '\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00')",
-  │         "enip.session_handle": 0,
-  │         "enip.length": 0,
-  │         "enip.command": 1,
-  │         "enip.options": 0
-  │     }
-  │     Legacy 0x0001  2 from ('192.168.1.4', 44818): {
-  │         "count": 1,
-  │         "item[0].legacy_CPF_0x0001.sin_addr": "192.168.1.4",
-  │         "item[0].legacy_CPF_0x0001.unknown_1": 0,
-  │         "item[0].legacy_CPF_0x0001.sin_port": 44818,
-  │         "item[0].legacy_CPF_0x0001.version": 1,
-  │         "item[0].legacy_CPF_0x0001.sin_family": 2,
-  │         "item[0].legacy_CPF_0x0001.ip_address": "192.168.1.4",
-  │         "item[0].length": 36,
-  │         "item[0].type_id": 1
-  │     }
-  │     Legacy 0x0001  3 from ('192.168.1.2', 44818): {
-  │         "count": 1,
-  │         "item[0].legacy_CPF_0x0001.sin_addr": "192.168.1.2",
-  │         "item[0].legacy_CPF_0x0001.unknown_1": 0,
-  │         "item[0].legacy_CPF_0x0001.sin_port": 44818,
-  │         "item[0].legacy_CPF_0x0001.version": 1,
-  │         "item[0].legacy_CPF_0x0001.sin_family": 2,
-  │         "item[0].legacy_CPF_0x0001.ip_address": "192.168.1.2",
-  │         "item[0].length": 36,
-  │         "item[0].type_id": 1
-  │     }
+  │ $ python -m cpppo.server.enip.client --udp --broadcast --legacy 0x0001 -a
+  │     192.168.1.255
+  │ Legacy 0x0001  0 from ('192.168.1.3', 44818): {
+  │     "count": 1,
+  │     "item[0].legacy_CPF_0x0001.sin_addr": "192.168.1.3",
+  │     "item[0].legacy_CPF_0x0001.unknown_1": 0,
+  │     "item[0].legacy_CPF_0x0001.sin_port": 44818,
+  │     "item[0].legacy_CPF_0x0001.version": 1,
+  │     "item[0].legacy_CPF_0x0001.sin_family": 2,
+  │     "item[0].legacy_CPF_0x0001.ip_address": "192.168.1.3",
+  │     "item[0].length": 36,
+  │     "item[0].type_id": 1
+  │ }
+  │ Legacy 0x0001  1 from ('192.168.1.5', 44818): {
+  │     "peer": [
+  │         "192.168.1.5",
+  │         44818
+  │     ],
+  │     "enip.status": 1,
+  │     "enip.sender_context.input": "array('c',
+  │     '\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00')",
+  │     "enip.session_handle": 0,
+  │     "enip.length": 0,
+  │     "enip.command": 1,
+  │     "enip.options": 0
+  │ }
+  │ Legacy 0x0001  2 from ('192.168.1.4', 44818): {
+  │     "count": 1,
+  │     "item[0].legacy_CPF_0x0001.sin_addr": "192.168.1.4",
+  │     "item[0].legacy_CPF_0x0001.unknown_1": 0,
+  │     "item[0].legacy_CPF_0x0001.sin_port": 44818,
+  │     "item[0].legacy_CPF_0x0001.version": 1,
+  │     "item[0].legacy_CPF_0x0001.sin_family": 2,
+  │     "item[0].legacy_CPF_0x0001.ip_address": "192.168.1.4",
+  │     "item[0].length": 36,
+  │     "item[0].type_id": 1
+  │ }
+  │ Legacy 0x0001  3 from ('192.168.1.2', 44818): {
+  │     "count": 1,
+  │     "item[0].legacy_CPF_0x0001.sin_addr": "192.168.1.2",
+  │     "item[0].legacy_CPF_0x0001.unknown_1": 0,
+  │     "item[0].legacy_CPF_0x0001.sin_port": 44818,
+  │     "item[0].legacy_CPF_0x0001.version": 1,
+  │     "item[0].legacy_CPF_0x0001.sin_family": 2,
+  │     "item[0].legacy_CPF_0x0001.ip_address": "192.168.1.2",
+  │     "item[0].length": 36,
+  │     "item[0].type_id": 1
+  │ }
   └────
   Change the verbosity (supply more to increase further):
   ┌────
@@ -934,22 +934,22 @@ Table of Contents
   `cpppo/server/enip/client/io_example.py'):
 
   ┌────
-  │     host                        = 'localhost'   # Controller IP address
-  │     port                        = address[1]    # default is port 44818
-  │     depth                       = 1             # Allow 1 transaction in-flight
-  │     multiple                    = 0             # Don't use Multiple Service Packet
-  │     fragment                    = False         # Don't force Read/Write Tag Fragmented
-  │     timeout                     = 1.0           # Any PLC I/O fails if it takes > 1s
-  │     printing                    = True          # Print a summary of I/O
-  │     tags                        = ["Tag[0-9]+16=(DINT)4,5,6,7,8,9", "@0x2/1/1", "Tag[3-5]"]
-  │     
-  │     with client.connector( host=host, port=port, timeout=timeout ) as connection:
-  │         operations              = client.parse_operations( tags )
-  │         failures,transactions   = connection.process(
-  │             operations=operations, depth=depth, multiple=multiple,
-  │             fragment=fragment, printing=printing, timeout=timeout )
-  │     
-  │     sys.exit( 1 if failures else 0 )
+  │ host                        = 'localhost'   # Controller IP address
+  │ port                        = address[1]    # default is port 44818
+  │ depth                       = 1             # Allow 1 transaction in-flight
+  │ multiple                    = 0             # Don't use Multiple Service Packet
+  │ fragment                    = False         # Don't force Read/Write Tag Fragmented
+  │ timeout                     = 1.0           # Any PLC I/O fails if it takes > 1s
+  │ printing                    = True          # Print a summary of I/O
+  │ tags                        = ["Tag[0-9]+16=(DINT)4,5,6,7,8,9", "@0x2/1/1", "Tag[3-5]"]
+  │ 
+  │ with client.connector( host=host, port=port, timeout=timeout ) as connection:
+  │     operations              = client.parse_operations( tags )
+  │     failures,transactions   = connection.process(
+  │         operations=operations, depth=depth, multiple=multiple,
+  │         fragment=fragment, printing=printing, timeout=timeout )
+  │ 
+  │ sys.exit( 1 if failures else 0 )
   └────
   Try it out by starting up a simulated Controller:
   ┌────
@@ -980,34 +980,34 @@ Table of Contents
   `cpppo/server/enip/client/thruput.py')
 
   ┌────
-  │     ap                          = argparse.ArgumentParser()
-  │     ap.add_argument( '-d', '--depth',    default=0, help="Pipelining depth" )
-  │     ap.add_argument( '-m', '--multiple', default=0, help="Multiple Service Packet size limit" )
-  │     ap.add_argument( '-r', '--repeat',   default=1, help="Repeat requests this many times" )
-  │     ap.add_argument( '-a', '--address',  default='localhost', help="Hostname of target Controller" )
-  │     ap.add_argument( '-t', '--timeout',  default=None, help="I/O timeout seconds (default: None)" )
-  │     ap.add_argument( 'tags', nargs='+', help="Tags to read/write" )
-  │     args                        = ap.parse_args()
+  │ ap                          = argparse.ArgumentParser()
+  │ ap.add_argument( '-d', '--depth',    default=0, help="Pipelining depth" )
+  │ ap.add_argument( '-m', '--multiple', default=0, help="Multiple Service Packet size limit" )
+  │ ap.add_argument( '-r', '--repeat',   default=1, help="Repeat requests this many times" )
+  │ ap.add_argument( '-a', '--address',  default='localhost', help="Hostname of target Controller" )
+  │ ap.add_argument( '-t', '--timeout',  default=None, help="I/O timeout seconds (default: None)" )
+  │ ap.add_argument( 'tags', nargs='+', help="Tags to read/write" )
+  │ args                        = ap.parse_args()
   │ 
-  │     depth                       = int( args.depth )
-  │     multiple                    = int( args.multiple )
-  │     repeat                      = int( args.repeat )
-  │     operations                  = client.parse_operations( args.tags * repeat )
-  │     timeout                     = None
-  │     if args.timeout is not None:
-  │         timeout                 = float( args.timeout )
+  │ depth                       = int( args.depth )
+  │ multiple                    = int( args.multiple )
+  │ repeat                      = int( args.repeat )
+  │ operations                  = client.parse_operations( args.tags * repeat )
+  │ timeout                     = None
+  │ if args.timeout is not None:
+  │     timeout                 = float( args.timeout )
   │ 
-  │     with client.connector( host=args.address, timeout=timeout ) as conn:
-  │         start                   = cpppo.timer()
-  │         num,idx                 = -1,-1
-  │         for num,(idx,dsc,op,rpy,sts,val) in enumerate( conn.pipeline(
-  │                 operations=operations, depth=depth,
-  │                 multiple=multiple, timeout=timeout )):
-  │             print( "%s: %3d: %s" % ( timestamp(), idx, val ))
-  │     
-  │         elapsed                 = cpppo.timer() - start
-  │         print( "%3d operations using %3d requests in %7.2fs at pipeline depth %2s; %5.1f TPS" % (
-  │             num+1, idx+1, elapsed, args.depth, num / elapsed ))
+  │ with client.connector( host=args.address, timeout=timeout ) as conn:
+  │     start                   = cpppo.timer()
+  │     num,idx                 = -1,-1
+  │     for num,(idx,dsc,op,rpy,sts,val) in enumerate( conn.pipeline(
+  │             operations=operations, depth=depth,
+  │             multiple=multiple, timeout=timeout )):
+  │         print( "%s: %3d: %s" % ( timestamp(), idx, val ))
+  │ 
+  │     elapsed                 = cpppo.timer() - start
+  │     print( "%3d operations using %3d requests in %7.2fs at pipeline depth %2s; %5.1f TPS" % (
+  │         num+1, idx+1, elapsed, args.depth, num / elapsed ))
   └────
   Fire up a simulator with a few tags, preferably on a host with a high
   network latency relative to your current host:
@@ -1104,24 +1104,24 @@ Table of Contents
   one:
 
   ┌────
-  │      $ python -m cpppo.server.enip.list_services -vv --udp --broadcast \\
-  │          --source 192.168.1.5 --address 192.168.1.255
-  │      05-25 15:51:02.044 MainThread enip.cli DETAIL   __init__   Connect:  UPD/IP to ('192.168.1.255', 44818) via ('192.168.1.7', 0) broadcast
-  │      05-25 15:51:02.072 MainThread enip.cli DETAIL   cip_send   Client CIP Send: {
-  │          "enip.status": 0,
-  │          "enip.sender_context.input": "bytearray(b'\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00')",
-  │          "enip.session_handle": 0,
-  │          "enip.CIP.list_services": {},
-  │          "enip.options": 0
-  │      }
-  │      05-25 15:51:02.073 MainThread enip.cli DETAIL   cip_send   Client CIP Send: {
-  │          "enip.status": 0,
-  │          "enip.sender_context.input": "bytearray(b'\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00')",
-  │          "enip.session_handle": 0,
-  │          "enip.CIP.list_identity": {},
-  │          "enip.options": 0
-  │      }
-  │      $
+  │ $ python -m cpppo.server.enip.list_services -vv --udp --broadcast \\
+  │     --source 192.168.1.5 --address 192.168.1.255
+  │ 05-25 15:51:02.044 MainThread enip.cli DETAIL   __init__   Connect:  UPD/IP to ('192.168.1.255', 44818) via ('192.168.1.7', 0) broadcast
+  │ 05-25 15:51:02.072 MainThread enip.cli DETAIL   cip_send   Client CIP Send: {
+  │     "enip.status": 0,
+  │     "enip.sender_context.input": "bytearray(b'\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00')",
+  │     "enip.session_handle": 0,
+  │     "enip.CIP.list_services": {},
+  │     "enip.options": 0
+  │ }
+  │ 05-25 15:51:02.073 MainThread enip.cli DETAIL   cip_send   Client CIP Send: {
+  │     "enip.status": 0,
+  │     "enip.sender_context.input": "bytearray(b'\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00')",
+  │     "enip.session_handle": 0,
+  │     "enip.CIP.list_identity": {},
+  │     "enip.options": 0
+  │ }
+  │ $
   └────
   Why?  Because you have bound the server to specific IP address,
   192.168.1.5.  If you instead bind it to "all" interfaces (thus, at no
@@ -1183,15 +1183,15 @@ Table of Contents
   `client.connector'.  For example:
 
   ┌────
-  │      >>> from cpppo.server.enip include client
-  │      >>> list( client.parse_operations( [ "A_Tag[1-2]=(REAL)111,222" ] ))
-  │      [{
-  │          'data':        [111.0, 222.0],
-  │          'elements':    2,
-  │          'method':      'write',
-  │          'path':        [{'symbolic': 'A_Tag'},{'element': 1}],
-  │          'tag_type':    202
-  │      }]
+  │ >>> from cpppo.server.enip include client
+  │ >>> list( client.parse_operations( [ "A_Tag[1-2]=(REAL)111,222" ] ))
+  │ [{
+  │     'data':        [111.0, 222.0],
+  │     'elements':    2,
+  │     'method':      'write',
+  │     'path':        [{'symbolic': 'A_Tag'},{'element': 1}],
+  │     'tag_type':    202
+  │ }]
   └────
   A symbolic Tag is assumed, but an `@' indicates a numeric CIP address,
   with each segment's meaning defaulting to:
@@ -1379,31 +1379,31 @@ Table of Contents
   readability):
 
   ┌────
-  │      >>> for k,v in rpy.items():
-  │      ...  print k,v
-  │      ...
-  │      enip.status		0
-  │      enip.sender_context.input	array('c', '\x00\x00\x00\x00\x00\x00\x00\x00')
-  │      enip.session_handle	297965756
-  │      enip.length		20
-  │      enip.command		111
-  │      enip.input			array('c',
-  │          '\x00\x00\x00\x00\x00\x00\x02\x00\x00\x00\x00\x00\xb2\x00\x04\x00\xd3\x00\x00\x00')
-  │      enip.options		0
-  │      enip.CIP.send_data.interface	0
-  │      enip.CIP.send_data.timeout		0
-  │      enip.CIP.send_data.CPF.count		2
-  │      enip.CIP.send_data.CPF.item[0].length	0
-  │      enip.CIP.send_data.CPF.item[0].type_id	0
-  │      enip.CIP.send_data.CPF.item[1].length	4
-  │      enip.CIP.send_data.CPF.item[1].type_id	178
-  │      enip.CIP.send_data.CPF.item[1].unconnected_send.request.status	0
-  │      enip.CIP.send_data.CPF.item[1].unconnected_send.request.input	array('c',
-  │          '\xd3\x00\x00\x00')
-  │      enip.CIP.send_data.CPF.item[1].unconnected_send.request.service	211
-  │      enip.CIP.send_data.CPF.item[1].unconnected_send.request.write_frag		True
-  │      enip.CIP.send_data.CPF.item[1].unconnected_send.request.status_ext.size	0
-  │      >>>
+  │ >>> for k,v in rpy.items():
+  │ ...  print k,v
+  │ ...
+  │ enip.status		0
+  │ enip.sender_context.input	array('c', '\x00\x00\x00\x00\x00\x00\x00\x00')
+  │ enip.session_handle	297965756
+  │ enip.length		20
+  │ enip.command		111
+  │ enip.input			array('c',
+  │     '\x00\x00\x00\x00\x00\x00\x02\x00\x00\x00\x00\x00\xb2\x00\x04\x00\xd3\x00\x00\x00')
+  │ enip.options		0
+  │ enip.CIP.send_data.interface	0
+  │ enip.CIP.send_data.timeout		0
+  │ enip.CIP.send_data.CPF.count		2
+  │ enip.CIP.send_data.CPF.item[0].length	0
+  │ enip.CIP.send_data.CPF.item[0].type_id	0
+  │ enip.CIP.send_data.CPF.item[1].length	4
+  │ enip.CIP.send_data.CPF.item[1].type_id	178
+  │ enip.CIP.send_data.CPF.item[1].unconnected_send.request.status	0
+  │ enip.CIP.send_data.CPF.item[1].unconnected_send.request.input	array('c',
+  │     '\xd3\x00\x00\x00')
+  │ enip.CIP.send_data.CPF.item[1].unconnected_send.request.service	211
+  │ enip.CIP.send_data.CPF.item[1].unconnected_send.request.write_frag		True
+  │ enip.CIP.send_data.CPF.item[1].unconnected_send.request.status_ext.size	0
+  │ >>>
   └────
   The response payload is highly variable (eg. may contain further
   encapsulations such as Multiple Service Packet framing), so it is
@@ -1433,34 +1433,34 @@ Table of Contents
   One is implemented in `cpppo/server/enip/get_attribute.py':
 
   ┌────
-  │      from cpppo.server.enip.get_attribute import attribute_operations
+  │ from cpppo.server.enip.get_attribute import attribute_operations
   │ 
-  │      timeout			= None # Wait forever, or <float> seconds
-  │      depth			= 0    # No pipelining, or <int> in-flight
-  │      with client.connector( host=args.address, timeout=timeout ) as conn:
-  │          for idx,dsc,op,rpy,sts,val in conn.pipeline(
-  │                  operations=attribute_operations( tags ), depth=depth,
-  │                  multiple=False, timeout=timeout ):
+  │ timeout			= None # Wait forever, or <float> seconds
+  │ depth			= 0    # No pipelining, or <int> in-flight
+  │ with client.connector( host=args.address, timeout=timeout ) as conn:
+  │     for idx,dsc,op,rpy,sts,val in conn.pipeline(
+  │             operations=attribute_operations( tags ), depth=depth,
+  │             multiple=False, timeout=timeout ):
   └────
   Here is an example of getting all the raw Attribute data from the CIP
   Identity object (Class 1, Instance 1) of a Controller (Get Attributes
   All, and Get Attribute Single of Class 1, Instance 1, Attribute 7):
 
   ┌────
-  │      $ python -m cpppo.server.enip.get_attribute --depth 3 -v  '@1/1'  '@1/1/7'
-  │      2015-04-21 14:51:14.633:   0: Single G_A_A      @0x0001/1 == [1, 0, 14, 0, 54,  \
-  │          0, 20, 11, 96, 49, 26, 6, 108, 0, 20, 49, 55, 53, 54, 45, 76, 54, 49, 47,   \
-  │          66, 32, 76, 79, 71, 73, 88, 53, 53, 54, 49, 255, 0, 0, 0]
-  │      2015-04-21 14:51:14.645:   1: Single G_A_S      @0x0001/1/7 == [20, 49, 55, 53, \
-  │          54, 45, 76, 54, 49, 47, 66, 32, 76, 79, 71, 73, 88, 53, 53, 54, 49]
+  │ $ python -m cpppo.server.enip.get_attribute --depth 3 -v  '@1/1'  '@1/1/7'
+  │ 2015-04-21 14:51:14.633:   0: Single G_A_A      @0x0001/1 == [1, 0, 14, 0, 54,  \
+  │     0, 20, 11, 96, 49, 26, 6, 108, 0, 20, 49, 55, 53, 54, 45, 76, 54, 49, 47,   \
+  │     66, 32, 76, 79, 71, 73, 88, 53, 53, 54, 49, 255, 0, 0, 0]
+  │ 2015-04-21 14:51:14.645:   1: Single G_A_S      @0x0001/1/7 == [20, 49, 55, 53, \
+  │     54, 45, 76, 54, 49, 47, 66, 32, 76, 79, 71, 73, 88, 53, 53, 54, 49]
   └────
   Decoding the Identity Attribute 7 CIP STRING as ASCII data yields (the
   first character is the length: 20 decimal, or 14 hex):
   ┌────
-  │      $ python
-  │      >>> ''.join( chr( x ) for x in [
-  │              20, 49, 55, 53, 54, 45, 76, 54, 49, 47, 66, 32, 76, 79, 71, 73, 88, 53, 53, 54, 49])
-  │      '\x141756-L61/B LOGIX5561'
+  │ $ python
+  │ >>> ''.join( chr( x ) for x in [
+  │         20, 49, 55, 53, 54, 45, 76, 54, 49, 47, 66, 32, 76, 79, 71, 73, 88, 53, 53, 54, 49])
+  │ '\x141756-L61/B LOGIX5561'
   └────
 
   To access Get Attribute data with CIP type conversion, use
@@ -1484,15 +1484,15 @@ Table of Contents
   ... FLOAT@22/1/3=REAL' command, above, and then run:
 
   ┌────
-  │      $ python -m cpppo.server.enip.get_attribute '@22/1/3=(REAL)1.0' '@22/1/3'
-  │      Mon Feb 22 15:29:51 2016:   0: Single S_A_S      @0x0016/1/3 == True
-  │      Mon Feb 22 15:29:51 2016:   1: Single G_A_S      @0x0016/1/3 == [0, 0, 128, 63]     
+  │ $ python -m cpppo.server.enip.get_attribute '@22/1/3=(REAL)1.0' '@22/1/3'
+  │ Mon Feb 22 15:29:51 2016:   0: Single S_A_S      @0x0016/1/3 == True
+  │ Mon Feb 22 15:29:51 2016:   1: Single G_A_S      @0x0016/1/3 == [0, 0, 128, 63]     
   └────
   Confirm that you wrote the correct floating-ponit value:
 
   ┌────
-  │      $ python -m cpppo.server.enip.client 'FLOAT'
-  │                FLOAT              == [1.0]: 'OK'
+  │ $ python -m cpppo.server.enip.client 'FLOAT'
+  │           FLOAT              == [1.0]: 'OK'
   └────
 
 
@@ -1507,23 +1507,23 @@ Table of Contents
   timeout expires without activity:
 
   ┌────
-  │      from __future__ import print_function
+  │ from __future__ import print_function
   │ 
-  │      import sys
-  │     
-  │      from cpppo.server import enip
-  │      from cpppo.server.enip import client
+  │ import sys
   │ 
-  │      timeout			= 1.0
-  │      host			= sys.argv[1] if sys.argv[1:] else '255.255.255.255'
-  │      with client.client( host=host, udp=True, broadcast=True ) as conn:
-  │          conn.list_identity( timeout=timeout )
-  │          while True:
-  │              response,elapsed	= client.await_response( conn, timeout=timeout )
-  │              if response:
-  │                  print( enip.enip_format( response ))
-  │              else:
-  │                  break # No response (None) w'in timeout or EOF ({})
+  │ from cpppo.server import enip
+  │ from cpppo.server.enip import client
+  │ 
+  │ timeout			= 1.0
+  │ host			= sys.argv[1] if sys.argv[1:] else '255.255.255.255'
+  │ with client.client( host=host, udp=True, broadcast=True ) as conn:
+  │     conn.list_identity( timeout=timeout )
+  │     while True:
+  │         response,elapsed	= client.await_response( conn, timeout=timeout )
+  │         if response:
+  │             print( enip.enip_format( response ))
+  │         else:
+  │             break # No response (None) w'in timeout or EOF ({})
   └────
   See `cpppo.server.enip.client' for a more advanced approach which
   returns only the relevant List Identity or List Services payload from
@@ -1535,25 +1535,25 @@ Table of Contents
   Services and List Identity responses:
 
   ┌────
-  │      $ python -m cpppo.server.enip.list_services --help
-  │      usage: list_services.py [-h] [-v] [-a ADDRESS] [-u] [-b] [--identity]
-  │                              [--interfaces] [-t TIMEOUT]
+  │ $ python -m cpppo.server.enip.list_services --help
+  │ usage: list_services.py [-h] [-v] [-a ADDRESS] [-u] [-b] [--identity]
+  │                         [--interfaces] [-t TIMEOUT]
   │ 
-  │      List Services (by default) on an EtherNet/IP CIP Server.
+  │ List Services (by default) on an EtherNet/IP CIP Server.
   │ 
-  │      optional arguments:
-  │        -h, --help            show this help message and exit
-  │        -v, --verbose         Display logging information.
-  │        -a ADDRESS, --address ADDRESS
-  │                              EtherNet/IP interface[:port] to connect to (default:
-  │                              ':44818')
-  │        -u, --udp             Use UDP/IP queries (default: False)
-  │        -b, --broadcast       Allow multiple peers, and use of broadcast address
-  │                              (default: False)
-  │        -i, --list-identity   List Identity (default: False)
-  │        -I, --list-interfaces List Interfaces (default: False)
-  │        -t TIMEOUT, --timeout TIMEOUT
-  │                              EtherNet/IP timeout (default: 5s)
+  │ optional arguments:
+  │   -h, --help            show this help message and exit
+  │   -v, --verbose         Display logging information.
+  │   -a ADDRESS, --address ADDRESS
+  │                         EtherNet/IP interface[:port] to connect to (default:
+  │                         ':44818')
+  │   -u, --udp             Use UDP/IP queries (default: False)
+  │   -b, --broadcast       Allow multiple peers, and use of broadcast address
+  │                         (default: False)
+  │   -i, --list-identity   List Identity (default: False)
+  │   -I, --list-interfaces List Interfaces (default: False)
+  │   -t TIMEOUT, --timeout TIMEOUT
+  │                         EtherNet/IP timeout (default: 5s)
   └────
   It always requests List Services, and (optionally) List Identity, List
   Interfaces.  By default, it sends the requests unicast via TCP/IP, but
@@ -1564,55 +1564,55 @@ Table of Contents
   with broadcast address 192.168.0.255:
 
   ┌────
-  │      $ python -m cpppo.server.enip.list_services --udp --broadcast \
-  │            --list-identity -a 192.168.0.255
-  │      {
-  │          "peer": [
-  │              "192.168.0.201",
-  │              44818
-  │          ],
-  │          "enip.status": 0, 
-  │          "enip.sender_context.input": "array('c', '\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00')", 
-  │          "enip.session_handle": 0, 
-  │          "enip.length": 25, 
-  │          "enip.CIP.list_services.CPF.count": 1, 
-  │          "enip.CIP.list_services.CPF.item[0].communications_service.capability": 288, 
-  │          "enip.CIP.list_services.CPF.item[0].communications_service.service_name": "Communications", 
-  │          "enip.CIP.list_services.CPF.item[0].communications_service.version": 1, 
-  │          "enip.CIP.list_services.CPF.item[0].length": 19, 
-  │          "enip.CIP.list_services.CPF.item[0].type_id": 256, 
-  │          "enip.command": 4, 
-  │          "enip.input": "array('c', '\\x01\\x00\\x00\\x01\\x13\\x00\\x01\\x00 \\x01Communications\\x00')", 
-  │          "enip.options": 0
-  │      }
-  │      {
-  │          "peer": [
-  │              "192.168.0.201",
-  │              44818
-  │          ],
-  │          "enip.status": 0, 
-  │          "enip.sender_context.input": "array('c', '\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00')", 
-  │          "enip.session_handle": 0, 
-  │          "enip.length": 60, 
-  │          "enip.CIP.list_identity.CPF.count": 1, 
-  │          "enip.CIP.list_identity.CPF.item[0].length": 54, 
-  │          "enip.CIP.list_identity.CPF.item[0].identity_object.sin_addr": "192.168.0.201", 
-  │          "enip.CIP.list_identity.CPF.item[0].identity_object.status_word": 12640, 
-  │          "enip.CIP.list_identity.CPF.item[0].identity_object.vendor_id": 1, 
-  │          "enip.CIP.list_identity.CPF.item[0].identity_object.product_name": "1756-L61/C LOGIX5561", 
-  │          "enip.CIP.list_identity.CPF.item[0].identity_object.sin_port": 44818, 
-  │          "enip.CIP.list_identity.CPF.item[0].identity_object.state": 255, 
-  │          "enip.CIP.list_identity.CPF.item[0].identity_object.version": 1, 
-  │          "enip.CIP.list_identity.CPF.item[0].identity_object.device_type": 14, 
-  │          "enip.CIP.list_identity.CPF.item[0].identity_object.sin_family": 2, 
-  │          "enip.CIP.list_identity.CPF.item[0].identity_object.serial_number": 7079450, 
-  │          "enip.CIP.list_identity.CPF.item[0].identity_object.product_code": 54, 
-  │          "enip.CIP.list_identity.CPF.item[0].identity_object.product_revision": 2836, 
-  │          "enip.CIP.list_identity.CPF.item[0].type_id": 12, 
-  │          "enip.command": 99, 
-  │          "enip.input": "array('c', '\\x01...\\x141756-L61/C LOGIX5561\\xff')", 
-  │          "enip.options": 0
-  │      }
+  │ $ python -m cpppo.server.enip.list_services --udp --broadcast \
+  │       --list-identity -a 192.168.0.255
+  │ {
+  │     "peer": [
+  │         "192.168.0.201",
+  │         44818
+  │     ],
+  │     "enip.status": 0, 
+  │     "enip.sender_context.input": "array('c', '\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00')", 
+  │     "enip.session_handle": 0, 
+  │     "enip.length": 25, 
+  │     "enip.CIP.list_services.CPF.count": 1, 
+  │     "enip.CIP.list_services.CPF.item[0].communications_service.capability": 288, 
+  │     "enip.CIP.list_services.CPF.item[0].communications_service.service_name": "Communications", 
+  │     "enip.CIP.list_services.CPF.item[0].communications_service.version": 1, 
+  │     "enip.CIP.list_services.CPF.item[0].length": 19, 
+  │     "enip.CIP.list_services.CPF.item[0].type_id": 256, 
+  │     "enip.command": 4, 
+  │     "enip.input": "array('c', '\\x01\\x00\\x00\\x01\\x13\\x00\\x01\\x00 \\x01Communications\\x00')", 
+  │     "enip.options": 0
+  │ }
+  │ {
+  │     "peer": [
+  │         "192.168.0.201",
+  │         44818
+  │     ],
+  │     "enip.status": 0, 
+  │     "enip.sender_context.input": "array('c', '\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00')", 
+  │     "enip.session_handle": 0, 
+  │     "enip.length": 60, 
+  │     "enip.CIP.list_identity.CPF.count": 1, 
+  │     "enip.CIP.list_identity.CPF.item[0].length": 54, 
+  │     "enip.CIP.list_identity.CPF.item[0].identity_object.sin_addr": "192.168.0.201", 
+  │     "enip.CIP.list_identity.CPF.item[0].identity_object.status_word": 12640, 
+  │     "enip.CIP.list_identity.CPF.item[0].identity_object.vendor_id": 1, 
+  │     "enip.CIP.list_identity.CPF.item[0].identity_object.product_name": "1756-L61/C LOGIX5561", 
+  │     "enip.CIP.list_identity.CPF.item[0].identity_object.sin_port": 44818, 
+  │     "enip.CIP.list_identity.CPF.item[0].identity_object.state": 255, 
+  │     "enip.CIP.list_identity.CPF.item[0].identity_object.version": 1, 
+  │     "enip.CIP.list_identity.CPF.item[0].identity_object.device_type": 14, 
+  │     "enip.CIP.list_identity.CPF.item[0].identity_object.sin_family": 2, 
+  │     "enip.CIP.list_identity.CPF.item[0].identity_object.serial_number": 7079450, 
+  │     "enip.CIP.list_identity.CPF.item[0].identity_object.product_code": 54, 
+  │     "enip.CIP.list_identity.CPF.item[0].identity_object.product_revision": 2836, 
+  │     "enip.CIP.list_identity.CPF.item[0].type_id": 12, 
+  │     "enip.command": 99, 
+  │     "enip.input": "array('c', '\\x01...\\x141756-L61/C LOGIX5561\\xff')", 
+  │     "enip.options": 0
+  │ }
   └────
 
 
@@ -1647,14 +1647,14 @@ Table of Contents
   `REAL' attribute at Class 0x93, Instance 1, Attribute 10:
 
   ┌────
-  │      from cpppo.server.enip.get_attribute import proxy_simple
+  │ from cpppo.server.enip.get_attribute import proxy_simple
   │ 
-  │      class some_sensor( proxy_simple ):
-  │          '''A simple (non-routing) CIP device with one parameter with a
-  │             shortcut name: 'A Sensor Parameter' '''
-  │          PARAMETERS     = dict( proxy_simple.PARAMETERS,
-  │              a_sensor_parameter = proxy_simple.parameter( '@0x93/1/10', 'REAL', 'Hz' ),
-  │          )
+  │ class some_sensor( proxy_simple ):
+  │     '''A simple (non-routing) CIP device with one parameter with a
+  │        shortcut name: 'A Sensor Parameter' '''
+  │     PARAMETERS     = dict( proxy_simple.PARAMETERS,
+  │         a_sensor_parameter = proxy_simple.parameter( '@0x93/1/10', 'REAL', 'Hz' ),
+  │     )
   └────
 
 
@@ -1675,14 +1675,14 @@ Table of Contents
   check for matching any `proxy.PARAMETER' entry):
 
   ┌────
-  │      via                = some_sensor( host="10.0.1.2" )
-  │      try:
-  │          params         = via.parameter_substitution( "A Sensor Parameter" )
-  │          value,         = via.read( params )
-  │      except Exception as exc:
-  │          logging.warning( "Access to remote CIP device failed: %s", exc )
-  │          via.close_gateway( exc=exc )
-  │          raise
+  │ via                = some_sensor( host="10.0.1.2" )
+  │ try:
+  │     params         = via.parameter_substitution( "A Sensor Parameter" )
+  │     value,         = via.read( params )
+  │ except Exception as exc:
+  │     logging.warning( "Access to remote CIP device failed: %s", exc )
+  │     via.close_gateway( exc=exc )
+  │     raise
   └────
   There are several important things to note here:
 
@@ -1694,7 +1694,7 @@ Table of Contents
      use Python `tuple' assignment to unpack a sequence containing a
      single value, eg:
      ┌────
-     │         variable, = [123]
+     │ variable, = [123]
      └────
   3. Upon the first error accessing and/or transforming a value from the
      remote device, the Python generator will raise an exception.
@@ -1847,11 +1847,11 @@ Table of Contents
   `proxy.read':
 
   ┌────
-  │      via                = some_sensor( host="10.0.1.2" )
-  │      with via:
-  │          params         = via.parameter_substitution( "A Sensor Parameter" )
-  │          value,         = via.read( params )
-  │      # value may be something like [1.23], or None if returned error status
+  │ via                = some_sensor( host="10.0.1.2" )
+  │ with via:
+  │     params         = via.parameter_substitution( "A Sensor Parameter" )
+  │     value,         = via.read( params )
+  │ # value may be something like [1.23], or None if returned error status
   └────
   Wherever in your code that you plan to use the results obtained from a
   proxy, ensure that you enclose it in a `with <proxy>:' block.  You may
@@ -1861,14 +1861,14 @@ Table of Contents
   that Exceptions caused by I/O errors are properly captured:
 
   ┌────
-  │      from __future__ import print_function
-  │      via                = some_sensor( host="10.0.1.2" )
-  │      params             = via.parameter_substitution( "A Sensor Parameter" )
-  │      reader             = via.read( params )
-  │      # ... later ...
-  │      with via:
-  │          for value in reader:
-  │              print( "Got: %r" % ( value ))
+  │ from __future__ import print_function
+  │ via                = some_sensor( host="10.0.1.2" )
+  │ params             = via.parameter_substitution( "A Sensor Parameter" )
+  │ reader             = via.read( params )
+  │ # ... later ...
+  │ with via:
+  │     for value in reader:
+  │         print( "Got: %r" % ( value ))
   └────
 
 
@@ -1885,12 +1885,12 @@ Table of Contents
   using `with <proxy>:'
 
   ┌────
-  │      from __future__ import print_function
-  │      via                = some_sensor( host="10.0.1.2" )
-  │      print( "Not yet connected: %s" % ( via ))
-  │      params             = via.parameter_substitution( "A Sensor Parameter" )
-  │      reader             = via.read( params )
-  │      print( "Connected! %s" % ( via ))
+  │ from __future__ import print_function
+  │ via                = some_sensor( host="10.0.1.2" )
+  │ print( "Not yet connected: %s" % ( via ))
+  │ params             = via.parameter_substitution( "A Sensor Parameter" )
+  │ reader             = via.read( params )
+  │ print( "Connected! %s" % ( via ))
   └────
   Producing the output:
   ┌────
@@ -1905,18 +1905,18 @@ Table of Contents
   `identity_default' parameter:
 
   ┌────
-  │      from __future__ import print_function
-  │      via                = proxy( host="localhost", identity_default="Something" )
-  │      print( "Not yet connected: %s" % ( via ))
-  │      params             = via.parameter_substitution( "Product Name" )
-  │      reader             = via.read( params )
-  │      print( "Connected! %s" % ( via ))
+  │ from __future__ import print_function
+  │ via                = proxy( host="localhost", identity_default="Something" )
+  │ print( "Not yet connected: %s" % ( via ))
+  │ params             = via.parameter_substitution( "Product Name" )
+  │ reader             = via.read( params )
+  │ print( "Connected! %s" % ( via ))
   └────
   This would produce something like:
 
   ┌────
-  │      Not yet connected: Something at None
-  │      Connected! Something at localhost:44818[576509498]
+  │ Not yet connected: Something at None
+  │ Connected! Something at localhost:44818[576509498]
   └────
 
 
@@ -1927,78 +1927,78 @@ Table of Contents
   required, then the `cpppo.server.enip.poll' API may be useful.
 
   ┌────
-  │     # 
-  │     # Poll a PowerFlex 750 series at IP (or DNS name) "<hostname>" (default: localhost)
-  │     # 
-  │     #     python -m cpppo.server.enip.poll_example <hostname>
-  │     # 
-  │     # To start a simulator on localhost suitable for polling:
-  │     # 
-  │     #     python -m cpppo.server.enip.poll_test
-  │     # 
+  │ # 
+  │ # Poll a PowerFlex 750 series at IP (or DNS name) "<hostname>" (default: localhost)
+  │ # 
+  │ #     python -m cpppo.server.enip.poll_example <hostname>
+  │ # 
+  │ # To start a simulator on localhost suitable for polling:
+  │ # 
+  │ #     python -m cpppo.server.enip.poll_test
+  │ # 
   │ 
-  │     import logging
-  │     import sys
-  │     import time
-  │     import threading
-  │     
-  │     import cpppo
-  │     #cpppo.log_cfg['level'] = logging.DETAIL
-  │     logging.basicConfig( **cpppo.log_cfg )
-  │     
-  │     from cpppo.server.enip import poll
-  │     #from cpppo.server.enip.get_attribute import proxy_simple as device # MicroLogix
-  │     #from cpppo.server.enip.get_attribute import proxy as device # ControlLogix
-  │     from cpppo.server.enip.ab import powerflex_750_series as device # PowerFlex 750
+  │ import logging
+  │ import sys
+  │ import time
+  │ import threading
   │ 
-  │     # Device IP in 1st arg, or 'localhost' (run: python -m cpppo.server.enip.poll_test)
-  │     hostname			= sys.argv[1] if len( sys.argv ) > 1 else 'localhost'
+  │ import cpppo
+  │ #cpppo.log_cfg['level'] = logging.DETAIL
+  │ logging.basicConfig( **cpppo.log_cfg )
   │ 
-  │     # Parameters valid for device; for *Logix, others, try:
-  │     # params			= [('@1/1/1','INT'),('@1/1/7','SSTRING')]
-  │     params			= [ "Motor Velocity", "Output Current" ]
+  │ from cpppo.server.enip import poll
+  │ #from cpppo.server.enip.get_attribute import proxy_simple as device # MicroLogix
+  │ #from cpppo.server.enip.get_attribute import proxy as device # ControlLogix
+  │ from cpppo.server.enip.ab import powerflex_750_series as device # PowerFlex 750
   │ 
-  │     def failure( exc ):
-  │         failure.string.append( str(exc) )
-  │     failure.string		= [] # [ <exc>, ... ]
-  │     
-  │     def process( par, val ):
-  │         process.values[par]	= val
-  │     process.done		= False
-  │     process.values		= {} # { <parameter>: <value>, ... }
+  │ # Device IP in 1st arg, or 'localhost' (run: python -m cpppo.server.enip.poll_test)
+  │ hostname			= sys.argv[1] if len( sys.argv ) > 1 else 'localhost'
   │ 
-  │     poller			= threading.Thread(
-  │         target=poll.poll, kwargs={
-  │             'proxy_class':  device,
-  │             'address':      (hostname, 44818),
-  │             'cycle':        1.0,
-  │             'timeout':      0.5,
-  │             'process':      process,
-  │             'failure':      failure,
-  │             'params':       params,
-  │         })
-  │     poller.start()
+  │ # Parameters valid for device; for *Logix, others, try:
+  │ # params			= [('@1/1/1','INT'),('@1/1/7','SSTRING')]
+  │ params			= [ "Motor Velocity", "Output Current" ]
   │ 
-  │     # Monitor the process.values {} and failure.string [] (updated in another Thread)
-  │     try:
-  │         while True:
-  │             while process.values:
-  │                 par,val		= process.values.popitem()
-  │                 print( "%s: %16s == %r" % ( time.ctime(), par, val ))
-  │             while failure.string:
-  │                 exc		= failure.string.pop( 0 )
-  │                 print( "%s: %s" %( time.ctime(), exc ))
-  │             time.sleep( .1 )
-  │     finally:
-  │         process.done		= True
-  │         poller.join()
+  │ def failure( exc ):
+  │     failure.string.append( str(exc) )
+  │ failure.string		= [] # [ <exc>, ... ]
+  │ 
+  │ def process( par, val ):
+  │     process.values[par]	= val
+  │ process.done		= False
+  │ process.values		= {} # { <parameter>: <value>, ... }
+  │ 
+  │ poller			= threading.Thread(
+  │     target=poll.poll, kwargs={
+  │         'proxy_class':  device,
+  │         'address':      (hostname, 44818),
+  │         'cycle':        1.0,
+  │         'timeout':      0.5,
+  │         'process':      process,
+  │         'failure':      failure,
+  │         'params':       params,
+  │     })
+  │ poller.start()
+  │ 
+  │ # Monitor the process.values {} and failure.string [] (updated in another Thread)
+  │ try:
+  │     while True:
+  │         while process.values:
+  │             par,val		= process.values.popitem()
+  │             print( "%s: %16s == %r" % ( time.ctime(), par, val ))
+  │         while failure.string:
+  │             exc		= failure.string.pop( 0 )
+  │             print( "%s: %s" %( time.ctime(), exc ))
+  │         time.sleep( .1 )
+  │ finally:
+  │     process.done		= True
+  │     poller.join()
   └────
   If you start a (simulated) A-B PowerFlex (be prepared to stop and
   restart it, to observe how the `cpppo.server.enip.poll' API handles
   polling failures):
 
   ┌────
-  │     $ cpppo -m cpppo.server.enip.poll_test
+  │ $ cpppo -m cpppo.server.enip.poll_test
   └────
   and then in another terminal, start the (above) `poll_example.py'
   (also included in the `cpppo' installation).  You'll see something
@@ -2006,30 +2006,30 @@ Table of Contents
   `poll_test.py' A-B PowerFlex simulator during the test):
 
   ┌────
-  │     $ cpppo -m cpppo.server.enip.poll_example
-  │     Wed Feb  3 11:47:58 2016: [Errno 61] Connection refused
-  │     Wed Feb  3 11:47:59 2016: [Errno 61] Connection refused
-  │     Wed Feb  3 11:48:00 2016: [Errno 61] Connection refused
-  │     Wed Feb  3 11:48:03 2016:   Motor Velocity == [789.010009765625]
-  │     Wed Feb  3 11:48:03 2016:   Output Current == [123.44999694824219]
-  │     Wed Feb  3 11:48:04 2016:   Motor Velocity == [789.010009765625]
-  │     Wed Feb  3 11:48:04 2016:   Output Current == [123.44999694824219]
-  │     Wed Feb  3 11:48:05 2016:   Motor Velocity == [789.010009765625]
-  │     Wed Feb  3 11:48:05 2016:   Output Current == [123.44999694824219]
-  │     Wed Feb  3 11:48:06 2016:   Motor Velocity == [789.010009765625]
-  │     Wed Feb  3 11:48:06 2016:   Output Current == [123.44999694824219]
-  │     Wed Feb  3 11:48:07 2016:   Motor Velocity == [789.010009765625]
-  │     Wed Feb  3 11:48:07 2016:   Output Current == [123.44999694824219]
-  │     Wed Feb  3 11:48:08 2016: Communication ceased before harvesting all pipeline responses:   0/  2
-  │     Wed Feb  3 11:48:10 2016: Failed to receive any response
-  │     Wed Feb  3 11:48:12 2016: Failed to receive any response
-  │     Wed Feb  3 11:48:14 2016: Failed to receive any response
-  │     Wed Feb  3 11:48:18 2016:   Motor Velocity == [789.010009765625]
-  │     Wed Feb  3 11:48:18 2016:   Output Current == [123.44999694824219]
-  │     Wed Feb  3 11:48:19 2016:   Motor Velocity == [789.010009765625]
-  │     Wed Feb  3 11:48:19 2016:   Output Current == [123.44999694824219]
-  │     Wed Feb  3 11:48:20 2016:   Motor Velocity == [789.010009765625]
-  │     Wed Feb  3 11:48:20 2016:   Output Current == [123.44999694824219]
+  │ $ cpppo -m cpppo.server.enip.poll_example
+  │ Wed Feb  3 11:47:58 2016: [Errno 61] Connection refused
+  │ Wed Feb  3 11:47:59 2016: [Errno 61] Connection refused
+  │ Wed Feb  3 11:48:00 2016: [Errno 61] Connection refused
+  │ Wed Feb  3 11:48:03 2016:   Motor Velocity == [789.010009765625]
+  │ Wed Feb  3 11:48:03 2016:   Output Current == [123.44999694824219]
+  │ Wed Feb  3 11:48:04 2016:   Motor Velocity == [789.010009765625]
+  │ Wed Feb  3 11:48:04 2016:   Output Current == [123.44999694824219]
+  │ Wed Feb  3 11:48:05 2016:   Motor Velocity == [789.010009765625]
+  │ Wed Feb  3 11:48:05 2016:   Output Current == [123.44999694824219]
+  │ Wed Feb  3 11:48:06 2016:   Motor Velocity == [789.010009765625]
+  │ Wed Feb  3 11:48:06 2016:   Output Current == [123.44999694824219]
+  │ Wed Feb  3 11:48:07 2016:   Motor Velocity == [789.010009765625]
+  │ Wed Feb  3 11:48:07 2016:   Output Current == [123.44999694824219]
+  │ Wed Feb  3 11:48:08 2016: Communication ceased before harvesting all pipeline responses:   0/  2
+  │ Wed Feb  3 11:48:10 2016: Failed to receive any response
+  │ Wed Feb  3 11:48:12 2016: Failed to receive any response
+  │ Wed Feb  3 11:48:14 2016: Failed to receive any response
+  │ Wed Feb  3 11:48:18 2016:   Motor Velocity == [789.010009765625]
+  │ Wed Feb  3 11:48:18 2016:   Output Current == [123.44999694824219]
+  │ Wed Feb  3 11:48:19 2016:   Motor Velocity == [789.010009765625]
+  │ Wed Feb  3 11:48:19 2016:   Output Current == [123.44999694824219]
+  │ Wed Feb  3 11:48:20 2016:   Motor Velocity == [789.010009765625]
+  │ Wed Feb  3 11:48:20 2016:   Output Current == [123.44999694824219]
   └────
   Likewise, for an example of polling various parameters at different
   rates from multiple threads, via a single `proxy' EtherNet/IP CIP
@@ -2038,36 +2038,36 @@ Table of Contents
   via: `pip install pytz'):
 
   ┌────
-  │     $ cpppo -m cpppo.server.enip.poll_example_many
-  │     2016-01-28 15:25:18.366: [Errno 61] Connection refused
-  │     2016-01-28 15:25:18.484: [Errno 61] Connection refused
-  │     2016-01-28 15:25:20.057: [Errno 61] Connection refused
-  │     2016-01-28 15:25:20.812:   Motor Velocity == [789.010009765625]
-  │     2016-01-28 15:25:20.812:   Output Current == [123.44999694824219]
-  │     2016-01-28 15:25:20.991:      Elapsed KwH == [987.6500244140625]
-  │     ...
-  │     2016-01-28 15:25:25.766:   Motor Velocity == [789.010009765625]
-  │     2016-01-28 15:25:25.993:      Speed Units == [1]
-  │     2016-01-28 15:25:26.009:      Elapsed KwH == [987.6500244140625]
-  │     2016-01-28 15:25:26.112: Output Frequency == [456.7799987792969]
-  │     2016-01-28 15:25:26.613: Output Frequency == [456.7799987792969]
-  │     2016-01-28 15:25:26.765:   Output Current == [123.44999694824219]
-  │     2016-01-28 15:25:26.765:   Motor Velocity == [789.010009765625]
-  │     2016-01-28 15:25:27.112: Output Frequency == [456.7799987792969]
-  │     2016-01-28 15:25:27.613: Output Frequency == [456.7799987792969]
-  │     2016-01-28 15:25:27.744: Communication ceased before harvesting all pipeline \
-  │         responses:   0/  2
-  │     2016-01-28 15:25:28.096: [Errno 61] Connection refused
-  │     2016-01-28 15:25:28.604: [Errno 61] Connection refused
-  │     2016-01-28 15:25:28.751: [Errno 61] Connection refused
-  │     2016-01-28 15:25:29.358: [Errno 61] Connection refused
-  │     2016-01-28 15:25:30.259: [Errno 61] Connection refused
-  │     2016-01-28 15:25:30.487: [Errno 61] Connection refused
-  │     2016-01-28 15:25:30.981: [Errno 61] Connection refused
-  │     2016-01-28 15:25:32.240: Output Frequency == [456.7799987792969]
-  │     2016-01-28 15:25:32.538:   Output Current == [123.44999694824219]
-  │     2016-01-28 15:25:32.538:   Motor Velocity == [789.010009765625]
-  │     2016-01-28 15:25:32.611: Output Frequency == [456.7799987792969]
+  │ $ cpppo -m cpppo.server.enip.poll_example_many
+  │ 2016-01-28 15:25:18.366: [Errno 61] Connection refused
+  │ 2016-01-28 15:25:18.484: [Errno 61] Connection refused
+  │ 2016-01-28 15:25:20.057: [Errno 61] Connection refused
+  │ 2016-01-28 15:25:20.812:   Motor Velocity == [789.010009765625]
+  │ 2016-01-28 15:25:20.812:   Output Current == [123.44999694824219]
+  │ 2016-01-28 15:25:20.991:      Elapsed KwH == [987.6500244140625]
+  │ ...
+  │ 2016-01-28 15:25:25.766:   Motor Velocity == [789.010009765625]
+  │ 2016-01-28 15:25:25.993:      Speed Units == [1]
+  │ 2016-01-28 15:25:26.009:      Elapsed KwH == [987.6500244140625]
+  │ 2016-01-28 15:25:26.112: Output Frequency == [456.7799987792969]
+  │ 2016-01-28 15:25:26.613: Output Frequency == [456.7799987792969]
+  │ 2016-01-28 15:25:26.765:   Output Current == [123.44999694824219]
+  │ 2016-01-28 15:25:26.765:   Motor Velocity == [789.010009765625]
+  │ 2016-01-28 15:25:27.112: Output Frequency == [456.7799987792969]
+  │ 2016-01-28 15:25:27.613: Output Frequency == [456.7799987792969]
+  │ 2016-01-28 15:25:27.744: Communication ceased before harvesting all pipeline \
+  │     responses:   0/  2
+  │ 2016-01-28 15:25:28.096: [Errno 61] Connection refused
+  │ 2016-01-28 15:25:28.604: [Errno 61] Connection refused
+  │ 2016-01-28 15:25:28.751: [Errno 61] Connection refused
+  │ 2016-01-28 15:25:29.358: [Errno 61] Connection refused
+  │ 2016-01-28 15:25:30.259: [Errno 61] Connection refused
+  │ 2016-01-28 15:25:30.487: [Errno 61] Connection refused
+  │ 2016-01-28 15:25:30.981: [Errno 61] Connection refused
+  │ 2016-01-28 15:25:32.240: Output Frequency == [456.7799987792969]
+  │ 2016-01-28 15:25:32.538:   Output Current == [123.44999694824219]
+  │ 2016-01-28 15:25:32.538:   Motor Velocity == [789.010009765625]
+  │ 2016-01-28 15:25:32.611: Output Frequency == [456.7799987792969]
   └────
 
 
@@ -2185,34 +2185,34 @@ Table of Contents
   and you should get something like:
 
   ┌────
-  │     $ curl http://localhost:12345/api
-  │     {
-  │         "alarm": [],
-  │         "command": {},
-  │         "data": {
-  │             "options": {
-  │                 "delay": {
-  │                     "value": 0.0
-  │                 }
-  │             },
-  │             "server": {
-  │                 "control": {
-  │                     "disable": false,
-  │                     "done": false,
-  │                     "latency": 5.0,
-  │                     "timeout": 5.0
-  │                 }
-  │             },
-  │             "tags": {
-  │                 "SCADA": {
-  │                 "attribute": "SCADA          INT[1000] == [0, 0, 0, 0, 0, 0,...]",
-  │                 "error": 0
-  │                 }
+  │ $ curl http://localhost:12345/api
+  │ {
+  │     "alarm": [],
+  │     "command": {},
+  │     "data": {
+  │         "options": {
+  │             "delay": {
+  │                 "value": 0.0
   │             }
   │         },
-  │         "since": null,
-  │         "until": 1371731588.230987
-  │     }
+  │         "server": {
+  │             "control": {
+  │                 "disable": false,
+  │                 "done": false,
+  │                 "latency": 5.0,
+  │                 "timeout": 5.0
+  │             }
+  │         },
+  │         "tags": {
+  │             "SCADA": {
+  │             "attribute": "SCADA          INT[1000] == [0, 0, 0, 0, 0, 0,...]",
+  │             "error": 0
+  │             }
+  │         }
+  │     },
+  │     "since": null,
+  │     "until": 1371731588.230987
+  │ }
   └────
 
 
@@ -2222,23 +2222,23 @@ Table of Contents
   a <command> and <value>:
 
   ┌────
-  │      $ curl http://localhost:12345/api/options/delay/value/0.5
-  │      {
-  │          "alarm": [],
-  │          "command": {
-  │              "message": "options.delay.value=u'0.5' (0.5)",
-  │              "success": true
-  │          },
-  │          "data": {
-  │              "options": {
-  │                  "delay": {
-  │                      "value": 0.5
-  │                  }
-  │              }
-  │          },
-  │          "since": null,
-  │          "until": 1371732496.23366
-  │      }
+  │ $ curl http://localhost:12345/api/options/delay/value/0.5
+  │ {
+  │     "alarm": [],
+  │     "command": {
+  │         "message": "options.delay.value=u'0.5' (0.5)",
+  │         "success": true
+  │     },
+  │     "data": {
+  │         "options": {
+  │             "delay": {
+  │                 "value": 0.5
+  │             }
+  │         }
+  │     },
+  │     "since": null,
+  │     "until": 1371732496.23366
+  │ }
   └────
   It will perform the action of assigning the <value> to all of the
   matching <command> entities.  In this case, since you specified a
@@ -2344,25 +2344,25 @@ Table of Contents
   You can access any specific value to confirm:
 
   ┌────
-  │      wget -qO -  http://localhost:12345/api/tags/SCADA/attribute[3]
-  │      {
-  │          "alarm": [],
-  │          "command": {
-  │              "message": "tags.SCADA.attribute[2]: 0",
-  │              "success": true
-  │          },
-  │          "data": {
-  │              "tags": {
-  │                  "SCADA": {
-  │                      "attribute": "SCADA          INT[1000] == [0, 0, 0, 4, 0, 0,
-  │                      ...]",
-  │                      "error": 0
-  │                  }
-  │              }
-  │          },
-  │          "since": null,
-  │          "until": 1371734234.553135
-  │      }
+  │ wget -qO -  http://localhost:12345/api/tags/SCADA/attribute[3]
+  │ {
+  │     "alarm": [],
+  │     "command": {
+  │         "message": "tags.SCADA.attribute[2]: 0",
+  │         "success": true
+  │     },
+  │     "data": {
+  │         "tags": {
+  │             "SCADA": {
+  │                 "attribute": "SCADA          INT[1000] == [0, 0, 0, 4, 0, 0,
+  │                 ...]",
+  │                 "error": 0
+  │             }
+  │         }
+  │     },
+  │     "since": null,
+  │     "until": 1371734234.553135
+  │ }
   └────
 
 
@@ -2388,40 +2388,40 @@ Table of Contents
   all connections, and wait for the 'data' attribute to become empty:
 
   ┌────
-  │      $ curl http://localhost:12345/api/connections
-  │      {
-  │          "alarm": [],
-  │          "command": {},
-  │          "data": {
-  │              "connections": {
-  │                  "127_0_0_1_52590": {
-  │                      "eof": false,
-  │                      "interface": "127.0.0.1",
-  │                      "port": 52590,
-  │                      "received": 1610,
-  │                      "requests": 17
-  │                  },
-  │                  "127_0_0_1_52591": {
-  │                      "eof": false,
-  │                      "interface": "127.0.0.1",
-  │                      "port": 52591,
-  │                      "received": 290,
-  │                      "requests": 5
-  │                  }
-  │              }
-  │          },
-  │          "since": null,
-  │          "until": 1372889099.908609
-  │      }
-  │      $ # ... wait a while (a few tenths of a second should be OK)...
-  │      $ curl http://localhost:12345/api/connections
-  │      {
-  │          "alarm": [],
-  │          "command": null,
-  │          "data": {},
-  │          "since": null,
-  │          "until": 1372889133.079849
-  │      }
+  │ $ curl http://localhost:12345/api/connections
+  │ {
+  │     "alarm": [],
+  │     "command": {},
+  │     "data": {
+  │         "connections": {
+  │             "127_0_0_1_52590": {
+  │                 "eof": false,
+  │                 "interface": "127.0.0.1",
+  │                 "port": 52590,
+  │                 "received": 1610,
+  │                 "requests": 17
+  │             },
+  │             "127_0_0_1_52591": {
+  │                 "eof": false,
+  │                 "interface": "127.0.0.1",
+  │                 "port": 52591,
+  │                 "received": 290,
+  │                 "requests": 5
+  │             }
+  │         }
+  │     },
+  │     "since": null,
+  │     "until": 1372889099.908609
+  │ }
+  │ $ # ... wait a while (a few tenths of a second should be OK)...
+  │ $ curl http://localhost:12345/api/connections
+  │ {
+  │     "alarm": [],
+  │     "command": null,
+  │     "data": {},
+  │     "since": null,
+  │     "until": 1372889133.079849
+  │ }
   └────
 
 
@@ -2470,50 +2470,50 @@ Table of Contents
   `poller' class to access the device:
 
   ┌────
-  │    from cpppo.remote import plc_modbus
+  │ from cpppo.remote import plc_modbus
   │ 
-  │    # Connect to a PLC: site TW's PLC 3, at IP address 10.0.111.123, port 502.
-  │    # If using modbus_sim, use: ( 'fake', host="localhost", port=1502, rate=.5 )
-  │    p = plc_modbus.poller_modbus( 'twplc3', host="10.0.111.123", rate=.5 )
+  │ # Connect to a PLC: site TW's PLC 3, at IP address 10.0.111.123, port 502.
+  │ # If using modbus_sim, use: ( 'fake', host="localhost", port=1502, rate=.5 )
+  │ p = plc_modbus.poller_modbus( 'twplc3', host="10.0.111.123", rate=.5 )
   │ 
-  │    p.poll( 40001 )       # Begin polling address(es) in background Thread
+  │ p.poll( 40001 )       # Begin polling address(es) in background Thread
   │ 
-  │    # ... later ...
+  │ # ... later ...
   │ 
-  │    reg = p.read( 40001 ) # Will be None, 'til poll succeeds
-  │    p.write( 40001, 123 ) # Change the value in the PLC synchronously
-  │    reg = p.read( 40001 ) # Will eventually be 123, after next poll
+  │ reg = p.read( 40001 ) # Will be None, 'til poll succeeds
+  │ p.write( 40001, 123 ) # Change the value in the PLC synchronously
+  │ reg = p.read( 40001 ) # Will eventually be 123, after next poll
   └────
   We have made available a script to allow simple poll (and write)
   access to a Modbus/TCP PLC: `modbus_poll'.  To initialize (and poll)
   some values (assuming you are running the `modbus_sim' above), run:
 
   ┌────
-  │    $ modbus_poll -a :1502 40001-40010=0 40001-40100
-  │    09-16 06:26:06.161  7fff70d0e300 root  WARNING  main  40001 ==     9 (was: None)
-  │    09-16 06:26:06.161  7fff70d0e300 root  WARNING  main  40002 ==     9 (was: None)
-  │    09-16 06:26:06.161  7fff70d0e300 root  WARNING  main  40003 ==     9 (was: None)
-  │    09-16 06:26:06.161  7fff70d0e300 root  WARNING  main  40004 ==     9 (was: None)
-  │    09-16 06:26:06.161  7fff70d0e300 root  WARNING  main  40005 ==     9 (was: None)
-  │    09-16 06:26:06.161  7fff70d0e300 root  WARNING  main  40006 ==    99 (was: None)
-  │    09-16 06:26:06.161  7fff70d0e300 root  WARNING  main  40007 ==    99 (was: None)
-  │    09-16 06:26:06.161  7fff70d0e300 root  WARNING  main  40008 ==    99 (was: None)
-  │    09-16 06:26:06.161  7fff70d0e300 root  WARNING  main  40009 ==    99 (was: None)
-  │    09-16 06:26:06.161  7fff70d0e300 root  WARNING  main  40010 ==    99 (was: None)
+  │ $ modbus_poll -a :1502 40001-40010=0 40001-40100
+  │ 09-16 06:26:06.161  7fff70d0e300 root  WARNING  main  40001 ==     9 (was: None)
+  │ 09-16 06:26:06.161  7fff70d0e300 root  WARNING  main  40002 ==     9 (was: None)
+  │ 09-16 06:26:06.161  7fff70d0e300 root  WARNING  main  40003 ==     9 (was: None)
+  │ 09-16 06:26:06.161  7fff70d0e300 root  WARNING  main  40004 ==     9 (was: None)
+  │ 09-16 06:26:06.161  7fff70d0e300 root  WARNING  main  40005 ==     9 (was: None)
+  │ 09-16 06:26:06.161  7fff70d0e300 root  WARNING  main  40006 ==    99 (was: None)
+  │ 09-16 06:26:06.161  7fff70d0e300 root  WARNING  main  40007 ==    99 (was: None)
+  │ 09-16 06:26:06.161  7fff70d0e300 root  WARNING  main  40008 ==    99 (was: None)
+  │ 09-16 06:26:06.161  7fff70d0e300 root  WARNING  main  40009 ==    99 (was: None)
+  │ 09-16 06:26:06.161  7fff70d0e300 root  WARNING  main  40010 ==    99 (was: None)
   └────
   Now, if you write to the PLC using `modbus_poll' again (in another
   terminal), eg:
 
   ┌────
-  │    $ modbus_poll -a :1502 40009=999    # hit ^C to terminate
-  │    $ modbus_poll -a :1502 40001=9999   # hit ^C to terminate
+  │ $ modbus_poll -a :1502 40009=999    # hit ^C to terminate
+  │ $ modbus_poll -a :1502 40001=9999   # hit ^C to terminate
   └────
   In a second or so after each request, you'll see further logging from
   the first (still running) `modbus_poll':
 
   ┌────
-  │    09-16 06:28:12.579  7fff70d0e300 root WARNING  main  40009 ==   999 (was: 99)
-  │    09-16 06:28:38.674  7fff70d0e300 root WARNING  main  40001 ==  9999 (was: 9)
+  │ 09-16 06:28:12.579  7fff70d0e300 root WARNING  main  40009 ==   999 (was: 99)
+  │ 09-16 06:28:38.674  7fff70d0e300 root WARNING  main  40001 ==  9999 (was: 9)
   └────
 
 
@@ -2628,15 +2628,6 @@ Table of Contents
   `modbus_rtu_read') allows us to implement correct Modbus/RTU framing.
 
 
-◊ 3.1.2.5 `modbus_sparse_data_block'
-
-  The provided `ModbusSparseDataBlock' incorrectly deduces the base
-  address, and is wildly inefficient for large data blocks.  We
-  correctly deduce the base register address.  The provided `.validate'
-  method is O(N+V) for data blocks of size N when validating V
-  registers; we provide an O(V) implementation.
-
-
 4 Deterministic Finite Automata
 ═══════════════════════════════
 
@@ -2659,15 +2650,15 @@ Table of Contents
   This machine is easily created like this:
 
   ┌────
-  │    # Basic DFA that accepts ab+
-  │    E                    = cpppo.state( "E" )
-  │    A                    = cpppo.state_input( "A" )
-  │    B                    = cpppo.state_input( "B", terminal=True )
-  │    E['a']               = A
-  │    A['b']               = B
-  │    B['b']               = B
+  │ # Basic DFA that accepts ab+
+  │ E                    = cpppo.state( "E" )
+  │ A                    = cpppo.state_input( "A" )
+  │ B                    = cpppo.state_input( "B", terminal=True )
+  │ E['a']               = A
+  │ A['b']               = B
+  │ B['b']               = B
   │ 
-  │    BASIC                = cpppo.dfa( 'ab+', initial=E, context='basic' )
+  │ BASIC                = cpppo.dfa( 'ab+', initial=E, context='basic' )
   └────
 
 
@@ -2683,14 +2674,14 @@ Table of Contents
   This is implemented:
 
   ┌────
-  │    # Composite state machine accepting ab+, ignoring ,[ ]* separators
-  │    ABP                  = cpppo.dfa( "ab+", initial=E, terminal=True )
-  │    SEP                  = cpppo.state_drop( "SEP" )
-  │    ABP[',']             = SEP
-  │    SEP[' ']             = SEP
-  │    SEP[None]            = ABP
+  │ # Composite state machine accepting ab+, ignoring ,[ ]* separators
+  │ ABP                  = cpppo.dfa( "ab+", initial=E, terminal=True )
+  │ SEP                  = cpppo.state_drop( "SEP" )
+  │ ABP[',']             = SEP
+  │ SEP[' ']             = SEP
+  │ SEP[None]            = ABP
   │ 
-  │    CSV                  = cpppo.dfa( 'CSV', initial=ABP, context='csv' )
+  │ CSV                  = cpppo.dfa( 'CSV', initial=ABP, context='csv' )
   └────
 
   When the lower level state machine doesn't recognize the input symbol
@@ -2723,8 +2714,8 @@ Table of Contents
   A regular expression based cpppo.dfa is created thus:
 
   ┌────
-  │    # A regular expression; the default dfa name is the regular expression itself.
-  │    REGEX                = cpppo.regex( initial='(ab+)((,[ ]*)(ab+))*' )
+  │ # A regular expression; the default dfa name is the regular expression itself.
+  │ REGEX                = cpppo.regex( initial='(ab+)((,[ ]*)(ab+))*' )
   └────
 
 
@@ -2772,16 +2763,16 @@ Table of Contents
   cpppo.dfa's <context> + '_input':
 
   ┌────
-  │   data                  = cpppo.dotdict()
-  │   for machine in [ BASIC, CSV, REGEX ]:
-  │       path              = machine.context() + '.input' # default for state_input data
-  │       source            = cpppo.peekable( str( 'abbbb, ab' ))
-  │       with machine:
-  │           for i,(m,s) in enumerate( machine.run( source=source, data=data )):
-  │               print( "%s #%3d; next byte %3d: %-10.10r: %r" % (
-  │                      m.name_centered(), i, source.sent, source.peek(), data.get(path) ))
-  │       print( "Accepted: %r; remaining: %r\n" % ( data.get(path), ''.join( source )))
-  │   print( "Final: %r" % ( data ))
+  │ data                  = cpppo.dotdict()
+  │ for machine in [ BASIC, CSV, REGEX ]:
+  │     path              = machine.context() + '.input' # default for state_input data
+  │     source            = cpppo.peekable( str( 'abbbb, ab' ))
+  │     with machine:
+  │         for i,(m,s) in enumerate( machine.run( source=source, data=data )):
+  │             print( "%s #%3d; next byte %3d: %-10.10r: %r" % (
+  │                    m.name_centered(), i, source.sent, source.peek(), data.get(path) ))
+  │     print( "Accepted: %r; remaining: %r\n" % ( data.get(path), ''.join( source )))
+  │ print( "Final: %r" % ( data ))
   └────
 
 
@@ -3040,29 +3031,29 @@ Table of Contents
   SCADA, repeating 10 times:
 
   ┌────
-  │    $ python -m cpppo.server.enip.client -r 10 SCADA[1] SCADA[0-10]
-  │    10-08 09:40:29.327  ...  SCADA[    1-1    ] == [0]
-  │    10-08 09:40:29.357  ...  SCADA[    0-10   ] == [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
-  │    10-08 09:40:29.378  ...  SCADA[    1-1    ] == [0]
-  │    10-08 09:40:29.406  ...  SCADA[    0-10   ] == [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
-  │    10-08 09:40:29.426  ...  SCADA[    1-1    ] == [0]
-  │    10-08 09:40:29.454  ...  SCADA[    0-10   ] == [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
-  │    10-08 09:40:29.476  ...  SCADA[    1-1    ] == [0]
-  │    10-08 09:40:29.503  ...  SCADA[    0-10   ] == [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
-  │    10-08 09:40:29.523  ...  SCADA[    1-1    ] == [0]
-  │    10-08 09:40:29.551  ...  SCADA[    0-10   ] == [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
-  │    10-08 09:40:29.571  ...  SCADA[    1-1    ] == [0]
-  │    10-08 09:40:29.600  ...  SCADA[    0-10   ] == [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
-  │    10-08 09:40:29.622  ...  SCADA[    1-1    ] == [0]
-  │    10-08 09:40:29.648  ...  SCADA[    0-10   ] == [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
-  │    10-08 09:40:29.669  ...  SCADA[    1-1    ] == [0]
-  │    10-08 09:40:29.697  ...  SCADA[    0-10   ] == [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
-  │    10-08 09:40:29.717  ...  SCADA[    1-1    ] == [0]
-  │    10-08 09:40:29.745  ...  SCADA[    0-10   ] == [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
-  │    10-08 09:40:29.769  ...  SCADA[    1-1    ] == [0]
-  │    10-08 09:40:29.796  ...  SCADA[    0-10   ] == [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
-  │    10-08 09:40:29.796  ...  Client ReadFrg. Average  20.266 TPS (  0.049s ea).
-  │    $ 
+  │ $ python -m cpppo.server.enip.client -r 10 SCADA[1] SCADA[0-10]
+  │ 10-08 09:40:29.327  ...  SCADA[    1-1    ] == [0]
+  │ 10-08 09:40:29.357  ...  SCADA[    0-10   ] == [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+  │ 10-08 09:40:29.378  ...  SCADA[    1-1    ] == [0]
+  │ 10-08 09:40:29.406  ...  SCADA[    0-10   ] == [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+  │ 10-08 09:40:29.426  ...  SCADA[    1-1    ] == [0]
+  │ 10-08 09:40:29.454  ...  SCADA[    0-10   ] == [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+  │ 10-08 09:40:29.476  ...  SCADA[    1-1    ] == [0]
+  │ 10-08 09:40:29.503  ...  SCADA[    0-10   ] == [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+  │ 10-08 09:40:29.523  ...  SCADA[    1-1    ] == [0]
+  │ 10-08 09:40:29.551  ...  SCADA[    0-10   ] == [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+  │ 10-08 09:40:29.571  ...  SCADA[    1-1    ] == [0]
+  │ 10-08 09:40:29.600  ...  SCADA[    0-10   ] == [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+  │ 10-08 09:40:29.622  ...  SCADA[    1-1    ] == [0]
+  │ 10-08 09:40:29.648  ...  SCADA[    0-10   ] == [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+  │ 10-08 09:40:29.669  ...  SCADA[    1-1    ] == [0]
+  │ 10-08 09:40:29.697  ...  SCADA[    0-10   ] == [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+  │ 10-08 09:40:29.717  ...  SCADA[    1-1    ] == [0]
+  │ 10-08 09:40:29.745  ...  SCADA[    0-10   ] == [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+  │ 10-08 09:40:29.769  ...  SCADA[    1-1    ] == [0]
+  │ 10-08 09:40:29.796  ...  SCADA[    0-10   ] == [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+  │ 10-08 09:40:29.796  ...  Client ReadFrg. Average  20.266 TPS (  0.049s ea).
+  │ $ 
   └────
 
 
@@ -3086,13 +3077,13 @@ Table of Contents
   cpppo/docker/cpppo/scada/:
 
   ┌────
-  │     FROM        cpppo/cpppo
-  │     MAINTAINER  Whoever You Are "whoever@example.com"
-  │     EXPOSE      44818
-  │     # We'll always run this as our base command
-  │     ENTRYPOINT  [ "python",  "-m", "cpppo.server.enip" ]
-  │     # But we will allow this to be (optionally) overridden
-  │     CMD         [ "SCADA=dint[1000]" ]
+  │ FROM        cpppo/cpppo
+  │ MAINTAINER  Whoever You Are "whoever@example.com"
+  │ EXPOSE      44818
+  │ # We'll always run this as our base command
+  │ ENTRYPOINT  [ "python",  "-m", "cpppo.server.enip" ]
+  │ # But we will allow this to be (optionally) overridden
+  │ CMD         [ "SCADA=dint[1000]" ]
   └────
   Then, we can build and save the container under a new name:
   ┌────

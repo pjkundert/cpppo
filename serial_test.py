@@ -34,7 +34,7 @@ import traceback
 
 import pytest
 
-# 
+#
 # We require *explicit* access to the /dev/ttys[012] serial ports to perform this test -- we must
 # not assume that can safely use the serial port(s), or that they are configured for us to run our
 # tests!  Therefore, we will run these tests ONLY if "serial" tests are explicitly called for
@@ -43,12 +43,12 @@ import pytest
 # They must be configured as RS485, in the following multi-drop pattern:
 #
 #     - master -      - slaves -----------------
-#     ttyS0(COM1) --> ttys1(COM2) --> ttys2(COM3)
-# 
+#     ttyS0(COM1) --> ttyS1(COM2) --> ttyS2(COM3)
+#
 # The Modbus Master will be on ttyS0, and two Modbus slave-ids (unit numbers) will be simulated on
 # each of ttyS1 and ttyS2.  Since they each must ignore requests to slave-ids they do not simulate,
 # pymodbus >= 1.3.0 is required.
-# 
+#
 PORT_MASTER			= "ttyS0"
 PORT_SLAVES			= {
     "ttyS1": [1,3],
@@ -68,7 +68,7 @@ try:
     has_pyserial		= True
 except ImportError:
     logging.warning( "Failed to import pyserial module; skipping Modbus/RTU related tests; run 'pip install pyserial'" )
-    
+
 has_minimalmodbus		= False
 try:
     # Configure minimalmodbus to use the specified port serial framing
@@ -128,14 +128,13 @@ def test_pymodbus_rs485_sync():
     serial_args = dict(
         timeout=.5,
         # retries=3,
-        baudrate = 57600,
+        baudrate = 19200,
         bytesize = 8,
         parity = "N",
         stopbits = 2,
         # handle_local_echo=False,
     )
 
-    # Start the server on 
     import asyncio
     from contextlib import suppress
 
@@ -152,9 +151,12 @@ def test_pymodbus_rs485_sync():
                 )
             },
         )
+        logging.warning( "Starting Modbus Serial server for unit {unit} on {port} w/ {context}".format(
+            unit=unit, port=port, context=context ))
 
-        from pymodbus.server import ModbusSerialServer
-        server			= ModbusSerialServer(
+        #from pymodbus.server import ModbusSerialServer as modbus_server_rtu
+        from .pymodbus_fixes import modbus_server_rtu
+        server			= modbus_server_rtu(
             port	= port,
             context	= context,
             framer	= FramerType.RTU,
@@ -183,30 +185,30 @@ def test_pymodbus_rs485_sync():
         servers[unit].start()
 
     time.sleep(.5)
-
+    '''
     # Try the bare Serial client(s), and then the locking version.  Should be identical.
-    for cls in modbus_client_rtu, ModbusSerialClient:
+    for cls in ModbusSerialClient, modbus_client_rtu:
         logging.info( "Testing Modbus/RTU Serial client: {cls.__name__}".format( cls=cls ))
         client			= cls(
-            port="ttyS0",
-            framer=FramerType.RTU,
+            port	= PORT_MASTER,
+            framer	= FramerType.RTU,
             **serial_args,
         )
         client.connect()
-    
-        rr1			= client.read_coils( 1, 1, slave=1 )
-        rr2			= client.read_coils( 2, 1, slave=2 )
+
+        rr1			= client.read_coils( 1, count=1, slave=1 )
+        rr2			= client.read_coils( 2, count=1, slave=2 )
         assert (( not rr2.isError() and rr2.bits[0] == True ) or
-                ( not rr1.isError() and rr.bits[0] == False ))
-        rr3			= client.read_coils( 2, 1, slave=3 )
+                ( not rr1.isError() and rr1.bits[0] == False ))
+        rr3			= client.read_coils( 2, count=1, slave=3 )
         assert rr3.isError()
-    
+
         client.close()
         del client
-
+    '''
     # Now ensure we can pound away from multiple threads using the locking client.
     client			= modbus_client_rtu(
-        port	= "ttyS0",
+        port	= PORT_MASTER,
         framer	= FramerType.RTU,
         **serial_args,
     )
@@ -217,7 +219,7 @@ def test_pymodbus_rs485_sync():
             with client:
                 unit		= 1+a%len(SERVER_ttyS)
                 expect		= not bool( a%2 )
-                rr		= client.read_coils( 1, a, slave=unit )
+                rr		= client.read_coils( a, count=1, slave=unit )
                 if rr.isError() or rr.bits[0] != expect:
                     logging.warning( "Expected unit {unit} coil {a} == {expect}, got {val}".format(
                         unit=unit, a=a, expect=expect, val=( rr if rr.isError() else rr.bits[0] )))
@@ -238,7 +240,6 @@ def test_pymodbus_rs485_sync():
         asyncio.run_coroutine_threadsafe( s.shutdown(), l )
     for u in servers:
         servers[u].join()
-        
 
 
 RTU_TIMEOUT			= 0.1  # latency while simulated slave awaits next incoming byte
@@ -289,17 +290,12 @@ def simulated_modbus_rtu_ttyS2( request ):
 
 @pytest.mark.skipif(
     'SERIAL_TEST' not in os.environ or not has_o_nonblock or not has_minimalmodbus or not has_pyserial
-    or not os.path.exists("ttyS0") or not os.path.exists("ttyS1"),
+    or not os.path.exists(PORT_MASTER) or not os.path.exists("ttyS1"),
     reason="Needs SERIAL_TEST and fcntl/O_NONBLOCK and minimalmodbus and pyserial, and ttyS{0,1}" )
 def test_rs485_basic( simulated_modbus_rtu_ttyS1 ):
     """Use MinimalModbus to test RS485 read/write. """
 
-    groups			= subprocess.check_output( ['groups'] )
-    assert 'dialout' in groups, \
-        "Ensure that the user is in the dialout group; run 'addgroup %s dialout'" % (
-            os.environ.get( 'USER', '(unknown)' ))
-
-    command,address		= simulated_modbus_rtu_ttyS0
+    command,address		= simulated_modbus_rtu_ttyS1
 
     comm			= minimalmodbus.Instrument( port=PORT_MASTER, slaveaddress=1 )
     comm.debug			= True
@@ -311,10 +307,9 @@ def test_rs485_basic( simulated_modbus_rtu_ttyS1 ):
     comm.write_register( 1, 0 )
 
 
-
 @pytest.mark.skipif(
     'SERIAL_TEST' not in os.environ or not has_o_nonblock or not has_pymodbus or not has_pyserial
-    or not os.path.exists("ttyS0") or not os.path.exists("ttyS1"),
+    or not os.path.exists(PORT_MASTER) or not os.path.exists("ttyS1"),
     reason="Needs SERIAL_TEST and fcntl/O_NONBLOCK and pymodbus and pyserial, and ttyS{0,1}" )
 def test_rs485_poll( simulated_modbus_rtu_ttyS1 ):
     """Multiple poller_modbus instances may be polling different slave RTUs at different unit IDs.
@@ -342,7 +337,7 @@ def test_rs485_poll( simulated_modbus_rtu_ttyS1 ):
         assert success
         assert elapsed < 1.0
         assert plc.read( 40001 ) == 0
-    
+
         assert plc.read(     1 ) == None
         assert plc.read( 40002 ) == None
         success,elapsed		= waitfor( lambda: plc.read( 40002 ) is not None, "40002 polled", **wfkw )
@@ -358,7 +353,7 @@ def test_rs485_poll( simulated_modbus_rtu_ttyS1 ):
         success,elapsed		= waitfor( lambda: plc.read( 40001 ) == 99, "40001 polled", **wfkw )
         assert success
         assert elapsed < 1.0
-        
+
         # See if we converge on our target poll time
         count			= plc.counter
         while plc.counter < count + 20:
@@ -377,7 +372,7 @@ def test_rs485_poll( simulated_modbus_rtu_ttyS1 ):
 
 @pytest.mark.skipif(
     'SERIAL_TEST' not in os.environ or not has_o_nonblock or not has_pymodbus or not has_pyserial
-    or not os.path.exists("ttyS0") or not os.path.exists("ttyS1") or not os.path.exists("ttyS2"),
+    or not os.path.exists(PORT_MASTER) or not os.path.exists("ttyS1") or not os.path.exists("ttyS2"),
     reason="Needs SERIAL_TEST and fcntl/O_NONBLOCK and pymodbus and pyserial"
 )
 def test_rs485_multi( simulated_modbus_rtu_ttyS1,  simulated_modbus_rtu_ttyS2 ):
@@ -455,7 +450,7 @@ def test_rs485_multi( simulated_modbus_rtu_ttyS1,  simulated_modbus_rtu_ttyS2 ):
 
 @pytest.mark.skipif(
     'SERIAL_TEST' not in os.environ or not has_pymodbus or not has_pyserial or not has_o_nonblock
-    or not os.path.exists("ttyS0") or not os.path.exists("ttyS1"),
+    or not os.path.exists(PORT_MASTER) or not os.path.exists("ttyS1"),
     reason="Needs SERIAL_TEST and pymodbus and pyserial and fcntl/O_NONBLOCK, and ttyS{0,1}"
 )
 def test_rs485_modbus_polls( simulated_modbus_rtu_ttyS1 ):

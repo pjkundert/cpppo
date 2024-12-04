@@ -24,3 +24,5 @@ dist/
 .vagrant
 .pytest_cache/
 .cache/
+*.aux
+*.toc

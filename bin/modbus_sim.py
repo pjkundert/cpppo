@@ -89,9 +89,8 @@ from contextlib import suppress
 # import the various server implementations
 #---------------------------------------------------------------------------#
 from pymodbus.datastore import ModbusSlaveContext, ModbusServerContext
-from pymodbus.pdu.register_read_message import ReadRegistersResponseBase
-from pymodbus.pdu.register_write_message import WriteSingleRegisterResponse, WriteMultipleRegistersResponse
-from pymodbus.framer import FramerType, FRAMER_NAME_TO_CLASS
+from pymodbus.pdu.register_message import ReadHoldingRegistersResponse, WriteSingleRegisterResponse, WriteMultipleRegistersResponse
+from pymodbus.framer import FRAMER_NAME_TO_CLASS, FramerType
 from pymodbus.exceptions import NotImplementedException
 from pymodbus.datastore.store import ModbusSparseDataBlock
 
@@ -109,9 +108,7 @@ except ImportError:
     sys.path.insert( 0, os.path.dirname( os.path.dirname( os.path.dirname( os.path.abspath( __file__ )))))
     import cpppo
 
-from cpppo.remote.pymodbus_fixes import (
-    modbus_sparse_data_block, modbus_server_rtu_printing, modbus_server_tcp_printing, Defaults
-)
+from cpppo.remote.pymodbus_fixes import modbus_server_rtu_printing, modbus_server_tcp_printing, Defaults
 
 
 #---------------------------------------------------------------------------#
@@ -190,7 +187,7 @@ def register_decode( txt, default=None ):
 
 def register_definitions( registers, default=None ):
     """Parse the register ranges, as: registers[, registers ...], and produce a keywords dictionary
-    suitable for construction of modbus_sparse_data_block instances for a ModbusSlaveContext, for
+    suitable for construction of ModbusSparseDataBlock instances for a ModbusSlaveContext, for
     'hr' (Holding Registers), 'co' (Coils), etc.:
 
         40001=999
@@ -336,6 +333,13 @@ class StartAsyncServer( object ):
     :param address: An optional (interface, port) to bind to.
     :param slaves: An optional single (or list of) Slave IDs to serve
 
+    Assumes that the self.server_async asyncio program will identify failure
+    conditions (ie. cannot connect), and signal itself to stop.  The
+    modbus_server_...  implementations do this by monitoring the success of
+    .listen/.connect and schedule themselves an async .shutdown on failure.
+
+    Otherwise, they print the successfully bound i'face:port or serial device.
+
     '''
     def __init__( self, *args, registers=None, slaves=None, **kwds ):
         global context
@@ -459,7 +463,8 @@ def main( argv=None ):
     starter_kwds		= {}
     try:
         # See if it's an <interface>[:<port>].  If it has '/' in it, assume its a device
-        assert '/' not in address
+        assert '/' not in args.address and not os.path.exists( args.address ), \
+            "appears to be a file: {address}".format( address=args.address )
         starter			= StartTcpServerLogging
         framer			= FramerType.SOCKET
         address			= cpppo.parse_ip_port( args.address, default=(None,Defaults.Port) )
@@ -494,7 +499,6 @@ def main( argv=None ):
         assert args.range == 1, \
             "A range of serial ports is unsupported"
 
-    logging.info( "Modbus Framer: {framer}".format( framer=framer ))
     framer			= FRAMER_NAME_TO_CLASS[framer]
 
     #---------------------------------------------------------------------------#
@@ -536,7 +540,7 @@ def main( argv=None ):
                 delay		= self.delay
                 if isinstance( delay, (list,tuple) ):
                     delay	= random.uniform( *delay )
-                time.sleep( delay )
+                time.sleep( delay )  # blocks the entire asyncio program!  No other I/O occurs.
 
                 return packet
 
@@ -577,7 +581,7 @@ def main( argv=None ):
                         packet	= super( EvilFramerCorruptResponse, self ).buildFrame( message )
                         message.transaction_id ^= 0xFFFF
                     elif self.what == "registers":
-                        if isinstance( message, ReadRegistersResponseBase ):
+                        if isinstance( message, ReadHoldingRegistersResponse ):
                             # These have '.registers' attribute, which is a list.
                             # Add/remove some
                             saveregs		= message.registers

@@ -41,10 +41,8 @@ from .plc import poller, PlcOffline
 
 
 from pymodbus.exceptions import ModbusException, ParameterException
-from pymodbus.pdu.bit_read_message import ReadDiscreteInputsRequest, ReadCoilsRequest
-from pymodbus.pdu.bit_write_message import WriteSingleCoilRequest, WriteMultipleCoilsRequest
-from pymodbus.pdu.register_read_message import ReadHoldingRegistersRequest, ReadInputRegistersRequest
-from pymodbus.pdu.register_write_message import WriteSingleRegisterRequest, WriteMultipleRegistersRequest
+from pymodbus.pdu.bit_message import ReadDiscreteInputsRequest, ReadCoilsRequest, WriteSingleCoilRequest, WriteMultipleCoilsRequest
+from pymodbus.pdu.register_message import ReadHoldingRegistersRequest, ReadInputRegistersRequest, WriteSingleRegisterRequest, WriteMultipleRegistersRequest
 from pymodbus.pdu import ExceptionResponse, ModbusPDU as ModbusResponse
 
 log				= logging.getLogger( __package__ )
@@ -291,22 +289,35 @@ class poller_modbus( poller, threading.Thread ):
         # entities); Statuses and Input Registers result in a pymodbus
         # ParameterException
         multi			= hasattr( value, '__iter__' )
+        # Overcome bug in 1.2.0/1.3.0 in handling single requests.  Also reifies generators.
+        value			= list( value ) if multi else [ value ]
         writer			= None
+        unit			= kwargs.pop( 'unit', self.unit )
+        kwargs.update( slave_id=unit )
         if 400001 <= address <= 465536:
             # 400001-465536: Holding Registers
             writer		= ( WriteMultipleRegistersRequest if multi or self.multi
                                     else WriteSingleRegisterRequest )
-            address    	       -= 400001
+            kwargs.update(
+                registers	= value,
+                address		= address - 400001,
+            )
         elif 40001 <= address <= 99999:
             #  40001-99999: Holding Registers
             writer		= ( WriteMultipleRegistersRequest if multi or self.multi
                                     else WriteSingleRegisterRequest )
-            address    	       -= 40001
+            kwargs.update(
+                registers	= value,
+                address		= address - 40001,
+            )
         elif 1 <= address <= 9999:
             #      1-9999: Coils
             writer		= ( WriteMultipleCoilsRequest if multi # *don't* force multi
                                     else WriteSingleCoilRequest )
-            address	       -= 1
+            kwargs.update(
+                bits		= list( map( bool, value )),
+                address		= address - 1,
+            )
         else:
             # 100001-165536: Statuses (not writable)
             # 300001-365536: Input Registers (not writable)
@@ -316,12 +327,7 @@ class poller_modbus( poller, threading.Thread ):
         if not writer:
             raise ParameterException( "Invalid Modbus address for write: %d" % ( address ))
 
-        if writer is WriteMultipleRegistersRequest:
-            # Overcome bug in 1.2.0/1.3.0 in handling single requests.  Also reifies generators.
-            value		= list( value ) if multi else [ value ]
-
-        unit			= kwargs.pop( 'unit', self.unit )
-        result			= self.client.execute( writer( address, value, unit=unit, **kwargs ))
+        result			= self.client.execute( no_response_expected=False, request=writer( **kwargs ))
         if isinstance( result, ExceptionResponse ):
             raise ModbusException( str( result ))
         assert isinstance( result, ModbusResponse ), "Unexpected non-ModbusResponse: %r" % result
@@ -371,11 +377,11 @@ class poller_modbus( poller, threading.Thread ):
             raise ParameterException( "Invalid Modbus address for read: %d" % ( address ))
 
         unit			= kwargs.pop( 'unit', self.unit )
-        request			= reader( xformed, count, unit=unit, **kwargs )
+        request			= reader( address=xformed, count=count, slave_id=unit, **kwargs )
         log.debug( "%s/%6d-%6d transformed to %s", self.description, address, address + count - 1,
                    request )
 
-        result 			= self.client.execute( request )
+        result 			= self.client.execute( no_response_expected=False, request=request )
         if isinstance( result, ExceptionResponse ):
             # The remote PLC returned a response indicating it encountered an
             # error processing the request.  Convert it to raise a ModbusException.

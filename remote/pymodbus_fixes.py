@@ -70,14 +70,11 @@ from ..server import network
 
 from pymodbus import __version__ as pymodbus_version
 from pymodbus.server import ModbusTcpServer, ModbusSerialServer
-#from pymodbus.transaction import ModbusSocketFramer, ModbusRtuFramer
-
 from pymodbus.client import ModbusTcpClient, ModbusSerialClient
-#from pymodbus.factory import ClientDecoder
 from pymodbus.exceptions import ConnectionException
 from pymodbus.pdu import ExceptionResponse
-#from pymodbus.utilities import checkCRC
 from pymodbus.datastore.store import ModbusSparseDataBlock
+
 
 # Historically part of pymodbus to contain global defaults; now hosted here
 @dataclass
@@ -85,30 +82,6 @@ class Defaults:
     Port	= 502
     UnitId	= 0
     Timeout	= 1.0
-
-
-# Correct an invalid default; ensure our *ModbusDataStore always correctly bases
-# requests from 0 (the human-readable addresses, eg. 1, 10001, 40001) have been
-# parsed and converted to zero-based addresses by the client, before the request
-# is sent).  We will always convert standard Modbus typed addresses (eg. 40001
-# for Holding Registers) from 1-base to 0-base before making the appropriate
-# pymodbus register I/O requests.  Pymodbus shouldn't be doing this for us.
-
-#Defaults.ZeroMode		= True
-
-class modbus_sparse_data_block( ModbusSparseDataBlock ):
-    """Implement a ModbusSparseDataBlock that isn't spectacularly inefficient, and also correctly
-    deduces the lowest address.
-
-    """
-    def __init__( self, values ):
-        super( modbus_sparse_data_block, self ).__init__( values )
-        self.address		= min( self.values )
-
-    # def validate( self, address, count=1 ):
-    #     logging.debug( "checking %5d-%5d", address, address + count - 1 )
-    #     if count == 0: return False
-    #     return all( r in self.values for r in range( address, address + count ))
 
 
 class modbus_communication_monitor( object ):
@@ -135,7 +108,11 @@ class modbus_communication_monitor( object ):
         return listening
 
     def callback_communication( self, established ):
-        if not established:
+        if established:
+            logging.normal( "Communication established on {comm_name}".format(
+                comm_name	= self.comm_params.comm_name,
+            ))
+        else:
             logging.warning( "Communication attempt on {comm_name} failed".format(
                 comm_name	= self.comm_params.comm_name,
             ))
@@ -152,13 +129,15 @@ class modbus_server_tcp( modbus_communication_monitor, ModbusTcpServer ):
     """An asyncio.BaseProtocol based Modbus TCP server. """
     pass
 
-                         
+
 class modbus_server_tcp_printing( modbus_server_tcp ):
 
     def callback_communication( self, established ):
         """Print the address successfully bound on self.transport; this is
         useful, if attempts are made to bind over a range of ports.  If the
         port is dynamic, we must use the socket.getsockname() result.
+
+        The message printed to stdout must match the RE in server/network.py soak.
 
         """
         super( modbus_server_tcp_printing, self ).callback_communication( established )
@@ -175,7 +154,11 @@ class modbus_server_rtu( modbus_communication_monitor, ModbusSerialServer ):
 
 
 class modbus_server_rtu_printing( modbus_server_rtu ):
-    """Print the address successfully bound; a serial device in this case."""
+    """Print the address successfully bound; a serial device in this case.
+
+    The message printed to stdout must match the RE in server/network.py soak.
+
+    """
 
     def callback_communication( self, established ):
         super( modbus_server_rtu_printing, self ).callback_communication( established )

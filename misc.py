@@ -764,14 +764,17 @@ def network( a ):
     return ip_network( unicode( a ))
 
 def parse_ip_port( netloc, default=(None,None) ):
-    """Parse an <interface>[:<port>] with the supplied defaults, returning <host>,<port>.  A Truthy host
-    portion is required (ie. non-empty); port is optional.  Returns ip as an ip_address (if
-    possible), otherwise as a str; either form can be converted to str, if desired.
+    """Parse an <interface>[:<port>] with the supplied defaults, returning <host>,<port|None>.  A
+    Truthy host portion is required (ie. non-empty); port is optional.  Returns ip as an ip_address
+    (if possible), otherwise as a str; either form can be converted to str, if desired.
 
     """
     try:
-        # "('hostname', port)" tuple
-        addr,port	= ast.literal_eval( netloc )
+        # A literal "('hostname', port)" tuple or an actual tuple pair
+        if isinstance( netloc, type_str_base ):
+            addr,port	= ast.literal_eval( netloc )
+        else:
+            addr,port	= netloc
         assert isinstance( addr, type_str_base ) and isinstance( port, (int, type(None)) )
         try:
             addr	= ip( addr.hostname )
@@ -787,7 +790,7 @@ def parse_ip_port( netloc, default=(None,None) ):
             try:
                 parsed		= urlparse( '//{}'.format( netloc ))
                 addr		= parsed.hostname
-                port		= parsed.port
+                port		= parsed.port  # will be None or int
                 try:
                     addr	= ip( parsed.hostname )
                 except:
