@@ -58,7 +58,7 @@ PORT_SLAVES			= {
 PORT_STOPBITS			= 1
 PORT_BYTESIZE			= 8
 PORT_PARITY			= None
-PORT_BAUDRATE			= 9600 # 19200 # 115200 # use slow serial to get some contention
+PORT_BAUDRATE			= 300 # 9600 # 19200 # 115200 # use slow serial to get some contention
 PORT_TIMEOUT			= 1.5
 
 has_pyserial			= False
@@ -154,8 +154,8 @@ def test_pymodbus_rs485_sync():
         logging.warning( "Starting Modbus Serial server for unit {unit} on {port} w/ {context}".format(
             unit=unit, port=port, context=context ))
 
-        #from pymodbus.server import ModbusSerialServer as modbus_server_rtu
-        from .pymodbus_fixes import modbus_server_rtu
+        from pymodbus.server import ModbusSerialServer as modbus_server_rtu
+        #from .remote.pymodbus_fixes import modbus_server_rtu
         server			= modbus_server_rtu(
             port	= port,
             context	= context,
@@ -185,7 +185,7 @@ def test_pymodbus_rs485_sync():
         servers[unit].start()
 
     time.sleep(.5)
-    '''
+
     # Try the bare Serial client(s), and then the locking version.  Should be identical.
     for cls in ModbusSerialClient, modbus_client_rtu:
         logging.info( "Testing Modbus/RTU Serial client: {cls.__name__}".format( cls=cls ))
@@ -200,12 +200,14 @@ def test_pymodbus_rs485_sync():
         rr2			= client.read_coils( 2, count=1, slave=2 )
         assert (( not rr2.isError() and rr2.bits[0] == True ) or
                 ( not rr1.isError() and rr1.bits[0] == False ))
-        rr3			= client.read_coils( 2, count=1, slave=3 )
-        assert rr3.isError()
+        rr3			= None
+        with suppress(pymodbus.exceptions.ModbusIOException):
+            rr3			= client.read_coils( 2, count=1, slave=3 )
+        assert rr3 is None
 
         client.close()
         del client
-    '''
+
     # Now ensure we can pound away from multiple threads using the locking client.
     client			= modbus_client_rtu(
         port	= PORT_MASTER,
