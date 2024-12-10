@@ -293,7 +293,7 @@ class poller_modbus( poller, threading.Thread ):
         value			= list( value ) if multi else [ value ]
         writer			= None
         unit			= kwargs.pop( 'unit', self.unit )
-        kwargs.update( slave_id=unit )
+        kwargs.update( dev_id=unit )
         if 400001 <= address <= 465536:
             # 400001-465536: Holding Registers
             writer		= ( WriteMultipleRegistersRequest if multi or self.multi
@@ -377,7 +377,7 @@ class poller_modbus( poller, threading.Thread ):
             raise ParameterException( "Invalid Modbus address for read: %d" % ( address ))
 
         unit			= kwargs.pop( 'unit', self.unit )
-        request			= reader( address=xformed, count=count, slave_id=unit, **kwargs )
+        request			= reader( address=xformed, count=count, dev_id=unit, **kwargs )
         log.debug( "%s/%6d-%6d transformed to %s", self.description, address, address + count - 1,
                    request )
 

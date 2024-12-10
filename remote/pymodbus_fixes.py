@@ -68,12 +68,10 @@ except ImportError:
 from .. import misc
 from ..server import network
 
-from pymodbus import __version__ as pymodbus_version
-from pymodbus.server import ModbusTcpServer, ModbusSerialServer
 from pymodbus.client import ModbusTcpClient, ModbusSerialClient
-from pymodbus.exceptions import ConnectionException
-from pymodbus.pdu import ExceptionResponse
 from pymodbus.datastore.store import ModbusSparseDataBlock
+from pymodbus.framer import FramerType, FramerBase
+from pymodbus.server import ModbusTcpServer, ModbusSerialServer
 
 
 # Historically part of pymodbus to contain global defaults; now hosted here
@@ -91,6 +89,23 @@ class modbus_communication_monitor( object ):
     interface is invalid.)
 
     """
+    def __init__(
+            self,
+            *args,
+            framer: FramerType | type[FramerBase],
+             **kwds ):
+        """Allow custom framer classes by instantiating with a FramerType Enum value, and
+        substituting the supplied Framer class after instantiation.  The framer may be an int or str
+        (something convertible to a FramerType Enum), but if it's a FramerBase class, 
+
+        """
+        if not isinstance(framer, type) or not issubclass(framer, FramerBase):
+            super( modbus_communication_monitor, self ).__init__( *args, framer=framer, **kwds )
+        else:
+            super( modbus_communication_monitor, self ).__init__( *args, framer=FramerType.RTU, **kwds )
+            logging.warning( "Supplying alternate framer {framer!r}".format( framer=framer ))
+            self.framer = framer
+
     async def connect( self ) -> bool:
         logging.warning( "Connect to {comm_name}...".format(
             comm_name	= self.comm_params.comm_name,
@@ -139,12 +154,19 @@ class modbus_server_tcp_printing( modbus_server_tcp ):
 
         The message printed to stdout must match the RE in server/network.py soak.
 
+        IPv6 addresses must be formatted correctly for unambiguous parsing of port.
+
         """
         super( modbus_server_tcp_printing, self ).callback_communication( established )
         if established:
-            self.server_address	= self.server.transport.sockets[0].getsockname()
-            print( "Success; Started Modbus/TCP Simulator; PID = %d; address = %s:%s" % (
-                os.getpid(), self.server_address[0], self.server_address[1] ))
+            for addr in self.transport.sockets:
+                address		= (
+                    "[{}]:{}"
+                    if addr.family == socket.AF_INET6 else
+                    "{}:{}"
+                ).format( *addr.getsockname() )
+                print( "Success; Started Modbus/TCP Simulator; PID = {pid}; address = {address}".format(
+                    pid=os.getpid(), address=address ))
             sys.stdout.flush()
 
 
@@ -163,8 +185,8 @@ class modbus_server_rtu_printing( modbus_server_rtu ):
     def callback_communication( self, established ):
         super( modbus_server_rtu_printing, self ).callback_communication( established )
         if established:
-            print( "Success; Started Modbus/RTU Simulator; PID = %d; address = %s" % (
-                os.getpid(), self.comm_params.source_address[0] ))
+            print( "Success; Started Modbus/RTU Simulator; PID = {pid}; address = {address}".format(
+                pid=os.getpid(), address=self.comm_params.source_address[0] ))
             sys.stdout.flush()
 
 

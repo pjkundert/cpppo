@@ -59,7 +59,7 @@ def simulated_modbus_tcp( request ):
 
     """
     command,(iface,port)	= start_modbus_simulator(
-        '-v', '--log', 'remote_test.modbus_sim.log.localhost:0',
+        '-vvv', '--log', 'remote_test.modbus_sim.log.localhost:0',
         '--evil', 'delay:.25',
         '--address', 'localhost:0',
         #'--range', '10',

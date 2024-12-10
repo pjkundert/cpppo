@@ -57,8 +57,8 @@ PORT_SLAVES			= {
 
 PORT_STOPBITS			= 1
 PORT_BYTESIZE			= 8
-PORT_PARITY			= None
-PORT_BAUDRATE			= 300 # 9600 # 19200 # 115200 # use slow serial to get some contention
+PORT_PARITY			= "N"
+PORT_BAUDRATE			= 19200 # 115200 # use slow serial to get some contention
 PORT_TIMEOUT			= 1.5
 
 has_pyserial			= False
@@ -73,12 +73,6 @@ has_minimalmodbus		= False
 try:
     # Configure minimalmodbus to use the specified port serial framing
     import minimalmodbus
-    minimalmodbus.STOPBITS	= PORT_STOPBITS
-    minimalmodbus.BYTESIZE	= PORT_BYTESIZE
-    minimalmodbus.PARITY	= PORT_PARITY
-    minimalmodbus.BAUDRATE	= PORT_BAUDRATE
-    minimalmodbus.TIMEOUT	= PORT_TIMEOUT
-
     has_minimalmodbus		= True
 except ImportError:
     logging.warning( "Failed to import minimalmodbus; skipping some tests" )
@@ -120,18 +114,20 @@ SERVER_ttyS			= [ 1, 2 ]
     )
 )
 def test_pymodbus_rs485_sync():
-    """Raw pymodbus API to communicate via ttyS0 client --> ttyS{1,2,...} servers.  Supports the client
-    and at least one server."""
+    """Raw pymodbus API to communicate via ttyS0 client --> ttyS{1,2,...} servers.  Supported when
+    the client and at least one server RS-485 port is available.
+
+    """
     from pymodbus.client import ModbusSerialClient
     from pymodbus.framer import FramerType
 
     serial_args = dict(
         timeout=.5,
         # retries=3,
-        baudrate = 19200,
-        bytesize = 8,
-        parity = "N",
-        stopbits = 2,
+        baudrate = PORT_BAUDRATE,
+        bytesize = PORT_BYTESIZE,
+        parity = PORT_PARITY,
+        stopbits = PORT_STOPBITS,
         # handle_local_echo=False,
     )
 
@@ -145,7 +141,7 @@ def test_pymodbus_rs485_sync():
             slaves	= {
                 unit: ModbusSlaveContext(
                     di=ModbusSparseDataBlock({a:v for a,v in enumerate(range(100))}),
-                    co=ModbusSparseDataBlock({a:v%len(SERVER_ttyS) for a,v in enumerate(range(100))}),
+                    co=ModbusSparseDataBlock({a:v%2 for a,v in enumerate(range(100))}),
                     hr=ModbusSparseDataBlock({a:v for a,v in enumerate(range(100))}),
                     ir=ModbusSparseDataBlock({a:v for a,v in enumerate(range(100))}),
                 )
@@ -154,8 +150,8 @@ def test_pymodbus_rs485_sync():
         logging.warning( "Starting Modbus Serial server for unit {unit} on {port} w/ {context}".format(
             unit=unit, port=port, context=context ))
 
-        from pymodbus.server import ModbusSerialServer as modbus_server_rtu
-        #from .remote.pymodbus_fixes import modbus_server_rtu
+        #from pymodbus.server import ModbusSerialServer as modbus_server_rtu
+        from .remote.pymodbus_fixes import modbus_server_rtu
         server			= modbus_server_rtu(
             port	= port,
             context	= context,
@@ -222,6 +218,8 @@ def test_pymodbus_rs485_sync():
                 unit		= 1+a%len(SERVER_ttyS)
                 expect		= not bool( a%2 )
                 rr		= client.read_coils( a, count=1, slave=unit )
+                if not rr.isError():
+                    logging.warning( "unit {unit} coil {a} == {value!r}".format( unit=unit, a=a, value=rr.bits ))
                 if rr.isError() or rr.bits[0] != expect:
                     logging.warning( "Expected unit {unit} coil {a} == {expect}, got {val}".format(
                         unit=unit, a=a, expect=expect, val=( rr if rr.isError() else rr.bits[0] )))
@@ -257,12 +255,12 @@ def simulated_modbus_rtu( tty ):
 
     """
     return start_modbus_simulator(
-        '-vvv', '--log', '.'.join( [
+        '-vvvv', '--log', '.'.join( [
             'serial_test', 'modbus_sim', 'log', os.path.basename( tty )] ),
         '--evil', 'delay:.01-.1',
         '--address', tty,
-        '    1 -  1000 = 0',
-        '40001 - 41000 = 0',
+        '    1 -  1000 = 1,0',
+        '40001 - 41000 = 1,2,3,4,5,6,7,8,9,0',
         # Configure Modbus/RTU simulator to use specified port serial framing
         '--config', json.dumps( {
             'stopbits': PORT_STOPBITS,
@@ -295,18 +293,53 @@ def simulated_modbus_rtu_ttyS2( request ):
     or not os.path.exists(PORT_MASTER) or not os.path.exists("ttyS1"),
     reason="Needs SERIAL_TEST and fcntl/O_NONBLOCK and minimalmodbus and pyserial, and ttyS{0,1}" )
 def test_rs485_basic( simulated_modbus_rtu_ttyS1 ):
-    """Use MinimalModbus to test RS485 read/write. """
+    """Use MinimalModbus to test RS485 read/write.  The minimalmodbus API doesn't use 1-based Modbus data
+    addressing, but zero-based Modbus/RTU command addressing."""
 
     command,address		= simulated_modbus_rtu_ttyS1
 
     comm			= minimalmodbus.Instrument( port=PORT_MASTER, slaveaddress=1 )
+    comm.serial.timeout		= PORT_TIMEOUT
+    comm.serial.stopbits	= PORT_STOPBITS
+    comm.serial.bytesize	= PORT_BYTESIZE
+    comm.serial.parity		= PORT_PARITY
+    comm.serial.baudrate	= PORT_BAUDRATE
+    comm.serial.timeout		= PORT_TIMEOUT
+
+    logging.warning( "{instrument!r}".format( instrument=comm ))
     comm.debug			= True
-    val				= comm.read_register( 1 )
-    assert val == 0
-    comm.write_register( 1, 99 )
-    val				= comm.read_register( 1 )
+    val				= comm.read_register( 0 )
+    assert val == 1
+    comm.write_register( 0, 99 )
+    val				= comm.read_register( 0 )
     assert val == 99
-    comm.write_register( 1, 0 )
+    comm.write_register( 0, 1 )
+
+
+@pytest.mark.skipif(
+    'SERIAL_TEST' not in os.environ or not has_o_nonblock or not has_minimalmodbus or not has_pyserial
+    or not os.path.exists(PORT_MASTER) or not os.path.exists("ttyS1"),
+    reason="Needs SERIAL_TEST and fcntl/O_NONBLOCK and minimalmodbus and pyserial, and ttyS{0,1}" )
+def test_rs485_read( simulated_modbus_rtu_ttyS1 ):
+    """Use pymodbus to test RS485 read/write to a simulated device. """
+
+    command,address		= simulated_modbus_rtu_ttyS1
+    Defaults.Timeout		= PORT_TIMEOUT
+    client			= modbus_client_rtu(
+        port=PORT_MASTER, stopbits=PORT_STOPBITS, bytesize=PORT_BYTESIZE,
+        parity=PORT_PARITY, baudrate=PORT_BAUDRATE,
+    )
+
+    for a in range( 10 ):
+        unit			= 1
+        expect			= bool( a%2 )
+        rr			= client.read_coils( a, count=1, slave=unit )
+        if not rr.isError():
+            logging.warning( "unit {unit} coil {a} == {value!r}".format( unit=unit, a=a, value=rr.bits ))
+        assert (not rr.isError()) and rr.bits[0] == expect, \
+            "Expected unit {unit} coil {a} == {expect}, got {val}".format(
+                unit=unit, a=a, expect=expect, val=( rr if rr.isError() else rr.bits[0] ))
+
 
 
 @pytest.mark.skipif(

@@ -134,8 +134,9 @@ def register_parse( txt ):
 
 
 def register_decode( txt, default=None ):
-    """Parse the supplied <beg>[-<end>][=<val>[,...]] and return beg,end,val.  If no ...=<val> portion
-    is found, the returned 'val' is empty unless a non-None 'default' is provided.
+    """Parse the supplied <beg>[-<end>][=<val>[,...]] and return beg,end,val.  If no ...=<val>
+    portion is found, the returned 'val' is empty unless a non-None 'default' is provided.  Any
+    value(s) provided are duplicated to the length of the range.
 
     """
     prs				= register_parse( txt )
@@ -194,7 +195,7 @@ def register_definitions( registers, default=None ):
 
     produces:
 
-         { ..., hr: { 0: 999 }, ... }
+         { ..., hr: { 1: 999 }, ... }
 
     Incoming registers are standard one-based Modbus address ranges, output register: value
     dictionaries are zero-based.
@@ -207,32 +208,43 @@ def register_definitions( registers, default=None ):
     Allow:
         <begin>[-<end>][=<val>[,<val>]] ...
 
+
+    Note that pymodbus assumes that all DataBlock indices follow the Modbus addressing philosophy of
+    1-based addressing -- the first register/coil/... is addressed as 1, the 2nd as 2, ...
+
+    Only the Modbus wire-protocol uses zero-based addressing, where the first register/coil
+    addressed uses address 0.  These are converted in pymodbus/datastore/context.py L119 after
+    address parsing and before indexing the datastore back to Modbus 1-based addresses.
+
+    So, when validating datastore address ranges below, ensure we use an offset that retains 1-based
+    addresses.
+
     """
     # Parse register ranges
-    # 0  10001 30001 40001
+    # 1  10001 30001 40001
     cod,   did,  ird,  hrd 	= {}, {}, {}, {}
     for txt in registers:
         beg,end,val		= register_decode( txt, default=0 )
 
         for reg in range( beg, end + 1 ):
-            dct, off		= (     ( hrd,  40001 ) if  40001 <= reg <=  99999
-                                   else ( hrd, 400001 ) if 400001 <= reg <= 465536
-                                   else ( ird,  30001 ) if  30001 <= reg <=  39999
-                                   else ( ird, 300001 ) if 300001 <= reg <= 365536
-                                   else ( did,  10001 ) if  10001 <= reg <=  19999
-                                   else ( did, 100001 ) if 100001 <= reg <= 165536
-                                   else ( cod,      1 ) if      1 <= reg <=   9999
+            dct, off		= (     ( hrd,  40000 ) if  40001 <= reg <=  99999
+                                   else ( hrd, 400000 ) if 400001 <= reg <= 465536
+                                   else ( ird,  30000 ) if  30001 <= reg <=  39999
+                                   else ( ird, 300000 ) if 300001 <= reg <= 365536
+                                   else ( did,  10000 ) if  10001 <= reg <=  19999
+                                   else ( did, 100000 ) if 100001 <= reg <= 165536
+                                   else ( cod,      0 ) if      1 <= reg <=   9999
                                    else ( None, None ))
             assert dct is not None, "Invalid Modbus register: %d" % ( reg )
             dct[reg - off]	= val[reg - beg]
     log.info( "Holding Registers: %5d, %6d-%6d; %s", len( hrd ),
-              400001 + min( hrd ) if hrd else 0, 400001 + max( hrd ) if hrd else 0, cpppo.reprlib.repr( hrd ))
+              400000 + min( hrd ) if hrd else 0, 400000 + max( hrd ) if hrd else 0, cpppo.reprlib.repr( hrd ))
     log.info( "Input   Registers: %5d, %6d-%6d; %s", len( ird ),
-              300001 + min( ird ) if ird else 0, 300001 + max( ird ) if ird else 0, cpppo.reprlib.repr( ird ))
+              300000 + min( ird ) if ird else 0, 300000 + max( ird ) if ird else 0, cpppo.reprlib.repr( ird ))
     log.info( "Output  Coils:     %5d, %6d-%6d; %s", len( cod ),
-                   1 + min( cod ) if cod else 0,      1 + max( cod ) if cod else 0, cpppo.reprlib.repr( cod ))
+                   0 + min( cod ) if cod else 0,      0 + max( cod ) if cod else 0, cpppo.reprlib.repr( cod ))
     log.info( "Discrete Inputs:   %5d, %6d-%6d; %s", len( did ),
-              100001 + min( did ) if did else 0, 100001 + max( did ) if did else 0, cpppo.reprlib.repr( did ))
+              100000 + min( did ) if did else 0, 100000 + max( did ) if did else 0, cpppo.reprlib.repr( did ))
 
     return dict( co=cod, di=did, ir=ird, hr=hrd )
 

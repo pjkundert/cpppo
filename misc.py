@@ -796,10 +796,11 @@ def parse_ip_port( netloc, default=(None,None) ):
                 except:
                     pass
             except:
-                # "<hostname>[:<port>]" (anything other than a rew IP will be returned as a str)
-                addr_port	= netloc.split( ':' )
-                assert 1 <= len( addr_port ) <= 2, \
-                    "Expected <host>[:<port>], found {netloc!r}"
+                # "<hostname>[:<port>]" or even the degenerate and non-deterministic "::1:12345"
+                # (anything other than a rew IP will be returned as a str)
+                addr_port	= netloc.rsplit( ':', 1 )
+                assert 1 <= len( addr_port ) <= 2 and not addr_port[0].endswith( ':' ), \
+                    "Expected <host>[:<port>], found {netloc!r}".format( netloc=netloc )
                 addr		= addr_port[0]
                 port		= None if len( addr_port ) < 2 else addr_port[1]
 
