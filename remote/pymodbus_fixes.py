@@ -53,6 +53,7 @@ import traceback
 
 from contextlib import suppress
 from dataclasses import dataclass
+from typing import Union, Type
 
 try:
     from SocketServer import _eintr_retry
@@ -93,7 +94,7 @@ class modbus_communication_monitor( object ):
     def __init__(
             self,
             *args,
-            framer: FramerType | type[FramerBase],
+            framer,
              **kwds ):
         """Allow custom framer classes by instantiating with a FramerType Enum value, and
         substituting the supplied Framer class after instantiation.  The framer may be an int or str
