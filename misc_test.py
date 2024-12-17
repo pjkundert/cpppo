@@ -172,10 +172,12 @@ def test_parse_ip_port():
         "::192.168.0.1":		( ip("::c0a8:1"), 			None ),
         "2605:2700:0:3::4713:93e3":	( ip("2605:2700:0:3::4713:93e3"),	None ),
         "[2605:2700:0:3::4713:93e3]:80":( ip("2605:2700:0:3::4713:93e3"),	80),
-        "::1:12345":			( "::1",				12345 ),
-        "boogaloo.cash:443":		( "boogaloo.cash",			443 ),
+        "::1:12345":			( ip("::1"),				12345 ),
+        "Boogaloo.cash:443":		( "boogaloo.cash",			443 ),
+        "Boogaloo.cash":		( "Boogaloo.cash",			None),
         "('host', None)":		( "host",				None ),
         "('host', 443)":		( "host",				443 ),
+        "ttyS1":			( "ttyS1",				None ),
     }.items():
         r			= parse_ip_port( t )
         assert r == (a,p), \
@@ -189,10 +191,12 @@ def test_parse_ip_port():
         "::192.168.0.1":		( ip("::c0a8:1"), 			123 ),
         "2605:2700:0:3::4713:93e3":	( ip("2605:2700:0:3::4713:93e3"),	123 ),
         "[2605:2700:0:3::4713:93e3]:80":( ip("2605:2700:0:3::4713:93e3"),	80),
-        "::1:12345":			( "::1",				12345 ),
-        "boogaloo.cash:443":		( "boogaloo.cash",			443 ),
+        "::1:12345":			( ip("::1"),				12345 ),
+        "Boogaloo.cash:443":		( "boogaloo.cash",			443 ),
+        "Boogaloo.cash":		( "Boogaloo.cash",			123 ),
         "('host', None)":		( "host",				123 ),
         "('host', 443)":		( "host",				443 ),
+        "ttyS1":			( "ttyS1",				123 ),
     }.items():
         r			= parse_ip_port( t, default=(None,123) ) 
         assert r == (a,p), \

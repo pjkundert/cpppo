@@ -26,3 +26,5 @@ dist/
 .cache/
 *.aux
 *.toc
+/ttyS[0-9]
+/ttyV[0-9]

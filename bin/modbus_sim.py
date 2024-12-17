@@ -502,8 +502,8 @@ def main( argv=None ):
             'stopbits':			1,
             'bytesize':			8,
             'parity':			serial.PARITY_NONE,
-            'baudrate':			4800,
-            'timeout':			0.5,
+            'baudrate':			9600,
+            'timeout':			0.05,
             'slaves':			None,
             'ignore_missing_slaves':	True,
         }

@@ -70,8 +70,15 @@ in
     ];
   };
 
+  # Configure ~/.config/nixpkgs/config.nix to allow:
+  # {
+  #   allowUnfree = true;
+  #   permittedInsecurePackages = [
+  #     "python-2.7.18.8"
+  #   ];
+  # }
   py27 = stdenv.mkDerivation rec {
-    name = "python2-with-pytest";
+    name = "python27-with-pip";
 
     buildInputs = [
       cacert
@@ -79,7 +86,6 @@ in
       gnumake
       openssh
       python27
-      python27Packages.pytest
       python27Packages.pip
     ];
   };

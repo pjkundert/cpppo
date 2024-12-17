@@ -203,6 +203,11 @@ def start_modbus_simulator( *options ):
 
 
 def run_plc_modbus_polls( plc ):
+    """ Assumes:
+    coils     1 == 1,0,...
+    hregs 40001 == 1,2,3,4,5,6,7,8,9,0,...
+
+    """
     # Initial conditions (in case PLC is persistent between tests)
     plc.write(     1, 0 )
     plc.write( 40001, 0 )
@@ -217,18 +222,18 @@ def run_plc_modbus_polls( plc ):
     success,elapsed		= waitfor( lambda: plc.read( 40001 ) is not None, "40001 polled", **wfkw )
     assert success
     assert elapsed < 1.0
-    assert plc.read( 40001 ) == 0
+    assert plc.read( 40001 ) == 0  # Initial condition set above
 
     assert plc.read(     1 ) == None
     assert plc.read( 40002 ) == None
     success,elapsed		= waitfor( lambda: plc.read( 40002 ) is not None, "40002 polled", **wfkw )
     assert success
     assert elapsed < 1.0
-    assert plc.read( 40002 ) == 0
+    assert plc.read( 40002 ) == 2  # Default condition of simulator
     success,elapsed		= waitfor( lambda: plc.read(     1 ) is not None, "00001 polled", **wfkw )
     assert success
     assert elapsed < 1.0
-    assert plc.read(     1 ) == 0
+    assert plc.read(     1 ) == 0  # Initial condition set above
 
     # Now add a bunch of new stuff to poll, and ensure polling occurs.  As we add registers the
     # number of distinct poll ranges will increase, and then decrease as we in-fill and the

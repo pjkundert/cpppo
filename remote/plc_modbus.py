@@ -293,6 +293,7 @@ class poller_modbus( poller, threading.Thread ):
         value			= list( value ) if multi else [ value ]
         writer			= None
         unit			= kwargs.pop( 'unit', self.unit )
+        # The count is deduced from the size of .registers/.bits
         kwargs.update( dev_id=unit )
         if 400001 <= address <= 465536:
             # 400001-465536: Holding Registers
@@ -326,8 +327,8 @@ class poller_modbus( poller, threading.Thread ):
             pass
         if not writer:
             raise ParameterException( "Invalid Modbus address for write: %d" % ( address ))
-
-        result			= self.client.execute( no_response_expected=False, request=writer( **kwargs ))
+        request			= writer( **kwargs )
+        result			= self.client.execute( no_response_expected=False, request=request )
         if isinstance( result, ExceptionResponse ):
             raise ModbusException( str( result ))
         assert isinstance( result, ModbusResponse ), "Unexpected non-ModbusResponse: %r" % result
@@ -346,49 +347,71 @@ class poller_modbus( poller, threading.Thread ):
             raise PlcOffline( "Modbus Read  of PLC %s/%6d failed: Offline; Connect failure" % (
                     self.description, address ))
 
+        unit			= kwargs.pop( 'unit', self.unit )
+        kwargs.update( dev_id=unit, count=count )
+
         # Use address to deduce Holding/Input Register or Coil/Status.
         reader			= None
-        xformed			= address
         if 400001 <= address <= 465536:
             reader		= ReadHoldingRegistersRequest
-            xformed	       -= 400001
+            kwargs.update(
+                address		= address - 400001,
+            )
         elif 300001 <= address <= 365536:
             reader		= ReadInputRegistersRequest
-            xformed    	       -= 300001
+            kwargs.update(
+                address		= address - 300001,
+            )
         elif 100001 <= address <= 165536:
             reader		= ReadDiscreteInputsRequest
-            xformed    	       -= 100001
+            kwargs.update(
+                address		= address - 100001,
+            )
         elif 40001 <= address <= 99999:
             reader		= ReadHoldingRegistersRequest
-            xformed    	       -= 40001
+            kwargs.update(
+                address		= address - 40001,
+            )
         elif 30001 <= address <= 39999:
             reader		= ReadInputRegistersRequest
-            xformed    	       -= 30001
+            kwargs.update(
+                address		= address - 30001,
+            )
         elif 10001 <= address <= 19999:
             reader		= ReadDiscreteInputsRequest
-            xformed    	       -= 10001
+            kwargs.update(
+                address		= address - 10001,
+            )
         elif 1 <= address <= 9999:
             reader		= ReadCoilsRequest
-            xformed	       -= 1
+            kwargs.update(
+                address		= address - 1,
+            )
         else:
             # Invalid address
             pass
         if not reader:
             raise ParameterException( "Invalid Modbus address for read: %d" % ( address ))
 
-        unit			= kwargs.pop( 'unit', self.unit )
-        request			= reader( address=xformed, count=count, dev_id=unit, **kwargs )
+        request			= reader( **kwargs )
         log.debug( "%s/%6d-%6d transformed to %s", self.description, address, address + count - 1,
                    request )
 
         result 			= self.client.execute( no_response_expected=False, request=request )
+        log.debug( "%s/%6d-%6d responded w/:  %s", self.description, address, address + count - 1,
+                   result )
         if isinstance( result, ExceptionResponse ):
             # The remote PLC returned a response indicating it encountered an
             # error processing the request.  Convert it to raise a ModbusException.
             raise ModbusException( str( result ))
         assert isinstance( result, ModbusResponse ), "Unexpected non-ModbusResponse: %r" % result
 
-        # The result may contain .bits or .registers,  1 or more values
-        values			= result.bits if hasattr( result, 'bits' ) else result.registers
-        return values if len( values ) > 1 else values[0]
+        # The result may contain .bits or .registers, 1 or more values.  Unfortunately, pymodbus
+        # puts the data in .bits or .registers, and doesn't supply a method to know which, unless we
+        # decode the protocol here.  Truncate response to requested count, as bits is unpacked
+        # from bytes, and padded w/ undefined data.
+        values			= result.registers or result.bits
+        log.debug( "%s/%6d-%6d received:      %r", self.description, address, address + count - 1,
+                   values )
+        return values[:count] if count > 1 else values[0]
 

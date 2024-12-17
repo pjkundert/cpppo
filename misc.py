@@ -764,9 +764,10 @@ def network( a ):
     return ip_network( unicode( a ))
 
 def parse_ip_port( netloc, default=(None,None) ):
-    """Parse an <interface>[:<port>] with the supplied defaults, returning <host>,<port|None>.  A
-    Truthy host portion is required (ie. non-empty); port is optional.  Returns ip as an ip_address
-    (if possible), otherwise as a str; either form can be converted to str, if desired.
+    """Parse an <interface>[:<port>] with the supplied defaults, returning <host>,<port|None>.
+
+    A Truthy host portion is required (ie. non-empty); port is optional.  Returns ip as an
+    ip_address (if possible), otherwise as a str; either form can be converted to str, if desired.
 
     """
     try:
@@ -780,29 +781,44 @@ def parse_ip_port( netloc, default=(None,None) ):
             addr	= ip( addr.hostname )
         except:
             pass
+        logging.info( "{addr!r}:{port!r} from {netloc!r}: found a Python actual or literal tuple".format(
+            addr=addr, port=port, netloc=netloc ))
     except Exception:
         try:
             # Raw IPv{4,6} address, eg "1.2.3.4", "::1"
             addr		= ip( netloc )
             port		= None
+            logging.info( "{addr!r}:{port!r} from {netloc!r}: found a bare IP address".format(
+                addr=addr, port=port, netloc=netloc ))
         except ValueError:
-            # IPv{4,6} address:port, eg "1.2.3.4:80", "[::1]:80" (raw IP only returned as an ip_address)
+            # IPv{4,6} address:port, eg "1.2.3.4:80", "[::1]:80" (raw IP only returned as an
+            # ip_address).  Retains case, if no port supplied (eg. for entities that are not hosts,
+            # such as "ttyS1".)
             try:
                 parsed		= urlparse( '//{}'.format( netloc ))
-                addr		= parsed.hostname
                 port		= parsed.port  # will be None or int
+                addr		= parsed.netloc if port is None else parsed.hostname
                 try:
                     addr	= ip( parsed.hostname )
                 except:
                     pass
+                logging.info( "{addr!r}:{port!r} from {netloc!r}: found a URL".format(
+                    addr=addr, port=port, netloc=netloc ))
             except:
-                # "<hostname>[:<port>]" or even the degenerate and non-deterministic "::1:12345"
-                # (anything other than a rew IP will be returned as a str)
+                # "<hostname>[:<port>]" or even the degenerate and non-deterministic "::1:12345" --
+                # use deterministic [<IPv6>]:<port> instead!  Anything other than a rew IP will be
+                # returned as a str.
                 addr_port	= netloc.rsplit( ':', 1 )
                 assert 1 <= len( addr_port ) <= 2 and not addr_port[0].endswith( ':' ), \
                     "Expected <host>[:<port>], found {netloc!r}".format( netloc=netloc )
                 addr		= addr_port[0]
+                try:
+                    addr	= ip( addr )
+                except:
+                    pass
                 port		= None if len( addr_port ) < 2 else addr_port[1]
+                logging.info( "{addr!r}:{port!r} from {netloc!r}: found a colon-separated string".format(
+                    addr=addr, port=port, netloc=netloc ))
 
     # An empty ip is overridden by a non-None default[0], but either could still be '', which is a
     # valid i'face designation.
