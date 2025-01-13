@@ -106,8 +106,9 @@ classifiers			= [
 setup(
     name			= "cpppo",
     version			= __version__,
-    tests_require		= tests_require,
     install_requires		= install_requires,
+    tests_require		= tests_require,
+    extras_require		= extras_require,
     packages			= package_dir.keys(),
     package_dir			= package_dir,
     zip_safe			= False,
