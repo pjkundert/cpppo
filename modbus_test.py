@@ -79,9 +79,14 @@ class nonblocking_command( object ):
             # binary data from the target process and decode it as received.  This retains
             # consistency with Python2, and also is necessary to support non-blocking sockets --
             # which defeat the built-in Python codecs, which do *not* offer non-blocking support.
-            self.process		= subprocess.Popen(
-                command, stdout=subprocess.PIPE, stderr=stderr, stdin=stdin,
-                bufsize=bufsize, preexec_fn=os.setsid, shell=shell )
+            if sys.platform == 'win32':
+                self.process		= subprocess.Popen(
+                    command, stdout=subprocess.PIPE, stderr=stderr, stdin=stdin,
+                    bufsize=bufsize, creationflags=subprocess.CREATE_NEW_PROCESS_GROUP, shell=shell )
+            else:
+                self.process		= subprocess.Popen(
+                    command, stdout=subprocess.PIPE, stderr=stderr, stdin=stdin,
+                    bufsize=bufsize, preexec_fn=os.setsid, shell=shell )
         log.normal( 'Started Server PID [%d]: %s', self.process.pid, self.command )
         if not blocking:
             self.non_blocking()
@@ -90,8 +95,26 @@ class nonblocking_command( object ):
 
     def non_blocking( self ):
         fd 			= self.process.stdout.fileno()
-        fl			= fcntl.fcntl( fd, fcntl.F_GETFL )
-        fcntl.fcntl( fd, fcntl.F_SETFL, fl | os.O_NONBLOCK )
+        try:
+            # Windows' Python 3 doesn't appear to have the capacity to
+            # stream data from subprocess in a non-blocking fashion
+            # if sys.platform == "win32":
+            #     import win32pipe
+            #     import msvcrt
+            #     handle = msvcrt.get_osfhandle(self.process.stdout.fileno())
+            #     # Set the pipe to non-blocking mode
+            #     # PIPE_NOWAIT is the Windows equivalent of O_NONBLOCK
+            #     win32pipe.SetNamedPipeHandleState(
+            #         handle, 
+            #         win32pipe.PIPE_NOWAIT,
+            #         None, 
+            #         None
+            #     )
+            # else:
+                fl		= fcntl.fcntl( fd, fcntl.F_GETFL )
+                fcntl.fcntl( fd, fcntl.F_SETFL, fl | os.O_NONBLOCK )
+        except Exception as exc:
+            log.warning( "Unable to set O_NONBLOCK on subprocess stdout; tests may not work correctly: {exc}".format( exc=exc ))
 
     @property
     def stdout( self ):
@@ -191,14 +214,15 @@ def start_simulator( simulator, *options, **kwds ):
     return command,control.address
 
 
-def start_modbus_simulator( *options ):
+def start_modbus_simulator( *options, **kwds ):
     """Start bin/modbus_sim.py; assumes it flushes stdout when printing bindings so we can parse it
     here.
 
     """
     return start_simulator(
         os.path.join( os.path.dirname( os.path.abspath( __file__ )), 'bin', 'modbus_sim.py' ),
-        *options
+        *options,
+        **kwds
     )
 
 
