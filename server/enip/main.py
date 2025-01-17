@@ -34,7 +34,7 @@ USAGE
 
 """
 
-__all__				= ['main', 'options', 'connections', 'tags', 'svr_ctl']
+__all__				= ['main', 'options', 'connections', 'tags']
 
 import argparse
 import contextlib
@@ -635,9 +635,7 @@ def enip_srv_udp( conn, name, enip_process, **kwds ):
                 # Exception (dfa exits in non-terminal state).  Build data.request.enip:
                 begun		= misc.timer() # waiting for next transaction
                 addr,stats	= None,None
-                with contextlib.closing( machine.run(
-                        path='request', source=source, data=data )) as engine:
-                    # PyPy compatibility; avoid deferred destruction of generators
+                with contextlib.closing( machine.run( path='request', source=source, data=data )) as engine:
                     for mch,sta in engine:
                         if sta is not None:
                             # No more transitions available.  Wait for input.  
@@ -738,9 +736,7 @@ def enip_srv_tcp( conn, addr, name, enip_process, delay=None, **kwds ):
                 # If no/partial EtherNet/IP header received, parsing will fail with a NonTerminal
                 # Exception (dfa exits in non-terminal state).  Build data.request.enip:
                 begun		= misc.timer()
-                with contextlib.closing( machine.run(
-                        path='request', source=source, data=data )) as engine:
-                    # PyPy compatibility; avoid deferred destruction of generators
+                with contextlib.closing( machine.run( path='request', source=source, data=data )) as engine:
                     for mch,sta in engine:
                         if sta is not None:
                             continue
@@ -820,7 +816,7 @@ def enip_srv_tcp( conn, addr, name, enip_process, delay=None, **kwds ):
                                 delayseconds = float( delay.value if hasattr( delay, 'value' ) else delay )
                                 if delayseconds > 0:
                                     time.sleep( delayseconds )
-                            except Exception as exc:
+                            except Exception:
                                 log.detail( "Unable to delay; invalid seconds: %r", delay )
                         try:
                             conn.send( rpy )
@@ -908,15 +904,23 @@ def logrotate_perform():
 # 
 # main		-- Run the EtherNet/IP Controller Simulation
 # 
-def main( argv=None, attribute_class=device.Attribute, attribute_kwds=None,
-          idle_service=None, identity_class=None,
-          UCMM_class=None, message_router_class=None, connection_manager_class=None, **kwds ):
+def main(
+        argv		= None,
+        attribute_class	= device.Attribute,
+        attribute_kwds	= None,
+        idle_service	= None,
+        identity_class	= None,
+        UCMM_class	= None,
+        message_router_class = None,
+        connection_manager_class = None,
+        **kwds ):
     """Pass the desired argv (excluding the program name in sys.arg[0]; typically pass argv=None, which
     is equivalent to argv=sys.argv[1:], the default for argparse.  Requires at least one tag to be
     defined.
 
-    If a cpppo.apidict() is passed for kwds['server']['control'], we'll use it to transmit server
-    control signals via its .done, .disable, .timeout and .latency attributes.
+    If a cpppo.apidict() (or proxy) is passed for kwds['server']['control'], we'll use it to
+    transmit server control signals via its .done, .disable, .timeout and .latency attributes.
+    Also, it will be used to transport the bound addresses back to the caller.
 
     Uses the provided attribute_class (default: device.Attribute) to process all EtherNet/IP
     attribute I/O (eg. Read/Write Tag [Fragmented]) requests.  By default, device.Attribute stores
@@ -942,7 +946,9 @@ def main( argv=None, attribute_class=device.Attribute, attribute_kwds=None,
     ap.add_argument( '-v', '--verbose', action="count",
                      default=0, 
                      help="Display logging information." )
-    ap.add_argument( '-c', '--config', action='append',
+    ap.add_argument( '-b', '--config-basename', # defaults to None
+                     help="Specify a configuration file <basename>.cfg (default: cpppo)" )
+    ap.add_argument( '-c', '--config', action='append', # defaults to None
                      help="Add another (higher priority) config file path." )
     ap.add_argument( '--no-config', action='store_true',
                      default=False, 
@@ -1032,27 +1038,45 @@ def main( argv=None, attribute_class=device.Attribute, attribute_kwds=None,
     logging.basicConfig( **log_cfg )
     if args.verbose:
         logging.getLogger().setLevel( log_cfg['level'] )
+    log.info( "argv: {!r}".format( argv ))
+
+    # If an alternative basename was supplied, we will re-compute the defaults.config_files to
+    # reflect it.  Thus, a program that uses cpppo.server.enip.main:main can specify
+    # program-specific configuration files (instead of loading the default cpppo.cfg).  The
+    # alternative is to simply add one or more program-specific configuration file path(s) to the
+    # end of defaults.config; they will be loaded last, hence overriding any configurations loaded
+    # in any default cpppo.cfg file(s) found.
+    if args.config_basename:
+        defaults.config_name	= defaults.deduce_name( basename=args.config_basename, extension='cfg' )
 
     # Load config file(s), if not disabled, into the device.Object class-level 'config_loader'.
     if not args.no_config:
-        loaded			= device.Object.config_loader.read( defaults.config_files + ( args.config or [] ) )
+        loaded			= device.Object.config_loader.read( defaults.config_files + ( args.config or [] ))
         log.normal( "Loaded config files: %r", loaded )
 
-    # Pull out a 'server.control...' supplied in the keywords, and make certain it's a
-    # cpppo.apidict.  We'll use this to transmit control signals to the server thread.  Set the
-    # current values to sane initial defaults/conditions.
-    if 'server' in kwds:
+    # Pull out a 'server.control...' supplied in the keywords, and make certain it has 'done' and
+    # 'disable'.  We'll use this to transmit control signals to the server thread.  Set the current
+    # values to sane initial defaults/conditions.  Otherwise, we'll use the supplied global srv_ctl,
+    # assuming it's a dict-like object (it is used by the web interface to provide external control)
+    log.detail( "EtherNet/IP Server starting w/ {kwds}".format( kwds=kwds ))
+    log.detail( " - server specified: {}{} (has: {})".format(
+        kwds.__class__.__name__,
+        'server' in kwds,
+        ', '.join( kwds.listkeys( depth=1 ) if isinstance( kwds, dotdict ) else ( k for k in kwds ))))
+    #if 'server' in kwds
+    if kwds.get( 'server' ):
         assert 'control' in kwds['server'], "A 'server' keyword provided without a 'control' attribute"
-        srv_ctl			= dotdict( kwds.pop( 'server' ))
-        assert isinstance( srv_ctl['control'], apidict ), "The server.control... must be a cpppo.apidict"
-        log.detail( "External server.control in object %s", id( srv_ctl['control'] ))
+        srv_ctl			= kwds.pop( 'server' )
+        log.detail( "External server.control in object %s: %r", id( srv_ctl['control'] ), srv_ctl['control'] )
     else:
-        srv_ctl.control		= apidict( timeout=defaults.timeout )
-        log.detail( "Internal server.control in object %s", id( srv_ctl['control'] ))
+        if 'control' not in srv_ctl:
+            srv_ctl['control']	= apidict( timeout=defaults.timeout )
+        log.detail( "Internal server.control in object %s: %r", id( srv_ctl['control'] ), srv_ctl['control'] )
 
-    srv_ctl.control['done']	= False
-    srv_ctl.control['disable']	= False
-    srv_ctl.control.setdefault( 'latency', defaults.latency )
+    srv_ctl['control']['done']	= False
+    srv_ctl['control']['disable']= False
+    if srv_ctl['control'].get( 'latency' ) is None:
+        srv_ctl['control']['latency'] = defaults.latency
 
     # Global options data.  Copy any remaining keyword args supplied to main().  This could
     # include an alternative enip_process, for example, instead of defaulting to logix.process.
@@ -1272,8 +1296,14 @@ def main( argv=None, attribute_class=device.Attribute, attribute_kwds=None,
     # .disable) are also passed as the server= keyword.  We are using an cpppo.apidict with a long
     # timeout; this will block the web API for several seconds to allow all threads to respond to
     # the signals delivered via the web API.
-    log.normal( "EtherNet/IP Simulator: %r" % ( bind, ))
-    kwargs			= dict( options, latency=defaults.latency, size=args.size, tags=tags, server=srv_ctl )
+    log.normal( "EtherNet/IP Simulator: {!r}".format( bind ))
+    kwargs			= dict(
+        options,
+        latency		= defaults.latency,
+        size		= args.size,
+        tags		= tags,
+        server		= srv_ctl,		# bound address returned via this dict
+    )
 
     tf				= network.server_thread
     tf_kwds			= dict()
@@ -1281,21 +1311,33 @@ def main( argv=None, attribute_class=device.Attribute, attribute_kwds=None,
         tf			= network.server_thread_profiling
         tf_kwds['filename']	= args.profile
 
-    disabled			= False	# Recognize toggling between en/disabled
-    while not srv_ctl.control.done:
-        if not srv_ctl.control.disable:
-            if disabled:
-                log.detail( "EtherNet/IP Server enabled" )
-                disabled= False
-            log.debug( "Starting server on {bind}, with {idle_count} idle services".format(
-                    bind=bind, idle_count=len( idle_service )))
-            network.server_main( address=bind, address_output=args.address_output, target=enip_srv, kwargs=kwargs,
-                                 idle_service=lambda: list( map( lambda f: f(), idle_service )),
-                                 udp=args.udp, tcp=args.tcp, thread_factory=tf, **tf_kwds )
-        else:
-            if not disabled:
-                log.detail( "EtherNet/IP Server disabled" )
-                disabled= True
-            time.sleep( defaults.latency )            # Still disabled; wait a bit
-
+    try:
+        disabled		= False	# Recognize toggling between en/disabled
+        while not srv_ctl['control'].get( 'done' ):
+            if not srv_ctl['control'].get( 'disable' ):
+                if disabled:
+                    log.detail( "EtherNet/IP Server enabled" )
+                    disabled= False
+                log.debug( "Starting server on {bind}, with {idle_count} idle services".format(
+                        bind=bind, idle_count=len( idle_service )))
+                network.server_main(
+                    address		= bind,
+                    address_output	= args.address_output,
+                    target		= enip_srv,
+                    kwargs		= kwargs,
+                    idle_service	= lambda: list( map( lambda f: f(), idle_service )),
+                    udp			= args.udp,
+                    tcp			= args.tcp,
+                    thread_factory	= tf,
+                    **tf_kwds
+                )
+            else:
+                if not disabled:
+                    log.detail( "EtherNet/IP Server disabled" )
+                    disabled= True
+                time.sleep( defaults.latency )            # Still disabled; wait a bit
+    except Exception as exc:
+        log.normal( "EtherNet/IP Simulator: {!r} failed: {}.".format( bind, exc ))
+        raise
+    log.normal( "EtherNet/IP Simulator: {!r} exit".format( bind ))
     return 0

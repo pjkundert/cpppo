@@ -1,4 +1,4 @@
-#! /usr/bin/env python
+#! /usr/bin/env python3
 
 # 
 # Poll a PowerFlex 750 series at IP (or DNS name) "<hostname>" (default: localhost)

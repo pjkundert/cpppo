@@ -17,10 +17,6 @@ from ...dotdict import dotdict
 from . import parser
 from ... import misc
 
-try:
-    unicode('')
-except NameError:
-    unicode = str
 
 # Set up logging to use our log format (instead of default Pytest format), while
 # retaining any logging level eg. python -m pytest --log-cli-level=25 ...
@@ -49,7 +45,7 @@ def test_enip_format():
     )
 
     out				= parser.enip_format( obj, sort_keys=True )
-    print( out )
+    #print( out )
     assert out == """\
 {
     'boo.foo[ 0].a':                [],

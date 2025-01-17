@@ -170,6 +170,18 @@ def lookup_reset():
     symbol			= {}
 
 
+def canonicalize_tag( tag ):
+    """The ISO-8859-1 character set is supported for tags, but the lookup is case-insensitive.  """
+    tag_canonical		= tag.lower()
+    try:
+        tag_canonical.encode( 'iso-8859-1' )  # Just confirms that only the ISO-5589-1 character set was used
+    except Exception as exc:
+        log.warning( "Tag {!r} (canonicalized to {!r}) uses symbols beyond the ISO-8859-1 character set: {}\n{}".format(
+                     tag, tag_canonical, exc, ''.join( traceback.format_stack() ) ))
+        raise
+    return tag_canonical
+
+
 def redirect_tag( tag, address ):
     """Establish (or change) a tag, redirecting it to the specified class/instance/attribute address.
     Make sure we stay with only str type tags (mostly for Python2, in case somehow we get a Unicode
@@ -180,13 +192,21 @@ def redirect_tag( tag, address ):
     assert isinstance( address, dict )
     assert all( k in symbol_keys for k in address )
     assert all( k in address     for k in symbol_keys )
-    symbol[str( tag ).lower()]	= address
-    return tuple( address[k] for k in symbol_keys )
+    tag_canonical		= canonicalize_tag( tag )
+    symbol[tag_canonical]	= address
+    ids				= tuple( address[k] for k in symbol_keys )
+    if log.isEnabledFor( logging.NORMAL ):
+        log.normal( u"Redirecting: {tag:24} --> {ids}".format(
+            tag		= tag_canonical,
+            ids		= ', '.join( "{} {}".format( *pair ) for pair in zip( ('Class', 'Inst.', 'Attr.' ), ids )),
+        ))
+    return ids
 
 
 def resolve_tag( tag ):
     """Return the (class_id, instance_id, attribute_id) tuple corresponding to tag, or None if not specified"""
-    address			= symbol.get( str( tag ).lower(), None )
+    tag_canonical		= canonicalize_tag( tag )
+    address			= symbol.get( tag_canonical, None )
     if address:
         return tuple( address[k] for k in symbol_keys )
     return None
@@ -210,7 +230,7 @@ def resolve( path, attribute=False ):
     """
 
     result			= { 'class': None, 'instance': None, 'attribute': None }
-    tag				= '' # developing symbolic tag "Symbol.Subsymbol"
+    tag				= u'' # developing ISO-8859-1 symbolic tag "Symbol.Subsymbol"
 
     for term in path['segment']:
         if ( result['class'] is not None		# Got Class already
@@ -240,10 +260,13 @@ def resolve( path, attribute=False ):
                     ( "Unrecognized symbolic name %r found in path %r" % ( tag, path['segment'] )
                       if tag
                       else "Invalid term %r found in path %r" % ( working, path['segment'] ))
-                tag	       += ( '.' if tag else '' ) + str( working['symbolic'] )
+                if tag:
+                    tag	       += u'.'
+                tag	       += working['symbolic']
                 working		= None
-                if tag.lower() in symbol:
-                    working	= dict( symbol[tag.lower()] )
+                tag_canonical	= canonicalize_tag( tag )
+                if tag_canonical in symbol:
+                    working	= dict( symbol[tag_canonical] )
                     tag		= ''
 
     # Any tag not recognized will remain after all resolution complete
@@ -467,7 +490,7 @@ def parse_route_path( route_path, trailer_parser=None ):
             while pl:
                 try:
                     rps.append( port_link( pl ))
-                except Exception as exc:
+                except Exception:
                     # Done processing; this wasn't a valid port_link element
                     break
                 pl		= list( itertools.islice( pls, 2 ))
@@ -490,7 +513,7 @@ def parse_route_path( route_path, trailer_parser=None ):
         while pl:
             try:
                 rps.append( port_link( pl ))
-            except Exception as exc:
+            except Exception:
                 break
             pl			= next( pls, None )
         trs			= ( [] if pl is None else [ pl ] ) + list( pls )
@@ -1874,8 +1897,8 @@ class state_multiple_service( state ):
                     log.detail( "%s Parsing: %3d-%3d of %r", target, beg, end, reqdata )
                 req		= dotdict()
                 req.input	= reqdata[beg:end]
+                source		= peekable( req.input )
                 with target.parser as machine:
-                    source	= peekable( req.input )
                     with contextlib.closing( machine.run( source=source, data=req )) as engine:
                         for m,s in engine:
                             pass
@@ -2236,22 +2259,33 @@ class Connection_Manager( Object ):
                 source		= rememberable( data.request.input )
                 with self.parser_service_path as machine:
                     with contextlib.closing( machine.run( source=source, data=targetpath )) as engine:
-                        for i,(m,s) in enumerate( engine ):
+                        for m,s in engine:
                             pass
+                        # for i,(m,s) in enumerate( engine ):
+                        #     log.detail( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %s",
+                        #                 machine.name_centered(), i, s, source.sent, source.peek(),
+                        #                 repr( data ) if log.getEffectiveLevel() < logging.DETAIL else misc.reprlib.repr( data ))
             if log.isEnabledFor( logging.DETAIL ):
                 log.detail( "%s Routing request to target Object at address %s", self, enip_format( targetpath ))
             # We have the service and path. Find the target Object (see state_multiple_service.closure)
             ids			= resolve( targetpath.path )
             target		= lookup( *ids )
+            if log.isEnabledFor( logging.DETAIL ):
+                log.detail( u"{} Found target object for address {} resolves to {}: {!r}".format(
+                    self,
+                    enip_format( targetpath ),
+                    ', '.join( "{} {}".format( *pair ) for pair in zip( ('Class', 'Inst.', 'Attr.' ), ids )),
+                    target ))
             assert target, "Unknown CIP Object in request: %s" % ( enip_format( targetpath ))
             source		= rememberable( data.request.input )
             with target.parser as machine:
-                with contextlib.closing( machine.run( path='request', source=source, data=data )) as engine:
-                    for i,(m,s) in enumerate( engine ):
+                with contextlib.closing( machine.run( source=source, data=data.request )) as engine:
+                    for m,s in engine:
                         pass
-                        #log.detail( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %s",
-                        #            machine.name_centered(), i, s, source.sent, source.peek(),
-                        #            repr( data ) if log.getEffectiveLevel() < logging.DETAIL else misc.reprlib.repr( data ))
+                    # for i,(m,s) in enumerate( engine ):
+                    #     log.detail( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %s",
+                    #                 machine.name_centered(), i, s, source.sent, source.peek(),
+                    #                 repr( data ) if log.getEffectiveLevel() < logging.DETAIL else misc.reprlib.repr( data ))
 
             target.request( data.request, addr=addr )
         except:
@@ -2548,7 +2582,7 @@ def __forward_close():
     ovnd[True]		= oser	= UDINT(		context='forward_close', extension='.O_serial' )
     # 10 bytes from Path to start of Connection Path Size; a pad byte is required for Connection Path
     # to begin on a Word boundary.
-    oser[True]		= cpth	= EPATH_padded(	 	context='forward_close', extension='.connection_path',
+    oser[True]			= EPATH_padded(	 	context='forward_close', extension='.connection_path',
                                                     terminal=True )
     return srvc
 

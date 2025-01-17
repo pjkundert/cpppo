@@ -79,7 +79,7 @@ def main( argv=None, idle_service=None, **kwds ):
                 _,_,cast	= client.CIP_TYPES[typ]
                 ent.attribute[0:len( val_list )] \
                                     = [ cast( v ) for v in val_list ]
-            except Exception as exc:
+            except Exception:
                 print( "Failed to set %s[0:%d] = %r" % ( nam, len( val_list ), val_list ))
                 raise
     idle_init.complete		= False

@@ -2,9 +2,11 @@
 #import logging
 import copy
 import threading
+import multiprocessing
+import multiprocessing.managers
 import sys
 
-class dotdict( dict ):
+class dotdict_base( object ):
     """A dict supporting keys containing dots, to access a heirarchy of dotdicts and lists of dotdicts.
     Furthermore, if the keys form valid attribute names, values are also accessible via dotted
     attribute name access:
@@ -67,8 +69,22 @@ class dotdict( dict ):
         1
         >>>
 
+
+    NOTE: There is, of course, a restriction on the variety of items/attributes that can be added to
+    a dotdict; No item matching one of the standard dict interface methods may be added!  The
+    following keys are off-limits, and will result in a KeyError exception.  This shouldn't be a
+    significant impediment, as the typically use-case for dotdict/apidict is to transport sets of
+    configuration or structural values around, and these usually have known or deterministic names.
+
     """
-    __slots__ = ()
+    __slots__			= ()
+    __invalid_keys__		= (
+        'clear', 'copy', 'get', 'set', 'items', 
+        'iteritems', 'iterkeys', 'itervalues',
+        'listitems', 'listkeys', 'listvalues',
+        'keys', 'values',
+        'pop', 'popitem', 'setdefault', 'update',
+    )
 
     #def __repr__( self ):
     #    """To be consistent, we should identify ourself as a dotdict({...}), but this is cluttered."""
@@ -76,7 +92,7 @@ class dotdict( dict ):
 
     def __init__( self, *args, **kwds ):
         """Load from args, update from kwds"""
-        dict.__init__( self )
+        super( dotdict_base, self ).__init__()
         self.update( *args, **kwds )
 
     def update( self, *args, **kwds ):
@@ -104,18 +120,23 @@ class dotdict( dict ):
             [ ..., "a", ... ]
 
         """
-        return sorted( [ a for a in dir( super( dotdict, self )) if a.startswith( '__' ) ] + list( dict.keys( self )))
+        return sorted(
+            [
+                a for a in dir( super( dotdict_base, self ))
+                if a.startswith( '__' )
+            ] + list( super( dotdict_base, self ).keys())
+        )
 
-    _resolve_cache		= {}
+    #_resolve_cache		= {}
     def _resolve( self, key ):
         """Return next segment in key as (mine, rest), solving for any '..'  back-tracking.  If key
         begins/ends with ., or too many .. are used, the key will end up prefixed by ., 'mine' will
         end up '', raising KeyError.  Avoid calling if there are no '.' in key.
 
         """
-        tpl			= dotdict._resolve_cache.get( key, None )
-        if tpl:
-            return tpl
+        # tpl			= dotdict._resolve_cache.get( key, None )
+        # if tpl:
+        #     return tpl
 
         # Process '..' back-tracking
         #     'a.b..c'     ==> 'a.c'  ; split == ['a.b',   'c'  ]
@@ -145,7 +166,8 @@ class dotdict( dict ):
         if not mine:
             raise KeyError('cannot resolve "%s" in "%s" from key "%s"' % ( rest, mine, key ))
 
-        dotdict._resolve_cache[key] = tpl = (mine, rest)
+        #dotdict._resolve_cache[key] = tpl = (mine, rest)
+        tpl = (mine, rest)
         return tpl
 
     def __setitem__( self, key, value ):
@@ -156,23 +178,30 @@ class dotdict( dict ):
                 # If indexing used in path down to target, must be pre-existing values
                 target          = eval( mine, {'__builtins__':{}}, self )
             else:
-                target          = dict.setdefault( self, mine, dotdict() )
-            if not isinstance( target, dotdict ):
+                target          = super( dotdict_base, self ).setdefault( mine, dotdict() )
+            if not isinstance( target, dotdict_base ):
                 raise KeyError( 'cannot set "%s" in "%s" (%r)' % ( rest, mine, target ))
             target[rest]        = value
         else:
-            if isinstance( value, dict ) and not isinstance( value, dotdict ):
-                # When inserting other dicts, convert them to dotdict layers (recursively)
-                value           = dotdict( value )
+            if isinstance( value, dict ) and not isinstance( value, dotdict_base ):
+                # We considered converting anything with the "mapping protocol" (.keys() and
+                # .__getitem__) to a dotdict, here.
+                # https://stackoverflow.com/questions/35282222/in-python-how-do-i-cast-a-class-object-to-a-dict
+                # However, we want to be able to add complex proxies for dotdicts here (such as
+                # multiprocessing proxies for apidict).  Therefore, only identify plain dicts that
+                # are not already some derivation of dotdict_base, adn convert them to our class.
+                value           = self.__class__( value )
             if '[' in mine and mine[-1] == ']':
                 # If indexing used within the final item/attr key, it must encompass the entire
                 # final portion of the key; break out the attr[indx], and safely eval it to get the
                 # actual index.  Finally, get the object and let it do its own __setitem__.
                 mine, indx	= mine.split( '[', 1 )
                 indx		= eval( indx[:-1], {'__builtins__':{}}, self )
-                dict.__getitem__( self, mine )[indx] = value
+                super( dotdict_base, self ).__getitem__( mine )[indx] = value
             else:
-                dict.__setitem__( self, mine, value )
+                if mine in self.__invalid_keys__ or mine.startswith( '__' ):
+                    raise KeyError( "A dotdict cannot support insertion of item/attribute with name {!r}".format( mine ))
+                super( dotdict_base, self ).__setitem__( mine, value )
 
     def __setattr__( self, key, value ):
         """Create attributes as easily as creating keys, so AttributeError should be unexpected.  Specify a
@@ -195,7 +224,7 @@ class dotdict( dict ):
         if '[' in mine:
             target              = eval( mine, {'__builtins__':{}}, self )
         else:
-            target              = dict.__getitem__( self, mine )
+            target              = super( dotdict_base, self ).__getitem__( mine )
         if rest is None:
             return target
         # We have the rest of the levels to go; must have addressed another dotdict level (or
@@ -217,7 +246,7 @@ class dotdict( dict ):
         another layer of dotdict), like this:
 
             try:
-                return not isinstance( self.__getitem__( key ), dotdict )
+                return not isinstance( self.__getitem__( key ), dotdict_base )
             except KeyError:
                 return False
                 
@@ -246,7 +275,7 @@ class dotdict( dict ):
 
             # Empty layers deleted 
             if 0 == len( target ):
-                dict.__delitem__( self, mine )
+                super( dotdict_base, self ).__delitem__( mine )
         """
         mine,rest		= self._resolve( key ) if '.' in key else (key,None)
         #logging.debug("del %s, from: %s (in %r)", rest, mine, self )
@@ -254,9 +283,9 @@ class dotdict( dict ):
         target			= self[mine]
         if rest is None:
             # will raise KeyError if partial key (dotdict layer) not empty
-            if isinstance( target, dotdict ) and len( target ):
+            if isinstance( target, dotdict_base ) and len( target ):
                 raise KeyError( 'cannot del "%s" (partial key)' % ( mine ))
-            return dict.__delitem__( self, mine )
+            return super( dotdict_base, self ).__delitem__( mine )
         del target[rest]
 
     def pop( self, *args ):
@@ -265,9 +294,9 @@ class dotdict( dict ):
         key			= args[0]
         mine,rest		= self._resolve( key ) if '.' in key else (key,None)
         if rest is None:
-            return dict.pop( self, mine, *args[1:] )
-        target                  = dict.__getitem__( self, mine )
-        if not isinstance( target, dotdict ):
+            return super( dotdict_base, self ).pop( mine, *args[1:] )
+        target                  = super( dotdict_base, self ).__getitem__( mine )
+        if not isinstance( target, dotdict_base ):
             raise KeyError( 'cannot pop "%s" in "%s" (%r)' % ( rest, mine, target ))
         return target.pop( rest, *args[1:] )
 
@@ -277,22 +306,36 @@ class dotdict( dict ):
         return self[key]
 
     def get( self, key, default=None ):
-        """The default dict.get is not implemented in terms of __getitem__."""
+        """The default dict.get is not implemented in terms of __getitem__.  Provide it, and also a set
+        implemented in terms of __setitem__ (eg. for use by derived classes or proxies that cannot
+        use __setattr__.
+
+        """
         try:
             return self.__getitem__( key )
         except KeyError:
             return default
 
-    def iteritems( self ):
+    set			= __setitem__
+
+    def iteritems( self, depth=None ):
         """Issue keys for layers of dotdict() in a.b.c... form.  For dotdicts containing a list of
         dotdict, issue keys in a.b[0].c form, since we can handle simple indexes in paths for
-        indexing (we'll arbitrarily limit it to just one layer deep)."""
-        items			= dict.iteritems if sys.version_info[0] < 3 else dict.items
-        for key,val in items( self ):
-            if isinstance( val, dotdict ) and val: # a non-empty sub-dotdict layer
-                for subkey,subval in val.iteritems():
+        indexing (we'll arbitrarily limit it to just one layer deep).
+
+        An optional depth limits the key length; by default, we'll issue full-depth keys; To
+        approximate the normal dict.items() (which returns only the current dict's key/value pairs),
+        call with depth=1.
+
+        This flows through to all {iter,list}{items,values,keys} API calls.
+        """
+        items			= super( dotdict_base, self ).iteritems if sys.version_info[0] < 3 else super( dotdict_base, self ).items
+        for key,val in items():
+            if isinstance( val, dotdict_base ) and val and ( depth is None or depth > 0 ):
+                # a non-empty sub-dotdict layer, and we have depth remaining
+                for subkey,subval in val.iteritems( None if depth is None else depth - 1 ):
                     yield key+'.'+subkey, subval
-            elif isinstance( val, list ) and val and all( isinstance( subelm, dotdict ) for subelm in val ):
+            elif isinstance( val, list ) and val and all( isinstance( subelm, dotdict_base ) for subelm in val ):
                 # Non-empty list of dicts
                 subfmt		= "[{subidx:%d}]." % len( str( len( val ) - 1 ))
                 for subidx,subelm in enumerate( val ):
@@ -301,77 +344,156 @@ class dotdict( dict ):
             else: # non-list elements, empty dotdict layers, empty lists
                 yield key, val
 
-    def itervalues( self ):
-        for key,val in self.iteritems():
+
+    def listitems( self, depth=None ):
+        return list( self.iteritems( depth=depth ))
+
+    def itervalues( self, depth=None ):
+        for key,val in self.iteritems( depth=depth ):
             yield val
 
-    def iterkeys( self ):
-        for key,val in self.iteritems():
+    def listvalues( self, depth=None ):
+        return list( self.itervalues( depth=depth ))
+
+    def iterkeys( self, depth=None ):
+        for key,val in self.iteritems( depth=depth ):
             yield key
 
-    def __listkeys( self ):
-        return list( self.iterkeys() )
-
-    def __listvalues( self ):
-        return list( self.itervalues() )
-
-    def __listitems( self ):
-        return list( self.iteritems() )
+    def listkeys( self, depth=None ):
+        return list( self.iterkeys( depth=depth ))
 
     __iter__			= iterkeys
-    keys 			= __listkeys   if sys.version_info[0] < 3 else iterkeys
-    values			= __listvalues if sys.version_info[0] < 3 else itervalues
-    items			= __listitems  if sys.version_info[0] < 3 else iteritems
+    keys 			= iterkeys     if sys.version_info[0] > 2 else listkeys
+    values			= itervalues   if sys.version_info[0] > 2 else listvalues
+    items			= iteritems    if sys.version_info[0] > 2 else listitems
 
     def __deepcopy__( self, memo ):
         """Must copy each layer, to avoid copying keys that reference non-existent members."""
         return type( self )( (k,copy.deepcopy( v, memo ))
-                             for k,v in dict.items( self ) )
+                             for k,v in super( dotdict_base, self ).items() )
 
     def __copy__( self ):
         return type( self )( (k,copy.copy( v ))
-                             for k,v in dict.items( self ) )
+                             for k,v in super( dotdict_base, self ).items() )
 
 
-class apidict( dotdict ):
-    """A dotdict that ensures that any new values assigned to its attributes are very likely received by
-    some other thread (via getattr) before the corresponding setattr returns; setting/getting values
-    by indexing (ie. like a normal dict) is *not* affected (except for locking), allowing the user
-    to selectively force timeout 'til read on some assignments but not others, and to indicate
-    reception of the value on some reads and not others.
 
-    A specified timeout (required as first argument) is enforced after setattr, which is only
-    shortened when another thread executes a getattr.
+class dotdict( dotdict_base, dict ):
+    __slots__			= ()
+    pass
+
+
+class apidict_base( dotdict ):
+    """A dotdict that ensures that any new values assigned to its attributes are very likely received
+    by some other thread (via .__getattr__ or .get) before the corresponding __setattr__, setdefault
+    or set returns; setting/getting values by indexing (ie. like a normal dict) is *not* affected
+    (except for locking), allowing the user to selectively force timeout 'til read on some
+    assignments but not others, and to indicate reception of the value on some reads and not others.
+
+    A specified timeout (required as first argument) is enforced after __setattr__, setdefault or
+    set, which is only shortened when another thread executes a __getattr__/get.
 
     Note that getting *any* attr on the apidict releases all threads blocked setting *any* attr!
-    So, use index access to read the bulk of values, and finally a single getattr to access the last
-    value, and indicate completion of access.
+    So, use index access to read the bulk of values, and finally a single __getattr__/get to access
+    the last value, and indicate completion of access.
+
     """
-    __slots__ = ('_lck', '_cnd', '_tmo')
+    __slots__			= ('_lck', '_cnd', '_tmo')
+
     def __init__( self, timeout, *args, **kwds ):
-        assert isinstance( timeout, (float,int) ), \
-            "First argument to apidict must be a numeric timeout"
-        object.__setattr__( self, '_lck', threading.RLock() )
-        object.__setattr__( self, '_cnd', threading.Condition( self._lck ))
-        object.__setattr__( self, '_tmo', timeout )
-        super( apidict, self ).__init__( *args, **kwds )
+        object.__setattr__( self, '_lck', self._sync_mod.RLock() )
+        object.__setattr__( self, '_cnd', self._sync_mod.Condition( self._lck ))
+        if isinstance( timeout, apidict_base ):
+            # Special case for copying another apidict; pass k,v pairs as 1st args
+            assert not args, "Unable to support copying apidict w/ iterable of k,v"
+            object.__setattr__( self, '_tmo', timeout._tmo )
+            args		= (timeout.listitems( depth=1 ), )
+        else:
+            assert isinstance( timeout, (float,int) ), \
+                "First argument to apidict must be a numeric timeout (or another apidict)"
+            object.__setattr__( self, '_tmo', timeout )
+        super( apidict_base, self ).__init__( *args, **kwds )
 
     def __setitem__( self, key, value ):
         with self._cnd:
-            super( apidict, self ).__setitem__( key, value )
+            super( apidict_base, self ).__setitem__( key, value )
         
     def __setattr__( self, key, value ):
         with self._cnd:
-            super( apidict, self ).__setattr__( key, value )
+            super( apidict_base, self ).__setattr__( key, value )
             self._cnd.wait( self._tmo )
+
+    def set( self, key, value ):
+        with self._cnd:
+            super( apidict_base, self ).set( key, value )
+            self._cnd.wait( self._tmo )
+
+    def setdefault( self, key, default ):
+        with self._cnd:
+            was			= super( apidict_base, self ).setdefault( key, default )
+            self._cnd.wait( self._tmo )
+            return was
 
     def __getitem__( self, key ):
         with self._cnd:
-            return super( apidict, self ).__getitem__( key )
+            return super( apidict_base, self ).__getitem__( key )
 
     def __getattr__( self, key ):
         with self._cnd:
             try:
-                return super( apidict, self ).__getattr__( key )
+                return super( apidict_base, self ).__getattr__( key )
             finally:
                 self._cnd.notify_all()
+
+    def get( self, key, default=None ):
+        with self._cnd:
+            try:
+                return super( apidict_base, self ).get( key, default=default )
+            finally:
+                self._cnd.notify_all()
+
+
+class apidict_threading( apidict_base):
+    __slots__			= ()
+    _sync_mod			= threading
+
+
+class apidict( apidict_base ):
+    """Works in both threading and multiprocessing environments."""
+    __slots__			= ()
+    _sync_mod			= multiprocessing
+
+
+#
+# To use apidict via multiprocessing.Process, we can proxy the API -- but these proxies cannot
+# successfully proxy __getattr__/__setattr__.  So, users must employ set/get instead;
+# .set/.setdefault will block 'til a counterparty executes .get().  Uses the Iterator type, so must
+# be registered w/ SyncManager which knows of that type.
+#
+# EXAMPLE:
+# >>>  multiprocessing.managers.SyncManager.register( *make_apidict_proxy( apidict ))
+
+def make_apidict_proxy( apidict_class ):
+    """Product a tuple usable to call SyncManager.register, for the given apidict derived class.
+    Supplies its __name__ as "<name>_proxy" for the proxy, and registers this <name>_proxy with the
+    multiprocessing Manager.
+
+    """
+    apidict_class_name		= apidict_class.__name__ # + '_proxy'
+    apidict_proxy		= multiprocessing.managers.MakeProxyType(
+        apidict_class_name, (
+            '__contains__', '__delitem__', '__getitem__', '__iter__', '__len__',
+            '__setitem__', 'clear', 'copy', 'get', 'set'
+            # These will not work in python3, as they return generators; use list( <apidict> )
+            # instead, as the __iter__ method is supported and returns the keys.
+            'items', 'keys',
+            'pop', 'popitem', 'setdefault', 'update', 'values'
+            '__dir__', 'set', # '__setattr__', '__getattr__',
+            # 'iteritems', 'iterkeys', 'itervalues',  # These cannot be proxied, as they return generators
+            'listitems', 'listkeys', 'listvalues',
+        )
+    )
+    apidict_proxy._method_to_typeid_ = {
+        '__iter__': 'Iterator',
+    }
+    return apidict_class_name, apidict_class, apidict_proxy

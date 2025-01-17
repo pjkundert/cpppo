@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 from __future__ import absolute_import, print_function, division
 try:
     from future_builtins import zip, map # Use Python 3 "lazy" zip, map
@@ -8,6 +9,7 @@ import array
 import codecs
 import contextlib
 import logging
+import multiprocessing
 import os
 import platform
 import pytest
@@ -41,6 +43,7 @@ from   cpppo.misc import hexdump, hexload
 from   cpppo.server import network, enip
 from   cpppo.server.enip import parser, device, logix, client, pccc
 from   cpppo.server.enip.main import main as enip_main
+from   cpppo.history import timestamp
 
 log				= logging.getLogger( "enip" )
 
@@ -806,8 +809,9 @@ def test_enip_header():
         source			= cpppo.chainable()
         with enip.enip_header( 'header' ) as machine: # don't use default '.header' context!
             for i,(m,s) in enumerate( machine.run( source=source, path='enip', data=data )):
-                log.info( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r",
-                          machine.name_centered(), i, s, source.sent, source.peek(), data )
+                log.isEnabledFor( logging.INFO ) and log.info(
+                    "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r",
+                    machine.name_centered(), i, s, source.sent, source.peek(), data )
                 if s is None:
                     if source.peek() is None and origin.peek() is not None:
                         log.info( "%s chain: %r", machine.name_centered(), [origin.peek()] )
@@ -830,8 +834,9 @@ def test_enip_machine():
         with enip.enip_machine( context='enip' ) as machine:
             with contextlib.closing( machine.run( source=source, data=data )) as engine:
                 for i,(m,s) in enumerate( engine ):
-                    log.info( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r",
-                              machine.name_centered(), i, s, source.sent, source.peek(), data )
+                    log.isEnabledFor( logging.INFO ) and log.info(
+                        "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r",
+                        machine.name_centered(), i, s, source.sent, source.peek(), data )
                     if s is None and source.peek() is None:
                         break # simulate detection of EOF
             if not pkt:
@@ -840,7 +845,8 @@ def test_enip_machine():
                 pass 			# varies...
         assert source.peek() is None
 
-        log.normal( "EtherNet/IP Request: %s", enip.enip_format( data ))
+        log.isEnabledFor( logging.DETAIL ) and log.detail(
+            "EtherNet/IP Request: %s", enip.enip_format( data ))
         try:
             for k,v in tst.items():
                 assert data[k] == v, ( "data[%r] == %r\n"
@@ -1049,7 +1055,7 @@ def test_enip_EPATH():
         log.info( "Testing %s against %r", cls.__name__, pkt )
         with cls() as machine:
             for i,(m,s) in enumerate( machine.run( source=source, path='request', data=data )):
-                log.detail( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r",
+                log.isEnabledFor( logging.INFO ) and log.info( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r",
                           machine.name_centered(), i, s, source.sent, source.peek(), data )
         try:
             for k,v in tst.items():
@@ -1095,7 +1101,7 @@ def test_enip_listservices():
 
     with parser.communications_service( terminal=True ) as machine:
         for i,(m,s) in enumerate( machine.run( source=source, data=data )):
-            log.info( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r", m.name_centered(),
+            log.isEnabledFor( logging.INFO ) and log.info( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r", m.name_centered(),
                       i, s, source.sent, source.peek(), data )
         assert machine.terminal, "%s: Should have reached terminal state" % machine.name_centered()
         assert i == 24
@@ -1109,7 +1115,7 @@ def test_enip_listservices():
     source			= cpppo.chainable( b'\x04\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00Funstuff\x00\x00\x00\x00' )
     with enip.enip_machine( context='enip' ) as machine:
         for i,(m,s) in enumerate( machine.run( source=source, data=data )):
-            log.detail( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r",
+            log.isEnabledFor( logging.INFO ) and log.info( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r",
                           machine.name_centered(), i, s, source.sent, source.peek(), data )
     assert source.peek() is None
     assert data.enip.command == 0x0004
@@ -1193,7 +1199,7 @@ def test_enip_listidentity():
     source			= cpppo.chainable( listident_1_req )
     with enip.enip_machine( context='enip' ) as machine:
         for i,(m,s) in enumerate( machine.run( source=source, data=data )):
-            log.detail( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r",
+            log.isEnabledFor( logging.INFO ) and log.info( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r",
                           machine.name_centered(), i, s, source.sent, source.peek(), data )
     assert source.peek() is None
     assert data.enip.command == 0x0063
@@ -1204,7 +1210,7 @@ def test_enip_listidentity():
     source			= cpppo.chainable( listident_1_rpy )
     with enip.enip_machine( context='enip' ) as machine:
         for i,(m,s) in enumerate( machine.run( source=source, data=data )):
-            log.detail( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r",
+            log.isEnabledFor( logging.INFO ) and log.info( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r",
                           machine.name_centered(), i, s, source.sent, source.peek(), data )
     assert source.peek() is None
     assert data.enip.command == 0x0063
@@ -1214,7 +1220,7 @@ def test_enip_listidentity():
     source			= cpppo.chainable( listident_1_rpy[30:] )
     with parser.identity_object( terminal=True ) as machine:
         for i,(m,s) in enumerate( machine.run( source=source, data=data )):
-            log.info( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r", m.name_centered(),
+            log.isEnabledFor( logging.INFO ) and log.info( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r", m.name_centered(),
                       i, s, source.sent, source.peek(), data )
         assert machine.terminal, "%s: Should have reached terminal state" % machine.name_centered()
         assert i == 83
@@ -1227,7 +1233,7 @@ def test_enip_listidentity():
     source			= cpppo.chainable( listident_1_rpy_bad_CPF_framing[30:] )
     with parser.identity_object( terminal=True ) as machine:
         for i,(m,s) in enumerate( machine.run( source=source, data=data )):
-            log.info( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r", m.name_centered(),
+            log.isEnabledFor( logging.INFO ) and log.info( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r", m.name_centered(),
                       i, s, source.sent, source.peek(), data )
         assert machine.terminal, "%s: Should have reached terminal state" % machine.name_centered()
         assert i == 83
@@ -1239,7 +1245,7 @@ def test_enip_listidentity():
     source			= cpppo.chainable( listident_2_rpy[30:] )
     with parser.identity_object( terminal=True ) as machine:
         for i,(m,s) in enumerate( machine.run( source=source, data=data )):
-            log.info( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r", m.name_centered(),
+            log.isEnabledFor( logging.INFO ) and log.info( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r", m.name_centered(),
                       i, s, source.sent, source.peek(), data )
         assert machine.terminal, "%s: Should have reached terminal state" % machine.name_centered()
         assert i == 80
@@ -1263,7 +1269,7 @@ def test_enip_listinterfaces():
     source			= cpppo.chainable( listifaces_1_req )
     with enip.enip_machine( context='enip' ) as machine:
         for i,(m,s) in enumerate( machine.run( source=source, data=data )):
-            log.detail( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r",
+            log.isEnabledFor( logging.INFO ) and log.info( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r",
                           machine.name_centered(), i, s, source.sent, source.peek(), data )
     assert source.peek() is None
     assert data.enip.command == 0x0064
@@ -1274,7 +1280,7 @@ def test_enip_listinterfaces():
     source			= cpppo.chainable( listifaces_1_rpy )
     with enip.enip_machine( context='enip' ) as machine:
         for i,(m,s) in enumerate( machine.run( source=source, data=data )):
-            log.detail( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r",
+            log.isEnabledFor( logging.INFO ) and log.info( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r",
                           machine.name_centered(), i, s, source.sent, source.peek(), data )
     assert source.peek() is None
     assert data.enip.command == 0x0064
@@ -1285,7 +1291,7 @@ def test_enip_listinterfaces():
     source			= cpppo.chainable( listifaces_1_rpy[24:] )
     with parser.list_identity( terminal=True ) as machine:
         for i,(m,s) in enumerate( machine.run( source=source, data=data )):
-            log.info( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r", m.name_centered(),
+            log.isEnabledFor( logging.INFO ) and log.info( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r", m.name_centered(),
                       i, s, source.sent, source.peek(), data )
         assert machine.terminal, "%s: Should have reached terminal state" % machine.name_centered()
         assert i == 7
@@ -1373,7 +1379,7 @@ tag_tests			= [
     )
 ]
 
-def test_enip_Logix():
+def test_enip_Logix_tags():
     enip.lookup_reset() # Flush out any existing CIP Objects for a fresh start
     logix.Logix( instance_id=1 )
 
@@ -1382,7 +1388,7 @@ def test_enip_Logix():
         source			= cpppo.chainable( pkt )
         with logix.Logix.parser as machine:
             for i,(m,s) in enumerate( machine.run( source=source, path='request', data=data )):
-                log.detail( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r",
+                log.isEnabledFor( logging.INFO ) and log.info( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r",
                           machine.name_centered(), i, s, source.sent, source.peek(), data )
         try:
             for k,v in tst.items():
@@ -1673,7 +1679,7 @@ def test_enip_CPF():
         source			= cpppo.chainable( pkt )
         with enip.CPF() as machine:
             for i,(m,s) in enumerate( machine.run( source=source, data=data )):
-                log.detail( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r",
+                log.isEnabledFor( logging.INFO ) and log.info( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r",
                           machine.name_centered(), i, s, source.sent, source.peek(), data )
 
         # Now, parse the encapsulated message(s).  We'll assume it is destined for a Logix Object.
@@ -1683,16 +1689,20 @@ def test_enip_CPF():
             if 'unconnected_send' in item:
                 assert 'request' in item.unconnected_send # the encapsulated request
                 with logix.Logix.parser as machine:
-                    log.normal( "Parsing %3d bytes using %s.parser, from %s", len( item.unconnected_send.request.input ),
-                                logix.Logix.__name__, enip.enip_format( item ))
+                    log.isEnabledFor( logging.DETAIL ) and log.detail(
+                        "Parsing %3d bytes using %s.parser, from %s", len( item.unconnected_send.request.input ),
+                        logix.Logix.__name__, enip.enip_format( item ))
                     # Parse the unconnected_send.request.input octets, putting parsed items into the
                     # same request context
                     for i,(m,s) in enumerate( machine.run( source=cpppo.peekable( item.unconnected_send.request.input ),
                                                            data=item.unconnected_send.request )):
-                        log.detail( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r",
-                                    machine.name_centered(), i, s, source.sent, source.peek(), data )
-                    log.normal( "Parsed  %3d bytes using %s.parser, into %s", len( item.unconnected_send.request.input ),
-                                logix.Logix.__name__, enip.enip_format( data ))
+                        log.isEnabledFor( logging.INFO ) and log.info(
+                            "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r",
+                            machine.name_centered(), i, s, source.sent, source.peek(), data )
+
+                    log.isEnabledFor( logging.DETAIL ) and log.detail(
+                        "Parsed  %3d bytes using %s.parser, into %s", len( item.unconnected_send.request.input ),
+                        logix.Logix.__name__, enip.enip_format( data ))
 
         try:
             for k,v in tst.items():
@@ -1713,8 +1723,8 @@ def test_enip_CPF():
               for item in data.CPF.item:
                 if 'unconnected_send' in item:
                     item.unconnected_send.request.input	= bytearray( logix.Logix.produce( item.unconnected_send.request ))
-                    log.normal("Produce Logix message from: %r", item.unconnected_send.request )
-            log.normal( "Produce CPF message from: %r", data.CPF )
+                    log.detail("Produce Logix message from: %r", item.unconnected_send.request )
+            log.detail( "Produce CPF message from: %r", data.CPF )
             data.input		= bytearray( enip.CPF.produce( data.CPF )) 
             assert data.input == pkt
         except:
@@ -1867,11 +1877,33 @@ snd_u01_rpy		= bytes(bytearray([
 lst_svc1_req		= b'\x04\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00Funstuff\x00\x00\x00\x00'
 lst_svc2_req		= b'\x04\x00\x19\x00\xdc\xa5\xeaN\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\x01\x13\x00\x01\x00 \x00Communications\x00'
 empty_req		= b''
+unc_snd_bad		= b'o\x00\x14\x00\x14\x00\x00\x00\x00\x00\x00\x000\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x02\x00\x00\x00\x00\x00\xb2\x00\x04\x00\xd2\x00\x08\x00'
 
 CIP_tests			= [
             ( 
                 # An empty request (usually indicates termination of session)
                 'empty_req', enip.Message_Router, {}
+            ), (
+                # An invalid unconnected_send response; was parsed incorrectly as an encapsulated
+                # read_frag response, due to the 0x52 request / 0xD2 response type.
+                'unc_snd_bad', enip.Message_Router,
+                {
+                    'enip.command':                 111,
+                    'enip.length':                  20,
+                    'enip.session_handle':          20,
+                    'enip.status':                  0,
+                    'enip.options':                 0,
+                    'enip.CIP.send_data.interface': 0,
+                    'enip.CIP.send_data.timeout':   0,
+                    'enip.CIP.send_data.CPF.count': 2,
+                    'enip.CIP.send_data.CPF.item[0].type_id': 0,
+                    'enip.CIP.send_data.CPF.item[0].length': 0,
+                    'enip.CIP.send_data.CPF.item[1].type_id': 178,
+                    'enip.CIP.send_data.CPF.item[1].length': 4,
+                    'enip.CIP.send_data.CPF.item[1].unconnected_send.service': 210,
+                    'enip.CIP.send_data.CPF.item[1].unconnected_send.status': 8,
+                    'enip.CIP.send_data.CPF.item[1].unconnected_send.status_ext.size': 0,
+                }
             # ), (
             #     # Not a valid unconnected_send.path (symbolic tag name, instead of @6/1); can't reconstruct...
             #     'rfg_gg1_req', logix.Logix,
@@ -3391,7 +3423,7 @@ def test_enip_CIP( repeat=1 ):
     ENIP			= enip.enip_machine( context='enip' )
     CIP				= enip.CIP()
     for pkt_name,cls,tst in client.recycle( CIP_tests, times=repeat ):
-        log.warning( "CIP test: {pkt_name}".format( pkt_name=pkt_name ))
+        log.normal( "CIP test: {pkt_name}".format( pkt_name=pkt_name ))
         pkt			= globals()[pkt_name]
         assert type( cls ) is type
         # Parse just the CIP portion following the EtherNet/IP encapsulation header
@@ -3399,26 +3431,28 @@ def test_enip_CIP( repeat=1 ):
         source			= cpppo.chainable( pkt )
         with ENIP as machine:
             for i,(m,s) in enumerate( machine.run( source=source, data=data )):
-                log.detail( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r",
-                          machine.name_centered(), i, s, source.sent, source.peek(), data )
+                log.isEnabledFor( logging.INFO ) and log.info(
+                    "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r",
+                    machine.name_centered(), i, s, source.sent, source.peek(), data )
         # In a real protocol implementation, an empty header (EOF with no input at all) is
         # acceptable; it indicates a session closed by the client.
         if not data:
             log.normal( "EtherNet/IP Request: Empty (session terminated): %s", enip.enip_format( data ))
             continue
 
-        if log.getEffectiveLevel() <= logging.NORMAL:
-            log.normal( "EtherNet/IP Request: %s", enip.enip_format( data ))
+        log.isEnabledFor( logging.DETAIL ) and log.detail(
+            "EtherNet/IP Request: %s", enip.enip_format( data ))
             
         # Parse the encapsulated .input
         with CIP as machine:
             for i,(m,s) in enumerate( machine.run( path='enip', source=cpppo.peekable( data.enip.get( 'input', b'' )), data=data )):
-                log.detail( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r",
-                          machine.name_centered(), i, s, source.sent, source.peek(), data )
+                log.isEnabledFor( logging.INFO ) and log.info(
+                    "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r",
+                    machine.name_centered(), i, s, source.sent, source.peek(), data )
                 #log.normal( "CIP Parsed: %s", enip.enip_format( data ))
 
-        if log.getEffectiveLevel() <= logging.NORMAL:
-            log.normal( "EtherNet/IP CIP Request: %s", enip.enip_format( data ))
+        log.isEnabledFor( logging.DETAIL ) and log.detail(
+            "EtherNet/IP CIP Request: %s", enip.enip_format( data ))
 
         # Assume the request in the CIP's CPF items are Logix requests.
         # Now, parse the encapsulated message(s).  We'll assume it is destined for a Logix Object.
@@ -3436,22 +3470,23 @@ def test_enip_CIP( repeat=1 ):
                 # A Connected/Unconnected Send that contained an encapsulated request (ie. not just a Get
                 # Attribute All)
                 with cls.parser as machine:
-                    if log.getEffectiveLevel() <= logging.NORMAL:
-                        log.normal( "Parsing %3d bytes using %s.parser, from %s", 
-                                    len( request.input ),
-                                    cls, enip.enip_format( item ))
+                    log.isEnabledFor( logging.DETAIL ) and log.detail(
+                        "Parsing %3d bytes using %s.parser, from %s", 
+                        len( request.input ),
+                        cls, enip.enip_format( item ))
                     # Parse the unconnected_send.request.input octets, putting parsed items into the
                     # same request context
                     for i,(m,s) in enumerate( machine.run(
                             source=cpppo.peekable( request.input ),
                             data=request )):
-                        log.detail( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r",
-                                    machine.name_centered(), i, s, source.sent, source.peek(), data )
+                        log.isEnabledFor( logging.INFO ) and log.info(
+                            "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %r",
+                            machine.name_centered(), i, s, source.sent, source.peek(), data )
                 # Post-processing of some parsed items is only performed after lock released!
-                if log.getEffectiveLevel() <= logging.NORMAL:
-                    log.normal( "Parsed  %3d bytes using %s.parser, into %s", 
-                                len( request.input ),
-                                cls, enip.enip_format( data ))
+                log.isEnabledFor( logging.DETAIL ) and log.detail(
+                    "Parsed  %3d bytes using %s.parser, into %s", 
+                    len( request.input ),
+                    cls, enip.enip_format( data ))
           finally:
             device.dialect	= dialect_bak
 
@@ -3478,15 +3513,16 @@ def test_enip_CIP( repeat=1 ):
 
         try:
             # First reconstruct any SendRRData CPF items, containing encapsulated requests/responses
+            # (pass through any Un/Connected Send error status)
             if 'enip.CIP.send_data' in data:
                 cpf		= data.enip.CIP.send_data
                 for item in cpf.CPF.item:
-                    if 'unconnected_send' in item:
+                    if 'unconnected_send.request' in item:
                         item.unconnected_send.request.input	= bytearray( cls.produce( item.unconnected_send.request ))
-                        log.normal("Produce %s message from: %r", cls,item.unconnected_send.request )
-                    elif 'connection_data' in item:
+                        log.detail("Produce %s message from: %r", cls,item.unconnected_send.request )
+                    elif 'connection_data.request' in item:
                         item.connection_data.request.input	= bytearray( cls.produce( item.connection_data.request ))
-                        log.normal("Produce %s message from: %r", cls,item.connection_data.request )
+                        log.detail("Produce %s message from: %r", cls,item.connection_data.request )
 
             # Next, reconstruct the CIP Register, ListIdentity, ListServices, or SendRRData.  The CIP.produce must
             # be provided the EtherNet/IP header, because it contains data (such as .command)
@@ -3555,7 +3591,7 @@ def test_enip_device_symbolic():
             {'segment':[{'class':5},{'symbolic':'BOO','length':5},{'element':4}]} )
         assert False, "Should not have succeeded: %r" % result
     except AssertionError as exc:
-        assert "Unrecognized symbolic name 'BOO'" in str(exc)
+        assert "Unrecognized symbolic name" in str(exc)
 
     try:
         result			= enip.device.resolve( {'segment':[{'instance':1}]} )
@@ -3575,7 +3611,20 @@ def test_enip_device_symbolic():
             {'segment':[{'symbolic': 'Tag'}, {'symbolic':'Incorrect'}]}, attribute=True )
         assert False, "Should not have succeeded: %r" % result
     except AssertionError as exc:
-        assert "Unrecognized symbolic name 'Tag.Incorrect'" in str(exc)
+        assert "Unrecognized symbolic name" in str(exc)
+
+    # Test ISO-8859-1 support.
+    enip.device.redirect_tag( u'Å', {'class':0x401, 'instance':1, 'attribute':4} )
+    path			= {
+        'segment':[{'symbolic':u'å'}, {'element':4}]
+    }
+    assert enip.device.resolve( path, attribute=1 ) == (0x401,1,4)
+    
+    try:
+        enip.device.redirect_tag( u'π', {'class':0x401, 'instance':1, 'attribute':4} )
+        assert False, "Should not be able to make UTF-8 tags"
+    except Exception as exc:
+        assert "codec can't encode character" in str(exc)
 
 
 def test_enip_device():
@@ -3605,18 +3654,18 @@ def test_enip_device():
 
     O2				= Test_Device( 'Test Class' )
     assert enip.device.directory[str(O.class_id)+'.0.3'].value == 2 # Number of Instances
-    log.normal( "device.directory: %s", '\n'.join(
+    log.detail( "device.directory: %s", '\n'.join(
         "%16s: %s" % ( k, enip.device.directory[k] )
         for k in sorted( enip.device.directory.keys(), key=cpppo.natural)))
 
     Ix				= enip.device.Identity( 'Test Identity' )
     attrs			= enip.device.directory[str(Ix.class_id)+'.'+str(Ix.instance_id)]
-    log.normal( "New Identity Instance directory: %s", enip.enip_format( attrs ))
+    log.detail( "New Identity Instance directory: %s", enip.enip_format( attrs ))
     assert attrs['7'].produce() == b'\x141756-L61/B LOGIX5561'
     
     request			= cpppo.dotdict({'service': 0x01, 'path':{'segment':[{'class':Ix.class_id},{'instance':Ix.instance_id}]}})
     gaa				= Ix.request( request )
-    log.normal( "Identity Get Attributes All: %r, data: %s", gaa, enip.enip_format( request ))
+    log.detail( "Identity Get Attributes All: %r, data: %s", gaa, enip.enip_format( request ))
     assert request.input == b'\x81\x00\x00\x00\x01\x00\x0e\x006\x00\x14\x0b`1\x1a\x06l\x00\x141756-L61/B LOGIX5561\xff\x00\x00\x00'
 
     # Look up Objects/Attribute by resolving a path
@@ -3638,11 +3687,11 @@ def test_enip_device():
     Tcpip			= enip.device.TCPIP( 'Test TCP/IP' )
     request			= cpppo.dotdict({'service': 0x01, 'path':{'segment':[{'class':Tcpip.class_id},{'instance':Tcpip.instance_id}]}})
     gaa				= Tcpip.request( request )
-    log.normal( "TCPIP Get Attributes All: %r, data: %s", gaa, enip.enip_format( request ))
+    log.detail( "TCPIP Get Attributes All: %r, data: %s", gaa, enip.enip_format( request ))
     assert request.input == b'\x81\x00\x00\x00\x02\x00\x00\x00\x30\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00'
 
 
-def test_enip_logix():
+def test_enip_Logix_request():
     """The logix module implements some features of a Logix Controller."""
     enip.lookup_reset() # Flush out any existing CIP Objects for a fresh start
 
@@ -3669,11 +3718,12 @@ def test_enip_logix():
     with Obj.parser as machine:
         for m,w in machine.run( source=source, data=data ):
             pass
-    log.normal( "Logix Request parsed: %s", enip.enip_format( data ))
+    log.isEnabledFor( logging.DETAIL ) and log.detail( "Logix Request parsed: %s", enip.enip_format( data ))
 
     # If we ask a Logix Object to process the request, it should respond.
     proceed			= Obj.request( data )
-    log.normal("Logix Request processed: %s (proceed == %s)", enip.enip_format( data ), proceed )
+    log.isEnabledFor( logging.DETAIL ) and log.detail(
+        "Logix Request processed: %s (proceed == %s)", enip.enip_format( data ), proceed )
 
 
 # Run the bench-test.  Sends some request from a bunch of clients to a server, testing responses
@@ -3705,16 +3755,18 @@ client_count, client_max	= 15, 10
 #client_count, client_max	= 1, 1
 charrange, chardelay		= (2,10), .1	# split/delay outgoing msgs
 draindelay			= 10.  		# long in case server very slow (eg. logging), but immediately upon EOF
+client_timeout			= 15.
 
-def enip_cli( number, tests=None ):
+def enip_cli( number, tests=None, address=None ):
     """Sends a series of test messages, testing response for expected results."""
     conn			= None
     successes			= 0
+    log.normal( "EtherNet/IP Client {:3d} (cpppo) connecting to {!r}... PID [{:5d}]".format( number, address, os.getpid() ))
     try:
-        log.info( "EtherNet/IP Client %3d connecting... PID [%5d]", number, os.getpid() )
         conn			= socket.socket( socket.AF_INET, socket.SOCK_STREAM )
-        conn.connect( enip.address )
-        log.normal( "EtherNet/IP Client %3d connected to server at %s", number, enip.address )
+        address			= address or enip.address
+        conn.connect( address )
+        log.normal( "EtherNet/IP Client {:3d} connected to server at {!r}".format( number, address ))
 
         eof			= False
         source			= cpppo.chainable()
@@ -3722,7 +3774,8 @@ def enip_cli( number, tests=None ):
             errors		= 0
             data		= cpppo.dotdict()
 
-            log.normal( "EtherNet/IP Client %3d req.: %5d: %s ", number, len( req ), repr( req ))
+            log.isEnabledFor( logging.DETAIL ) and log.detail(
+                "EtherNet/IP Client %3d req.: %5d: %s ", number, len( req ), repr( req ))
 
             # Await response, sending request in chunks using inter-block chardelay if output
             # remains, otherwise await response using draindelay.  Stop if EOF from server.  For
@@ -3739,7 +3792,8 @@ def enip_cli( number, tests=None ):
                                     number ))
                             errors += 1
                         out	= min( len( req ), random.randrange( *charrange ))
-                        log.detail( "EtherNet/IP Client %3d send: %5d/%5d: %s", number, out, len( req ),
+                        log.isEnabledFor( logging.DETAIL ) and log.detail(
+                            "EtherNet/IP Client %3d send: %5d/%5d: %s", number, out, len( req ),
                                     repr( req[:out] ))
                         conn.send( req[:out] )
                         req	= req[out:]
@@ -3757,7 +3811,8 @@ def enip_cli( number, tests=None ):
                                         number, draindelay ))
                             break
                     else:
-                        log.detail( "EtherNet/IP Client %3d recv: %5d: %s", number, len( rcvd ),
+                        log.isEnabledFor( logging.DETAIL ) and log.detail(
+                            "EtherNet/IP Client %3d recv: %5d: %s", number, len( rcvd ),
                                     repr( rcvd ) if len( rcvd ) else "EOF" )
                         eof		= not len( rcvd )
                         rpy	       += rcvd
@@ -3765,16 +3820,19 @@ def enip_cli( number, tests=None ):
                         # New data; keep running machine's engine (a generator)
                         source.chain( rcvd )
                         for mch,sta in engine:
-                            log.detail("EtherNet/IP Client %3d rpy.: %s -> %10.10s; next byte %3d: %-10.10r: %s",
-                                       number, machine.name_centered(), sta, source.sent, source.peek(), cpppo.reprlib.repr( data ))
+                            log.isEnabledFor( logging.INFO ) and log.info(
+                                "EtherNet/IP Client %3d rpy.: %s -> %10.10s; next byte %3d: %-10.10r: %s",
+                                number, machine.name_centered(), sta, source.sent, source.peek(), cpppo.reprlib.repr( data ))
 
                 # Parsed response should be in data.
                 assert machine.terminal, \
                     "%3d client failed to decode EtherNet/IP response: %r\ndata: %s" % (
                         number, rpy, enip.parser.enip_format( data ))
 
-            log.detail( "EtherNet/IP Client %3d rpy.: %5d: %s ", number, len( rpy ), repr( rpy ))
-            log.normal( "EtherNet/IP Client %3d rpy.: %s", number, enip.parser.enip_format( data ))
+            log.isEnabledFor( logging.DETAIL ) and log.detail(
+                "EtherNet/IP Client %3d rpy.: %5d: %s ", number, len( rpy ), repr( rpy ))
+            log.isEnabledFor( logging.INFO ) and log.info(
+                "EtherNet/IP Client %3d rpy.: %s", number, enip.parser.enip_format( data ))
 
             # Successfully sent request and parsed response; can continue; test req/rpy parsed data
             for k,v in tst.items():
@@ -3810,32 +3868,40 @@ enip_cli_kwds_basic		= {
         ]
 }
 
-enip_svr_kwds_basic		= { 
-    'enip_process': 	enip_process_canned,
-    'argv':		[ 
-        #'-v',
-        'SCADA=INT[1000]',
-    ],
-    'server': 		{
-        'control':	cpppo.apidict( enip.timeout, {
-            'done':	False,
-        }),
-    },
-}
+
 
 def enip_bench_basic():
-    failed			= cpppo.server.network.bench( server_func=enip_main,
-                                                              server_kwds=enip_svr_kwds_basic,
-                                                              client_func=enip_cli,
-                                                              client_kwds=enip_cli_kwds_basic,
-                                                              client_count=client_count,
-                                                                client_max=client_max)
+    with multiprocessing.Manager() as m:
+        enip_svr_kwds_basic		= { 
+            'enip_process': 	enip_process_canned,
+            'argv':		[
+                '-a', 'localhost:0', '-A',
+                #'-v',
+                'SCADA=INT[1000]',
+            ],
+            'server': 		{
+                'control':	m.apidict( enip.timeout, {
+                    'done':	False,
+                }),
+            },
+        }
+
+        failed			= cpppo.server.network.bench(
+            server_func	= enip_main,
+            server_kwds	= enip_svr_kwds_basic,
+            client_func	= enip_cli,
+            client_kwds	= enip_cli_kwds_basic,
+            client_count= client_count,
+            client_max	= client_max,
+            address_delay= 5.0,
+        )
     if failed:
         log.warning( "Failure" )
     else:
         log.info( "Succeeded" )
 
     return failed
+
 
 def test_enip_bench_basic():
     assert not enip_bench_basic(), "One or more enip_bench_basic clients reported failure"
@@ -3879,27 +3945,32 @@ enip_cli_kwds_logix		= {
         ]
 }
 
-enip_svr_kwds_logix 		= { 
-    'enip_process': 	logix.process,
-    'argv':		[
-        #'-v', 
-        'SCADA=INT[1000]'
-    ],
-    'server': 		{
-        'control': 	cpppo.apidict( enip.timeout, {
-            'done':	False,
-        }),
-    },
-}
-
 
 def enip_bench_logix():
-    failed			= cpppo.server.network.bench( server_func=enip_main,
-                                                              server_kwds=enip_svr_kwds_logix,
-                                                              client_func=enip_cli,
-                                                              client_kwds=enip_cli_kwds_logix,
-                                                              client_count=client_count,
-                                                                client_max=client_max)
+    with multiprocessing.Manager() as m:
+        enip_svr_kwds_logix 		= { 
+            'enip_process': 	logix.process,
+            'argv':		[
+                '-a', 'localhost:0', '-A',
+                #'-v', 
+                'SCADA=INT[1000]',
+            ],
+            'server': 		{
+                'control': 	m.apidict( enip.timeout, {
+                    'done':	False,
+                }),
+            },
+        }
+
+        failed			= cpppo.server.network.bench(
+            server_func	= enip_main,
+            server_kwds	= enip_svr_kwds_logix,
+            client_func	= enip_cli,
+            client_kwds	= enip_cli_kwds_logix,
+            client_count= client_count,
+            client_max	= client_max,
+            address_delay= 5.0,
+        )
     if failed:
         log.warning( "Failure" )
     else:
@@ -3907,15 +3978,20 @@ def enip_bench_logix():
 
     return failed
 
+
+@pytest.mark.skipif( platform.system() == "Darwin" and sys.version_info[0] >= 3,
+                     reason="No Python3 support for pickling Rlock on Mac" )
 def test_enip_bench_logix():
     assert not enip_bench_logix(), "One or more enip_bench_logix clients reported failure"
 
 
-def enip_cli_pylogix( number, tests=None ):
+def enip_cli_pylogix( number, tests=None, address=None ):
     """Use pylogix to access the server, using Large Forward Open session (if pull request for
     PLC.ConnectionSize merged).
 
     """
+
+    log.normal( "EtherNet/IP Client {:3d} (pylogix) connecting to {!r}... PID [{:5d}]".format( number, address, os.getpid() ))
 
     tags			= [
         'SCADA',
@@ -3925,33 +4001,67 @@ def enip_cli_pylogix( number, tests=None ):
         ],
     ]
     with pylogix.PLC() as comm:
-        comm.IPAddress		= enip.address[0]
+        comm.IPAddress		= address[0]
+        comm.conn.Port		= int( address[1] )
         comm.ConnectionSize	= 4000
+        comm.SocketTimeout	= client_timeout
         results			= [
-            comm.Read( t )
+            (timestamp(), comm.Read( t ), timestamp())
             for t in tags
         ]
 
-    assert len( results ) == len( tags )
+    assert len( results ) == len( tags ), \
+        "Failed to retrieve {} / {} tag reads".format( len( results ), len( tags ))
 
     def testval( tags, results, indent=0 ):
+        """A generator yielding the success/failure Truth for each tags/results tested"""
         for t,v in zip( tags, results ):
             if cpppo.is_listlike( t ) or cpppo.is_iterator( t ):
-                testval( t, v, indent + 4 )
+                yield all( testval( t, v, indent + 4 ))
                 continue
             log.detail( "{}{t!r:<20} == {v!r}".format( ' ' * indent, t=t, v=v ))
-            assert v.Status == 'Success'
+            yield v.Status == 'Success'
 
-    testval( tags, results )
+    successes	= list( testval( tags, ( r for b,r,e in results )))
+
+    for i,suc in enumerate( successes ):
+        beg,res,end	= results[i]
+        dur		= end-beg
+        if suc:
+            log.normal(  "EtherNet/IP Client {:3d} (pylogix) Success on test #{:2d} in {:5.3f}s: Tag(s) {!r} ==> {!r}".format(
+                number, i, dur, tags[i], res ))
+        else:
+            log.warning( "EtherNet/IP Client {:3d} (pylogix) Failure on test #{:2d} in {:5.3f}s: Tag(s) {!r} ==> {!r}".format(
+                number, i, dur, tags[i], res ))
+    # .bench client_func expected to return Falsey on success, Truthy on failure
+    return not all( successes )
 
 
 def enip_bench_pylogix():
-    failed			= cpppo.server.network.bench( server_func=enip_main,
-                                                              server_kwds=enip_svr_kwds_logix,
-                                                              client_func=enip_cli_pylogix,
-                                                              client_kwds=enip_cli_kwds_logix,
-                                                              client_count=client_count,
-                                                                client_max=client_max)
+    with multiprocessing.Manager() as m:
+        enip_svr_kwds_pylogix 		= { 
+            'enip_process': 	logix.process,
+            'argv':		[
+                '-a', 'localhost:0', '-A',
+                #'-v', 
+                'SCADA=INT[1000]',
+            ],
+            'server': 		{
+                'control': 	m.apidict( enip.timeout, {
+                    'done':	False,
+                }),
+            },
+        }
+
+        failed			= cpppo.server.network.bench(
+            server_func	= enip_main,
+            server_kwds	= enip_svr_kwds_pylogix,
+            client_func	= enip_cli_pylogix,
+            client_kwds	= enip_cli_kwds_logix,
+            client_count= client_count,
+            client_max	= client_max,
+            address_delay= 5.0,
+        )
     if failed:
         log.warning( "Failure" )
     else:
@@ -3960,7 +4070,8 @@ def enip_bench_pylogix():
     return failed
 
 
-@pytest.mark.skipif( not has_pylogix, reason="Needs pylogix" )
+@pytest.mark.skipif( not has_pylogix or ( platform.system() == "Darwin" and sys.version_info[0] >= 3 ),
+                     reason="No Python3 support for pickling Rlock on Mac" if has_pylogix else "Needs pylogix")
 def test_enip_bench_pylogix():
     assert not enip_bench_pylogix(), "One or more enip_bench_pylogix clients reported failure"
     

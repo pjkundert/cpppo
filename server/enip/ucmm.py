@@ -118,7 +118,9 @@ class UCMM( device.Object ):
         # any locally specified mappings.  Then, convert all "<port>/<link>" keys to tuples, and all
         # "<ip>[:<port>]" to tuples.
         route			= self.config_json( "Route", '{}' )
-        route.update( self.route )
+        route.update( self.route )	# route defaults from UCMM class
+        if 'route' in kwds:		# and any route from keyword parameters
+            route.update( kwds.pop( 'route' ))
         self.route		= { "{port}/{link}".format( **device.port_link( pl )): addr_port( ap )
                                     for pl,ap in port_link_expand( route.items() ) }
         if self.route:
@@ -292,7 +294,7 @@ class UCMM( device.Object ):
                         data.enip.status= 0x65
                         try:
                             if target not in self.route_conn:
-                                log.normal( "UCMM: port/link %s --> %r; creating route", portlink, target )
+                                log.normal( "UCMM: port/link %s --> %r; creating route w/ timeout %fms", portlink, target, timeoutms )
                                 self.route_conn[target] \
                                         = client.connector( host=target[0], port=target[1], timeout=timeout )
                             with self.route_conn[target] as conn:

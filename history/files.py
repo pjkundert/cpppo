@@ -25,9 +25,11 @@ __email__                       = "perry@hardconsulting.com"
 __copyright__                   = "Copyright (c) 2013 Hard Consulting Corporation"
 __license__                     = "Dual License: GPLv3 (or later) and Commercial (see LICENSE)"
 
-__all__				= ["opener", "logger", "parse_record",
-                                   "HistoryExhausted", "reader",
-                                   "DataError", "IframeError", "loader"]
+__all__				= [
+    "opener", "logger", "parse_record",
+    "HistoryExhausted", "reader",
+    "DataError", "IframeError", "loader"
+]
 
 import bz2
 import collections
@@ -450,7 +452,7 @@ class reader( object ):
                     # No more records; on to the next file
                     break
                 except Exception as exc:
-                    log.warning( "%s Ignoring history file %s: %s", self, self.name+f, exc )
+                    log.normal( "%s Ignoring history file %s: %s", self, self.name+f, exc )
                     if fd:
                         fd.close()
                     continue
@@ -559,17 +561,17 @@ class loader( reader ):
         FAILED:		"FAILED",
     }
     statelogger			= {
-        INITIAL:		logging.NORMAL,
-        SWITCHING:		logging.NORMAL,
-        STREAMING:		logging.INFO,
+        INITIAL:		logging.DETAIL,
+        SWITCHING:		logging.DETAIL,
+        STREAMING:		logging.DEBUG,
         EXHAUSTED:		logging.NORMAL,
         AWAITING:		logging.DETAIL,
-        COMPLETE:		logging.WARNING,
+        COMPLETE:		logging.NORMAL,
         FAILED:			logging.WARNING,
-        (INITIAL,STREAMING):	logging.WARNING,
-        (INITIAL,AWAITING):	logging.WARNING,
-        (SWITCHING,STREAMING):	logging.NORMAL,
-        (SWITCHING,AWAITING):	logging.NORMAL,
+        (INITIAL,STREAMING):	logging.NORMAL,
+        (INITIAL,AWAITING):	logging.NORMAL,
+        (SWITCHING,STREAMING):	logging.DETAIL,
+        (SWITCHING,AWAITING):	logging.DETAIL,
     }
 
     def __init__( self, path, historical, basis=None, factor=None, lookahead=None, duration=None, values=None ):
@@ -594,8 +596,8 @@ class loader( reader ):
             # make certain we over-write them to default values, until the initial historical
             # playback record is returned.
             self.values.update( ( (int( r ),(0.0,int( v ))) for r,v in values.items() ) )
-            log.warning( "%s Providing %d initial default register values: %s", self,
-                              len( values ), reprlib.repr( values ))
+            log.normal( "%s Providing %d initial default register values: %s", self,
+                        len( values ), reprlib.repr( values ))
 
     @property
     def duration( self ):
@@ -694,7 +696,7 @@ class loader( reader ):
         cur,events		= self.advance(),[]
 
         if not self:
-            log.warning( "%s History already exhausted", self )
+            log.normal( "%s History already exhausted", self )
             return cur,events
 
         first			= True
@@ -801,7 +803,7 @@ class loader( reader ):
                         # Do not return.  Unless failing on bad data, just log a note regarding the
                         # parsing failure.  If data_bad wasn't set, then this was just a
                         # JSON-encoded string in the data stream, which is just a note.
-                        log.warning( "%s %s: %s", self, "FAIL" if data_bad else "NOTE", data )
+                        log.normal( "%s %s: %s", self, "FAIL" if data_bad else "NOTE", data )
                         if data_bad and on_bad_data != self.SUPPRESS:
                             raise DataError( data )
                         continue
@@ -821,7 +823,7 @@ class loader( reader ):
                             } )
                             self.future.append( (ts,regs) )
                         else:
-                            log.warning( "%s: Playback ignoring out-of-order timestamp: %s < %s", self, ts, self._ts )
+                            log.normal( "%s: Playback ignoring out-of-order timestamp: %s < %s", self, ts, self._ts )
                         self.state	= self.STREAMING, ts
 
                     while len( self.future ) and self.future[0][0] <= cur:
@@ -880,7 +882,7 @@ class loader( reader ):
                 self.state	= self.FAILED, "Playback failed: %s" % exc
                 log.detail( "%s", traceback.format_exc() )
 
-	# We're in a state >= AWAITING; either we have remaining unprocessed records in self.future
+        # We're in a state >= AWAITING; either we have remaining unprocessed records in self.future
         # or in the history file and we'll evaluate True (caller should come back later for more
         # history), or we're COMPLETE/FAILED and we'll evaluate False (no more history to process).
         # Return the events processed, and the current advancing historical timestamp.

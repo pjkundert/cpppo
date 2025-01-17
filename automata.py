@@ -32,6 +32,16 @@ import greenery.fsm
 
 from . import misc
 
+# Historically, these types were defined here
+from .misc import (
+    type_bytes_iter,
+    type_str_iter,
+    type_str_base,
+    type_unicode_array_symbol,
+    type_str_array_symbol,
+    type_bytes_array_symbol
+)
+
 __author__                      = "Perry Kundert"
 __email__                       = "perry@hardconsulting.com"
 __copyright__                   = "Copyright (c) 2013 Hard Consulting Corporation"
@@ -45,19 +55,6 @@ log_cfg				= {
     "format":	'%(asctime)s.%(msecs).03d %(threadName)10.10s %(name)-8.8s %(levelname)-8.8s %(funcName)-10.10s %(message)s',
 }
 
-# Python2/3 compatibility types, for ascii/unicode str type
-
-# Types produced by iterators over various input stream types
-type_bytes_iter			= str if sys.version_info[0] < 3 else int
-type_str_iter			= str
-
-# The base class of string types
-type_str_base			= basestring if sys.version_info[0] < 3 else str
-
-# The array.array typecode for iterated items of various input stream types
-type_unicode_array_symbol	= 'u'
-type_str_array_symbol		= 'c' if sys.version_info[0] < 3 else 'u'
-type_bytes_array_symbol		= 'c' if sys.version_info[0] < 3 else 'B'
 
 # Various default data path contexts/extensions
 path_ext_input			= '.input'	# default destination input
@@ -282,13 +279,12 @@ class decide( object ):
         return '<%s>' % ( self )
 
     def __call__( self, machine=None, source=None, path=None, data=None ):
-        return self.execute(
-            truth=self.predicate( machine=machine, source=source, path=path, data=data ),
-            machine=machine, source=source, path=path, data=data )
+        truth			= self.predicate( machine=machine, source=source, path=path, data=data )
+        return self.execute( truth, machine=machine, source=source, path=path, data=data )
 
     def execute( self, truth, machine=None, source=None, path=None, data=None ):
         target			= self.state if truth else None
-        #log.debug( "%s %-13.13s -> %10s w/ data: %r", machine.name_centered(), self, target, data )
+        #log.debug( "%s %-13.13s -> %10s w/ truth: %r data: %r", machine.name_centered(), self, target, truth, data )
         return target
 
 
@@ -468,12 +464,16 @@ class state( dict ):
         here, for use in setting up the parser tables.
 
         """
-        if inp is True or inp is None:
-            return self.ANY if inp else self.NON
+        if inp is True:
+            return self.ANY
+        if inp is None:
+            return self.NON
         if self.encoder is None:
             return inp
         enc			= tuple( self.encoder( inp ))
-        return enc if len( enc ) > 1 else enc[0]
+        if len( enc ) > 1:
+            return enc
+        return enc[0]
 
     def __setitem__( self, inp, target ):
         """After ensuring that target is a state or a callable (that should return a state), remember a
@@ -776,7 +776,7 @@ class state( dict ):
         """
         limited			= ending is not None and source.sent >= ending
         while not self.terminal or self.greedy:
-            inp			= None if limited else source.peek()# raise TypeError to force stoppage
+            inp			= None if limited else source.peek()  # raise TypeError to force stoppage
             try:
                 choice		= self.__getitem__( inp )
             except KeyError:
@@ -791,25 +791,25 @@ class state( dict ):
                     yield machine,None			# 0+ non-transitions...
                     continue
                 break					# No other transition possible; done
+            if type( choice ) is not list:
+                choice		= [ choice ]
 
             # Found the transition or choice list (could be a state, a decide or decide, ...,
             # decide[, state]). Evaluate each target state/decide instance, 'til we find a
             # state/None.  Even decides could end up yielding None, if all decide evaluate to None,
             # and no non-None default state .
-            for potential in ( choice if type( choice ) is list else [ choice ] ):
+            for potential in choice:
                 if potential is None or isinstance( potential, state ):
                     target	= potential
                     break
                 try:
-                    #log.debug( "%s <selfdecide> on %s", self.name_centered(), choice )
+                    #log.debug( "%s <selfdecide> on %s", self.name_centered(), potential )
                     target	= potential( # this decision is made in our parent machine's context
                         source=source, machine=machine, path=path, data=data )
                 except Exception as exc:
-                    log.warning( "%s <selfdecide> on %s failed: %r", self.name_centered(),
-                                 potential, exc )
+                    log.warning( "%s <selfdecide> on %s failed: %r", self.name_centered(), potential, exc )
                     raise
-                #log.debug( "%s <selfdecide> on %s == %s", self.name_centered(),
-                #           potential, target )
+                #log.debug( "%s <selfdecide> on %s == %s", self.name_centered(), potential, target )
                 if target:
                     break
 

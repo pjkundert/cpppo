@@ -39,24 +39,24 @@ address			= ('', 8008)
 log			= logging.getLogger( 'tnetraw' )
 
 def tnet_from( conn, addr,
-               server	= cpppo.dotdict({'done': False}),
                timeout	= None,
                latency	= None,		# Optionally check server.done regularly
                ignore	= None,		# Optional symbols (bytes) to ignore
-               source	= None ):	# Provide a cpppo.chainable, if desire, to receive into and parse from
+               source	= None,		# Provide a cpppo.chainable, if desire, to receive into and parse from
+               control	= None ): 	# eg. cpppo.dotdict( done = False ),
     """Simplest possible TNET string parser generator, from a recv-able socket connection.  Currently
     only receives TNET strings of the form <int>: ... UTF-8 encoded str ...$
 
     Does not support a symbol source other than conn.
 
     Yields a None if complete TNET not found before timeout.  If desired, a separate 'latency' can
-    be supplied, in order to pop out regularly and check server.done (eg. to allow a server Thread
+    be supplied, in order to pop out regularly and check control.done (eg. to allow a control Thread
     to exit cleanly).
 
     """
     assert source is None, \
         "Unsupported source: {source!r}".format( source=source )
-    while not server.done:
+    while not ( control and control.get( 'done' )):
         started			= cpppo.timer()
 
         def recv( maxlen ):
@@ -70,24 +70,24 @@ def tnet_from( conn, addr,
             return data
 
         length,c		= b'',b'0' # remember: b'' is trivially considered as "in" b'...'
-        while not server.done and c and c in b'01234567889' or ( ignore and c in ignore ):
+        while not ( control and control.get( 'done' )) and c and ( c in b'01234567889' or ( ignore and c in ignore )):
             if not ignore or c not in ignore:
                 assert c in b'0123456789', "Expected TNET size symbol, not {c!r}".format( c=c ) # EOF/timeout
                 length         += c
             c			= None
-            while not server.done and c is None:
+            while not ( control and control.get( 'done' )) and c is None:
                 c		= recv( 1 )
                 if c is None and timeout is not None and cpppo.timer() - started > timeout:
                     # No data w/in given timeout expiry!  Inform the consumer, and then try again w/ fresh timeout.
                     yield None
                     started = cpppo.timer()
-        if server.done or not c: return # None/b'' ==> done/EOF
+        if ( control and control.get( 'done' )) or not c: return # None/b'' ==> done/EOF
         assert c == b':', "Expected TNET <size> separator ':', not {c!r}".format( c=c )
         length			= int( length )
 
         # Harvest the desired payload length, 'til timeout or completion.
         payload,c		= b'',None
-        while not server.done and c is None and len( payload ) < length:
+        while not ( control and control.get( 'done' )) and c is None and len( payload ) < length:
             c			= recv( length - len( payload ))
             if c is None and timeout is not None and cpppo.timer() - started > timeout:
                 yield None
@@ -95,18 +95,18 @@ def tnet_from( conn, addr,
                 continue
             payload            += c
             c			= None
-        if server.done or c == b'': return # done/EOF
+        if ( control and control.get( 'done' )) or c == b'': return # done/EOF
         assert len( payload ) == length, \
             "Expected TNET {length}-byte payload; got {actual_length}-byte {actual}".format(
                 length=length, actual_length=len( payload ), actual=cpppo.reprlib.repr( payload ))
 
         c			= None
-        while not server.done and c is None:
+        while not ( control and control.get( 'done' )) and c is None:
             c			= recv( 1 )
             if c is None and timeout is not None and cpppo.timer() - started > timeout:
                 yield None
                 started		= cpppo.timer()
-        if server.done or c == b'': return # done/EOF
+        if ( control and control.get( 'done' )) or c == b'': return # done/EOF
         if c == b'$':
             yield payload.decode( 'utf-8' )
             continue
@@ -124,9 +124,11 @@ def tnet_from( conn, addr,
         raise "Expected TNET payload type, not {c}".format( c=c )
 
 
-def tnet_server_json( conn, addr, timeout=None, latency=None, ignore=None ):
+def tnet_server_json( conn, addr, timeout=None, latency=None, ignore=None, server=None ):
     """Wait forever for TNET messages, and echo the JSON-encoded payload back to the client."""
-    for msg in tnet_from( conn, addr, timeout=timeout, latency=latency, ignore=ignore ):
+    for msg in tnet_from( conn, addr,
+                          timeout=timeout, latency=latency, ignore=ignore,
+                          control=server.get( 'control' ) if server else None ):
         try:
             res			= json.dumps( msg, indent=4, sort_keys=True )
             rpy			= ( res + "\n\n" ).encode( "utf-8" )
@@ -135,7 +137,7 @@ def tnet_server_json( conn, addr, timeout=None, latency=None, ignore=None ):
         conn.sendall( rpy )
 
 
-def main( argv=None ):
+def main( argv=None, **tnet_kwds ):
     ap				= argparse.ArgumentParser(
         description = "TNET Network Client using raw parser",
         epilog = "" )
@@ -152,9 +154,10 @@ def main( argv=None ):
     ap.add_argument( '-a', '--address', default=None,
                      help="The local interface[:port] to bind to (default: {iface}:{port})".format(
                          iface=address[0], port=address[1] ))
+    ap.add_argument( '-A', '--address-output', action='store_true',
+                     default=False,
+                     help="Output server network binding as '... running on (<interface>, <port>)' to stdout" )
     args			= ap.parse_args( argv )
-
-    idle_service		= []
 
     # Set up logging level (-v...) and --log <file>, handling log-file rotation
     levelmap 			= {
@@ -180,14 +183,14 @@ def main( argv=None ):
         host,port		= cpppo.parse_ip_port( args.address, default=address )
         bind			= str(host),int(port)
 
+    tnet_kwds.setdefault( 'timeout', timeout )
+    tnet_kwds.setdefault( 'latency', latency )
+    tnet_kwds.setdefault( 'ignore', b'\n' )
     return network.server_main(
-        address	= bind,
-        target	= tnet_server_json,
-        kwargs	= dict(
-            timeout	= timeout,
-            latency	= latency,
-            ignore	= b'\n'
-        )
+        address		= bind,
+        address_output	= args.address_output,
+        target		= tnet_server_json,
+        kwargs		= tnet_kwds,
     )
 
 

@@ -41,31 +41,35 @@ from .remote.io	import motor
 
 log				= logging.getLogger(__name__)
 
+TCP_TIMEOUT			= .1
+
 has_pymodbus			= False
 try:
     import pymodbus
-    from pymodbus.constants import Defaults
     from pymodbus.exceptions import ModbusException
     from .remote.plc_modbus import poller_modbus, merge, shatter
-    from .remote.pymodbus_fixes import modbus_client_tcp, modbus_server_tcp
+    from .remote.pymodbus_fixes import modbus_client_tcp, modbus_server_tcp, Defaults
     has_pymodbus		= True
-except ImportError:
-    logging.warning( "Failed to import pymodbus module; skipping Modbus/TCP related tests; run 'pip install pymodbus'" )
+except ImportError as exc:
+    logging.warning( "Failed to import pymodbus module; skipping Modbus/TCP related tests; run 'pip install pymodbus': {exc}".format( exc=exc ))
 
 
 @pytest.fixture( scope="module" )
 def simulated_modbus_tcp( request ):
-    """Start a simulator over a range of ports; parse the port successfully bound."""
-    command,address		= start_modbus_simulator( options=[
-        '-vv', '--log', 'remote_test.modbus_sim.log.localhost:11502',
-        '--evil', 'delay:.25',
-        '--address', 'localhost:11502',
-        '--range', '10',
-        '    1 -  1000 = 0',
-        '40001 - 41000 = 0',
-    ] )
+    """Start a simulator over a range of ports; parse the port successfully bound.  Downstream fixtures
+    require the i'face to be a str.
+
+    """
+    command,(iface,port)	= start_modbus_simulator(
+        '-vvv', '--log', 'remote_test.modbus_sim.log.localhost:0',
+        '--evil', 'delay:{DELAY_LO}-{DELAY_HI}'.format( DELAY_LO=TCP_TIMEOUT/10, DELAY_HI=TCP_TIMEOUT/2 ),
+        '--address', 'localhost:0',
+        #'--range', '10',
+        '    1 -  1000 = 1,0',
+        '40001 - 41000 = 1,2,3,4,5,6,7,8,9,0',
+    )
     request.addfinalizer( command.kill )
-    return command,address
+    return command,(str(iface),port)
 
 
 @pytest.mark.skipif( not has_pymodbus, reason="Needs pymodbus" )
@@ -75,7 +79,7 @@ def test_pymodbus_version():
 
     """
     version			= list( map( int, pymodbus.__version__.split( '.' )))
-    expects			= [1,2,0]
+    expects			= [3,8,0]
     assert version >= expects, "Version of pymodbus is too old: %r; expected %r or newer" % (
         version, expects )
 
@@ -163,7 +167,7 @@ def test_plc_merge():
 @pytest.mark.skipif( not has_pymodbus or not has_o_nonblock, reason="Needs pymodbus and fcntl/O_NONBLOCK" )
 def test_plc_modbus_basic( simulated_modbus_tcp ):
     command,(iface,port)	= simulated_modbus_tcp
-    Defaults.Timeout		= 1.0
+    Defaults.Timeout		= TCP_TIMEOUT
     try:
         client			= modbus_client_tcp( host=iface, port=port )
         plc			= poller_modbus( "Motor PLC", client=client )
@@ -184,7 +188,7 @@ def test_plc_modbus_timeouts( simulated_modbus_tcp ):
     command,(iface,port)	= simulated_modbus_tcp
     #client			= modbus_client_tcp( host=iface, port=port ) # try old host=... API instead
     plc				= poller_modbus( "Motor PLC", host=iface, port=port )
-    deadline			= 0.25 # Configured on simulated PLC start-up (GNUmakefile)
+    deadline			= TCP_TIMEOUT # Configured on simulated PLC start-up (GNUmakefile)
 
     try:
         # Slowly increase the timeout 'til success, ranging from -20% to +20% of the
@@ -217,7 +221,7 @@ def test_plc_modbus_timeouts( simulated_modbus_tcp ):
 
 @pytest.mark.skipif( not has_pymodbus or not has_o_nonblock, reason="Needs pymodbus and fcntl/O_NONBLOCK" )
 def test_plc_modbus_nonexistent( simulated_modbus_tcp ):
-    Defaults.Timeout		= 1.5
+    Defaults.Timeout		= TCP_TIMEOUT
     command,(iface,port)	= simulated_modbus_tcp
     client			= modbus_client_tcp( host=iface, port=port+1 )
     plc_bad			= poller_modbus( "Motor PLC", client=client ) # Wrong port
@@ -240,7 +244,7 @@ def test_plc_modbus_nonexistent( simulated_modbus_tcp ):
 
 @pytest.mark.skipif( not has_pymodbus or not has_o_nonblock, reason="Needs pymodbus and fcntl/O_NONBLOCK" )
 def test_plc_modbus_polls( simulated_modbus_tcp ):
-    Defaults.Timeout		= 1.0 # PLC simulator has .25s delay
+    Defaults.Timeout		= TCP_TIMEOUT # PLC simulator has .1x-.5x delay
     # Set a default poll rate of 1.0s for new registers, and a reach of 10.
     command,(iface,port)	= simulated_modbus_tcp
     client			= modbus_client_tcp( host=iface, port=port )

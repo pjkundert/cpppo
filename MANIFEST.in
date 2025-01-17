@@ -1,5 +1,9 @@
+# Both sdist and bdist include these files
 include LICENSE
 include README.org
 include requirements.txt
-include requirements-optional.txt
+include requirements-*.txt
 include cpppo.cfg
+include crypto/licensing/licensing.sql*
+recursive-include crypto/licensing/static *
+global-exclude *~

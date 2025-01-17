@@ -1,0 +1,4 @@
+flake8
+pylint
+pytest		>=4.6
+#pywin32			; sys_platform == "win32"

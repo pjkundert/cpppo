@@ -92,16 +92,22 @@
     To run a simulation of a subset of a ControlLogix(tm) Controller
     communications, with the array Tags 'SCADA' and 'TEXT' and scalar Tag 'FLOAT'
     for you to read/write, run =python -m cpppo.server.enip= or =enip_server=:
+
+    #+LATEX: {\scriptsize
     #+BEGIN_EXAMPLE
     enip_server --print SCADA=INT[1000] TEXT=SSTRING[100] FLOAT=REAL
     #+END_EXAMPLE
+    #+LATEX: }
 
     Each Tag references a specific CIP Class/Instance/Attribute, which can be
     specified, if you desire (eg. to use numeric CIP addressing, typically
     required for Get/Set Attribute Single requests):
+
+    #+LATEX: {\scriptsize
     #+BEGIN_EXAMPLE
     enip_server --print SCADA@22/1/1=INT[1000] TEXT@22/1/2=SSTRING[100] FLOAT@22/1/3=REAL
     #+END_EXAMPLE
+    #+LATEX: }
 
     (See =cpppo/server/enip/poll_test.py='s =main= method (at the end of the
     file) for an example of how to implement a completely custom set of CIP
@@ -180,6 +186,7 @@
     CIP TCP/IP Object Interface Configuration and Host Name, create a
     =cpppo.cfg= file containing:
 
+    #+LATEX: {\scriptsize
     #+BEGIN_EXAMPLE
     [Identity]
     # Generally, strings are not quoted
@@ -196,19 +203,25 @@
         }
     Host Name                   = controller
     #+END_EXAMPLE
+    #+LATEX: }
 
     See [[https://github.com/pjkundert/cpppo/blob/master/cpppo.cfg]] for details on
     the file format ([[https://docs.python.org/3/library/configparser.html]]).
 
     Place this file in one of the above-mentioned locations, and run:
+
+    #+LATEX: {\scriptsize
     #+BEGIN_EXAMPLE
     $ python -m cpppo.server.enip -v
     01-20 07:01:29.125 ...  NORMAL  main  Loaded config files: ['cpppo.cfg']
     ...
     #+END_EXAMPLE
+    #+LATEX: }
 
     Use the new EtherNet/IP CIP =cpppo.server.enip.poll= API to poll the
     Identity and TCPIP Objects and see the results:
+
+    #+LATEX: {\scriptsize
     #+BEGIN_EXAMPLE
     $ python3 -m cpppo.server.enip.poll -v TCPIP Identity
     01-20 07:04:46.253 ...  NORMAL run    Polling begins \
@@ -217,6 +230,7 @@
           '255.255.255.0', '0.0.0.0', '8.8.8.8', '8.8.4.4', 'example.com', 'controller']
     Identity: [1, 15, 54, 2836, 12640, 7079450, '1756-L61/C LOGIX5561', 255]
     #+END_EXAMPLE
+    #+LATEX: }
 
 *** Routing via =route_path= to other CIP Devices
 
@@ -233,6 +247,8 @@
     its =route_path=, specify a JSON mapping in the configuration file's "Route = { ...",
     specifying each =route_path= by <port>/<link> (link ranges are handled), and the <IP>:<port> it
     should be routed to:
+
+    #+LATEX: {\scriptsize
     #+BEGIN_EXAMPLE
     [UCMM]
     Route Path                 = 1/0
@@ -240,6 +256,8 @@
             "1/1-15":  "localhost:44819"
         }
     #+END_EXAMPLE
+    #+LATEX: }
+
     This example (see =cpppo/cpppo-router.cfg= and =cpppo/cpppo.cfg= for more details) accepts and
     handles CIP requests to =route_path= port 1, link 0 (backplane slot 0), and routes requests to
     all other backplane slots to the EtherNet/IP CIP simulator on localhost port 44819.  Any valid
@@ -275,6 +293,8 @@
      This example *captures the first command line argument* as a file name; all
      subsequent arguments are the same as described for the EtherNet/IP
      Controller Communications Simulator, above:
+
+     #+LATEX: {\scriptsize
      #+BEGIN_EXAMPLE
      $ python -m cpppo.server.enip.historize some_file.hst Tag_Name=INT[1000] &
      $ tail -f some_file.txt
@@ -282,10 +302,15 @@
      2014-07-15 22:03:44.186 ["Tag_Name", [0, 3]]    {"write": [0, 1, 2, 3]}
      ...
      #+END_EXAMPLE
+     #+LATEX: }
+
      (in another terminal)
+
+     #+LATEX: {\scriptsize
      #+BEGIN_EXAMPLE
      $ python -m cpppo.server.enip.client Tag_Name[0-3]=[0,1,2,3]
      #+END_EXAMPLE
+     #+LATEX: }
    
      You can examine the code in =cpppo/server/enip/historize.py= to see how to
      easily implement your own customization of the EtherNet/IP CIP Controller
@@ -305,6 +330,7 @@
      current temperature of the city named with the Tag's name.  This example is
      simple enough to include here (see =cpppo/server/enip/weather.py=):
 
+     #+LATEX: {\scriptsize
      #+BEGIN_EXAMPLE python
      import sys, logging, json
      try: # Python2
@@ -353,6 +379,7 @@
      
      sys.exit( enip_main( attribute_class=Attribute_weather ))
      #+END_EXAMPLE
+     #+LATEX: }
 
      By providing a specialized implementation of device.Attribute's =__getitem__=
      (which is invoked each time an Attribute is accessed), we arrange to query
@@ -418,6 +445,8 @@
     All data is read/written as arrays of =SINT=; however, if you specify a data
     type for writing data, we will convert it to an array of =SINT= for you.  For example,
     if you know that you are writing to a =REAL= Attribute:
+
+    #+LATEX: {\scriptsize
     #+BEGIN_EXAMPLE
     $ python -m cpppo.server.enip -v 'Motor_Velocity@0x93/3/10=REAL' # In another terminal...
     $ python -m cpppo.server.enip.get_attribute '@0x93/3/10=(REAL)1.0' '@0x93/3/10'
@@ -426,6 +455,8 @@
     $ python -m cpppo.server.enip.client --print Motor_Velocity
       Motor_Velocity              == [1.0]: 'OK'
     #+END_EXAMPLE
+    #+LATEX: }
+
     To access Get Attribute data with CIP type conversion, use
     =cpppo.server.enip.get_attribute='s =proxy= classes, instead.
 
@@ -449,6 +480,8 @@
     For example, to find the Identity of all of the EtherNet/IP CIP devices on a
     local LAN with broadcast address 192.168.1.255 (that respond to broadcast
     List Identity via UDP/IP):
+
+    #+LATEX: {\scriptsize
     #+BEGIN_EXAMPLE
     $ python -m cpppo.server.enip.client --udp --broadcast --list-identity -a 192.168.1.255
     List Identity  0 from ('192.168.1.5', 44818): {
@@ -520,6 +553,7 @@
         "item[0].type_id": 12
     }
     #+END_EXAMPLE
+    #+LATEX: }
 
     Sends certain "Legacy" EtherNet/IP CIP requests:
     : -L|--legacy <command>
@@ -539,6 +573,7 @@
     | 192.168.1.5 | CompactLogix    | 1769-L18ER/A LOGIX5318ER      |
     |             |                 |                               |
     
+    #+LATEX: {\scriptsize
     #+BEGIN_EXAMPLE
     $ python -m cpppo.server.enip.client --udp --broadcast --legacy 0x0001 -a
         192.168.1.255
@@ -589,6 +624,7 @@
         "item[0].type_id": 1
     }
     #+END_EXAMPLE
+    #+LATEX: }
 
     Change the verbosity (supply more to increase further):
     : -v[vv...]|--verbose
@@ -698,6 +734,8 @@
     (with our without pipelining) is very simple.  If you don't need to see the
     results of each operation as they occur, or just want to ensure that they
     succeeded, you can use =connector.process= (see =cpppo/server/enip/client/io_example.py=):
+
+    #+LATEX: {\scriptsize
     #+BEGIN_EXAMPLE python
     host                        = 'localhost'   # Controller IP address
     port                        = address[1]    # default is port 44818
@@ -716,6 +754,7 @@
     
     sys.exit( 1 if failures else 0 )
     #+END_EXAMPLE
+    #+LATEX: }
 
     Try it out by starting up a simulated Controller:
     : $ python -m cpppo.server.enip Tag=DINT[10] &
@@ -739,6 +778,8 @@
     =connector.synchronous=, and to "pipeline" the requests (have multiple
     requests issued and "in flight" simultaneously), use =connector.pipeline=
     (see =cpppo/server/enip/client/thruput.py=)
+
+    #+LATEX: {\scriptsize
     #+BEGIN_EXAMPLE python
     ap                          = argparse.ArgumentParser()
     ap.add_argument( '-d', '--depth',    default=0, help="Pipelining depth" )
@@ -769,6 +810,7 @@
         print( "%3d operations using %3d requests in %7.2fs at pipeline depth %2s; %5.1f TPS" % (
             num+1, idx+1, elapsed, args.depth, num / elapsed ))
     #+END_EXAMPLE
+    #+LATEX: }
 
     Fire up a simulator with a few tags, preferably on a host with a high
     network latency relative to your current host:
@@ -842,24 +884,29 @@
      
      Then, you might issue a broadcast from this (or another) host on the network, expecting a
      response from your simulator, but not receiving one:
-     : $ python -m cpppo.server.enip.list_services -vv --udp --broadcast \\
-     :     --source 192.168.1.5 --address 192.168.1.255
-     : 05-25 15:51:02.044 MainThread enip.cli DETAIL   __init__   Connect:  UPD/IP to ('192.168.1.255', 44818) via ('192.168.1.7', 0) broadcast
-     : 05-25 15:51:02.072 MainThread enip.cli DETAIL   cip_send   Client CIP Send: {
-     :     "enip.status": 0,
-     :     "enip.sender_context.input": "bytearray(b'\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00')",
-     :     "enip.session_handle": 0,
-     :     "enip.CIP.list_services": {},
-     :     "enip.options": 0
-     : }
-     : 05-25 15:51:02.073 MainThread enip.cli DETAIL   cip_send   Client CIP Send: {
-     :     "enip.status": 0,
-     :     "enip.sender_context.input": "bytearray(b'\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00')",
-     :     "enip.session_handle": 0,
-     :     "enip.CIP.list_identity": {},
-     :     "enip.options": 0
-     : }
-     : $
+
+     #+LATEX: {\scriptsize
+     #+BEGIN_EXAMPLE python
+     $ python -m cpppo.server.enip.list_services -vv --udp --broadcast \\
+         --source 192.168.1.5 --address 192.168.1.255
+     05-25 15:51:02.044 MainThread enip.cli DETAIL   __init__   Connect:  UPD/IP to ('192.168.1.255', 44818) via ('192.168.1.7', 0) broadcast
+     05-25 15:51:02.072 MainThread enip.cli DETAIL   cip_send   Client CIP Send: {
+         "enip.status": 0,
+         "enip.sender_context.input": "bytearray(b'\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00')",
+         "enip.session_handle": 0,
+         "enip.CIP.list_services": {},
+         "enip.options": 0
+     }
+     05-25 15:51:02.073 MainThread enip.cli DETAIL   cip_send   Client CIP Send: {
+         "enip.status": 0,
+         "enip.sender_context.input": "bytearray(b'\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00')",
+         "enip.session_handle": 0,
+         "enip.CIP.list_identity": {},
+         "enip.options": 0
+     }
+     $
+     #+END_EXAMPLE
+     #+LATEX: }
 
      Why?  Because you have bound the server to specific IP address, 192.168.1.5.  If you instead
      bind it to "all" interfaces (thus, at no specific IP address) using any of the following
@@ -901,6 +948,8 @@
      Takes a sequence of Tag-based or numeric CIP Attribute descriptions, and
      converts them to operations suitable for use with a =client.connector=.
      For example:
+
+     #+LATEX: {\scriptsize
      #+BEGIN_EXAMPLE python
      >>> from cpppo.server.enip include client
      >>> list( client.parse_operations( [ "A_Tag[1-2]=(REAL)111,222" ] ))
@@ -912,6 +961,7 @@
          'tag_type':    202
      }]
      #+END_EXAMPLE
+     #+LATEX: }
 
      A symbolic Tag is assumed, but an =@= indicates a numeric CIP address,
      with each segment's meaning defaulting to:
@@ -1056,6 +1106,8 @@
      finally the encapsulated request; the Read/Write Tag [Fragmented] payload
      (in a =cpppo.dotdict=, a =dict= that understands dotted keys accessible as
      attributes, slightly formatted here for readability):
+
+     #+LATEX: {\scriptsize
      #+BEGIN_EXAMPLE python
      >>> for k,v in rpy.items():
      ...  print k,v
@@ -1083,6 +1135,7 @@
      enip.CIP.send_data.CPF.item[1].unconnected_send.request.status_ext.size	0
      >>>
      #+END_EXAMPLE
+     #+LATEX: }
 
      The response payload is highly variable (eg. may contain further
      encapsulations such as Multiple Service Packet framing), so it is
@@ -1109,6 +1162,8 @@
      Use numeric addressing to the Instance or Attribute level,
      eg. =@<class>/<instance>= or =@<class>/<instance>/<attribute>=.  One is
      implemented in =cpppo/server/enip/get_attribute.py=:
+
+     #+LATEX: {\scriptsize
      #+BEGIN_EXAMPLE python
      from cpppo.server.enip.get_attribute import attribute_operations
 
@@ -1118,11 +1173,14 @@
          for idx,dsc,op,rpy,sts,val in conn.pipeline(
                  operations=attribute_operations( tags ), depth=depth,
                  multiple=False, timeout=timeout ):
-      #+END_EXAMPLE
+     #+END_EXAMPLE
+     #+LATEX: }
 
      Here is an example of getting all the raw Attribute data from the CIP
      Identity object (Class 1, Instance 1) of a Controller (Get Attributes All,
      and Get Attribute Single of Class 1, Instance 1, Attribute 7):
+
+     #+LATEX: {\scriptsize
      #+BEGIN_EXAMPLE
      $ python -m cpppo.server.enip.get_attribute --depth 3 -v  '@1/1'  '@1/1/7'
      2015-04-21 14:51:14.633:   0: Single G_A_A      @0x0001/1 == [1, 0, 14, 0, 54,  \
@@ -1131,6 +1189,7 @@
      2015-04-21 14:51:14.645:   1: Single G_A_S      @0x0001/1/7 == [20, 49, 55, 53, \
          54, 45, 76, 54, 49, 47, 66, 32, 76, 79, 71, 73, 88, 53, 53, 54, 49]
      #+END_EXAMPLE
+     #+LATEX: }
 
      Decoding the Identity Attribute 7 CIP STRING as ASCII data yields (the
      first character is the length: 20 decimal, or 14 hex):
@@ -1158,16 +1217,23 @@
      operation such as =@<class>/<instance>/<attribute>=(REAL)1.1= (see
      =get_attribute_single=, above.)  If you start the =enip_server
      ... FLOAT@22/1/3=REAL= command, above, and then run:
+
+     #+LATEX: {\scriptsize
      #+BEGIN_EXAMPLE
      $ python -m cpppo.server.enip.get_attribute '@22/1/3=(REAL)1.0' '@22/1/3'
      Mon Feb 22 15:29:51 2016:   0: Single S_A_S      @0x0016/1/3 == True
      Mon Feb 22 15:29:51 2016:   1: Single G_A_S      @0x0016/1/3 == [0, 0, 128, 63]     
      #+END_EXAMPLE
+     #+LATEX: }
+
      Confirm that you wrote the correct floating-ponit value:
+
+     #+LATEX: {\scriptsize
      #+BEGIN_EXAMPLE
      $ python -m cpppo.server.enip.client 'FLOAT'
                FLOAT              == [1.0]: 'OK'
      #+END_EXAMPLE
+     #+LATEX: }
 
 **** =client.connector.list_identity=, =.list_services= and =.list_interfaces=
 
@@ -1177,6 +1243,8 @@
      activity on the connection.  The =cpppo.server.enip.list_identity_simple=
      example broadcasts a UDP/IP List Identity request to the local LAN,
      awaiting all responses until timeout expires without activity:
+
+     #+LATEX: {\scriptsize
      #+BEGIN_EXAMPLE python
      from __future__ import print_function
 
@@ -1196,6 +1264,7 @@
              else:
                  break # No response (None) w'in timeout or EOF ({})
      #+END_EXAMPLE
+     #+LATEX: }
 
      See =cpppo.server.enip.client= for a more advanced approach which returns
      only the relevant List Identity or List Services payload from the response,
@@ -1204,6 +1273,8 @@
      The =cpppo.server.enip.list_services= module entrypoint provides a more
      complete CLI interface for generating and harvesting List Services and List
      Identity responses:
+
+     #+LATEX: {\scriptsize
      #+BEGIN_EXAMPLE
      $ python -m cpppo.server.enip.list_services --help
      usage: list_services.py [-h] [-v] [-a ADDRESS] [-u] [-b] [--identity]
@@ -1225,6 +1296,7 @@
        -t TIMEOUT, --timeout TIMEOUT
                              EtherNet/IP timeout (default: 5s)
      #+END_EXAMPLE
+     #+LATEX: }
 
      It always requests List Services, and (optionally) List Identity, List
      Interfaces.  By default, it sends the requests unicast via TCP/IP, but can
@@ -1233,6 +1305,8 @@
 
      To obtain responses from all EtherNet/IP CIP devices on the local LAN with
      broadcast address 192.168.0.255:
+
+     #+LATEX: {\scriptsize
      #+BEGIN_EXAMPLE
      $ python -m cpppo.server.enip.list_services --udp --broadcast \
            --list-identity -a 192.168.0.255
@@ -1284,6 +1358,7 @@
          "enip.options": 0
      }
      #+END_EXAMPLE
+     #+LATEX: }
 
 *** EtherNet/IP =cpppo.server.enip.get_attribute= API
 
@@ -1309,6 +1384,8 @@
      To create a "proxy" for a simple (non-routing) remote EtherNet/IP CIP sensor
      device, such as an A-B PowerFlex, with (for example) a CIP =REAL= attribute
      at Class 0x93, Instance 1, Attribute 10:
+
+     #+LATEX: {\scriptsize
      #+BEGIN_EXAMPLE python
      from cpppo.server.enip.get_attribute import proxy_simple
 
@@ -1319,6 +1396,7 @@
              a_sensor_parameter = proxy_simple.parameter( '@0x93/1/10', 'REAL', 'Hz' ),
          )
      #+END_EXAMPLE
+     #+LATEX: }
 
 **** Reading Attributes Using =proxy.read=
 
@@ -1334,6 +1412,8 @@
      remote A-B PowerFlex device (the supplied name is transformed to
      =a_sensor_parameter= by lowering case and transforming ' ' to '_', to check
      for matching any =proxy.PARAMETER= entry):
+
+     #+LATEX: {\scriptsize
      #+BEGIN_EXAMPLE python
      via                = some_sensor( host="10.0.1.2" )
      try:
@@ -1344,6 +1424,7 @@
          via.close_gateway( exc=exc )
          raise
      #+END_EXAMPLE
+     #+LATEX: }
 
      There are several important things to note here:
 
@@ -1374,70 +1455,74 @@
 
      To guarantee that an Exception is raised if any result is not returned, you
      can set =.read='s =checking= parameter to =True=:
-     #+BEGIN_EXAMPLE python
-     via                = some_sensor( host="10.0.1.2" )
-     try:
-         # Will raise Exception (closing gateway) on any failure to get data
-         params         = via.parameter_substitution( "A Sensor Parameter" )
-         value,         = via.read( params, checking=True )
-     except Exception as exc:
-         via.close_gateway( exc )
-         raise
-     # value is *always* guaranteed to be [<value>]
-     #+END_EXAMPLE
+
+#+LATEX: {\scriptsize
+#+BEGIN_EXAMPLE python
+via                = some_sensor( host="10.0.1.2" )
+try:
+    # Will raise Exception (closing gateway) on any failure to get data
+    params         = via.parameter_substitution( "A Sensor Parameter" )
+    value,         = via.read( params, checking=True )
+except Exception as exc:
+    via.close_gateway( exc )
+    raise
+# value is *always* guaranteed to be [<value>]
+#+END_EXAMPLE
+#+LATEX: }
 
 **** Writing Attributes Using =proxy.write= (alias for =.read=)
 
-     The =.read= method (or its alias =.write=) support writing to
-     CIP Attributes.  Simply append an equals sign, a CIP type in
-     parentheses, and a comma-separated list of values to the
-     parameter or Attribute name.
+     The =.read= method (or its alias =.write=) support writing to CIP Attributes.  Simply append an
+     equals sign, a CIP type in parentheses, and a comma-separated list of values to the parameter
+     or Attribute name.
 
-     #+BEGIN_EXAMPLE python
-     # 
-     # Write a Motor Velocity to an AB PowerFlex AC Drive Controller
-     # 
-     #     python -m cpppo.server.enip.powerflex_motor_velocity @localhost 123.45
-     # 
-     # To start a simulator (a partial AB PowerFlex) on localhost suitable for writing:
-     # 
-     #     python -m cpppo.server.enip.poll_test
-     # 
-     import logging
-     import sys
-     import time
-     import traceback
+#+LATEX: {\scriptsize
+#+BEGIN_EXAMPLE python
+# 
+# Write a Motor Velocity to an AB PowerFlex AC Drive Controller
+# 
+#     python -m cpppo.server.enip.powerflex_motor_velocity @localhost 123.45
+# 
+# To start a simulator (a partial AB PowerFlex) on localhost suitable for writing:
+# 
+#     python -m cpppo.server.enip.poll_test
+# 
+import logging
+import sys
+import time
+import traceback
 
-     import cpppo
-     #cpppo.log_cfg['level'] = logging.DETAIL
-     logging.basicConfig( **cpppo.log_cfg )
+import cpppo
+#cpppo.log_cfg['level'] = logging.DETAIL
+logging.basicConfig( **cpppo.log_cfg )
 
-     #from cpppo.server.enip.get_attribute import proxy_simple as device # MicroLogix
-     #from cpppo.server.enip.get_attribute import proxy as device        # ControlLogix
-     from cpppo.server.enip.ab import powerflex_750_series as device    # PowerFlex 750
+#from cpppo.server.enip.get_attribute import proxy_simple as device # MicroLogix
+#from cpppo.server.enip.get_attribute import proxy as device        # ControlLogix
+from cpppo.server.enip.ab import powerflex_750_series as device    # PowerFlex 750
 
-     # Optionally specify Powerflex DNS name or IP address, prefixed with '@':
-     host               = 'localhost'
-     if len( sys.argv ) > 1 and sys.argv[1].startswith( '@' ):
-         host           = sys.argv.pop( 1 )[1:]
+# Optionally specify Powerflex DNS name or IP address, prefixed with '@':
+host               = 'localhost'
+if len( sys.argv ) > 1 and sys.argv[1].startswith( '@' ):
+    host           = sys.argv.pop( 1 )[1:]
 
-     # Optionally specify velocity; defaults to 0:
-     velocity           = 0
-     if len( sys.argv ) > 1:
-         velocity       = float( sys.argv.pop( 1 ))
+# Optionally specify velocity; defaults to 0:
+velocity           = 0
+if len( sys.argv ) > 1:
+    velocity       = float( sys.argv.pop( 1 ))
 
-     param              = 'Motor Velocity = (REAL)%s' % ( velocity )
-     try:
-         via            = device( host=host )
-         with via: # establish gateway, detects Exception (closing gateway)
-        val,            = via.write(
+param              = 'Motor Velocity = (REAL)%s' % ( velocity )
+try:
+    via            = device( host=host )
+    with via: # establish gateway, detects Exception (closing gateway)
+        val,       = via.write(
             via.parameter_substitution( param ), checking=True )
-         print( "%s: %-32s == %s" % ( time.ctime(), param, val ))
-     except Exception as exc:
-         logging.detail( "Exception writing Parameter %s: %s, %s",
+    print( "%s: %-32s == %s" % ( time.ctime(), param, val ))
+except Exception as exc:
+    logging.detail( "Exception writing Parameter %s: %s, %s",
         param, exc, traceback.format_exc() )
-         sys.exit( 1 )
-     #+END_EXAMPLE
+    sys.exit( 1 )
+#+END_EXAMPLE
+#+LATEX: }
 
 **** Forcing .read/write to use CIP Get/Set Attribute Single
 
@@ -1450,6 +1535,7 @@
      specific data types (eg. =INT=), create the =proxy_simple= device w/ an appropriate
      =operations_parser= parameter:
 
+#+LATEX: {\scriptsize
 #+BEGIN_EXAMPLE python
 # 
 # Basic CIP I/O Test
@@ -1490,6 +1576,7 @@ via = device( hostname, operations_parser=operations_parser )
 val, = via.write( operations )
      
 #+END_EXAMPLE
+#+LATEX: }
 
 **** Using the =proxy= Context Manager API
 
@@ -1498,6 +1585,8 @@ val, = via.write( operations )
      Context Manager API, which ensures that the =proxy='s gateway is opened, and
      that the =proxy='s =.close_gateway= is invoked on any Exception that occurs
      while reifying the generator returned by =proxy.read=:
+
+     #+LATEX: {\scriptsize
      #+BEGIN_EXAMPLE python
      via                = some_sensor( host="10.0.1.2" )
      with via:
@@ -1505,6 +1594,7 @@ val, = via.write( operations )
          value,         = via.read( params )
      # value may be something like [1.23], or None if returned error status
      #+END_EXAMPLE
+     #+LATEX: }
 
      Wherever in your code that you plan to use the results obtained from a
      proxy, ensure that you enclose it in a =with <proxy>:= block.  You may even
@@ -1512,6 +1602,8 @@ val, = via.write( operations )
      Exceptions raised during initial processing): just ensure that the context
      manager is invoked before you begin to use the results, so that Exceptions
      caused by I/O errors are properly captured:
+
+     #+LATEX: {\scriptsize
      #+BEGIN_EXAMPLE python
      from __future__ import print_function
      via                = some_sensor( host="10.0.1.2" )
@@ -1522,6 +1614,7 @@ val, = via.write( operations )
          for value in reader:
              print( "Got: %r" % ( value ))
      #+END_EXAMPLE
+     #+LATEX: }
 
 **** The =proxy= Device's Identity
 
@@ -1533,6 +1626,8 @@ val, = via.write( operations )
      The connection and List Identity request doesn't occur 'til the =proxy= is
      accessed using =.read=, or the Context Manager is invoked using =with
      <proxy>:=
+
+     #+LATEX: {\scriptsize
      #+BEGIN_EXAMPLE python
      from __future__ import print_function
      via                = some_sensor( host="10.0.1.2" )
@@ -1541,6 +1636,7 @@ val, = via.write( operations )
      reader             = via.read( params )
      print( "Connected! %s" % ( via ))
      #+END_EXAMPLE
+     #+LATEX: }
 
      Producing the output:
      : Not yet connected: None at None
@@ -1550,6 +1646,8 @@ val, = via.write( operations )
      simply pass a product name string ="Something"= (or a
      =cpppo.dotdict({"product_name":"Something"}))=) in the =identity_default=
      parameter:
+
+     #+LATEX: {\scriptsize
      #+BEGIN_EXAMPLE python
      from __future__ import print_function
      via                = proxy( host="localhost", identity_default="Something" )
@@ -1558,18 +1656,23 @@ val, = via.write( operations )
      reader             = via.read( params )
      print( "Connected! %s" % ( via ))
      #+END_EXAMPLE
+     #+LATEX: }
 
      This would produce something like:
+
+     #+LATEX: {\scriptsize
      #+BEGIN_EXAMPLE
      Not yet connected: Something at None
      Connected! Something at localhost:44818[576509498]
      #+END_EXAMPLE
+     #+LATEX: }
 
 *** EtherNet/IP =cpppo.server.enip.poll= API
 
     If regular updates of values from an EtherNet/IP CIP device are required,
     then the =cpppo.server.enip.poll= API may be useful.
 
+    #+LATEX: {\scriptsize
     #+BEGIN_EXAMPLE python
     # 
     # Poll a PowerFlex 750 series at IP (or DNS name) "<hostname>" (default: localhost)
@@ -1637,17 +1740,23 @@ val, = via.write( operations )
         process.done		= True
         poller.join()
     #+END_EXAMPLE
+    #+LATEX: }
     
     If you start a (simulated) A-B PowerFlex (be prepared to stop and restart
     it, to observe how the =cpppo.server.enip.poll= API handles polling failures):
+
+    #+LATEX: {\scriptsize
     #+BEGIN_EXAMPLE
     $ cpppo -m cpppo.server.enip.poll_test
     #+END_EXAMPLE
+    #+LATEX: }
 
     and then in another terminal, start the (above) =poll_example.py= (also
     included in the =cpppo= installation).  You'll see something like this (make
     sure you stop/pause and then restart the =poll_test.py= A-B PowerFlex
     simulator during the test):
+
+    #+LATEX: {\scriptsize
     #+BEGIN_EXAMPLE
     $ cpppo -m cpppo.server.enip.poll_example
     Wed Feb  3 11:47:58 2016: [Errno 61] Connection refused
@@ -1674,11 +1783,14 @@ val, = via.write( operations )
     Wed Feb  3 11:48:20 2016:   Motor Velocity == [789.010009765625]
     Wed Feb  3 11:48:20 2016:   Output Current == [123.44999694824219]
     #+END_EXAMPLE
+    #+LATEX: }
 
     Likewise, for an example of polling various parameters at different rates
     from multiple threads, via a single =proxy= EtherNet/IP CIP connection to a
     CIP device, run =poll_example_many.py= (note: uses =cpppo.history='s
     =timestamp=, so requires Python Timezone support, via: =pip install pytz=):
+
+    #+LATEX: {\scriptsize
     #+BEGIN_EXAMPLE
     $ cpppo -m cpppo.server.enip.poll_example_many
     2016-01-28 15:25:18.366: [Errno 61] Connection refused
@@ -1711,6 +1823,7 @@ val, = via.write( operations )
     2016-01-28 15:25:32.538:   Motor Velocity == [789.010009765625]
     2016-01-28 15:25:32.611: Output Frequency == [456.7799987792969]
     #+END_EXAMPLE
+    #+LATEX: }
 
 **** =poll.poll=
 
@@ -1802,6 +1915,8 @@ val, = via.write( operations )
     : $ curl http://localhost:12345/api
 
     and you should get something like:
+
+    #+LATEX: {\scriptsize
     #+BEGIN_EXAMPLE
     $ curl http://localhost:12345/api
     {
@@ -1832,12 +1947,13 @@ val, = via.write( operations )
         "until": 1371731588.230987
     }
     #+END_EXAMPLE
-
+    #+LATEX: }
 
 **** options/delay/value
      To access or modify some specific thing in the matching object(s), add a
      <command> and <value>:
 
+     #+LATEX: {\scriptsize
      #+BEGIN_EXAMPLE
      $ curl http://localhost:12345/api/options/delay/value/0.5
      {
@@ -1857,6 +1973,7 @@ val, = via.write( operations )
          "until": 1371732496.23366
      }
      #+END_EXAMPLE
+     #+LATEX: }
 
      It will perform the action of assigning the <value> to all of the matching
      <command> entities.  In this case, since you specified a precise <group>
@@ -1922,6 +2039,8 @@ val, = via.write( operations )
      : wget -qO -  http://localhost:12345/api/tags/SCADA/attribute[3]=4
 
      You can access any specific value to confirm:
+
+     #+LATEX: {\scriptsize
      #+BEGIN_EXAMPLE
      wget -qO -  http://localhost:12345/api/tags/SCADA/attribute[3]
      {
@@ -1943,6 +2062,7 @@ val, = via.write( operations )
          "until": 1371734234.553135
      }
      #+END_EXAMPLE
+     #+LATEX: }
 
 **** api/connections/*/eof
      To immediately terminate all connections, you can signal them that they've
@@ -1956,6 +2076,8 @@ val, = via.write( operations )
 
      To wait for all connections to close, you can issue a request to get all connections, and wait
      for the 'data' attribute to become empty:
+
+     #+LATEX: {\scriptsize
      #+BEGIN_EXAMPLE
      $ curl http://localhost:12345/api/connections
      {
@@ -1992,6 +2114,7 @@ val, = via.write( operations )
          "until": 1372889133.079849
      }
      #+END_EXAMPLE
+     #+LATEX: }
 
 * Remote PLC I/O
 
@@ -2024,6 +2147,7 @@ val, = via.write( operations )
    Then, you can use the Modbus/TCP implementation of =cpppo.remote.plc=
    =poller= class to access the device:
 
+   #+LATEX: {\scriptsize
    #+BEGIN_SRC python
    from cpppo.remote import plc_modbus
 
@@ -2039,10 +2163,13 @@ val, = via.write( operations )
    p.write( 40001, 123 ) # Change the value in the PLC synchronously
    reg = p.read( 40001 ) # Will eventually be 123, after next poll
    #+END_SRC
+   #+LATEX: }
 
    We have made available a script to allow simple poll (and write) access to a Modbus/TCP PLC:
    =modbus_poll=.  To initialize (and poll) some values (assuming you are running the =modbus_sim=
    above), run:
+
+   #+LATEX: {\scriptsize
    #+BEGIN_EXAMPLE
    $ modbus_poll -a :1502 40001-40010=0 40001-40100
    09-16 06:26:06.161  7fff70d0e300 root  WARNING  main  40001 ==     9 (was: None)
@@ -2056,19 +2183,26 @@ val, = via.write( operations )
    09-16 06:26:06.161  7fff70d0e300 root  WARNING  main  40009 ==    99 (was: None)
    09-16 06:26:06.161  7fff70d0e300 root  WARNING  main  40010 ==    99 (was: None)
    #+END_EXAMPLE
+   #+LATEX: }
 
    Now, if you write to the PLC using =modbus_poll= again (in another terminal), eg:
+
+   #+LATEX: {\scriptsize
    #+BEGIN_EXAMPLE
    $ modbus_poll -a :1502 40009=999    # hit ^C to terminate
    $ modbus_poll -a :1502 40001=9999   # hit ^C to terminate
    #+END_EXAMPLE
+   #+LATEX: }
 
    In a second or so after each request, you'll see further logging from the first (still running)
    =modbus_poll=:
+
+   #+LATEX: {\scriptsize
    #+BEGIN_EXAMPLE
    09-16 06:28:12.579  7fff70d0e300 root WARNING  main  40009 ==   999 (was: 99)
    09-16 06:28:38.674  7fff70d0e300 root WARNING  main  40001 ==  9999 (was: 9)
    #+END_EXAMPLE
+   #+LATEX: }
 
 *** =cpppo.remote.plc_modbus.poller_modbus= API
 
@@ -2162,14 +2296,6 @@ val, = via.write( operations )
      input buffer which (in concert with our proper serial read
      =modbus_rtu_read=) allows us to implement correct Modbus/RTU framing.
 
-**** =modbus_sparse_data_block=
-
-     The provided =ModbusSparseDataBlock= incorrectly deduces the base address,
-     and is wildly inefficient for large data blocks.  We correctly deduce the
-     base register address.  The provided =.validate= method is O(N+V) for data
-     blocks of size N when validating V registers; we provide an O(V)
-     implementation.
-
 * Deterministic Finite Automata
 
   A cpppo.dfa will consume symbols from its source iterable, and yield
@@ -2184,19 +2310,21 @@ val, = via.write( operations )
 
 ** Basic State Machines
 
-#   #+BEGIN_DITAA abplus.png -r -S
-   #+BEGIN_EXAMPLE
+   #+BEGIN_SRC ditaa :file abplus.png :cmdline -r -S
        +-----+ 'a' +-----+ 'b' +-----+ 'b'
        |  E  |---->|  A  |---->| (B) |----+
        +-----+     +-----+     +-----+    |
                                   ^       |
                                   |       |
                                   +-------+
-   #+END_EXAMPLE
-#   #+END_DITAA
+   #+END_SRC
+
+   #+RESULTS:
+   [[file:abplus.png]]
 
    This machine is easily created like this:
 
+   #+LATEX: {\scriptsize
    #+BEGIN_SRC python
    # Basic DFA that accepts ab+
    E                    = cpppo.state( "E" )
@@ -2208,6 +2336,7 @@ val, = via.write( operations )
 
    BASIC                = cpppo.dfa( 'ab+', initial=E, context='basic' )
    #+END_SRC
+   #+LATEX: }
    
 ** Composite Machines
 
@@ -2215,8 +2344,7 @@ val, = via.write( operations )
    giving it some of its own transitions.  For example, lets make a machine that
    accepts 'ab+' separated by ',[ ]*'.
 
-#   #+BEGIN_DITAA abplus_csv.png -r -S
-   #+BEGIN_EXAMPLE
+   #+BEGIN_SRC ditaa :file abplus_csv.png :cmdline -r -S
                           +------------------------------+
                           |                              |
                           v                              |
@@ -2229,11 +2357,14 @@ val, = via.write( operations )
        |                             |       |  |        |       |
        |                             +-------+  |        +-------+
        +----------------------------------------+
-   #+END_EXAMPLE
-#   #+END_DITAA
+   #+END_SRC
+
+   #+RESULTS:
+   [[file:abplus_csv.png]]
 
    This is implemented:
 
+   #+LATEX: {\scriptsize
    #+BEGIN_SRC python
    # Composite state machine accepting ab+, ignoring ,[ ]* separators
    ABP                  = cpppo.dfa( "ab+", initial=E, terminal=True )
@@ -2260,8 +2391,7 @@ val, = via.write( operations )
    that it doesn't ignore the separators), and produces the following state
    machine:
 
-#   #+BEGIN_DITAA abplus_regex.png -r -S
-   #+BEGIN_EXAMPLE
+   #+BEGIN_SRC ditaa :file abplus_regex.png :cmdline -r -S
                         +--------------------------------+
                         |                                |
                         v                                | 'a'
@@ -2272,10 +2402,11 @@ val, = via.write( operations )
         |             |             | | | 'b'     | | | ' '
    True |        True |        True | +-+    True | +-+
         v             v             v             v
-      None          None          None          None
+       None          None          None          None
+   #+END_SRC
 
-   #+END_EXAMPLE
-#   #+END_DITAA
+   #+RESULTS:
+   [[file:abplus_regex.png]]
 
    The =True= transition out of each state ensures that the =cpppo.state=
    machine will yield a None (non-transition) when encountering an invalid
@@ -2285,10 +2416,12 @@ val, = via.write( operations )
 
    A regular expression based cpppo.dfa is created thus:
 
+   #+LATEX: {\scriptsize
    #+BEGIN_SRC python
    # A regular expression; the default dfa name is the regular expression itself.
    REGEX                = cpppo.regex( initial='(ab+)((,[ ]*)(ab+))*' )
    #+END_SRC
+   #+LATEX: }
 
 *** Consume all possible symbols: =greedy=
 
@@ -2322,6 +2455,7 @@ val, = via.write( operations )
   sentence of input.  All these machines ultimately use state_input instances
   to store their data; the path used is the cpppo.dfa's <context> + '_input':
 
+  #+LATEX: {\scriptsize
   #+BEGIN_SRC python
   data                  = cpppo.dotdict()
   for machine in [ BASIC, CSV, REGEX ]:
@@ -2334,6 +2468,7 @@ val, = via.write( operations )
       print( "Accepted: %r; remaining: %r\n" % ( data.get(path), ''.join( source )))
   print( "Final: %r" % ( data ))
   #+END_SRC
+  #+LATEX: }
 
 * Historical 
 
@@ -2520,6 +2655,8 @@ val, = via.write( operations )
 
    Assuming you have cpppo installed on your local host, you can now test this.
    We'll read a single value and a range of values from the tag SCADA, repeating 10 times:
+
+   #+LATEX: {\scriptsize
    #+BEGIN_EXAMPLE
    $ python -m cpppo.server.enip.client -r 10 SCADA[1] SCADA[0-10]
    10-08 09:40:29.327  ...  SCADA[    1-1    ] == [0]
@@ -2545,6 +2682,7 @@ val, = via.write( operations )
    10-08 09:40:29.796  ...  Client ReadFrg. Average  20.266 TPS (  0.049s ea).
    $ 
    #+END_EXAMPLE
+   #+LATEX: }
 
 *** Creating Docker images from a Dockerfile
 
@@ -2559,6 +2697,8 @@ val, = via.write( operations )
     Or, lets use it as a base image for a new Dockerfile.  Lets just formalize
     the command we ran previously so we don't have to remember to type it in.
     Create a new Dockerfile in, say, cpppo/docker/cpppo/scada/:
+
+    #+LATEX: {\scriptsize
     #+BEGIN_EXAMPLE
     FROM        cpppo/cpppo
     MAINTAINER  Whoever You Are "whoever@example.com"
@@ -2568,6 +2708,7 @@ val, = via.write( operations )
     # But we will allow this to be (optionally) overridden
     CMD         [ "SCADA=dint[1000]" ]
     #+END_EXAMPLE
+    #+LATEX: }
 
     Then, we can build and save the container under a new name:
     : docker build -t cpppo/scada .

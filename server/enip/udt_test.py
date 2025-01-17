@@ -75,8 +75,8 @@ def parse_check_tag_records( tagdata, tagname, tagtype ):
     with open( example_vals_json ) as f:
         original		= json.loads( f.read() )
 
-    elmcoder			= udt.tag_struct()
-    elmtype			= tagtype["data_type"] 
+    #elmcoder			= udt.tag_struct()
+    #elmtype			= tagtype["data_type"] 
     rec_cnt			= tagtype["dimensions"][0]
     rec_siz			= tagtype["data_type"]["template"]["structure_size"]
 
@@ -112,13 +112,13 @@ def parse_check_tag_records( tagdata, tagname, tagtype ):
         out			= parser.produce( record )
         encoded			= out == rec
         if encoded:
-            log.detail( "{tagname}[{i}] ENCODING MATCHES (STRUCT_typed)".format( tagname=tagname, i=i ))
+            log.info( "{tagname}[{i}] ENCODING MATCHES (STRUCT_typed)".format( tagname=tagname, i=i ))
         else:
             out_dump		= misc.hexdump( out, length=8 )
             rec_dump		= misc.hexdump( rec, length=8 )
             rec_vs_out		= misc.hexdump_differs(
                 rec_dump, out_dump, inclusive=log.isEnabledFor( logging.DETAIL ) )
-            log.normal( "{tagname}[{i}] ENCODING DIFFERS (STRUCT_typed):\n{rec_vs_out}\n".format(
+            log.detail( "{tagname}[{i}] ENCODING DIFFERS (STRUCT_typed):\n{rec_vs_out}\n".format(
                 tagname=tagname, i=i, rec_vs_out=rec_vs_out ))
 
         tagrecords.append( record )
@@ -168,7 +168,17 @@ def test_logix_remote_udt( count=1 ):
     # 
     # Intercept all server requests, and collect requests/replies locally
     #
+    latency			= 1.0
+    timeout			=15.0
     server_txs			= []
+    server			= dotdict(
+        control		= apidict( timeout, dict(
+            done	= False,
+            latency	= latency,
+            timeout	= timeout,
+        )),
+        server_txs	= server_txs,		# Allow the client to see server's requests/responses
+    )
 
     class UCMM_collector( ucmm.UCMM ):
         """Collect the data (request), and its modified response.  Returns the "proceed" flag (or
@@ -182,9 +192,9 @@ def test_logix_remote_udt( count=1 ):
                 req		= copy.deepcopy( data )
                 proceed		= super( UCMM_collector, self ).request( data=data, addr=addr )
                 rpy		= copy.deepcopy( data )
-                server_txs.append( (addr,req,rpy) )
+                server.server_txs.append( (addr,req,rpy) )
             except Exception as exc:
-                server_txs.append( (addr,req,exc) )
+                server.server_txs.append( (addr,req,exc) )
                 raise
             else:
                 return proceed
@@ -201,8 +211,6 @@ def test_logix_remote_udt( count=1 ):
         type_cls	= type_cls,
         default		= tagrecords
     )
-    latency		= 1.0
-    timeout		=10.0
     
     kwargs			= dict(
         argv		= [
@@ -215,19 +223,13 @@ def test_logix_remote_udt( count=1 ):
                 tagaddr	= '@'+'/'.join( map( hex, tagaddr )) if tagaddr else '',
             ),
         ],
-        server		= dict(
-            control	= apidict( timeout, dict(
-                done		= False,
-                latency		= latency,
-                timeout		= timeout,
-            )),
-            server_txs	= server_txs,		# Allow the client to see server's requests/responses
-        ),
+        server		= server,
         client		= dict(),
         UCMM_class	= UCMM_collector,
         attribute_kwds	= attribute_kwds,
         enip_process	= logix.process,	# The default, but be explicit
     )
+
     targetthread_kwargs		= dict(
         count		= count,
         svraddr		= svraddr,
@@ -259,7 +261,8 @@ def test_logix_remote_udt( count=1 ):
             enip_main( **kwargs )
 
             targetthread.join()
-            log.normal( "Shutdown of C*Logix client complete" )
+            log.normal( "Shutdown of C*Logix client complete; collected {} server transactions".format(
+                len( kwargs['server']['server_txs'] )))
 
             # Now that the targetthread (the C*Logix client) is complete, we can check what it got.
             # We expect that it should have received the full STRUCT tag encoding, and successfully

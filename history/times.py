@@ -1,4 +1,4 @@
-
+# -*- coding: utf-8 -*-
 # 
 # Cpppo -- Communication Protocol Python Parser and Originator
 # 
@@ -25,14 +25,20 @@ __email__                       = "perry@hardconsulting.com"
 __copyright__                   = "Copyright (c) 2013 Hard Consulting Corporation"
 __license__                     = "Dual License: GPLv3 (or later) and Commercial (see LICENSE)"
 
-__all__				= ["timestamp", "get_localzone", "zone_names", "timedelta_total_seconds",
-                                   "parse_offset", "format_offset", "AmbiguousTimeZoneError", "TZ_wrapper"]
+__all__				= [
+    "timestamp", "get_localzone", "zone_names", "timedelta_total_seconds",
+    "parse_offset", "format_offset", "AmbiguousTimeZoneError", "TZ_wrapper",
+    "duration", "parse_datetime", "parse_seconds",
+    "has_pytz_classic", "pytz",  # or a ~equivalent shim based on zoneinfo and tzdata
+]
 
 import bisect
 import calendar
 import datetime
 import logging
+import math
 import os
+import re
 import string
 import sys
 import threading
@@ -49,8 +55,48 @@ from ..automata		import type_str_base
 
 log				= logging.getLogger( __package__ )
 
-# Installed packages (eg. pip/setup.py install pytz tzlocal)
-import pytz
+# Installed packages (eg. pip/setup.py install pytz tzlocal).  If zoneinfo and tzdata are used, try
+# to reconstruct some of the missing pytz APIs.  Selectively install either pytz_deprecation_shim or
+# pytz (classic), to determine which implementation is used for cpppo.history's timestamp.
+has_pytz_classic		= False
+try:
+    import pytz_deprecation_shim as pytz
+    import tzdata
+    import zoneinfo
+
+    pytz.__version__		= tuple( tzdata.__version__.split( '.' ))
+
+    try:
+        available		= {
+            tz.upper(): tz
+            for tz in zoneinfo.available_timezones()
+        }
+        pytz.country_timezones	= {}
+
+        with open( os.path.join( os.path.dirname( tzdata.__file__ ), 'zoneinfo', 'zone.tab' )) as zone_tab:
+            for clz in zone_tab:
+                # ['#', '...'...]
+                # ['UM', '+1917+16637', 'Pacific/Wake', 'Wake Island\n']
+                # ['US', '+404251-0740023', 'America/New_York', 'Eastern (most areas)\n']
+                cc,*tz	= map( str.upper, re.split( r"\s+", clz, maxsplit=3 ))
+                if (not cc and not tz) or cc.startswith( '#' ):
+                    continue
+                if tz[1] in available:
+                    pytz.country_timezones.setdefault( cc, [] ).append( available[tz[1]] )
+                else:
+                    log.warning( "Ignoring unhandled {cc} timezone: {tz}".format(
+                        cc=cc, tz=' '.join( tz )))
+    except Exception as exc:
+        log.warning( "Failed to deduce pytz.country_timezones using : {exc}".format( exc=exc ))
+        pytz.country_timezones	= {}
+
+except ImportError:
+    # No pytz_deprecation_shim and/or tzdata!  Try to get pytz for compatible Python versions.  If
+    # not available, cpppo.history.times should fail to load w/ an ImportError.
+    import pytz  # Python 2, < 3.9
+    has_pytz_classic = True
+
+
 try:
     from tzlocal import get_localzone
 except ImportError:
@@ -80,7 +126,7 @@ def TZ_wrapper():
     """
     def decorate( func ):
         def call( *args, **kwds ):
-            # TZ environment variable?  Either a tzinfo file or a timezone name.  Make this 
+            # TZ environment variable?  Either a tzinfo file or a timezone name.
             tzenv		= os.environ.get( 'TZ' )
             if tzenv:
                 if os.path.exists( tzenv ):
@@ -214,6 +260,8 @@ class timestamp( object ):
         of the 'at' (a naive UTC datetime, default: current time) is required, in order for multiple
         zones to use the same abbreviation with guaranteed consistent definitions.
 
+        Only supported with pytz (classic), not pytz_deprecation_shim + zoneinfo.
+
         """
         if reset and cls._tzabbrev:
             log.detail( "Resetting %d timezone abbreviations: %r", len( cls._tzabbrev), cls._tzabbrev.keys() )
@@ -273,7 +321,7 @@ class timestamp( object ):
                 ins,out		= ( tzinfo._utc_transition_times[nxt] - oneday,
                                     tzinfo._utc_transition_times[nxt] + oneday )
                 insloc,outloc	= ( tzinfo.normalize( pytz.UTC.localize( dt ).astimezone( tzinfo ))
-                                    			for dt in ( ins, out ))
+                                                        for dt in ( ins, out ))
                 insoff,outoff	= ( dt.utcoffset()	for dt in ( insloc, outloc ))	# The net UTC offset
                 insabb,outabb	= ( dt.strftime( "%Z" ) for dt in ( insloc, outloc ))	# The timezone abbrev.
                 insdst,outdst	= ( bool( dt.dst() )    for dt in ( insloc, outloc ))	# Is there a DST offset?
@@ -531,9 +579,10 @@ class timestamp( object ):
         else:
             raise ValueError( "Invalid timestamp of %s: %r", type( value ), value )
 
-    def render( self, tzinfo=None, ms=True ):
+    def render( self, tzinfo=None, ms=True, tzdetail=None ):
         """Render the time in the specified zone, optionally with milliseconds.  If the resultant
-        timezone is not UTC, include the timezone designation in the output.
+        timezone is not UTC, include the timezone abbreviation in the output by default (numeric if
+        tzdetail is Falsey, deterministic full timezone name if tzdetail is Truthy).
 
         Since we are "rounding" to (default) 3 places after the decimal, and since floating point
         values are not very precise for values that are not sums of fractions whose denominators are
@@ -607,8 +656,13 @@ class timestamp( object ):
         result			= dt.strftime( self._fmt )
         if subsecond:
             result	       += ( '%.*f' % ( subsecond, value ))[-subsecond-1:]
-        if dt.tzinfo is not self.UTC:
-            result	       += dt.strftime( ' %Z' )
+        if dt.tzinfo is not self.UTC or tzdetail is not None:
+            if tzdetail is None:
+                result	       += dt.strftime(' %Z' )	# default abbreviation for non-UTC
+            elif tzdetail:
+                result	       += " " + dt.tzinfo.zone	# full zone name if tzdetail is Truthy
+            else:
+                result	       += dt.strftime( '%z' )	# otherwise, append numeric tz offset
         return result
 
     def __float__( self ):
@@ -703,6 +757,10 @@ class timestamp( object ):
         return self
     def __sub__( self, rhs ):
         if rhs:
+            if isinstance( rhs, timestamp ):
+                # <timestamp> - <timestamp> returns difference in seconds
+                return self.value - rhs.value
+            # <timestamp> - <int/float>
             return timestamp( self.value - rhs )
         return timestamp( self )
     def __isub__( self, rhs ):
@@ -710,3 +768,238 @@ class timestamp( object ):
             self.value	       -= rhs
             self._str		= None
         return self
+
+
+
+
+#
+# duration -- parse/format human-readable durations, eg. 1w2d3h4m5.678s
+# 
+class duration( object ):
+    """The definition of a year is imprecise; we choose compatibility w/ the simplest 365.25 days/yr.
+    An actual year is about 365.242196 days =~= 31,556,925.7344 seconds.  The official "leap year"
+    calculation yields (365 + 1/4 - 1/100 + 1/400) * 86,400 == 31,556,952 seconds/yr.  We're
+    typically dealing with human-scale time periods with this data structure, so use the simpler
+    definition of a year, to avoid seemingly-random remainders when years are involved.
+
+    """
+    YR 				= 31557600
+    WK				=   604800
+    DY				=    86400
+    HR				=     3600
+    MN				=       60
+
+    @classmethod
+    def _format( cls, delta ):
+        seconds			= delta.days * cls.DY + delta.seconds
+        microseconds		= delta.microseconds
+        result			= ''
+
+        years			= seconds // cls.YR
+        if years: result       += "{years}y".format( years=years )
+        y_secs			= seconds % cls.YR
+
+        weeks			= y_secs // cls.WK
+        if weeks: result       += "{weeks}w".format( weeks=weeks )
+        w_secs			= y_secs % cls.WK
+
+        days			= w_secs // cls.DY
+        if days: result	       += "{days}d".format( days=days )
+        d_secs			= w_secs % cls.DY
+
+        hours			= d_secs // cls.HR
+        if hours: result       += "{hours}h".format( hours=hours )
+        h_secs			= d_secs % cls.HR
+
+        minutes			= h_secs // cls.MN
+        if minutes: result     += "{minutes}m".format( minutes=minutes )
+
+        s			= h_secs % cls.MN
+        is_us			= microseconds  % 1000 > 0
+        is_ms			= microseconds // 1000 > 0
+        if is_ms and ( s > 0 or is_us ):
+            # s+us or both ms and us resolution; default to fractional
+            result	       += "{s}.{us:0>6}".format( us=microseconds, s=s ).rstrip( '0' ) + 's'
+        elif microseconds > 0 or s > 0:
+            # s or sub-seconds remain; auto-scale to s/ms/us; the finest precision w/ data.
+            if s: result       += "{s}s".format( s=s )
+            if is_us: result   += "{us}us".format( us=microseconds )
+            elif is_ms: result += "{ms}ms".format( ms=microseconds // 1000 )
+        elif microseconds == 0 and seconds == 0:
+            # A zero duration
+            result	       += "0s"
+        else:
+            # A non-empty duration w/ no remaining seconds output above; nothing left to do
+            pass
+        return result
+
+    DURSPEC_RE			= re.compile(
+        flags=re.IGNORECASE | re.VERBOSE,
+        pattern=r"""
+            ^
+            (?:\s*(?P<y>\d+)\s*y((((ea)?r)s?)?)?)? # y|yr|yrs|year|years
+            (?:\s*(?P<w>\d+)\s*w((((ee)?k)s?)?)?)?
+            (?:\s*(?P<d>\d+)\s*d((((a )?y)s?)?)?)?
+            (?:\s*(?P<h>\d+)\s*h((((ou)?r)s?)?)?)?
+            (?:\s*(?P<m>\d+)\s*m((in(ute)?)s?)?)?  # m|min|minute|mins|minutes
+            (?:
+              (?:\s* # seconds mantissa (optional) + fraction (required)
+                (?P<s_man>\d+)?
+                [.,](?P<s_fra>\d+)\s*             s((ec(ond)?)s?)?
+              )?
+            | (?:
+                (?:\s*(?P<s> \d+)\s*              s((ec(ond)?)s?)?)?
+                (?:\s*(?P<ms>\d+)\s*(m|(milli))   s((ec(ond)?)s?)?)?
+                (?:\s*(?P<us>\d+)\s*(u|μ|(micro)) s((ec(ond)?)s?)?)?
+                (?:\s*(?P<ns>\d+)\s*(n|(nano))    s((ec(ond)?)s?)?)?
+              )
+            )
+            \s*
+            $
+        """ )
+
+    @classmethod
+    def _parse( cls, durspec ):
+        """Parses a duration specifier, returning the matching timedelta"""
+        durmatch		= cls.DURSPEC_RE.match( durspec )
+        if not durmatch:
+            raise RuntimeError("Invalid duration specification: {durspec}".format( durspec=durspec ))
+        seconds			= (
+            int( durmatch.group( 's' ) or durmatch.group( 's_man' ) or 0 )
+            + cls.MN * int( durmatch.group( 'm' ) or '0' )
+            + cls.HR * int( durmatch.group( 'h' ) or '0' )
+            + cls.DY * int( durmatch.group( 'd' ) or '0' )
+            + cls.WK * int( durmatch.group( 'w' ) or '0' )
+            + cls.YR * int( durmatch.group( 'y' ) or '0' )
+        )
+        microseconds		= (
+            int( "{:0<6}".format( durmatch.group( 's_fra' ) or '0' ))
+            + int( durmatch.group( 'ms' ) or '0' )  * 1000
+            + int( durmatch.group( 'us' ) or '0' )
+            + int( durmatch.group( 'ns' ) or '0' ) // 1000
+        )
+
+        return datetime.timedelta( seconds=seconds, microseconds=microseconds )
+
+    def __init__( self, value = None ):
+        if isinstance( value, duration ):
+            self.timedelta	= datetime.timedelta(
+                days=value.timedelta.days, seconds=value.timedelta.seconds, microseconds=value.timedelta.microseconds )
+        elif isinstance( value, type_str_base ): # str, unicode
+            self.timedelta	= self._parse( value )
+        elif isinstance( value, datetime.timedelta ):
+            self.timedelta	= value
+        else: # int/float number of seconds
+            self.timedelta	= datetime.timedelta( seconds = value or 0 )
+        
+    def __str__( self ):
+        return self._format( self.timedelta )
+
+    @property
+    def seconds( self ):
+        return self.timedelta.total_seconds()
+
+
+def parse_seconds( seconds ):
+    """Convert an <int>, <float>, "<float>", "HHH:MM[:SS]", "1m30s" or a duration to a float number of seconds
+
+    """
+    #if isinstance( seconds, duration ):
+    #    return seconds.seconds
+    try:	# '1.23'
+        return float( seconds )
+    except:
+        pass
+    try:	# 'HHH:MM[:SS[.sss]]'
+        return math.fsum(
+            map(
+                lambda p: p[0] * p[1],
+                zip(
+                    [ 60*60, 60, 1 ],
+                    map(
+                        lambda i: float( i or 0 ),
+                        parse_seconds.HHMMSS_RE.search( seconds ).groups()
+                    )
+                )
+            )
+        )
+    except:	# '1m30s'
+        pass
+    return duration( seconds ).seconds
+
+parse_seconds.HHMMSS_PAT= r'(\d+):(\d{2})(?::(\d{2}(?:\.\d+)?))?'
+
+parse_seconds.HHMMSS_RE	= re.compile(
+        flags=re.IGNORECASE | re.VERBOSE, pattern=parse_seconds.HHMMSS_PAT )
+
+
+# 
+# Some simpler datetime and duration handling functionality.
+# 
+# NOTE: Does *not* support the ambiguous timezone abbreviations! (eg. MST/MDT instead of Canada/Mountain)
+# 
+
+def parse_datetime( time, zone=None ):
+    """Interpret the time string "2019/01/20 10:00" as a naive local time, in the specified time zone,
+    eg. "Canada/Mountain" (default: "UTC").  Returns the datetime; default time zone: UTC.  If a
+    timezone name follows the datetime, use it instead of zone/'UTC'.
+
+    """
+    tz			= pytz.timezone( zone or 'UTC' )
+    # First, see if we can split out datetime and a specific timezone.  If not, just try
+    # patterns against the supplied time string, unmodified, and default tz to zone/UTC.
+    dtzmatch		= parse_datetime.DATETIME_RE.match( time )
+    if dtzmatch:
+        time		= dtzmatch.group( 'dt' )
+        zone		= dtzmatch.group( 'tz' )
+        if zone:
+            tz		= pytz.timezone( str( zone ))
+
+    # Then, try parsing some time formats w/ timezone data, and convert to the designated timezone
+    for fmt in [
+        "%Y-%m-%dT%H:%M:%S.%f%z",
+        "%Y-%m-%dT%H:%M:%S%z",
+        "%Y-%m-%d %H:%M:%S.%f%z",
+        "%Y-%m-%d %H:%M:%S%z",
+    ]:
+        try:    return datetime.datetime.strptime( time, fmt ).astimezone( tz )
+        except: pass
+
+    # Next, try parsing some naive datetimes, and then localize them to their designated timezone
+    for fmt in [
+        "%Y-%m-%dT%H:%M:%S.%f",
+        "%Y-%m-%dT%H:%M:%S",
+        "%Y-%m-%d %H:%M:%S.%f",
+        "%Y-%m-%d %H:%M:%S",
+        "%Y-%m-%d %H:%M",
+        "%Y-%m-%d",
+    ]:
+        try:    return tz.localize( datetime.datetime.strptime( time, fmt ))
+        except Exception:
+            pass
+    raise RuntimeError("Couldn't parse datetime from {time!r} w/ time zone {tz!r}".format(
+        time=time, tz=tz ))
+
+parse_datetime.DATETIME_PAT	= r"""
+            # YYYY-MM-DDTHH:MM:SS.sss+ZZ:ZZ
+            (?P<dt>[0-9-]+([ T][0-9:\.\+\-]+)?)
+            # Optionally, whitespace followed by a Blah[/Blah] Timezone name, eg. Canada/Mountain
+            (?:\s+
+              (?P<tz>[a-z_-]+(/[a-z_-]*)*)
+            )?
+        """
+
+parse_datetime.DATETIME_RE	= re.compile(
+        flags=re.IGNORECASE | re.VERBOSE,
+        pattern=r"""
+            ^
+            \s*
+            {pattern}
+            \s*
+            $
+        """.format( pattern=parse_datetime.DATETIME_PAT ))
+
+
+def zulu_datetime( dt ):
+    """Format a datetime as a standard ZULU datetime string."""
+    return dt.astimezone( pytz.UTC ).strftime("%Y-%m-%dT%H:%M:%SZ")

@@ -13,6 +13,7 @@ import re
 import signal
 import subprocess
 import sys
+import threading
 import time
 import traceback
 
@@ -26,10 +27,12 @@ except Exception:
     log.warning( "Failed to import fcntl; skipping simulated Modbus/TCP PLC tests" )
 
 from . import misc
+from .server.network import soak
+from .dotdict import dotdict
 from .tools.waits import waitfor
 
 RTU_WAIT			= 2.0  # How long to wait for the simulator
-RTU_LATENCY			= 0.05 # poll for command-line I/O response 
+RTU_LATENCY			= 0.05 # poll for command-line I/O response
 
 class nonblocking_command( object ):
     """Set up a non-blocking command producing output.  Read the output using:
@@ -66,86 +69,169 @@ class nonblocking_command( object ):
         shell			= type( command ) is not list
         self.command		= ' '.join( command ) if not shell else command
         log.info( "Starting command: %s", self.command )
-        self.process		= subprocess.Popen(
-            command, stdout=subprocess.PIPE, stderr=stderr, stdin=stdin,
-            bufsize=bufsize, preexec_fn=os.setsid, shell=shell )
+        if sys.version_info[0] < 3:
+            # Python2 assumes plain ASCII encoding (just passes through the raw data)
+            self.process		= subprocess.Popen(
+                command, stdout=subprocess.PIPE, stderr=stderr, stdin=stdin,
+                bufsize=bufsize, preexec_fn=os.setsid, shell=shell )
+        else:
+            # Python3 supports encoding, so specify encoding='utf-8' support?  No, we must retain
+            # binary data from the target process and decode it as received.  This retains
+            # consistency with Python2, and also is necessary to support non-blocking sockets --
+            # which defeat the built-in Python codecs, which do *not* offer non-blocking support.
+            if sys.platform == 'win32':
+                self.process		= subprocess.Popen(
+                    command, stdout=subprocess.PIPE, stderr=stderr, stdin=stdin,
+                    bufsize=bufsize, creationflags=subprocess.CREATE_NEW_PROCESS_GROUP, shell=shell )
+            else:
+                self.process		= subprocess.Popen(
+                    command, stdout=subprocess.PIPE, stderr=stderr, stdin=stdin,
+                    bufsize=bufsize, preexec_fn=os.setsid, shell=shell )
         log.normal( 'Started Server PID [%d]: %s', self.process.pid, self.command )
         if not blocking:
-            fd 			= self.process.stdout.fileno()
-            fl			= fcntl.fcntl( fd, fcntl.F_GETFL )
-            fcntl.fcntl( fd, fcntl.F_SETFL, fl | os.O_NONBLOCK )
+            self.non_blocking()
         # Really, really ensure we get terminated
         atexit.register( self.kill )
+
+    def non_blocking( self ):
+        fd 			= self.process.stdout.fileno()
+        try:
+            # Windows' Python 3 doesn't appear to have the capacity to
+            # stream data from subprocess in a non-blocking fashion
+            # if sys.platform == "win32":
+            #     import win32pipe
+            #     import msvcrt
+            #     handle = msvcrt.get_osfhandle(self.process.stdout.fileno())
+            #     # Set the pipe to non-blocking mode
+            #     # PIPE_NOWAIT is the Windows equivalent of O_NONBLOCK
+            #     win32pipe.SetNamedPipeHandleState(
+            #         handle, 
+            #         win32pipe.PIPE_NOWAIT,
+            #         None, 
+            #         None
+            #     )
+            # else:
+                fl		= fcntl.fcntl( fd, fcntl.F_GETFL )
+                fcntl.fcntl( fd, fcntl.F_SETFL, fl | os.O_NONBLOCK )
+        except Exception as exc:
+            log.warning( "Unable to set O_NONBLOCK on subprocess stdout; tests may not work correctly: {exc}".format( exc=exc ))
 
     @property
     def stdout( self ):
         return self.process.stdout
 
-    def kill( self ):
-        log.normal( 'Sending SIGTERM to PID [%d]: %s, via: %s', self.process.pid, self.command,
-                        ''.join( traceback.format_stack() ) if log.isEnabledFor( logging.INFO ) else '' )
-        try:
-            os.killpg( self.process.pid, signal.SIGTERM )
-        except OSError as exc:
-            log.info( 'Failed to send SIGTERM to PID [%d]: %s', self.process.pid, exc )
-        else:
-            log.info( "Waiting for command (PID [%d]) to terminate", self.process.pid )
-            self.process.wait()
-        # Process may exit with a non-numeric returncode (eg. None)
+    def is_alive( self ):
+        if hasattr( self.process, 'is_alive' ):
+            return self.process.is_alive()
+        return self.poll() is None
+
+    # Return returncode on self.process exit, None if self.process is still running.
+    def poll( self ):
+        return self.process.poll()
+
+    def wait( self, timeout=None ):
+        if sys.version_info[0] < 3: # Python 2.x subprocess.Popen.wait() has no timeout...
+            if timeout is not None:
+                deadline = misc.timer() + timeout
+                while self.poll() is None and misc.timer() < deadline:
+                    time.sleep( min( timeout / 10, 0.1 ))
+            return self.process.wait()
+        return self.process.wait( timeout=timeout )
+
+    def kill( self, timeout=None ):
+        if self.is_alive():
+            log.normal( 'Sending SIGTERM to PID [%d]: %s, via: %s', self.process.pid, self.command,
+                            ''.join( traceback.format_stack() ) if log.isEnabledFor( logging.DEBUG ) else '' )
+            try:
+                self.process.terminate()
+            except OSError: # Python2.7 doesn't check/ignore problems sending signals to already-dead processes
+                pass
+            if self.wait( timeout=timeout ) is None:
+                log.normal( 'Sending SIGKILL to PID [%d]: %s', self.process.pid, self.command )
+                try:
+                    self.process.kill()
+                except OSError:
+                    pass
+                self.process.wait()
         log.info( "Command (PID [%d]) finished with status %r: %s",
                       self.process.pid, self.process.returncode, self.command )
 
     __del__			= kill
 
 
-def start_modbus_simulator( options ):
+def start_simulator( simulator, *options, **kwds ):
+    """Start a simple EtherNet/IP CIP simulator (execute this file as __main__), optionally with
+    Tag=<type>[<size>] (or other) positional arguments appended to the command-line.  Return the
+    command-line used, and the detected (host,port) address bound.  Looks for something like:
+
+        11-11 11:46:16.301     7fff7a619000 network  NORMAL   server_mai enip_srv server PID [ 7573] running on ('', 44818)
+
+    containing a repr of the (<host>,<port>) tuple.  Recover this address using the safe
+    ast.literal_eval.  Use the -A to provide this on stdout, or just -v if stderr is redirected to
+    stdout (the default, w/o a stderr parameter to nonblocking_command)
+
+    At least one positional parameter containing a Tag=<type>[<size>] must be provided.
+
+    Note that the output of this file's interpreter is not *unbuffered* (above), so we can receive
+    and parse the 'running on ...'!  We assume that server/network.py flushes stdout when printing
+    the bindings.  We could use #!/usr/bin/env -S python3 -u instead to have all output unbuffered.
+
+
+    The address soaked/harvested from the output of the simulator will be an (<interface>,<port>)
+    tuple; the <interface> may be either a str, or an IPv[46]Address (convertible to a str).
+
+    """
+    command_list		= [ sys.executable, simulator, ] + list( options )
+
+    # For python 2/3 compatibility (can't mix positional wildcard, keyword parameters in Python 2)
+    address_wait		= kwds.pop( 'CMD_WAIT', 1.0 )
+    address_latency		= kwds.pop( 'CMD_LATENCY', 0.1 )
+    address_re			= kwds.pop( 'RE_ADDRESS', None )
+
+    command                     = nonblocking_command( command_list, **kwds )
+
+    begun			= misc.timer()
+
+    control			= dotdict( address=None )
+    soaker			= threading.Thread(
+        target	= soak,
+        args	= (),
+        kwargs	= dict(
+            command		= command,
+            control		= control,
+            address_latency	= address_latency,
+            address_re		= address_re,
+        ))
+    soaker.daemon		= True
+    soaker.start()
+    while control.address is None and misc.timer() - begun < address_wait:
+        time.sleep( address_latency )
+
+    assert control.address, "Failed to harvest Simulator IP address"
+
+    logging.normal( "Simulator started after %7.3fs on %s",
+                    misc.timer() - begun, ':'.join( map( repr, control.address )))
+    return command,control.address
+
+
+def start_modbus_simulator( *options, **kwds ):
     """Start bin/modbus_sim.py; assumes it flushes stdout when printing bindings so we can parse it
     here.
 
     """
-    command                     = nonblocking_command( [
-        sys.executable,
+    return start_simulator(
         os.path.join( os.path.dirname( os.path.abspath( __file__ )), 'bin', 'modbus_sim.py' ),
-    ] + list( options ), stderr=None, bufsize=0 )
-
-    begun			= misc.timer()
-    address			= None
-    data			= ''
-    while address is None and misc.timer() - begun < RTU_WAIT:
-        # On Python2, socket will raise IOError/EAGAIN; on Python3 may return None 'til command started.
-        raw			= None
-        try:
-            raw			= command.stdout.read()
-            log.debug( "Socket received: %r", raw)
-            if raw:
-                data  	       += raw.decode( 'utf-8', 'backslashreplace' )
-        except IOError as exc:
-            log.debug( "Socket blocking...")
-            assert exc.errno == errno.EAGAIN, "Expected only Non-blocking IOError"
-        except Exception as exc:
-            log.warning("Socket read return Exception: %s", exc)
-        if not raw:
-            time.sleep( RTU_LATENCY )
-        while data.find( '\n' ) >= 0:
-            line,data		= data.split( '\n', 1 )
-            log.info( "%s", line )
-            m			= re.search( "address = (.*)", line )
-            if m:
-                try:
-                    host,port	= m.group(1).split( ':' )
-                    address	= host,int(port)
-                    log.normal( "Modbus/TCP Simulator started after %7.3fs on %s:%d",
-                                    misc.timer() - begun, address[0], address[1] )
-                except:
-                    assert m.group(1).startswith( '/' )
-                    address	= m.group(1)
-                    log.normal( "Modbus/RTU Simulator started after %7.3fs on %s",
-                                    misc.timer() - begun, address )
-                break
-    return command,address
+        *options,
+        **kwds
+    )
 
 
 def run_plc_modbus_polls( plc ):
+    """ Assumes:
+    coils     1 == 1,0,...
+    hregs 40001 == 1,2,3,4,5,6,7,8,9,0,...
+
+    """
     # Initial conditions (in case PLC is persistent between tests)
     plc.write(     1, 0 )
     plc.write( 40001, 0 )
@@ -156,32 +242,32 @@ def run_plc_modbus_polls( plc ):
     wfkw			= dict( timeout=timeout, intervals=intervals )
 
     plc.poll( 40001, rate=rate )
-    
+
     success,elapsed		= waitfor( lambda: plc.read( 40001 ) is not None, "40001 polled", **wfkw )
     assert success
     assert elapsed < 1.0
-    assert plc.read( 40001 ) == 0
-    
+    assert plc.read( 40001 ) == 0  # Initial condition set above
+
     assert plc.read(     1 ) == None
     assert plc.read( 40002 ) == None
     success,elapsed		= waitfor( lambda: plc.read( 40002 ) is not None, "40002 polled", **wfkw )
     assert success
     assert elapsed < 1.0
-    assert plc.read( 40002 ) == 0
+    assert plc.read( 40002 ) == 2  # Default condition of simulator
     success,elapsed		= waitfor( lambda: plc.read(     1 ) is not None, "00001 polled", **wfkw )
     assert success
     assert elapsed < 1.0
-    assert plc.read(     1 ) == 0
+    assert plc.read(     1 ) == 0  # Initial condition set above
 
     # Now add a bunch of new stuff to poll, and ensure polling occurs.  As we add registers the
     # number of distinct poll ranges will increase, and then decrease as we in-fill and the
     # inter-register range drops below the merge reach 10, allowing the polling to merge ranges.
     # Thus, keep track of the number of registers added, and allow
-    # 
-    # avg. 
+    #
+    # avg.
     # poll
     # time
-    #  
+    #
     #   |
     #   |
     # 4s|         ..
@@ -195,7 +281,7 @@ def run_plc_modbus_polls( plc ):
     # need to more than double the Nyquist-rate timeout
     wfkw['timeout']	       *= 2.5
     wfkw['intervals']	       *= 2.5
-    
+
     regs			= {}
     extent			= 100 # how many each of coil/holding registers
     total			= extent*2 # total registers in play

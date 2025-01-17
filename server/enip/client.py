@@ -74,9 +74,31 @@ def parse_path_component( *args, **kwds ):
 log				= logging.getLogger( "enip.cli" )
 
 class ENIPStatusError( Exception ):
-    def __init__(self, status=None):
+    def __init__( self, status=None, message=None ):
         self.status		= status
-        super( ENIPStatusError, self ).__init__("Response EtherNet/IP status: %d" % ( status ))
+        super( ENIPStatusError, self ).__init__(
+            ( message or "Response EtherNet/IP status: 0x%02x" ) % ( status ))
+
+
+class SENDStatusError( ENIPStatusError ):
+    """If a Connected/Unconnected Send fails, it probably indicates a serious problem with the
+    assumptions underlying the session; eg., that the requested Unconnected Send parameters are
+    invalid, eg. a route path doesn't exist, or the target device is not a "routing" CIP device.
+
+    """
+    def __init__( self, status=None, message=None ):
+        super( SENDStatusError, self ).__init__(
+            status=status, message=message or "Response EtherNet/IP Un/Connected Send status: 0x%02x" )
+
+
+class MSVCStatusError( ENIPStatusError ):
+    """If a Multiple Service Request encapsulation fails, it also means that the stream of
+    requests/replies will be defeated, and that the session should probably be restarted.
+
+    """
+    def __init__( self, status=None, message=None ):
+        super( MSVCStatusError, self ).__init__(
+            status=status, message=message or "Response EtherNet/IP Multiple Service status: 0x%02x" )
 
 
 def format_path( segments, count=None ):
@@ -314,14 +336,21 @@ def enip_replies( response, multiple=False ):
     replies			= None
     item_1			= response.get( 'enip.CIP.send_data.CPF.item[1]' )
     if item_1:
-        # Could be either Send RR Data or Send Unit Data
+        # Could be either Send RR Data or Send Unit Data, OR a plain Unconnected Send error response status.
         data			= item_1.get( 'unconnected_send' ) or item_1.get( 'connection_data' )
         if data:
-            # Could be a Multiple Service Packet or a single Service request.  Multiple
-            # Service Packet is eg. a list of read/write_tag/frag; Single request is eg. a
+            # A Connected/Unconnected send; any status error will likely de-synchronize the session
+            send_status		= data.get( 'status' )
+            if send_status:
+                raise SENDStatusError( status=send_status )
+            # Could be a Multiple Service Packet success or failure, or a single Service request.
+            # Multiple Service Packet is eg. a list of read/write_tag/frag; Single request is eg. a
             # read/write_tag/frag, converted to a list.
             request		= data.get( 'request' )
-            if 'multiple.request' in request:
+            if request.get( 'service' ) == device.Message_Router.MULTIPLE_RPY: # 'multiple.request' in request:
+                msvc_status		= request.get( 'status' )
+                if msvc_status:
+                    raise MSVCStatusError( status=msvc_status )
                 replies		= request.multiple.request
             else:
                 replies		= [ request ]
@@ -640,18 +669,18 @@ class client( object ):
                 # A Connected/Unconnected Send that contained an encapsulated request (ie. not just a Get
                 # Attribute All).  Use the globally-defined cpppo.server.enip.client's dialect's
                 # (eg. logix.Logix) parser to parse the contents of the CIP payload's CPF items.
-                dialect	= self.dialect or device.dialect # May be (temporarily) changed
+                dialect		= self.dialect or device.dialect # May be (temporarily) changed
                 with dialect.parser as machine:
                     with contextlib.closing( machine.run( # for pypy, where gc may delay destruction of generators
-                            source=peekable( request.input ),
-                            data=request )) as engine:
+                            source	= peekable( request.input ),
+                            data	= request )) as engine:
                         for m,s in engine:
                             pass
                         assert machine.terminal, "No %r request in the EtherNet/IP CIP CPF frame: %r" % (
                             dialect, result )
-            if log.isEnabledFor( logging.DETAIL ):
-                log.detail( "Client CIP Rcvd: %s", parser.enip_format(
-                    result if log.isEnabledFor( logging.INFO ) else result.enip.CIP ))
+        if log.isEnabledFor( logging.DETAIL ):
+            log.detail( "Client CIP Rcvd: %s", parser.enip_format(
+                result if log.isEnabledFor( logging.INFO ) or not result or 'enip.CIP' not in result else result.enip.CIP ))
         return result
 
     next = __next__ # Python 2/3 compatibility

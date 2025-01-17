@@ -23,9 +23,6 @@ from cpppo.server import enip
 from cpppo.server.enip import client
 from cpppo.server.enip.get_attribute import proxy, proxy_simple # Devices w/ a backplane route_path
 
-if sys.version_info[0] >= 3:
-    def unicode( s ):
-        return str( s )
 
 def main( argv=None, address=None ):
     ap				= argparse.ArgumentParser(
@@ -83,12 +80,12 @@ scans each device backplane for installed cards, printing their Identity string 
     # Convert network to broadcast address, or resolve IP address
     if '/' in addr[0]:
         # A network; get the dest network broadcast address
-        ip			= ipaddress.ip_network( unicode( addr[0] ))
+        ip			= ipaddress.ip_network( cpppo.unicode( addr[0] ))
         dest			= str( ip.broadcast_address ),addr[1]
         broadcast		= True
     else:
         # Not a network; must be a dest IP address
-        ip			= ipaddress.ip_address( unicode( socket.gethostbyname( addr[0] )))
+        ip			= ipaddress.ip_address( cpppo.unicode( socket.gethostbyname( addr[0] )))
         dest			= str( ip ),addr[1]
     print( "Scanning %s %s, w/ %s %s:%s" % (
            ', '.join( att[3:] for att in dir( address ) # eg. loopback, private
@@ -156,7 +153,7 @@ def scan_backplane( address, slots=16 ):
                 identity,	= via.read( via.parameter_substitution( "Identity" ))
             if identity:
                 yield route_path,identity
-    except Exception as exc:
+    except Exception:
         # No joy.  A simple non-routing device?
         with proxy_simple( host=address[0], port=address[1] ) as via:
             identity,		= via.read( via.parameter_substitution( "Identity" ))

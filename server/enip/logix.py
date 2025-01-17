@@ -31,6 +31,7 @@ enip.logix	-- Implements a Logix-like PLC subset
 
 """
 
+import contextlib
 import json
 import logging
 import sys
@@ -44,7 +45,7 @@ from .device import ( Object, Attribute,
                       Message_Router, Connection_Manager, Identity, TCPIP, Logical_Segments,
                       resolve_element, resolve_tag, resolve, redirect_tag, lookup )
 from . import ucmm
-from .parser import ( BOOL, ULINT, LINT, UDINT, DINT, UINT, INT, USINT, SINT, STRUCT,
+from .parser import ( BOOL, ULINT, LINT, UDINT, DINT, UINT, INT, USINT, SINT, STRUCT, STRING,
                       LREAL, REAL, EPATH, typed_data, octets_encode,
                       move_if, octets_drop, octets_noop, enip_format, status )
 
@@ -291,7 +292,20 @@ class Logix( Message_Router ):
         # It is a recognized request.  Set the data.status to the appropriate error code, should a
         # failure occur at that location during processing.  We will be returning a reply beyond
         # this point; any exceptions generated will be captured, logged and an appropriate reply
-        # .status error code returned.  
+        # .status error code returned.
+
+        # These status codes, and their exact Extended Error codes are especially important to get
+        # right, especially for Read Tag Fragmented 0x52.  The response payload, when carried by an
+        # CIP Unconnected Send (0x52) is otherwise redundant!  The only single-byte error code below
+        # 0x10 that doesn't carry an extended status is 0x06: Not enough room for all the data.
+        # However, this is only returned on a partially successful response with a large payload of
+        # data.
+
+        # Therefore, a hard rule to distinguish between a failed Unconnected Send (0x52) response
+        # (0xD2) status, and a Read Tag Fragmented (0x52) response (0xD2) status, is this: If the
+        # response size is exactly 4 (service code, pad, status, 0 extended status) , *and* the
+        # status code is < 0x10, then the response is a failed Unconnected Send (ie. bad path).
+        # Otherwise, it is an encapsulated status code from an erroneous payload request 0x52.
 
         # For Reads:
         # Error Code	Extended Error	Description of Error
@@ -832,8 +846,24 @@ def setup( **kwds ):
         # the Tags and/or their Error codes could change between calls, we check them.  If a
         # tags[name].path is provided, then we'll try to place the Attribute at that path
         # (eg. {'segment':[{'class':123},...]})
+
+        # These tags come from external sources, and may be ASCII or Unicode (UTF-8).  Normalize them to
+        # ISO-8859-1.
         for key,val in dict.items( kwds.get( 'tags', {} )): # Don't want dotdict depth-first iteration...
-            setup_tag( key, val )
+            if sys.version_info[0] < 3 and type(key) != unicode:  # noqa: F821
+                key_utf8	= key.decode( 'utf-8' )
+            else:
+                key_utf8	= key
+            try:
+                key_bytes	= key_utf8.encode( 'iso-8859-1' )
+            except UnicodeEncodeError:
+                message = u"Setup tag {!r}; contains non-ISO-8859-1 symbols".format( key_utf8 )
+                log.error( message )
+                raise ValueError( message )
+            key_8859		= key_bytes.decode('iso-8859-1')
+            log.info( u"Setup tag {!r}, to UTF-8: {!r}, to bytes: {!r}, to ISO-8859-1: {!r}".format(
+                key, key_utf8, key_bytes, key_8859 ))
+            setup_tag( key_8859, val )
 
     return setup.ucmm
 
@@ -929,11 +959,13 @@ def process( addr, data, **kwds ):
             if 'input' in data.request.enip:
                 source.chain( data.request.enip.input )
             with ucmm.parser as machine:
-                for i,(m,s) in enumerate( machine.run( path='request.enip', source=source, data=data )):
-                    #log.detail( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %s",
-                    #            machine.name_centered(), i, s, source.sent, source.peek(),
-                    #            repr( data ) if log.getEffectiveLevel() < logging.DETAIL else misc.reprlib.repr( data ))
-                    pass
+                with contextlib.closing( machine.run( source=source, data=data.request.enip )) as engine:
+                    for m,s in engine:
+                        pass
+                    # for i,(m,s) in enumerate( engine ):
+                    #     log.detail( "%s #%3d -> %10.10s; next byte %3d: %-10.10r: %s",
+                    #                 machine.name_centered(), i, s, source.sent, source.peek(),
+                    #                 repr( data ) if log.getEffectiveLevel() < logging.DETAIL else misc.reprlib.repr( data ))
         if log.isEnabledFor( logging.DETAIL ):
             log.detail( "EtherNet/IP CIP Request  (Client %16s): %s", addr, enip_format( data.request ))
 
@@ -964,7 +996,10 @@ def process( addr, data, **kwds ):
         # appropriate data.response.enip.input encapsulated EtherNet/IP message to return, along
         # with other response.enip... values (eg. .session_handle for a new Register Session).  The
         # enip.status should normally be 0x00; the encapsulated response will contain appropriate
-        # error indications if the encapsulated request failed.
+        # error indications if the encapsulated request failed.  However, if the entire request is
+        # no handled (ie. we are a non-routing "simple" CIP device, and a routing request is
+        # supplied, then the UCMM should fail the Unconnected Send (0x52) request with a response
+        # (0xD2) status 0x08.
         proceed			= ucmm.request( data.response, addr=addr )
         if log.isEnabledFor( logging.DETAIL ):
             log.detail( "EtherNet/IP CIP Response (Client %16s): %s", addr, enip_format( data.response ))

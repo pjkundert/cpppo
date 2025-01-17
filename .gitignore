@@ -12,7 +12,6 @@
 
 # System generated files
 .DS_Store
-*.png
 
 *.tex
 auto/
@@ -24,3 +23,8 @@ dist/
 *.svg
 .vagrant
 .pytest_cache/
+.cache/
+*.aux
+*.toc
+/ttyS[0-9]
+/ttyV[0-9]

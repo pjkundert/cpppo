@@ -21,11 +21,15 @@ __email__                       = "perry@hardconsulting.com"
 __copyright__                   = "Copyright (c) 2013 Hard Consulting Corporation"
 __license__                     = "Dual License: GPLv3 (or later) and Commercial (see LICENSE)"
 
-__all__				= ["timestamp", "get_localzone", "zone_names", "timedelta_total_seconds",
-                                   "parse_offset", "format_offset", "AmbiguousTimeZoneError",
-                                   "opener", "logger", "parse_record",
-                                   "HistoryExhausted", "reader", 
-                                   "DataError", "IframeError", "loader"]
+__all__				= [
+    "timestamp", "get_localzone", "zone_names", "timedelta_total_seconds",
+    "parse_offset", "format_offset", "AmbiguousTimeZoneError", "TZ_wrapper",
+    "duration", "parse_datetime", "parse_seconds",
+    "has_pytz_classic", "pytz",
+    "opener", "logger", "parse_record",
+    "HistoryExhausted", "reader", 
+    "DataError", "IframeError", "loader",
+]
 
 # These modules form the public interface of cpppo.history
 from .files import *
