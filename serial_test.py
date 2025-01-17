@@ -156,7 +156,7 @@ def test_pymodbus_rs485_sync():
     from .remote.pymodbus_fixes import modbus_server_rtu
     #from pymodbus.server import ModbusSerialServer as modbus_server_rtu
 
-    serial_args = dict(
+    serial_args			= dict(
         timeout=PORT_TIMEOUT,
         # retries=3,
         baudrate = PORT_BAUDRATE,
