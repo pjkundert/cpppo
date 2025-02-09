@@ -110,8 +110,7 @@ def attribute_operations( paths, int_type=None, **kwds ):
     for op in client.parse_operations( paths, int_type=int_type or 'SINT', **kwds ):
         path_end		= op['path'][-1]
         if 'instance' in path_end:
-            op['method'] = 'get_attributes_all'
-            assert 'data' not in op, "All Attributes cannot be operated on using Set Attribute services"
+            op['method'] = 'set_attributes_all' if 'data' in op else 'get_attributes_all'
         elif 'symbolic' in path_end or 'attribute' in path_end or 'element' in path_end:
             op['method'] = 'set_attribute_single' if 'data' in op else 'get_attribute_single'
         else:

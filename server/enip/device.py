@@ -943,6 +943,11 @@ class Object( object ):
     GA_ALL_REQ			= 0x01
     GA_ALL_RPY			= GA_ALL_REQ | 0x80
 
+    SA_ALL_NAM          = "Set Attributes All"
+    SA_ALL_CTX          = "set_attributes_all"
+    SA_ALL_REQ          = 0x02
+    SA_ALL_RPY          = SA_ALL_REQ | 0x80
+
     GA_LST_NAM			= "Get Attribute List"
     GA_LST_CTX			= "get_attribute_list"
     GA_LST_REQ			= 0x03
@@ -1085,6 +1090,9 @@ class Object( object ):
             elif ( data.get( 'service' ) == self.GA_ALL_REQ
                  or self.GA_ALL_CTX in data and data.setdefault( 'service', self.GA_ALL_REQ ) == self.GA_ALL_REQ ):
                 pass
+            elif ( data.get( 'service' ) == self.SA_ALL_REQ
+                 or self.SA_ALL_CTX in data and data.setdefault( 'service', self.SA_ALL_REQ ) == self.SA_ALL_REQ ):
+                pass
             elif ( data.get( 'service' ) == self.SA_SNG_REQ
                  or self.SA_SNG_CTX in data and data.setdefault( 'service', self.SA_SNG_REQ ) == self.SA_SNG_REQ ):
                 pass
@@ -1109,6 +1117,38 @@ class Object( object ):
                 data.get_attributes_all = dotdict()
                 data.get_attributes_all.data = [
                     b if type( b ) is int else ord( b ) for b in result ]
+            elif data.service == self.SA_ALL_RPY:
+                # Set Attributes All.  Convert unsigned ints to bytes, parse appropriate
+                # elements using the Attribute's .parser, and assign.  Must produce exactly the
+                # correct number of bytes to fully populate the Attributes.
+                
+                a_id = 1
+                sum_siz = 0
+                while str(a_id) in self.attribute:
+                
+                    att = self.attribute[str(a_id)]
+                    att_siz = att.parser.struct_calcsize * len(att)
+                    sum_siz += att_siz
+                    a_id += 1
+
+                assert 'set_attributes_all.data' in data and len(data.set_attributes_all.data) == sum_siz, \
+                        "Expected %d total bytes in .set_attributes_all.data" % (sum_siz,)
+
+                a_id = 1
+                data_ptr = 0
+                while str(a_id) in self.attribute:
+
+                    att = self.attribute[str(a_id)]
+                    siz = att.parser.struct_calcsize
+                    att_siz = siz * len(att)
+                    fmt     = att.parser.struct_format
+                    buf = bytearray( data.set_attributes_all.data[data_ptr:data_ptr + att_siz] )
+                    val = [struct.unpack( fmt, buf[i:i+siz] )[0]
+                                    for i in range(0, len(buf), siz) ]
+                    att[:]  = val
+                    a_id += 1
+                    data_ptr += att_siz
+                    
             elif data.service == self.GA_LST_RPY:
                 # Get Attribute List.  Collect up the bytes representing the attributes.  Converts a
                 # placehold .get_attribute_list = [<attribute>,...] list of attribute numbers with
@@ -1240,6 +1280,12 @@ class Object( object ):
             # Get Attributes All
             result	       += USINT.produce(	data.service )
             result	       += EPATH.produce(	data.path )
+        elif cls.SA_ALL_CTX in data and data.setdefault( 'service', cls.SA_ALL_REQ ) == cls.SA_ALL_REQ:
+            # Set Attributes All
+            result         += USINT.produce(    data.service )
+            result         += EPATH.produce(    data.path )
+            result         += typed_data.produce(   data.set_attributes_all,
+                                                        tag_type=USINT.tag_type )
         elif cls.GA_SNG_CTX in data and data.setdefault( 'service', cls.GA_SNG_REQ ) == cls.GA_SNG_REQ:
             # Get Attribute Single
             result	       += USINT.produce(	data.service )
@@ -1265,6 +1311,12 @@ class Object( object ):
             if data.status == 0x00:
                 result	       += typed_data.produce( 	data.get_attributes_all,
                                                         tag_type=USINT.tag_type )
+        elif data.get( 'service' ) == cls.SA_ALL_RPY:
+            # Set Attributes All Reply.
+            result         += USINT.produce(    data.service )
+            result         += b'\x00' # reserved
+            result         += status.produce(   data )
+
         elif data.get( 'service' ) == cls.GA_LST_RPY:
             # Get Attribute List Reply
             result	       += USINT.produce(	data.service )
@@ -1350,6 +1402,29 @@ def __get_attributes_all_reply():
 
 Object.register_service_parser( number=Object.GA_ALL_RPY, name=Object.GA_ALL_NAM + " Reply",
                                 short=Object.GA_ALL_CTX, machine=__get_attributes_all_reply() )
+
+def __set_attributes_all( ):
+    srvc            = USINT(            context='service' )
+    srvc[True]      = path  = EPATH(            context='path')
+    path[True]          = typed_data(           context=Object.SA_ALL_CTX,
+                                                tag_type=USINT.tag_type,
+                                                terminal=True )
+    return srvc
+
+Object.register_service_parser( number=Object.SA_ALL_REQ, name=Object.SA_ALL_NAM,
+                                short=Object.SA_ALL_CTX, machine=__set_attributes_all() )
+
+def __set_attributes_all_reply():
+    srvc            = USINT(            context='service' )
+    srvc[True]      = rsvd  = octets_drop(  'reserved', repeat=1 )
+    rsvd[True]      = stts  = status()
+    stts[None]      = mark  = octets_noop(          context=Object.SA_ALL_CTX,
+                                                terminal=True )
+    mark.initial[None]      = move_if(  'mark',     initializer=True )
+    return srvc
+
+Object.register_service_parser( number=Object.SA_ALL_RPY, name=Object.SA_ALL_NAM + " Reply",
+                                short=Object.SA_ALL_CTX, machine=__set_attributes_all_reply() )
 
 def __get_attribute_list():
     srvc			= USINT(		 	context='service' )
