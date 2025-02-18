@@ -132,6 +132,17 @@ class poller( object ):
         """ Read a value at an address from an underlying device. """
         raise Exception( "Not Implemented" )
 
+    def _forget( self, address ):
+        """Remove any current value from address; by default, clears _data store entry."""
+        log.detail( "%s/%6d %s= None (forgetting %s)",
+                    self.description, address, "-x" if not self.online else "--",
+                    self._data.get(address))
+        self._data[address]		= None
+
+    def forget( self, address ):
+        """Forget about any data from the provided address."""
+        self._forget( address )
+
 
 class poller_simulator( poller ):
     """
