@@ -2236,8 +2236,9 @@ which is required to carry this Send/Route Path data. """ )
                 remains		= timeout - ( elapsed or 0 )
                 reply,_		= await_response( connection, timeout=remains )
                 if reply:
-                    print( "%s %2d from %r: %s" % (
-                        desc, counter, reply.peer, parser.enip_format( reply.get( path, reply ))))
+                    if printing:
+                        print( "%s %2d from %r: %s" % (
+                            desc, counter, reply.peer, parser.enip_format( reply.get( path, reply ))))
                     counter    += 1
                 if not reply or not args.broadcast:
                     # No reply or EOF w'in timeout, or reply but not --broadcast; done waiting
