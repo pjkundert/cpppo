@@ -426,7 +426,7 @@ def server_main(
                 log.debug( "TCP/IP: Idle Svc after {duration:7.3f}s".format( duration=duration ))
                 idle_service()
         except KeyboardInterrupt as exc:
-            log.warning( "%s server termination: %r", name, exc )
+            log.info( "%s server termination: %r", name, exc )
             control['done']	= True
         except Exception as exc:
             log.warning( "%s server failure: %s\n%s", name,

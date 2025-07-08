@@ -422,7 +422,8 @@ class client( object ):
                 port	= port_cnf # only override if nonexistent/None
         if port is None:
             port		= defaults.address[1]
-        self.addr		= str( host ),int( port ) # host may be ip_address; str-ingify...
+        # host may be ip_address; str-ingify, and Linux is strict vs. macOS; default to 'localhost'
+        self.addr		= str( host ) or 'localhost',int( port )
         self.addr_connected	= not ( udp and broadcast )
         self.conn		= None
         self.udp		= udp
