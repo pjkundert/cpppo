@@ -5,7 +5,7 @@ let
     inherit pkgs;
   };
   targeted = builtins.getEnv "TARGET";
-  selected = targeted + pkgs.lib.optionalString (targeted == "") "py312";
+  selected = targeted + pkgs.lib.optionalString (targeted == "") "py313";
 in
 
 with pkgs;

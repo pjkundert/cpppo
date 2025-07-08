@@ -112,7 +112,7 @@ pylint:
 #
 # Use a NixOS environment to execute the make target, eg.
 #
-#     nix-venv-activate
+#     nix-venv
 #
 #     The default is the Python 3 crypto_licensing target in default.nix; choose
 # TARGET=py27 to test under Python 2 (more difficult as time goes on).  See default.nix for
@@ -128,8 +128,9 @@ nix-%:
 #     Assumes that the requirements.txt has been installed in the target Python environment.  This
 # is probably best accomplished by first creating/activating a venv, and then running the test:
 #
-#     $ make nix-venv-activate
-#     (crypto-licensing-4.0.0) [perry@Perrys-MBP crypto-licensing (feature-py-3.12)]$ make test
+#     $ make nix-venv
+#     *** Activating /home/perry/src/cpppo-5.2.5-nix-linux-cpython-312 VirtualEnv for Interactive /bin/bash
+#     (cpppo-5.2.5-nix-linux-cpython-312) bash-5.2$ make test
 #     make[1]: Entering directory '/Users/perry/src/crypto-licensing'
 #     ...
 #
