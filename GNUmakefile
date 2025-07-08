@@ -99,10 +99,12 @@ help:
 	@echo "  vmware-debian-up	Brings up Jessie VM w/ Docker capability" 
 	@echo "  vmware-debian-ssh	Log in to the VM" 
 
+
 analyze:
-	$(PY3) -m flake8 --color never -j 1 --max-line-length=250 \
-	  --exclude lib,bin,dist,build,signals,.git \
-	  --ignore=W503,E201,E202,E203,E127,E211,E221,E222,E223,E225,E226,E231,E241,E242,E251,E265,E272,E274,E291 \
+	flake8 -j 1 --max-line-length=110 \
+	  --ignore=F401,E201,E202,E221,E223,E226,E231,E242,E272,E701,E702,W191,W291,W503,W293,W391,E \
+	  --exclude="__init__.py" \
+	  .
 
 pylint:
 	pylint . --disable=W,C,R
@@ -136,19 +138,6 @@ nix-%:
 #
 test:
 	$(PY3TEST)
-
-doctest:
-	cd crypto/licensing && $(PY3TEST) --doctest-modules
-
-analyze:
-	flake8 -j 1 --max-line-length=110 \
-	  --ignore=F401,E201,E202,E221,E223,E226,E231,E242,E272,E701,E702,W191,W291,W503,W293,W391,E \
-	  --exclude="__init__.py" \
-	  .
-
-pylint:
-	cd .. && pylint cpppo --disable=W,C,R
-
 
 build-check:
 	@$(PY3) -m build --version \
