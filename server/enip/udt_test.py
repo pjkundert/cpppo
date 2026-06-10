@@ -20,6 +20,8 @@ from . import defaults, udt, parser, device, logix, ucmm
 
 # Set up logging to use our log format (instead of default Pytest format), while
 # retaining any logging level eg. python -m pytest --log-cli-level=25 ...
+if not logging.getLogger().handlers:
+    logging.basicConfig( **log_cfg )
 logging.getLogger().handlers[0].setFormatter( logging.Formatter( log_cfg['format'] ))
 
 try:
