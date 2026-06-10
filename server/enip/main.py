@@ -53,7 +53,7 @@ from ... import misc
 from ...dotdict import dotdict, apidict
 from ...automata import log_cfg, rememberable
 from .. import network
-from . import defaults, parser, device, ucmm, logix
+from . import defaults, parser, device, ucmm, logix, defined_tags
 
 log				= logging.getLogger( "enip.srv" )
 
@@ -997,9 +997,9 @@ def main(
     ap.add_argument( '-P', '--profile',
                      default=None,
                      help="Output profiling data to a file (default: None)" )
-    ap.add_argument( '-D', '--defined-tags', # TODO: support decoding UDT STRUCTs
+    ap.add_argument( '-D', '--defined-tags',
                      default=None,
-                     help="A file containing JSON description of UDT STRUCTs, and associated Tags (default: None)" )
+                     help="A JSON file path or JSON text describing UDT STRUCTs, and associated Tags (default: None)" )
     ap.add_argument( 'tags', nargs="*",
                      help="Any tags, their type (default: INT), and number (default: 1), eg: tag=INT[1000]")
 
@@ -1137,6 +1137,11 @@ def main(
                 key.indices( len( self ))[0]   if isinstance( key, slice ) else key,
                 key.indices( len( self ))[1]-1 if isinstance( key, slice ) else key,
                 value ))
+
+    if args.defined_tags:
+        defined_tags.load_defined_tags( args.defined_tags )
+        defined_tags.register_defined_tags( tags )
+        log.normal( "Loaded defined tags from: %r", args.defined_tags )
 
     # Iterate the specified Tag names=... in args.tags, deducing Tag names, CIP types, etc.  If no
     # type is provided, defaults to CIP INT (or, whatever type_cls is specified in attribute_kwds).

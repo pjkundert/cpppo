@@ -229,6 +229,7 @@ def resolve( path, attribute=False ):
 
     """
 
+    path			= _resolve_longest_symbolic_prefix( path )
     result			= { 'class': None, 'instance': None, 'attribute': None }
     tag				= u'' # developing ISO-8859-1 symbolic tag "Symbol.Subsymbol"
 
@@ -288,6 +289,35 @@ def resolve( path, attribute=False ):
                 result[0], result[0], result[1], result[2], path['segment'] )
 
     return result
+
+
+def _resolve_longest_symbolic_prefix( path ):
+    """Prefer the longest registered symbolic tag prefix before resolving.
+
+    This lets a registered nested tag such as "Parent.Child.Bit" win over a registered "Parent"
+    tag while preserving the existing class/instance/attribute resolution flow.
+    """
+    segments			= list( path.get( 'segment', [] ))
+    tag				= u''
+    best			= None
+
+    for index,term in enumerate( segments ):
+        if 'symbolic' not in term:
+            break
+        if tag:
+            tag		       += u'.'
+        tag		       += term['symbolic']
+        tag_canonical		= canonicalize_tag( tag )
+        if tag_canonical in symbol:
+            best		= index + 1, dict( symbol[tag_canonical] )
+
+    if not best:
+        return path
+
+    consumed,address		= best
+    resolved			= dict( path )
+    resolved['segment']		= [address] + segments[consumed:]
+    return resolved
 
 
 def resolve_element( path ):
