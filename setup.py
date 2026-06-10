@@ -49,7 +49,7 @@ extras_require			= {
     option: list(
         # Remove whitespace, elide blank lines and comments
         ''.join( r.split() )
-        for r in open( os.path.join( HERE, f"requirements-{option}.txt" )).readlines()
+        for r in open( os.path.join( HERE, "requirements-{0}.txt".format( option ))).readlines()
         if r.strip() and not r.strip().startswith( '#' )
     )
     for option in options_require
