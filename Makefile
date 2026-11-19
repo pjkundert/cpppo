@@ -38,7 +38,7 @@ help:
 	  '  make nix-test TEST_ARGS=path::test  Pass pytest paths or additional flags' \
 	  '  make TARGET=interop nix-test-class1-interop  Build and test independent Class 1 peers' \
 	  '  make TARGET=interop nix-test-artifacts       Test installed distributions and README examples' \
-	  '  make nix-test-readme                Execute README.org Python blocks' \
+	  '  make nix-test-readme                Check README.org Python examples and output' \
 	  '  make nix-venv-setup                 Create/update the test virtualenv' \
 	  '  make nix-venv                       Open a shell in that virtualenv' \
 	  '  make nix-build / nix-wheel         Build distributions / wheel only' \

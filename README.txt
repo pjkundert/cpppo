@@ -956,6 +956,9 @@ Table of Contents
   │     print("Printer flags={}, paper={}%, job={}".format(flags, paper_level, job))
   └────
 
+  ┌────
+  │ Printer flags=3, paper=75%, job=42
+  └────
 
   `receive_io' returns the latest fresh snapshot or `None' after the
   wait or connection watchdog expires. Leaving the `closing' block sends

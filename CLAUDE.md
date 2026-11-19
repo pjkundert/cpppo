@@ -54,10 +54,11 @@ To reuse prebuilt peers, set `CPPPO_OPENER` to the OpENer sample executable and 
 
 ### Installed packages and README examples
 
-`make nix-test-readme` runs every Python source block in `README.org` and
-compares its stdout with the named `RESULTS` entry. It starts the documented
-Class 1 adapter and a local Modbus simulator. Keep TCP ports 1502 and 44818
-and UDP port 2222 free on loopback.
+`make nix-test-readme` runs every Python source block and named Python
+example in `README.org`. It compares stdout with each named `RESULTS` entry
+or the displayed output after an example. It starts the documented Class 1
+adapter and a local Modbus simulator. Keep TCP ports 1502 and 44818 and UDP
+port 2222 free on loopback.
 
 ```sh
 make TARGET=py313 nix-build

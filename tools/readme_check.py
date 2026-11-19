@@ -1,4 +1,4 @@
-"""Execute the README.org Python source blocks and compare their stdout."""
+"""Execute README.org Python source blocks and named examples."""
 
 from contextlib import contextmanager
 import os
@@ -14,11 +14,12 @@ import time
 
 
 BLOCK = re.compile(
-    r"^(?:[ \t]*#\+name:[ \t]*(\S+)[ \t]*\n)?"
-    r"[ \t]*#\+begin_src[ \t]+python\b([^\n]*)\n"
-    r"(.*?)^[ \t]*#\+end_src[ \t]*$",
+    r"^(?:[ \t]*#\+name:[ \t]*(?P<name>\S+)[ \t]*\n)?"
+    r"[ \t]*#\+begin_(?P<kind>src|example)[ \t]+python\b(?P<headers>[^\n]*)\n"
+    r"(?P<code>.*?)^[ \t]*#\+end_(?P=kind)[ \t]*$",
     re.IGNORECASE | re.MULTILINE | re.DOTALL,
 )
+EXAMPLE_OUTPUT = re.compile(r"(?:[ \t]*\n)+((?:[ \t]*:[^\n]*\n)+)")
 RESULT = re.compile(
     r"^[ \t]*#\+results:[ \t]*(\S+)[ \t]*\n((?:[ \t]*:[^\n]*\n)*)",
     re.IGNORECASE | re.MULTILINE,
@@ -27,6 +28,10 @@ RESULT = re.compile(
 
 def python_code(source):
     return [sys.executable, '-I', '-u', '-c', source]
+
+
+def output_lines(text):
+    return [line.lstrip()[1:].removeprefix(' ') for line in text.splitlines()]
 
 
 def check_output(name, actual, expected):
@@ -80,14 +85,18 @@ def run_block(name, command, expected):
 
 def main(readme):
     doc = readme.read_text(encoding='utf-8')
-    expected = {
-        name: [line.lstrip()[1:].removeprefix(' ') for line in results.splitlines()]
-        for name, results in RESULT.findall(doc)
-    }
+    expected = {name: output_lines(results) for name, results in RESULT.findall(doc)}
     blocks = {}
-    for name, headers, source in BLOCK.findall(doc):
+    for block in BLOCK.finditer(doc):
+        name, kind, headers, source = block.groups()
+        if kind.lower() == 'example':
+            if not name:
+                continue
+            shown = EXAMPLE_OUTPUT.match(doc, block.end())
+            if shown and name not in expected:
+                expected[name] = output_lines(shown[1])
         if not name or name in blocks or name not in expected:
-            raise ValueError("Every Python block needs a unique name and a matching RESULTS entry: {!r}".format(name))
+            raise ValueError("Checked Python blocks need a unique name and expected output: {!r}".format(name))
         blocks[name] = (headers, textwrap.dedent(source))
 
     _, source = blocks.pop('class1-adapter')
