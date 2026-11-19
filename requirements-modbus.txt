@@ -1,2 +1,2 @@
-minimalmodbus	>=2.1,	<3
-pymodbus	==3.8.1
+minimalmodbus	>=2.1,	<3	; python_version >= "3.8"
+pymodbus	==3.8.1		; python_version >= "3.9"

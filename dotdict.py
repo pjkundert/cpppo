@@ -473,27 +473,18 @@ class apidict( apidict_base ):
 # EXAMPLE:
 # >>>  multiprocessing.managers.SyncManager.register( *make_apidict_proxy( apidict ))
 
-def make_apidict_proxy( apidict_class ):
-    """Product a tuple usable to call SyncManager.register, for the given apidict derived class.
-    Supplies its __name__ as "<name>_proxy" for the proxy, and registers this <name>_proxy with the
-    multiprocessing Manager.
-
-    """
-    apidict_class_name		= apidict_class.__name__ # + '_proxy'
-    apidict_proxy		= multiprocessing.managers.MakeProxyType(
-        apidict_class_name, (
-            '__contains__', '__delitem__', '__getitem__', '__iter__', '__len__',
-            '__setitem__', 'clear', 'copy', 'get', 'set'
-            # These will not work in python3, as they return generators; use list( <apidict> )
-            # instead, as the __iter__ method is supported and returns the keys.
-            'items', 'keys',
-            'pop', 'popitem', 'setdefault', 'update', 'values'
-            '__dir__', 'set', # '__setattr__', '__getattr__',
-            # 'iteritems', 'iterkeys', 'itervalues',  # These cannot be proxied, as they return generators
-            'listitems', 'listkeys', 'listvalues',
-        )
+apidict_proxy = multiprocessing.managers.MakeProxyType(
+    'apidict_proxy', (
+        '__contains__', '__delitem__', '__getitem__', '__iter__', '__len__', '__setitem__',
+        'clear', 'copy', 'get', 'keys', 'set', 'pop', 'popitem', 'setdefault', 'update',
+        'listitems', 'listkeys', 'listvalues',
     )
-    apidict_proxy._method_to_typeid_ = {
-        '__iter__': 'Iterator',
-    }
-    return apidict_class_name, apidict_class, apidict_proxy
+)
+# Spawned processes must be able to import this proxy by name.
+apidict_proxy.__module__ = __name__
+apidict_proxy._method_to_typeid_ = {'__iter__': 'Iterator'}
+
+
+def make_apidict_proxy( apidict_class ):
+    """Return the registration arguments for an apidict class and its SyncManager proxy."""
+    return apidict_class.__name__, apidict_class, apidict_proxy

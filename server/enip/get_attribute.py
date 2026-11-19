@@ -707,13 +707,13 @@ class proxy_simple( proxy ):
 
 
 class proxy_connected( proxy ):
-    """Use a Forward Open to establish an Implicit "Connected" proxy to a remote EtherNet/IP CIP device
-    via the specified Route Path' connection_path'.
+    """Use a Forward Open to establish a Class 3 connection to a remote EtherNet/IP CIP device
+    via the specified connection_path.
 
-    The normal proxy will set up an Explicit connection to the target C*Logix PLC, and then use the
+    The normal proxy uses unconnected explicit messages to the target C*Logix PLC, with the
     supplied route_path with *each* subsequent request/response, requiring the target PLCs to
     establish communications along the route, perform the request, and then tear down the route.
-    This class will establish a Connected session with the path, and then issue future requests to
+    This class establishes a Class 3 connection with the path and issues future requests to
     the already-connected target CIP device.
 
     We'll collect a set of appropriate Forward Open parameters for the (default) client.implicit
@@ -727,7 +727,7 @@ class proxy_connected( proxy ):
     def __init__( self, host, gateway_class=client.implicit,
                   connection_path=None, configuration=None, # new gateway_kwds (above)
                   **kwds ):
-        """We use a route_path, send_path and connection_path to create the underlying "Implicit" connection."""
+        """Create the Class 3 connection using connection_path and the configured parameters."""
         super( proxy_connected, self ).__init__(
             host, gateway_class=gateway_class,
             connection_path=connection_path, configuration=configuration,
@@ -777,7 +777,7 @@ class proxy_pylogix( object ):
             self.cluster	= device.Object.config_override( None, 'Cluster', section=configuration,
                                                                  default=0 )
 
-        self.multiple		= False # Any desired Implicit connection size?
+        self.multiple		= False # Any desired Class 3 connection size?
         if multiple: # If Falsey; leave Connection size default (pylogix will try Large then Small)
             self.multiple	= multiple
             assert isinstance( self.multiple, (bool, int) ), \

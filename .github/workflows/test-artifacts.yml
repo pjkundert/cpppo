@@ -1,0 +1,60 @@
+name: Package artifacts
+
+on:
+  workflow_call:
+    inputs:
+      release_tag:
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: cachix/install-nix-action@v31.11.5
+      - name: Check package version against tag
+        if: inputs.release_tag != ''
+        env:
+          CPPPO_RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          nix develop .#py313 --command python3 -c '
+          import os, sys, version
+          expected = "v" + version.__version__
+          tag = os.environ["CPPPO_RELEASE_TAG"]
+          if tag != expected:
+              sys.exit("Tag {} does not match package version {}".format(tag, expected))
+          '
+      - name: Build wheel and source archive
+        run: make TARGET=py313 nix-build
+      - name: Check out the reference adapter
+        uses: actions/checkout@v6
+        with:
+          repository: EIPStackGroup/OpENer
+          ref: fb90c9918081c184b1876ce0c893168cf8b5653c
+          path: .class1-peers/OpENer
+          persist-credentials: false
+      - name: Check out the reference scanner
+        uses: actions/checkout@v6
+        with:
+          repository: nimbuscontrols/EIPScanner
+          ref: 12c89a57ec2e7449efb1348be52af10be9ef9701
+          path: .class1-peers/EIPScanner
+          persist-credentials: false
+      - name: Test installed distributions and README examples
+        run: |
+          make TARGET=interop nix-test-artifacts \
+            OPENER_SRC="$PWD/.class1-peers/OpENer" \
+            EIPSCANNER_SRC="$PWD/.class1-peers/EIPScanner"
+      - name: Upload verified distributions
+        if: inputs.release_tag != ''
+        uses: actions/upload-artifact@v7
+        with:
+          name: cpppo-distributions
+          path: dist/
+          if-no-files-found: error

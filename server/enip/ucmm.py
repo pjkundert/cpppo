@@ -36,7 +36,7 @@ import threading
 import traceback
 
 from ...dotdict import dotdict
-from . import parser, device, client
+from . import class1, parser, device, client
 
 log				= logging.getLogger( "enip.ucmm" )
 
@@ -255,10 +255,15 @@ class UCMM( device.Object ):
                 # which must (also) be processed by the Message Router at the end of all the address
                 # or backplane hops.
 
-                # All Unconnected Requests have a NULL Address in CPF item 0.
-                assert 'enip.CIP.send_data.CPF' in data \
-                    and data.enip.CIP.send_data.CPF.count == 2, \
-                    "EtherNet/IP CIP CPF encapsulation required"
+                # Forward Open can carry up to two UDP socket addresses after the data item.
+                items = data.enip.CIP.send_data.CPF.item
+                assert len( items ) >= 2, "EtherNet/IP CIP CPF encapsulation required"
+                socket_items = items[2:]
+                if socket_items:
+                    kinds = [item.type_id for item in socket_items]
+                    assert items[0].type_id == 0 and items[1].type_id == 0xb2 \
+                        and len( kinds ) == len( set( kinds )) \
+                        and all( kind in class1.SOCKET_ITEMS for kind in kinds ), "Invalid CPF socket items"
                 if data.enip.CIP.send_data.CPF.item[0].length > 0:
                     # Connected session; extract connection_data.request.input payload, convert to response
                     con_id	= data.enip.CIP.send_data.CPF.item[0].connection_ID.connection
@@ -355,6 +360,8 @@ class UCMM( device.Object ):
                             ids	= device.resolve( unc_send.path )
                             if ( ids[0] != 0x06 or ids[1] != 1 ):
                                 log.warning( "Unconnected Send targeted Object other than Connection Manager: 0x%04x/%d", ids[0], ids[1] )
+                        if socket_items:
+                            unc_send.request.socket_items = socket_items
                         CM		= device.lookup( class_id=ids[0], instance_id=ids[1] )
                         CM.request( unc_send, addr=addr )
 
@@ -368,9 +375,9 @@ class UCMM( device.Object ):
                     # returned directly to the originator carrying the response payload.
                     data.enip.CIP.send_data.CPF.item[1].unconnected_send  = dotdict()
                     data.enip.CIP.send_data.CPF.item[1].unconnected_send.request = unc_send.request
+                    items[2:] = unc_send.request.pop( 'reply_socket_items', [] )
 
-                # Either an implicit "Connected" request (Send RR Data or Send Unit Data), or an
-                # explicit "Unconnected" request (Send RR Data).
+                # Repackage the explicit CIP response in its connected or unconnected frame.
                 if log.isEnabledFor( logging.DEBUG ):
                     log.debug( "%s Repackaged: %s", self, parser.enip_format( data ))
                 

@@ -33,7 +33,7 @@ from cpppo.dotdict import dotdict, apidict
 from cpppo.misc import timer, near
 from cpppo.modbus_test import start_simulator
 from cpppo.server import enip, network
-from cpppo.server.enip import poll, ucmm
+from cpppo.server.enip import logix, poll, ucmm
 from cpppo.server.enip.main import main as enip_main
 from cpppo.server.enip.ab import powerflex, powerflex_750_series
 from cpppo.server.enip.get_attribute import proxy
@@ -304,21 +304,26 @@ def powerflex_routed_cli( number, address=None ):
     return not ( near( freq, 456.78 ) and near( velo, 789.01 ))
 
 
-@pytest.mark.xfail # unreliable; unknown...
-def test_powerflex_poll_routing_bench( simulated_powerflex_gateway ):
-    command,address             = simulated_powerflex_gateway
-
+def start_powerflex_router( downstream, **kwargs ):
     class UCMM_routing_to_powerflex( ucmm.UCMM ):
         route			= {
-            "1/1": "{}:{}".format( *address ),
+            "1/1": "{}:{}".format( *downstream ),
         }
 
+    # Forked servers can inherit CIP objects and the cached UCMM from earlier tests.
+    logix.setup_reset()
+    enip.lookup_reset()
+    return enip_main( UCMM_class=UCMM_routing_to_powerflex, **kwargs )
+
+
+def test_powerflex_poll_routing_bench( simulated_powerflex_gateway ):
+    _command,address = simulated_powerflex_gateway
     with multiprocessing.Manager() as m:
         server_kwds		= dict(
             argv	= [
                 "-v", "--address", "localhost:0", '-A', '--no-udp',
             ],
-            UCMM_class	= UCMM_routing_to_powerflex,
+            downstream	= address,
             server	= dotdict(
                 control	= m.apidict(
                     timeout	= 1.0,
@@ -328,7 +333,7 @@ def test_powerflex_poll_routing_bench( simulated_powerflex_gateway ):
         )
 
         failed			= network.bench(
-            server_func	= enip_main,
+            server_func	= start_powerflex_router,
             server_kwds	= server_kwds,
             client_func	= powerflex_routed_cli,
             client_kwds	= None,

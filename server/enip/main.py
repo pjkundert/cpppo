@@ -41,6 +41,7 @@ import contextlib
 import fnmatch
 import json
 import logging
+import os
 import random
 import signal
 import socket
@@ -431,7 +432,8 @@ class home:
         proxy		= web.ctx.environ.get( "HTTP_X_FORWARDED_HOST", "" )
         if proxy:
             proxy	= "http://" + proxy
-        target		= proxy + "/static/index.html"
+        start_page	= "/static/index.html" if os.path.isfile( "static/index.html" ) else "/api"
+        target		= proxy + start_page
         web.seeother( target )
 
 class api:

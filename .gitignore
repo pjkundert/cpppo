@@ -28,3 +28,11 @@ dist/
 *.toc
 /ttyS[0-9]
 /ttyV[0-9]
+
+# Nix
+/result
+/result-*
+/.nix-py2-bootstrap/
+
+# Local Python environments
+/.venv/

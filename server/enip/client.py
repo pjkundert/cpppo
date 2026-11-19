@@ -59,7 +59,7 @@ from ... import misc
 from ...dotdict import dotdict
 from ...automata import ( log_cfg, type_str_base, chainable, peekable )
 from .. import network
-from . import defaults, parser, device
+from . import class1, defaults, parser, device
 
 # used to be defined here; retain for backward-compatibility...
 def parse_int( *args, **kwds ):
@@ -201,6 +201,16 @@ CIP_TYPES			= {
     'SINT':	(parser.SINT.tag_type,	parser.SINT.struct_calcsize,	lambda x: int_validate( x, -2**7,  2**8-1 )),  # extra range
     'USINT':	(parser.USINT.tag_type,	parser.USINT.struct_calcsize,	lambda x: int_validate( x,  0,     2**8-1 )),
 }
+
+def _request_payload( data, tag_type ):
+    """Convert typed service data to the unsigned bytes used by CIP services."""
+    if tag_type == parser.SINT.tag_type:
+        # Preserve the accepted unsigned spelling of each signed byte.
+        return [value + 256 if -128 <= value < 0 else value for value in data]
+    if tag_type in (None, parser.USINT.tag_type):
+        return data
+    return list( bytearray( parser.typed_data.produce( {'tag_type': tag_type, 'data': data} )))
+
 
 def parse_operations( tags, fragment=False, int_type=None, **kwds ):
     """Given a sequence of (string) tags, deduce the set of I/O desired operations, yielding each one.
@@ -430,6 +440,7 @@ class client( object ):
         # If provided, we'll disable/enable a profiler around the I/O code, to avoid corrupting the
         # profile data with arbitrary I/O related delays
         self.profiler		= profiler
+        self._profiling_paused	= False
 
         log.detail( "Connect:  %s/IP to %r%s%s", "UPD" if udp else "TCP", self.addr,
                     " via %r" % ( self.ifce, ) if self.ifce else "",
@@ -584,9 +595,7 @@ class client( object ):
         # framer engine -- we can't re-enter the engine w/o getting some more input.
         addr			= self.addr # TCP/IP; may continue parsing data rx last time thru
         if self.source.peek() is None:
-            if self.profiler:
-                self.profiler.disable()
-            try:
+            with self._unprofiled_io():
                 rcvd,addr	= self.recvfrom( timeout=0 )
                 log.info(
                     "EtherNet/IP<--%16s:%-5s rcvd %5d: %r",
@@ -610,9 +619,6 @@ class client( object ):
                     # to indicate the end of an EtherNet/IP session).
                     if self.engine is None:
                         return None
-            finally:
-                if self.profiler:
-                    self.profiler.enable()
 
         # Initiate or continue parsing input using the machine's engine; discard the engine at
         # termination or on error (Exception).  Any exception (including cpppo.NonTerminal) will be
@@ -708,24 +714,29 @@ class client( object ):
             "EtherNet/IP-->%16s:%-5d send %5d: %r",
                     self.addr[0], self.addr[1], len( request ), sent )
 
-    def writable( self, timeout=None ):
-        if self.profiler:
-            self.profiler.disable()
+    @contextlib.contextmanager
+    def _unprofiled_io( self ):
+        """Pause profiling until the outermost I/O operation finishes."""
+        if not self.profiler or self._profiling_paused:
+            yield
+            return
+
+        self.profiler.disable()
+        self._profiling_paused = True
         try:
-            r, w, e		= select.select( [], [self.conn.fileno()], [], timeout )
+            yield
         finally:
-            if self.profiler:
-                self.profiler.enable()
+            self._profiling_paused = False
+            self.profiler.enable()
+
+    def writable( self, timeout=None ):
+        with self._unprofiled_io():
+            r, w, e		= select.select( [], [self.conn.fileno()], [], timeout )
         return len( w ) > 0
 
     def readable( self, timeout=None ):
-        if self.profiler:
-            self.profiler.disable()
-        try:
+        with self._unprofiled_io():
             r, w, e		= select.select( [self.conn.fileno()], [], [], timeout )
-        finally:
-            if self.profiler:
-                self.profiler.enable()
         return len( r ) > 0
 
     # Basic CIP Requests; sent immediately
@@ -764,7 +775,7 @@ class client( object ):
                       O_T, T_O, O_serial, O_vendor, connection_serial,
                       transport_class_triggers, connection_timeout_multiplier,
                       timeout=None, send=True,
-                      route_path=False, send_path='', sender_context=b'',
+                      route_path=False, send_path='', sender_context=b'', socket_items=(),
                       **kwds ):
         """Forward Open uses a CPF encapsulation, but with no route_path or send_path.  Must be used
         with a self.dialect == Connection_Manager to properly produce request and parse response.
@@ -792,7 +803,8 @@ class client( object ):
         if send:
             self.unconnected_send(
                 request=req, route_path=route_path, send_path=send_path, timeout=timeout,
-                sender_context=sender_context )
+                sender_context=sender_context,
+                **({'socket_items': socket_items} if socket_items else {}) )
         return req
 
     def forward_close( self, path, connection_path,
@@ -851,12 +863,7 @@ class client( object ):
             else:
                 assert elements == len( data ), \
                     "Inconsistent elements: %d doesn't match data length: %d" % ( elements, len( data ))
-            if tag_type not in (None,parser.SINT.tag_type,parser.USINT.tag_type):
-                usints		= [ v for v in bytearray(
-                    parser.typed_data.produce( data={'tag_type': tag_type, 'data': data } )) ]
-                log.detail( "Converted %s[%d] to USINT[%d]",
-                            parser.typed_data.TYPES_SUPPORTED[tag_type], elements, len( usints ))
-                data,elements	= usints,len( usints )
+            data = _request_payload( data, tag_type )
             req.service_code	= {}
             req.service_code.data = data
 
@@ -905,7 +912,7 @@ class client( object ):
               route_path=None, send_path=None, timeout=None, send=True,
               sender_context=b'', **kwds ):
         """Convert the supplied tag_type data into USINTs if necessary, and perform the Set Attribute
-        Single.  If no/None tag_type supplied, the data is assumed to be SINT/USINT.
+        Single.  Omit tag_type to supply raw unsigned bytes.
 
         """
         # If a tag_type has been specified, then we need to convert the data to SINT/USINT.
@@ -914,19 +921,14 @@ class client( object ):
         else:
             assert elements == len( data ), \
                 "Inconsistent elements: %d doesn't match data length: %d" % ( elements, len( data ))
-        if tag_type not in (None,parser.SINT.tag_type,parser.USINT.tag_type):
-            usints		= [ v for v in bytearray(
-                parser.typed_data.produce( data={'tag_type': tag_type, 'data': data } )) ]
-            log.detail( "Converted %s[%d] to USINT[%d]",
-                        parser.typed_data.TYPES_SUPPORTED[tag_type], elements, len( usints ))
-            data,elements	= usints,len( usints )
+        data = _request_payload( data, tag_type )
         req			= dotdict()
         req.path		= { 'segment': [
             dotdict( d ) for d in device.parse_path( path )
         ]}
         req.set_attribute_single= {
             'data':		data,
-            'elements':		elements,
+            'elements':		len( data ),
         }
         if send:
             self.req_send(
@@ -1030,7 +1032,7 @@ class client( object ):
     def unconnected_send( self, request, route_path=None, send_path=None, timeout=None,
                           connection=None, sequence=None, # ignored
                           priority_time_tick=None, timeout_ticks=None,
-                          sender_context=b'', dialect=None ):
+                          sender_context=b'', dialect=None, socket_items=() ):
         """The default route_path is the CPU in chassis (link 0), port 1, and the default send_path is
         to its Connection Manager (Class 6, Instance 1).  These defaults can be configured on a
         class or per-instance basis by changing the {route,send}_path_default attributes in either
@@ -1108,6 +1110,7 @@ class client( object ):
             us.request		= {}
             us.request.input	= bytearray( request or b'' )
 
+        sd.CPF.item.extend( socket_items )
         return self.cip_send( cip=cip, sender_context=sender_context, timeout=timeout )
 
     def connected_send( self, request, timeout=None,
@@ -1166,8 +1169,7 @@ class client( object ):
         supplied that may be used to associate the response to the originating request.
 
         WARNING: Astonishingly, C*Logix PLCs do *not* include the supplied Sender Context in the
-        response for requests carried on an "Implicit" connection!  So, you *must* use the default
-        b'' for all requests on an Implicit connection.
+        response for requests carried on a Class 3 connection. Use the default b'' for those requests.
 
         If the CIP contents can be used to deduce the correct EtherNet/IP CIP framing command
         (eg. contains a recognized payload, such as ...CIP.list_identity or ...CIP.send_data), then
@@ -1198,13 +1200,8 @@ class client( object ):
                   len( data.input ) - len( data.enip.input ),
                   len( data.enip.input ), len( data.input ))
 
-        if self.profiler:
-            self.profiler.disable()
-        try:
+        with self._unprofiled_io():
             self.send( data.input, timeout=timeout )
-        finally:
-            if self.profiler:
-                self.profiler.enable()
         return data
 
     def req_send( self, request, **kwds ):
@@ -1314,8 +1311,7 @@ class connector( client ):
         I/O requests are on the wire if some are merged into Multiple Service Packet requests and
         some are single requests.
 
-        WARNING:Beware; C*Logix PLCs do *not* respond with the supplied Sender Context over Implicit
-        "Connected" sessions.
+        C*Logix PLCs do *not* respond with the supplied Sender Context over Class 3 connections.
 
         Requests are variable in size due to the path (may have long symbolic names).  Read replies
         and Write requests are variable in size due to data type and length.  Unfortunately, Reads
@@ -1494,13 +1490,8 @@ class connector( client ):
 
         """
         while True:
-            if self.profiler:
-                self.profiler.disable()
-            try:
+            with self._unprofiled_io():
                 response,elapsed= await_response( self, timeout=timeout )
-            finally:
-                if self.profiler:
-                    self.profiler.enable()
 
             # Find the replies in the response; could be single or multiple; should match requests!
             replies		= enip_replies( response )
@@ -1794,8 +1785,9 @@ class connector( client ):
 
 
 class implicit( connector ):
-    """Establishes an Implicit (Connected) EtherNet/IP CIP connection, by issuing a Forward Open after
-    the EtherNet/IP CIP Register succeeds.
+    """Establishes a connected explicit (Class 3) EtherNet/IP session by issuing Forward Open after
+    Register Session succeeds. Select transport_class=1 with a class1.InputOnly profile to open
+    cyclic unicast I/O and receive its assembly via receive_io().
 
     Obtains defaults for any Forward Open parameters not specified, using the Object.config_loader,
     specialized for the given 'configuration' name (defaults to "Originator", if None, falling back
@@ -1814,7 +1806,7 @@ class implicit( connector ):
     connection).
 
     A global sequence of connection_serial (used, by default, also as O_T.connection_ID is
-    maintained.  This is unnecessarily strict, and there is nothing preventing independent Implicit
+    maintained.  This is unnecessarily strict, and there is nothing preventing independent Class 3
     connections from using the same O_T.connection_ID on different Forward Open sessions.
     Therefore, the connection-->sequence dict is maintained on a per-instance basis.
 
@@ -1825,20 +1817,37 @@ class implicit( connector ):
                   O_T=None, T_O=None, O_vendor=None, O_serial=None, connection_serial=None,
                   transport_class_triggers=None, connection_timeout_multiplier=None,
                   route_path=False, send_path='', # typically no 0x52 encapsulation w/ routing for fwd open
-                  sender_context=b'', **kwds ):
+                  sender_context=b'', transport_class=None, io_profile=None, rpi_us=50000, **kwds ):
         begun			= misc.timer()
         self.timeout		= timeout
         self.requested		= dotdict()
         self.established	= dotdict()
         self.seqs		= {} # Forward Open connected_send( connection --> sequence )
+        self.io = None
+        self._class1 = transport_class == 1
+        if transport_class not in (None, 1, 3):
+            raise ValueError( "Select EtherNet/IP transport class 1 or 3" )
+        if self._class1:
+            if not isinstance( io_profile, class1.InputOnly ):
+                raise ValueError( "Class 1 requires an InputOnly profile" )
+            if (connection_path is not None or O_T is not None or T_O is not None
+                    or transport_class_triggers not in (None, class1.CYCLIC_CLASS1)
+                    or route_path or send_path):
+                raise ValueError( "Class 1 uses the profile's direct, cyclic Input Only connection" )
+            O_T, T_O = io_profile.parameters( rpi_us )
+            connection_path = io_profile.path
+            transport_class_triggers = class1.CYCLIC_CLASS1
+        elif io_profile is not None:
+            raise ValueError( "An InputOnly profile requires transport_class=1" )
 
         super( implicit, self ).__init__( host=host, port=port, timeout=timeout,
                                           configuration=configuration, **kwds )
 
         # Substitute Connection_Manager for response parsing for duration of Forward Open
         dialect_bak,self.dialect= self.dialect,device.Connection_Manager
+        io_socket = None
         try:
-            assert not self.udp, "Cannot establish Implicit UDP EtherNet/IP CIP connections"
+            assert not self.udp, "EtherNet/IP Forward Open requires a TCP session"
             self.__class__.connection_serial += 1
             self.__class__.connection_serial %= 2**16
 
@@ -1862,6 +1871,10 @@ class implicit( connector ):
                                 = default_named( transport_class_triggers,'transport_class_triggers' )
             connection_timeout_multiplier \
                                 = default_named( connection_timeout_multiplier, 'connection_timeout_multiplier' )
+            if self._class1 and not 0 <= connection_timeout_multiplier <= 7:
+                raise ValueError( "Class 1 connection timeout multiplier must be in 0..7" )
+            if transport_class == 3 and transport_class_triggers & 0x0f != 3:
+                raise ValueError( "Conflicting Class 3 transport class and trigger" )
 
             # The RPI isn't strictly a connection parameter, but it's included in the same bundle;
             # get any configured/default values.
@@ -1881,6 +1894,11 @@ class implicit( connector ):
             if T_O.connection_ID is None:
                 T_O.connection_ID = 2**32-1 # set by Target; doesn't matter
 
+            socket_items = []
+            if self._class1:
+                io_socket = class1.bound_socket( (self.conn.getsockname()[0], 0) )
+                socket_items.append( class1.socket_item( class1.T_O_ADDRESS, io_socket.getsockname() ))
+
             with self:
                 # The forward_open( timeout=... ) applies to the socket send only
                 elapsed_req	= misc.timer() - begun
@@ -1899,7 +1917,8 @@ class implicit( connector ):
                     timeout		= None if timeout is None else max( 0, timeout - elapsed_req ),
                     route_path		= route_path,
                     send_path		= send_path,
-                    sender_context	= sender_context )
+                    sender_context	= sender_context,
+                    **({'socket_items': socket_items} if socket_items else {}) )
 
                 # Await the CIP response for remainder of timeout
                 elapsed_req	= misc.timer() - begun
@@ -1911,18 +1930,42 @@ class implicit( connector ):
             self.established		= data.get( 'enip.CIP.send_data.CPF.item[1].unconnected_send.request' )
             assert self.established and 'forward_open' in self.established and self.established.status == 0, \
                 "Failed to receive successful Forward Open response: %s" % ( parser.enip_format( self.established ))
+            if self._class1:
+                reply = self.established.forward_open
+                peer = class1.socket_endpoint( data.enip.CIP.send_data.CPF.item[2:],
+                                               class1.O_T_ADDRESS, self.conn.getpeername()[0] )
+                connection = class1.CyclicConnection(
+                    peer, reply.O_T, reply.T_O, io_profile.input_size, lambda: b'', connection_timeout_multiplier )
+                self.io = class1.Worker( io_socket, connection )
+                io_socket = None
         except Exception as exc:
             log.info( "FwdOpen:  Failure in %7.3f/%7.3fs: %s", misc.timer() - begun,
                       misc.inf if timeout is None else timeout, exc )
+            if self._class1:
+                if self.established and 'forward_open' in self.established and self.established.status == 0:
+                    try:
+                        self.close()
+                    except Exception:
+                        log.debug( "Unable to close a partly established Class 1 connection", exc_info=True )
+                else:
+                    super( implicit, self ).close()
             raise
         else:
             log.detail( "FwdOpen:  Success in %7.3f/%7.3fs", misc.timer() - begun,
                         misc.inf if timeout is None else timeout )
         finally:
             self.dialect	= dialect_bak # Restore original self.dialect
+            if io_socket is not None:
+                io_socket.close()
+
+    def receive_io( self, timeout=0 ):
+        """Return the latest fresh Class 1 input bytes, waiting up to timeout seconds."""
+        if not self._class1:
+            raise ValueError( "receive_io requires a Class 1 connection" )
+        return self.io.receive( timeout ) if self.io else None
 
     def close( self ):
-        """Attempt to cleanly close the Implicit Forward Opened connection by sending a corresponding
+        """Attempt to cleanly close the CIP connection by sending a corresponding
         Forward Close, followed immediately by a shutdown the socket.  If it fails, capture and log
         the failure, but continue with the close, as this is often executed as part of the
         destruction of a connection.  We will use the values returned in the Forward Open response
@@ -1942,9 +1985,8 @@ class implicit( connector ):
         begun			= misc.timer()
         dialect_bak,self.dialect= getattr( self, 'dialect', None ),device.Connection_Manager
         try:
-            if not hasattr( self, 'established' ):
-                return
-            if 'forward_open' not in self.established or self.established.status != 0:
+            if not getattr( self, 'established', None ) or 'forward_open' not in self.established \
+                    or self.established.status != 0:
                 if log.isEnabledFor( logging.INFO ):
                     log.info( "No Forward Open; not executing Forward Close: %s", parser.enip_format( self.established ))
                 return
@@ -1967,7 +2009,7 @@ class implicit( connector ):
             replies		= enip_replies( data ) 
             if data is None: # [<replies>], None or {} (EOF), or Exception/ENIPStatusError
                 # Response to Forward Close + socket shutdown was ... silence.  This connection is no good.
-                raise Exception( "Failed to cleanly close Implicit (Connected) session after %7.3f/%7.3fs" % (
+                raise Exception( "Failed to cleanly close CIP connection after %7.3f/%7.3fs" % (
                     misc.timer() - begun, misc.inf if self.timeout is None else self.timeout ))
             # Either {} (EOF), or a forward_close response { 'enip':... }
             assert not replies or len( replies ) == 1 and 'forward_close' in replies[0], \
@@ -1981,6 +2023,9 @@ class implicit( connector ):
                         misc.inf if self.timeout is None else self.timeout )
         finally:
             self.dialect	= dialect_bak # Restore original self.dialect
+            if getattr( self, 'io', None ) is not None:
+                self.io.close()
+                self.io = None
             super( implicit, self ).close()
 
     def index_to_sender_context( self, _index ):
@@ -1994,6 +2039,8 @@ class implicit( connector ):
         sequence == 0 for each connection).
 
         """
+        if self._class1:
+            raise ValueError( "Use unconnected explicit messaging or a separate Class 3 connection" )
         if connection is None:
             connection		= self.established.forward_open.O_T.connection_ID
         if sequence is None: # advance sequence, ensuring it remains in valid CIP INT range (0,2^16]
@@ -2005,11 +2052,11 @@ class implicit( connector ):
 
     def req_send( self, request, route_path=None, send_path=None, **kwds ):
         """Sending a request on a client connector/implicit connection requires the use of the appropriate
-        encapsulation.  An implicit connection normally uses a connected_send "Send Unit Data".
+        encapsulation.  A Class 3 request normally uses connected_send ("Send Unit Data").
         Normally, we'll deduce the 'connection' and 'sequence' in connected_send.
 
         However, we *can* send an arbitrarily routed request (ie. one with a route_path and/or send_path)
-        via an implicit connection, with SendRRData encapsulation.
+        on the same TCP session, using unconnected SendRRData encapsulation.
         """
         if route_path or send_path:
             return super( implicit, self ).req_send(
@@ -2141,7 +2188,7 @@ which is required to carry this Send/Route Path data. """ )
                      help="Activate profiling (default: False)" )
     ap.add_argument( '-c', '--connected', action='store_true',
                      default=False,
-                     help="Establish a Connected (Implicit) Session (uses configured/default parameters")
+                     help="Open a connected explicit (Class 3) connection with configured/default parameters")
     ap.add_argument( 'tags', nargs="*",
                      help="Tags to read/write (- to read from stdin), eg: SCADA[1], SCADA[2-10]+4=(DINT)3,4,5" )
     args			= ap.parse_args( argv )
@@ -2193,10 +2240,13 @@ which is required to carry this Send/Route Path data. """ )
     if args.profile:
         import cProfile as profile
         import pstats
-        import StringIO
+        try:
+            from StringIO import StringIO
+        except ImportError:
+            from io import StringIO
         profiler		= profile.Profile()
 
-    # Register and EtherNet/IP CIP connection to a Controller; default to Explicit, but support Implicit
+    # Register an EtherNet/IP session. Use unconnected explicit messaging by default.
     begun			= misc.timer()
     failures			= 0
     connector_cls		= connector
@@ -2236,8 +2286,9 @@ which is required to carry this Send/Route Path data. """ )
                 remains		= timeout - ( elapsed or 0 )
                 reply,_		= await_response( connection, timeout=remains )
                 if reply:
-                    print( "%s %2d from %r: %s" % (
-                        desc, counter, reply.peer, parser.enip_format( reply.get( path, reply ))))
+                    if printing:
+                        print( "%s %2d from %r: %s" % (
+                            desc, counter, reply.peer, parser.enip_format( reply.get( path, reply ))))
                     counter    += 1
                 if not reply or not args.broadcast:
                     # No reply or EOF w'in timeout, or reply but not --broadcast; done waiting
@@ -2263,7 +2314,7 @@ which is required to carry this Send/Route Path data. """ )
                     len( transactions ) / elapsed, elapsed / len( transactions )))
 
     if profiler:
-        s			= StringIO.StringIO()
+        s			= StringIO()
         ps			= pstats.Stats( profiler, stream=s )
         for sortby in [ 'cumulative', 'time' ]:
             ps.sort_stats( sortby )

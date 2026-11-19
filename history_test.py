@@ -5,6 +5,7 @@ except ImportError:
     pass
 
 import datetime
+import functools
 import json
 import logging
 import os
@@ -47,19 +48,19 @@ except ImportError:
 
 @pytest.mark.skipif( not has_pytz or not got_localzone or not has_pytz_classic, reason="Needs pytz classic and localzone" )
 def test_history_timestamp_abbreviations():
-    """Test timezone abbreviation support. """
-    abbrev			= timestamp.support_abbreviations( 'CA', reset=True )
+    """Test abbreviations against a fixed historical transition window."""
+    support_abbreviations = functools.partial(
+        timestamp.support_abbreviations, at=datetime.datetime( 2018, 7, 1 ))
+    abbrev			= support_abbreviations( 'CA', reset=True )
     assert sorted( abbrev ) == ['ADT', 'AST', 'CDT', 'CST', 'EDT', 'EST', 'MDT', 'MST', 'NDT', 'NST', 'PDT', 'PST']
 
-    # Perform all the remaining timezone abbreviation tests relative to a known range of times, to
-    # avoid differences in the future due to timezone changes.
     ts				= timestamp( "2014-04-24 08:00:00 MDT" )
     assert near( ts.value, 1398348000.0 )
 
     # Try to add all of the Americas to the CA abbreviations already supported; can't be done (too
     # many inconsistencies)
     try:
-        abbrev			= timestamp.support_abbreviations( 'America', first=False )
+        abbrev			= support_abbreviations( 'America', first=False )
         assert False, "Many zones should have been ambiguously abbreviated"
     except AmbiguousTimeZoneError as exc:
         assert "America/Havana" in str( exc )
@@ -72,7 +73,7 @@ def test_history_timestamp_abbreviations():
     ]
     #print()
     #print( "America, w/o %r" % ( exclude ))
-    abbrev			= timestamp.support_abbreviations( 'America', exclude=exclude )
+    abbrev			= support_abbreviations( 'America', exclude=exclude )
     #print( sorted( abbrev ))
     #print( reprlib.repr( timestamp._tzabbrev ))
     pytz_version		= tuple( map( int, pytz.__version__.split( '.' )))
@@ -95,7 +96,7 @@ def test_history_timestamp_abbreviations():
         assert sorted( abbrev ) == ['AKDT', 'AKST', 'GMT', 'HDT', 'HST']
 
     # We *can* add Europe/Berlin
-    abbrev			= timestamp.support_abbreviations( 'Europe/Berlin' )
+    abbrev			= support_abbreviations( 'Europe/Berlin' )
     assert sorted( abbrev ) == ['CEST', 'CET']
     assert 'CEST' in timestamp._tzabbrev
     assert 'EEST' not in timestamp._tzabbrev
@@ -104,7 +105,7 @@ def test_history_timestamp_abbreviations():
     exclude			= [ 'Europe/Simferopol', 'Europe/Istanbul', 'Europe/Minsk', 'Europe/Chisinau', 'Europe/Dublin' ]
     #print()
     #print( "Europe, w/o %r" % ( exclude ))
-    abbrev			= timestamp.support_abbreviations( 'Europe', exclude=exclude )
+    abbrev			= support_abbreviations( 'Europe', exclude=exclude )
     #print( sorted( abbrev ))
     if pytz_version < (2015,2):
         assert sorted( abbrev ) == ['BST', 'EEST', 'EET', 'MSK', 'SAMT', 'WEST', 'WET']
@@ -119,7 +120,7 @@ def test_history_timestamp_abbreviations():
         
     assert 'EEST' in timestamp._tzabbrev
     try:
-        timestamp.support_abbreviations( 'Asia', first=False )
+        support_abbreviations( 'Asia', first=False )
         assert False, "Asia/Jerusalem IST should have mismatched Europe/Dublin IST"
     except AmbiguousTimeZoneError as exc:
         assert "Asia/Jerusalem" in str( exc )
@@ -130,16 +131,16 @@ def test_history_timestamp_abbreviations():
     assert near( parse_offset( '>1' ), 			    1 )
 
     # While Asia is internally very inconsistent (eg. EEST), countries should be internally consistent
-    abbrev			= timestamp.support_abbreviations( 'JO', reset=True ) # Jordan
+    abbrev			= support_abbreviations( 'JO', reset=True ) # Jordan
     #print( sorted( abbrev ))
     assert sorted( abbrev ) == [ 'EEST', 'EET']
     z,dst,off			= timestamp._tzabbrev['EEST']
     assert str(z) == 'Asia/Amman'	and dst == True  and format_offset( timedelta_total_seconds( off ), ms=None ) == "> 3:00:00"
-    abbrev			= timestamp.support_abbreviations( 'IE', reset=True ) # Israel
+    abbrev			= support_abbreviations( 'IE', reset=True ) # Ireland
     #print( sorted( abbrev ))
     assert sorted( abbrev ) == [ 'GMT', 'IST' ]
     # Jordan, Israel and Lebanon only work if we pick a region to exclude, for one EEST definition
-    abbrev			= timestamp.support_abbreviations( ['JO', 'IE', 'LB'],
+    abbrev			= support_abbreviations( ['JO', 'IE', 'LB'],
                                                                    exclude=[ 'Asia/Amman' ], reset=True )
     #print( sorted( abbrev ))
     assert sorted( abbrev ) == [ 'EEST', 'EET', 'GMT', 'IST' ]
@@ -147,7 +148,7 @@ def test_history_timestamp_abbreviations():
     assert str(z) == 'Asia/Beirut'	and dst == True  and format_offset( timedelta_total_seconds( off ), ms=None ) == "> 3:00:00"
 
     # Australia zones incompatible with a bunch of other timezone abbreviations, eg. CST; reset
-    abbrev			= timestamp.support_abbreviations( 'Australia', reset=True )
+    abbrev			= support_abbreviations( 'Australia', reset=True )
     #print( sorted( abbrev ))
     #print( repr( timestamp._tzabbrev ))
     if pytz_version < (2017,2):
@@ -161,11 +162,11 @@ def test_history_timestamp_abbreviations():
     # Ensure that non-ambiguous (DST-specific) zone abbreviations override ambiguous (no longer
     # relevant, as pytz >= 2014.7 no longer contains dst == None for some of the Australian zones
     # without DST)
-    abbrev			= timestamp.support_abbreviations( [ 'Australia/Adelaide' ], reset=True )
+    abbrev			= support_abbreviations( [ 'Australia/Adelaide' ], reset=True )
     assert sorted( abbrev ) == [ 'ACDT', 'ACST' ]
     z,dst,off			= timestamp._tzabbrev['ACST']
     assert str(z) == 'Australia/Adelaide'	and dst == False and format_offset( timedelta_total_seconds( off ), ms=None ) == "> 9:30:00"
-    abbrev			= timestamp.support_abbreviations( [ 'Australia/Adelaide', 'Australia/Darwin' ], reset=True )
+    abbrev			= support_abbreviations( [ 'Australia/Adelaide', 'Australia/Darwin' ], reset=True )
     #print( sorted( abbrev ))
     #print( repr( timestamp._tzabbrev ))
     z,dst,off			= timestamp._tzabbrev['ACST']
@@ -176,7 +177,7 @@ def test_history_timestamp_abbreviations():
     # that within a year of 2014-04-28, the America/Eirunepe (west Amazonas) zone had such a change
     # (pre pytz 2017.2, anyway...)
     if pytz_version < (2017,2):
-        abbrev			= timestamp.support_abbreviations( [ 'America/Eirunepe' ], at=datetime.datetime( 2014, 4, 28 ), reset=True)
+        abbrev			= support_abbreviations( [ 'America/Eirunepe' ], at=datetime.datetime( 2014, 4, 28 ), reset=True)
         #print( sorted( abbrev ))
         assert sorted( abbrev ) == [ 'ACT', 'AMT' ]
         z,dst,off			= timestamp._tzabbrev['ACT']
@@ -282,7 +283,8 @@ def test_history_timestamp():
         tzinfo='MST', ms=False )		== '2014-05-05 14:42:21 MST'
 
     # Get MST/MDT etc., and CET/CEST abbreviations
-    timestamp.support_abbreviations( ['CA','Europe/Berlin'], reset=True )
+    timestamp.support_abbreviations( ['America/Edmonton','Europe/Berlin'],
+                                     at=datetime.datetime( 2014, 5, 5 ), reset=True )
 
     assert timestamp.timezone_info('MST') == (pytz.timezone( 'America/Edmonton' ),False)
     assert timestamp( 1399326141.999836 ).render(

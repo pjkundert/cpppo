@@ -51,8 +51,9 @@ import sys
 import threading
 import traceback
 
-from contextlib import suppress
+from contextlib import contextmanager, suppress
 from dataclasses import dataclass
+from functools import partial
 from typing import Union, Type
 
 try:
@@ -73,6 +74,7 @@ from ..server import network
 from pymodbus.client import ModbusTcpClient, ModbusSerialClient
 from pymodbus.datastore.store import ModbusSparseDataBlock
 from pymodbus.framer import FramerType, FramerBase
+from pymodbus.framer.rtu import FramerRTU
 from pymodbus.server import ModbusTcpServer, ModbusSerialServer
 
 
@@ -138,7 +140,7 @@ class modbus_communication_monitor( object ):
     def stop( self, loop=None ):
         if loop is None:
             loop		= asyncio.get_event_loop()
-        logging.warning("Shutting down...".format( loop=loop ))
+        logging.warning( "Shutting down..." )
         asyncio.run_coroutine_threadsafe( self.shutdown(), loop )
 
 
@@ -175,12 +177,29 @@ class modbus_server_tcp_printing( modbus_server_tcp ):
             sys.stdout.flush()
 
 
+class rtu_slave_framer( FramerRTU ):
+    def __init__( self, decoder, context ):
+        super().__init__( decoder )
+        self.context = context
+
+    def decode( self, data ):
+        size, unit, tid, frame = super().decode( data )
+        if frame and unit != 0 and unit not in self.context.slaves():
+            # On a shared bus a reply for another slave can reach this framer.
+            # Consume it before the request decoder interprets its payload.
+            frame = self.EMPTY
+        return size, unit, tid, frame
+
+
 class modbus_server_rtu( modbus_communication_monitor, ModbusSerialServer ):
     """An async Modbus Serial server.  Defaults to FramerType.RTU.  This is an async server program,
     and must be run in an asyncio loop.
 
     """
-    pass
+    def __init__( self, *args, **kwargs ):
+        super().__init__( *args, **kwargs )
+        if self.framer is FramerRTU and self.ignore_missing_slaves and not self.context.single:
+            self.framer = partial( rtu_slave_framer, context=self.context )
 
 
 class modbus_server_rtu_printing( modbus_server_rtu ):
@@ -196,6 +215,23 @@ class modbus_server_rtu_printing( modbus_server_rtu ):
             print( "Success; Started Modbus/RTU Simulator; PID = {pid}; address = {address}".format(
                 pid=os.getpid(), address=self.comm_params.source_address[0] ))
             sys.stdout.flush()
+
+
+def make_sync_client( factory, *args, **kwargs ):
+    """Supply PyModbus 3.8's unused synchronous response future with an event loop."""
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+
+        async def initialize():
+            return factory( *args, **kwargs )
+
+        try:
+            return loop.run_until_complete( initialize() )
+        finally:
+            loop.close()
+    return factory( *args, **kwargs )
 
 
 class modbus_client_timeout( object ):
@@ -222,7 +258,7 @@ class modbus_client_timeout( object ):
 
     """
     def __init__( self, *args, **kwargs ):
-        super( modbus_client_timeout, self ).__init__( *args, **kwargs )
+        make_sync_client( super( modbus_client_timeout, self ).__init__, *args, **kwargs )
         self._started		= None
         self._timeout		= None
         self._lock		= threading.Lock()
@@ -274,6 +310,24 @@ class modbus_client_tcp( modbus_client_timeout, ModbusTcpClient ):
     These are synchronous clients, and run in the calling thread.
 
     """
+
+    @contextmanager
+    def _limit_io( self ):
+        configured_timeout = self.comm_params.timeout_connect
+        if self._timeout is not None:
+            self.comm_params.timeout_connect = self.timeout
+        try:
+            yield
+        finally:
+            self.comm_params.timeout_connect = configured_timeout
+
+    def connect( self ):
+        with self._limit_io():
+            return super( modbus_client_tcp, self ).connect()
+
+    def recv( self, size ):
+        with self._limit_io():
+            return super( modbus_client_tcp, self ).recv( size )
     def __repr__( self ):
         return "<%s: %s>" % ( self, self.socket.__repr__() if self.socket else "closed" )
 

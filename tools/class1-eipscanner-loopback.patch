@@ -1,0 +1,17 @@
+--- a/src/ConnectionManager.cpp
++++ b/src/ConnectionManager.cpp
+@@ -154 +154 @@
+-			findOrCreateSocket(sockets::EndPoint(si->getRemoteEndPoint().getHost(), EIP_DEFAULT_IMPLICIT_PORT));
++			findOrCreateSocket(sockets::EndPoint(si->getRemoteEndPoint().getHost(), 2223));
+--- a/src/sockets/TCPSocket.cpp
++++ b/src/sockets/TCPSocket.cpp
+@@ -41 +41,2 @@
+-			if (setsockopt(_sockedFd, SOL_SOCKET, SO_NOSIGPIPE, &(int){ 1 }, sizeof(int)) < 0) {
++			int enabled = 1;
++			if (setsockopt(_sockedFd, SOL_SOCKET, SO_NOSIGPIPE, &enabled, sizeof(enabled)) < 0) {
+--- a/src/sockets/UDPSocket.cpp
++++ b/src/sockets/UDPSocket.cpp
+@@ -39 +39,2 @@
+-		if (setsockopt(_sockedFd, SOL_SOCKET, SO_NOSIGPIPE, &(int){ 1 }, sizeof(int)) < 0) {
++		int enabled = 1;
++		if (setsockopt(_sockedFd, SOL_SOCKET, SO_NOSIGPIPE, &enabled, sizeof(enabled)) < 0) {

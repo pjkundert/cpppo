@@ -1,39 +1,38 @@
-# This workflow will install Python dependencies, run tests and lint with a variety of Python versions
-# For more information see: https://help.github.com/actions/language-and-framework-guides/using-python-with-github-actions
-
 name: Python package
 
 on:
   push:
     branches:
       - master
-      - feature-**
-      - fix-**
+      - 'feature-**'
+      - 'feature/**'
+      - 'fix-**'
+      - 'fix/**'
   pull_request:
     branches:
       - master
+  workflow_dispatch:
+
+permissions:
+  contents: read
 
 jobs:
-  build:
-
+  test:
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
-        python-version: ["3.9", "3.10", "3.11", "3.12", "3.13"]
-
+        target: [py27, py311, py312, py313, py314]
     steps:
-    - uses: actions/checkout@master
-    - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@master
-      with:
-        python-version: ${{ matrix.python-version }}
-    - name: Install dependencies
-      run: |
-        python3 -m pip install --upgrade pip
-        python3 -m pip install .[all,tests]
-    - name: Lint with flake8
-      run: |
-        make analyze || true
-    - name: Test with pytest
-      run: |
-        make test
+      - uses: actions/checkout@v6
+      - uses: cachix/install-nix-action@v31.11.5
+      - name: Lint with flake8
+        if: matrix.target == 'py313'
+        continue-on-error: true
+        run: make TARGET=py313 nix-analyze
+      - name: Test with pytest
+        env:
+          TARGET: ${{ matrix.target }}
+        run: make nix-test
+  artifacts:
+    uses: ./.github/workflows/test-artifacts.yml

@@ -61,7 +61,7 @@ from ...automata import ( type_str_base,
                           decide,
                           dfa, dfa_post, state )
 from ... import misc
-from . import defaults
+from . import class1, defaults
 from .parser import ( UDINT, DINT, DWORD, INT, UINT, WORD, USINT,
                       EPATH, EPATH_padded, SSTRING, STRING, IFACEADDRS,
                       typed_data,
@@ -2057,9 +2057,10 @@ class Connection_Manager( Object ):
     FWD_CLOS_RPY		= FWD_CLOS_REQ | 0x80
 
     # Keep track of each Originating peer by a unique triplet, to its defined Forward Open data, and
-    # the resultant implicit connection to its ultimate Target (or None, if this is the Target --
+    # the downstream connected explicit session (or None, if this is the Target --
     # there is only 1 more address left in the connection_path)
-    forwards			= {}	# vendor,serial,connection_serial --> <forward_open request>,<implicit connection>|None
+    forwards			= {}	# peer IP, peer TCP port, O->T connection ID -> (request, downstream connection)
+    class1_adapter = None
 
     def forward_open( self, data, addr ):
         """Pretty much only the Connection Manager knows how to handle a Forward Open.  It'll come back to
@@ -2082,6 +2083,12 @@ class Connection_Manager( Object ):
 
         """
         fo			= data.forward_open
+        if fo.transport_class_triggers & 0x0f == 1:
+            if self.class1_adapter is None:
+                raise class1.ConnectionError( "Class 1 I/O is disabled", 0x011c )
+            data.reply_socket_items = self.class1_adapter.open_connection(
+                fo, addr, data.get( 'socket_items', [] ))
+            return
 
         # Actual Packet Interval will be the same as the Requested Packet Interval
         fo.O_T.API		= fo.O_T.RPI
@@ -2091,7 +2098,7 @@ class Connection_Manager( Object ):
         O_T			= defaults.Connection( **fo.O_T )
         T_O			= defaults.Connection( **fo.T_O )
 
-        # TODO: Only if we're the Target (final hop)! Otherwise, pass thru via implicit connection's Forward Open request/reply.
+        # TODO: Assign IDs only at the final hop. Else, relay the downstream Forward Open.
         if O_T.decoding.type == O_T.TYPE_P2P: # Originator -> Target is Point-to-Point: Target picks connection ID
             O_T.connection_ID	=  random.randint( 0, 2**32-1 )
         if T_O.decoding.type == T_O.TYPE_MC: # Target -> Originator is Multicast: Target picks connection ID
@@ -2124,10 +2131,10 @@ class Connection_Manager( Object ):
                         for a in ( 'O_T.NCP', 'O_T.RPI', 'T_O.NCP', 'T_O.RPI', 'transport_class_triggers', 'connection_path' )), \
                 "Already have an incompatible Forward Open from device Vendor: %s, Serial: %s, Connection Serial: %s" % triplet
         else:
-            # TODO: Create an implicit connection w/ remainder of connection_path
+            # TODO: Open a downstream connected explicit session using the remaining connection path.
             if fo.connection_path.segment and hasattr( fo.connection_path.segment[0], 'port' ):
                 via,to		= fo.connection_path.segment[0],fo.connection_path.segment[1:]
-                log.detail( "Establishing an implicit connection for %s:%s (O->T ID: %s) via: %r to: %r",
+                log.detail( "Forward Open for %s:%s (O->T ID: %s) via: %r to: %r",
                             unique[0], unique[1], unique[2], via, to )
             self.forwards[unique] = fo,None # <forward_open>,<connection>
 
@@ -2142,6 +2149,12 @@ class Connection_Manager( Object ):
         that connection. If an empty/None data is provided, purge them all.
 
         """
+        if data and self.class1_adapter:
+            fc = data.forward_close
+            if self.class1_adapter.close_connection( fc, addr ):
+                return
+            if fc.connection_path.segment == self.class1_adapter.profile.path:
+                raise class1.ConnectionError( "Class 1 connection not found", 0x0107 )
         if log.isEnabledFor( logging.DETAIL ):
             log.detail( "%s Forward Close: %s", self,
                         "<all>" if not data
@@ -2172,7 +2185,7 @@ class Connection_Manager( Object ):
 
         Thus, this request method for Connection Manager objects accept an additional, optional 3rd
         element in the 'addr' keyword parameter: <host>,<port>,<T_O_connection_ID>.  If supplied,
-        then we'll either route the request via the matching "implicit" connection, or get the
+        then we'll either route the request via the matching connected explicit session, or get the
         target local Object's ID from the self.forwards dict.
 
         """
@@ -2196,6 +2209,9 @@ class Connection_Manager( Object ):
                 else:
                     self.forward_open( data, addr=addr )
                 data.status	= 0
+            except class1.ConnectionError as exc:
+                data.status = 0x01
+                data.status_ext = dict( size=len( exc.status ), data=list( exc.status ))
             except Exception as exc:
                 # On Exception, if we haven't specified a more detailed error code, return General
                 # Error.  Remember: 0x06 (Insufficent Packet Space) is a NORMAL response to a successful

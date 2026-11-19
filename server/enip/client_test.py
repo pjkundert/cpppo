@@ -4,6 +4,7 @@ try:
 except ImportError:
     pass
 
+import cProfile
 import errno
 import logging
 import multiprocessing
@@ -25,7 +26,8 @@ if __name__ == "__main__":
     logging.basicConfig( **log_cfg )
 
 from ...dotdict import dotdict, apidict
-from ... import misc, tools
+from ... import misc
+from ...tools.waits import waitfor
 from .. import enip, network
 from ..enip.main import main as enip_main
 
@@ -88,40 +90,31 @@ def test_parse_route_path():
         == [{"port": 1, "link":0}, {"port": 2, "link": "::1"}, {"class": 2}, {"instance": 1}]
 
 
-def connector( **kwds ):
-    """An enip.client.connector that logs and ignores socket errors (returning None)."""
-    beg				= misc.timer()
-    try:
-        log.info( "Connecting to %s:%s for %s sec. timeout", kwds.get('host'), kwds.get('port'), kwds.get('timeout') )
-        return enip.client.connector( **kwds )
-    except socket.timeout:
-        log.info( "EtherNet/IP CIP connection timed out after %.3fs",
-                  misc.timer() - beg )
-    except socket.error as exc:
-        log.info( "EtherNet/IP CIP connection error %d: %r after %.3fs",
-                  exc.errno, exc.strerror, misc.timer() - beg )
-    except Exception as exc:
-        log.info( "EtherNet/IP CIP connection failure after %.3fs: %s",
-                  misc.timer() - beg, exc )
-        raise
+def expect_registration_timeout( address ):
+    started = misc.timer()
+    with pytest.raises( AssertionError, match="Failed to receive any response" ):
+        enip.client.connector( host=address[0], port=address[1], timeout=.5 )
+    assert misc.timer() - started < 2.0
 
 
 def test_client_timeout():
-    """Both connection and request I/O should respond to the specified timeout (w/ socket.timeout, or
-    socket.error, if the host actually exists...).
-
-    """
-    conn			= multiprocessing.Process( # So we can actually kill it if blocked...
-        target=connector,
-        kwargs={ 'host': '10.254.254.253', 'port': 44818, 'timeout': .5 } )
-    conn.start()
-    # Await the termination of the Process, which should happen just after .5s.
-    beg				= misc.timer()
+    """Register Session times out when the TCP peer doesn't answer."""
+    listener = socket.socket()
     try:
-        assert all( tools.waits.existence( terms=[ lambda: not conn.is_alive() ], timeout=1.0 )), \
-            "enip.client.connector to non-existent host didn't time out; took: %.3fs" % ( misc.timer() - beg )
+        listener.bind( ('127.0.0.1', 0) )
+        listener.listen( 1 )
+        conn = multiprocessing.Process(
+            target=expect_registration_timeout, args=(listener.getsockname(),) )
+        conn.start()
+        try:
+            conn.join( 5.0 )
+            assert conn.exitcode == 0, "CIP session registration timeout check failed"
+        finally:
+            if conn.is_alive():
+                conn.terminate()
+                conn.join()
     finally:
-        conn.terminate()
+        listener.close()
 
 
 def test_dotdict_request():
@@ -133,45 +126,45 @@ def test_dotdict_request():
     assert len( d2.item ) == 3
 
 
+def test_signed_service_payload():
+    connection = object.__new__( enip.client.client )
+    path = '@0x64/1/5'
+    values = [-128, -1, 0, 127, 255]
+    request = connection.set_attribute_single(
+        path, values, elements=len( values ), tag_type=enip.SINT.tag_type, send=False )
+    assert request.set_attribute_single.data == [128, 255, 0, 127, 255]
+    assert enip.Object.produce( request ).endswith( b'\x80\xff\x00\x7f\xff' )
+    request = connection.service_code(
+        enip.Object.SA_SNG_REQ, path, data=values, tag_type=enip.SINT.tag_type, send=False )
+    assert request.input == bytearray( b'\x80\xff\x00\x7f\xff' )
+    assert values == [-128, -1, 0, 127, 255]
+
+
 def test_client_api_simple():
     taglen			= 100 # able to fit request for Attribute into 1 packet
-    server_addr		        = ('localhost', 12398)
-    server_kwds			= dotdict({
+    control = apidict( enip.timeout, {'done': False} )
+    server_kwds = {
         'argv': [
             '-v',
-            '--address',	'%s:%d' % server_addr,
+            '--address', '127.0.0.1:0', '--no-udp',
             'Int@0x99/1/1=INT[%d]' % ( taglen ),
             'Real@0x99/1/2=REAL[%d]' % ( taglen ),
             'DInt@0x99/1/3=DINT[%d]' % ( taglen ),
         ],
-        'server': {
-            'control':	apidict( enip.timeout, {
-                'done': False
-            }),
-        },
-    })
-    server_func			= enip_main
-
-    Process			= threading.Thread # multiprocessing.Process
-    server			= Process( target=server_func, kwargs=server_kwds )
+        'server': {'control': control},
+    }
+    server = threading.Thread( target=enip_main, kwargs=server_kwds )
     server.daemon		= True
     server.start()
 
     client_timeout		= 15.0
+    profiler = cProfile.Profile()
 
     try:
-        connection		= None
-        while not connection:
-            time.sleep( .1 )
-            try:
-                connection	= enip.client.implicit( *server_addr, timeout=client_timeout, connection_path=None )
-            except socket.error as exc:
-                logging.warning( "enip.client.connector socket.error: %r", exc )
-                if exc.errno != errno.ECONNREFUSED:
-                    raise
-            except Exception as exc:
-                logging.warning( "enip.client.connector Exception: %r", exc )
-                raise
+        ready, _ = waitfor( lambda: control.get( 'address' ), 'CIP simulator address', timeout=5.0 )
+        assert ready, "CIP simulator did not publish its address"
+        connection = enip.client.implicit(
+            *control['address'], timeout=client_timeout, connection_path=None, profiler=profiler )
 
         with connection:
             # Get Attribute Single's payload is an EPATH
@@ -220,13 +213,8 @@ def test_client_api_simple():
             logging.normal( "Send Forward Close; then EOF" )
             del connection
     finally:
-        control			= server_kwds.get( 'server', {} ).get( 'control', {} ) if server_kwds else {}
-        if 'done' in control:
-            log.normal( "Server %r done signalled", misc.function_name( server_func ))
-            control['done']	= True	# only useful for threading.Thread; Process cannot see this
-        if hasattr( server, 'terminate' ):
-            log.normal( "Server %r done via .terminate()", misc.function_name( server_func ))
-            server.terminate() 		# only if using multiprocessing.Process(); Thread doesn't have
+        profiler.disable()
+        control['done'] = True
         server.join( timeout=1.0 )
 
 

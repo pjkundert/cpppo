@@ -820,7 +820,9 @@ def setup( **kwds ):
         if not lookup( 0x06, 1 ):
             cm			= kwds.get( 'connection_manager_class',	Connection_Manager )
             if cm:
-                cm( instance_id=1 )		# Class 0x06, Instance 1
+                manager = cm( instance_id=1 )	# Class 0x06, Instance 1
+                if 'class1_adapter' in kwds:
+                    manager.class1_adapter = kwds['class1_adapter']
         
         if not lookup( 0x66, 1 ):
             Unknown_Object( instance_id=1 )	# Class 0x66, Instance 1 -- Unknown purpose in Logix Controller

@@ -797,6 +797,9 @@ def parse_ip_port( netloc, default=(None,None) ):
             try:
                 parsed		= urlparse( '//{}'.format( netloc ))
                 port		= parsed.port  # will be None or int
+                if port is None and parsed.netloc.count( ':' ) > 1 and not parsed.netloc.startswith( '[' ):
+                    # Python 2 can report no port for an unbracketed IPv6 host and port.
+                    raise ValueError( "Unbracketed IPv6 address with a port" )
                 addr		= parsed.netloc if port is None else parsed.hostname
                 try:
                     addr	= ip( parsed.hostname )
