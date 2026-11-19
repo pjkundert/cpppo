@@ -42,7 +42,7 @@ def test_distributions(dist, work, env, pytest_args):
         subprocess.run([
             python, '-I', '-m', 'pytest', '--pyargs', 'cpppo.server.enip.class1_test', *pytest_args,
         ], cwd=work, env=env, check=True)
-        subprocess.run([python, '-I', TOOLS / 'test_readme.py', ROOT / 'README.org'],
+        subprocess.run([python, '-I', TOOLS / 'readme_check.py', ROOT / 'README.org'],
                        cwd=work, env=env, check=True)
 
 

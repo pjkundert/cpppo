@@ -96,7 +96,7 @@ test-artifacts: $(TEST_ENV)
 	  "$(OPENER_SRC)" "$(EIPSCANNER_SRC)" $(PYTESTOPTS) $(TEST_ARGS)
 
 test-readme: $(TEST_ENV)
-	$(RUN_PYTHON) -I tools/test_readme.py README.org
+	$(RUN_PYTHON) -I tools/readme_check.py README.org
 
 test-%: $(TEST_ENV)
 	@files=(); \
