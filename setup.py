@@ -109,6 +109,7 @@ setup(
     extras_require		= extras_require,
     packages			= package_dir.keys(),
     package_dir			= package_dir,
+    package_data		= {"cpppo/server/enip": ["simulator_example.cfg"]},
     zip_safe			= False,
     entry_points		= entry_points,
     author			= "Perry Kundert",

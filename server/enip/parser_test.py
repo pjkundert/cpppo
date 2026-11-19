@@ -12,15 +12,9 @@ import logging
 import sys
 import random
 
-from ...automata import log_cfg
 from ...dotdict import dotdict
 from . import parser
 from ... import misc
-
-
-# Set up logging to use our log format (instead of default Pytest format), while
-# retaining any logging level eg. python -m pytest --log-cli-level=25 ...
-logging.getLogger().handlers[0].setFormatter( logging.Formatter( log_cfg['format'] ))
 
 
 log				= logging.getLogger( "parser" )

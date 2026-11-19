@@ -61,7 +61,7 @@ Table of Contents
    tzlocal>=1.1.1      history         Access to system's local timezone (on Mac, Windows)
    pymodbus==3.8.1     remote          Modbus/TCP and RTU support for Python 3.9 and newer
    pytest              all tests       A Python unit-test framework
-   web.py>=0.37        web API (<3.0)  The web.py HTTP web application framework (optional)
+   web.py              web API         The web.py HTTP web application framework (optional)
    minimalmodbus       serial tests    A Modbus implementation, used for testing Modbus serial
   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -108,7 +108,8 @@ Table of Contents
   selection, serial ports, and packaging commands.
 
   The core parser and EtherNet/IP suite support the CPython 2.7
-  workflow.  PyModbus 3.8, including the current Modbus/TCP and RTU
+  workflow. CPython 3.11 is the minimum maintained Python 3 version.
+  PyModbus 3.8, including the current Modbus/TCP and RTU
   tools, requires Python 3.9 or newer. Greenery's Unicode regular
   expression support requires Python 3.
 
@@ -131,13 +132,11 @@ Table of Contents
   of simulating ControlLogix Tag access, via the Read/Write Tag
   [Fragmented] services.
 
-  Only EtherNet/IP "Unconnected" type connections are supported.  These
-  are (somewhat anomalously) a persistent TCP/IP connection from a
-  client to a single EtherNet/IP device (such as a *Logix Controller),
-  which allow the client to issue a sequence of CIP service requests
-  (commands) to be sent to arbitrary CIP objects resident on the target
-  device.  Cpppo does not implement "Connected" requests (eg. those
-  typically used between *Logix PLCs, in an industrial LAN environment).
+  Cpppo supports unconnected explicit messaging and connected explicit
+  messaging (Class 3) over TCP. The client class named `implicit' opens a
+  Class 3 connection for explicit service requests. Cyclic Class 1 I/O
+  over UDP, including scanner connections to an adapter's I/O
+  assemblies, requires a separate implementation.
 
   A Tag is simply a shortcut to a specific EtherNet/IP CIP Object
   Instance and Attribute.  Instead of the Client needing to know the
@@ -297,6 +296,9 @@ Table of Contents
   See <https://github.com/pjkundert/cpppo/blob/master/cpppo.cfg> for
   details on the file format
   (<https://docs.python.org/3/library/configparser.html>).
+  Use double quotes in the JSON value. `Interface Configuration' sets the
+  address reported by the CIP object. Use `--address' to bind the
+  simulator to a local IP address and port.
 
   Place this file in one of the above-mentioned locations, and run:
 
@@ -490,20 +492,17 @@ Table of Contents
 2.1.5 EtherNet/IP Controller Client
 ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
 
-  Cpppo provides an advanced EtherNet/IP CIP Client `enip_client', for
-  processing "Unconnected" (or "Explicit") requests via TPC/IP or UDP/IP
-  sessions to CIP devices – either Controllers (eg. Rockwell
-  ControlLogix, CompactLogix) which can "route" CIP requests, or w/ the
-  `-S' option for access to simple CIP devices (eg. Rockwell MicroLogix,
-  A-B PowerFlex, …)  which do not understand the "routing" CIP
-  Unconnected Send encapsulation required by the more advanced "routing"
-  Controllers.
+  The `enip_client' command sends explicit CIP requests over TCP. It can
+  route requests through controllers such as Rockwell ControlLogix and
+  CompactLogix. Use `-S' to send requests directly to devices such as
+  Rockwell MicroLogix and A-B PowerFlex that expect no Unconnected Send
+  routing wrapper.
 
-  Cpppo does not presently implement the CIP "Forward Open" request, nor
-  the resulting "Connected" or "Implicit" I/O requests, typically used
-  in direct PLC-to-PLC communications.  Only the TCP/IP
-  "Unconnected"/"Explicit" requests that pass over the initially created
-  and CIP Registered session are implemented.
+  By default, `enip_client' sends unconnected explicit requests after
+  Register Session. The `--connected' option uses Forward Open to
+  establish a Class 3 connection for explicit requests. UDP is available
+  for discovery commands such as List Identity. Cyclic Class 1 I/O is
+  outside the client's supported services.
 
   The `python -m cpppo.server.enip.client' module entry-point or API (or
   the `enip_client' command ) can Register and issue a stream of
@@ -2138,12 +2137,17 @@ Table of Contents
   of these requests may be made via a web browser, and a minimal HTML
   response will be issued.
 
-  Start a Logix Controller simulator on port 44818 (the default), with a
-  web API on port 12345:
+  With Python 3, install `web.py' to enable the optional HTTP server. The
+  simulator can serve the API on a separate port from EtherNet/IP.
   ┌────
-  │ python -m cpppo.server.enip -v --web :12345 SCADA=INT[1000]
+  │ python -m pip install web.py
+  │ python -m cpppo.server.enip -v --web 127.0.0.1:12345 SCADA=INT[1000]
   └────
 
+  `python -m cpppo.server.enip.simulator_example --web 127.0.0.1:12345'
+  loads the bundled sample tags. The browser opens `/api' by default.
+  If you provide your own `static/index.html' in the working directory,
+  it opens that page instead.
 
   The api is simple: api/<group>/<match>/<command>/<value> .  There are
   3 groups: "options", "tags" and "connections".  If you don't specify

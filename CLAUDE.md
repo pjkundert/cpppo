@@ -39,13 +39,11 @@ The Python 3 suite runs the serial integration tests when `SERIAL_TEST` names a 
 
 The CPython 2.7 environment covers the protocol parser, EtherNet/IP simulators, history, and other compatible tests. The current PyModbus 3.8 integration and Modbus command-line tools require Python 3.9 or newer.
 
-### Expected test failures
+### CI and release
 
-- `dotdict_test.py::test_apidict_multiprocessing` and `test_dotdict_multiprocessing_proxies` use local worker functions or proxy classes. They pass under `fork` and are marked xfail under `spawn` and `forkserver`.
-- `server/network_test.py::test_soak_Process` uses a local `Process` subclass for stdout redirection. It is marked xfail under `spawn` and `forkserver`.
-- `server/enip/poll_test.py::test_powerflex_poll_routing_bench` uses a local UCMM class. It cannot start under `spawn` or `forkserver` and has been intermittent under `fork`.
+GitHub Actions tests CPython 3.11 through 3.14 and the legacy CPython 2.7 target through the Nix flake. CPython 3.11 is the minimum maintained Python 3 version. Existing installations on older Python releases can continue to use compatible features.
 
-Pass `TEST_ARGS='--runxfail path/to/file.py::test_name'` to `make nix-test` to reproduce an expected failure directly.
+Run `make TARGET=py313 nix-build` to build the release wheel and source archive. A version tag such as `v5.7.0` triggers the release workflow. The workflow checks the tag against `version.py` and publishes through the PyPI `pypi` Trusted Publishing environment.
 
 ### Optional Dependencies
 

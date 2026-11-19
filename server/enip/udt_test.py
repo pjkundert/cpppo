@@ -12,16 +12,12 @@ import sys
 import threading
 import time
 
-from ...automata import log_cfg, peekable
+from ...automata import peekable
 from ...dotdict import dotdict, apidict
 from ... import misc
 from ...tools.waits import waitfor
 from .main import main as enip_main
 from . import defaults, udt, parser, device, logix, ucmm
-
-# Set up logging to use our log format (instead of default Pytest format), while
-# retaining any logging level eg. python -m pytest --log-cli-level=25 ...
-logging.getLogger().handlers[0].setFormatter( logging.Formatter( log_cfg['format'] ))
 
 try:
     import reprlib
