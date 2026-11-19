@@ -74,7 +74,7 @@ def test_hart_simple( simulated_hart_gateway ):
     try:
         assert address, "Unable to detect HART EtherNet/IP CIP Gateway IP address"
         hio			= client.connector( host=address[0], port=address[1] )
-        # Establish an Implicit EtherNet/IP CIP connection using Forward Open
+        # Establish a connected explicit EtherNet/IP CIP connection using Forward Open.
         #hio			= client.implicit( host=address[0], port=address[1], connection_path=None )
         PV			= 1.23
         operations		= [

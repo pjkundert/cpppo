@@ -1,7 +1,7 @@
 #! /usr/bin/env python3
 
 # 
-# Open a "Connected" Class-1 session to a C*Logix PLC
+# Open a connected explicit (Class 3) connection to a C*Logix PLC.
 # 
 #     python -m cpppo.server.enip.open_example <hostname> [<tag> ...]
 # 
@@ -44,7 +44,7 @@ FO_TRANSPORT_CLS_2		= 0b0010 << 0
 FO_TRANSPORT_CLS_3		= 0b0011 << 0
 
 #transport_class_triggers = FO_TRANSPORT_DIR_SERVER | FO_TRANSPORT_TRG_APPOBJ | FO_TRANSPORT_CLS_3, # 163
-# The endpoint is a Client (initiates), cyclicly
+# Try Class 3 with the client direction and cyclic trigger bits set.
 transport_class_triggers	= FO_TRANSPORT_DIR_CLIENT | FO_TRANSPORT_TRG_CYCLIC | FO_TRANSPORT_CLS_3
 priority_time_ticks		= 7
 timeout_ticks			= 155
@@ -107,7 +107,7 @@ with connection as conn:
             fragment=fragment, printing=printing, timeout=timeout )
         elapsed			= cpppo.timer() - begun
 
-        # Now, wait for spontaneous data
+        # Check for any additional replies on the TCP connection.
         data,elapsed		= client.await_response( conn, timeout=1 )
         if data: log.normal( "Received: {data!r}".format( data=data ))
 

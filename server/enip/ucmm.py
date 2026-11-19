@@ -369,8 +369,7 @@ class UCMM( device.Object ):
                     data.enip.CIP.send_data.CPF.item[1].unconnected_send  = dotdict()
                     data.enip.CIP.send_data.CPF.item[1].unconnected_send.request = unc_send.request
 
-                # Either an implicit "Connected" request (Send RR Data or Send Unit Data), or an
-                # explicit "Unconnected" request (Send RR Data).
+                # Repackage the explicit CIP response in its connected or unconnected frame.
                 if log.isEnabledFor( logging.DEBUG ):
                     log.debug( "%s Repackaged: %s", self, parser.enip_format( data ))
                 
