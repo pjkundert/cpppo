@@ -133,10 +133,10 @@ Table of Contents
   [Fragmented] services.
 
   Cpppo supports unconnected explicit messaging and connected explicit
-  messaging (Class 3) over TCP. The client class named `implicit' opens a
-  Class 3 connection for explicit service requests. Cyclic Class 1 I/O
-  over UDP, including scanner connections to an adapter's I/O
-  assemblies, requires a separate implementation.
+  messaging (Class 3) over TCP. The client class named `implicit'
+  defaults to Class 3. It can also originate a cyclic Class 1 Input Only
+  connection over UDP. The printer example accepts this connection as
+  an I/O adapter.
 
   A Tag is simply a shortcut to a specific EtherNet/IP CIP Object
   Instance and Attribute.  Instead of the Client needing to know the
@@ -501,8 +501,8 @@ Table of Contents
   By default, `enip_client' sends unconnected explicit requests after
   Register Session. The `--connected' option uses Forward Open to
   establish a Class 3 connection for explicit requests. UDP is available
-  for discovery commands such as List Identity. Cyclic Class 1 I/O is
-  outside the client's supported services.
+  for discovery commands such as List Identity. The Python API provides
+  Class 1 I/O as described below.
 
   The `python -m cpppo.server.enip.client' module entry-point or API (or
   the `enip_client' command ) can Register and issue a stream of
@@ -898,6 +898,42 @@ Table of Contents
 
   See further details of addressing `cpppo.server.enip.client''s
   `parse_operations' below.
+
+2.1.5.1 Class 1 printer status example
+╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+
+  Start the adapter on the loopback interface.
+
+  python -m cpppo.server.enip.printer_example --address 127.0.0.1:44818 --io-address 127.0.0.1:2222
+
+  The printer accepts one cyclic, unicast Input Only connection. Its
+  configuration, heartbeat, and status assembly instances are 151, 152,
+  and 100. The heartbeat has zero application bytes. The eight-byte
+  status assembly uses Python struct format '<BBHI' for flags, paper
+  level, two reserved bytes, and the last submitted job number.
+
+  from contextlib import closing
+  import struct
+  from cpppo.server.enip import class1, client
+
+  profile = class1.InputOnly(151, 152, 100, 8)
+  with closing(client.implicit("127.0.0.1", timeout=2, transport_class=1,
+                               io_profile=profile, rpi_us=50000)) as scanner:
+      status = scanner.receive_io(timeout=2)
+      if status is not None:
+          flags, paper_level, _, job = struct.unpack("<BBHI", status)
+
+  'receive_io' returns the latest fresh snapshot or None after the wait
+  or watchdog expires. The scanner and adapter support fixed-size IPv4
+  unicast at packet intervals from 10 ms to 10 s. Multicast, change-of-state,
+  and output ownership are outside this profile.
+
+  Send job data and submit it over a separate explicit connection.
+
+  enip_client --connected -a 127.0.0.1:44818 'PrintData[0-2]=(USINT)65,66,67' 'SubmitJob=(UDINT)42'
+
+  'PrinterFlags' and 'PaperLevel' are writable simulation inputs. See
+  CLAUDE.md for the OpENer and EIPScanner interoperability tests.
 
 
 2.1.6 EtherNet/IP `cpppo.server.enip.client' API

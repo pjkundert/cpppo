@@ -35,6 +35,23 @@ The first Nix command that needs Python dependencies provisions `.venv/<interpre
 
 The Python 3 suite runs the serial integration tests when `SERIAL_TEST` names a configured group of ports. Use `make SERIAL_TEST=ttyS0 nix-test-serial` for physical ports or `make SERIAL_TEST=ttyV0 nix-test-serial` for virtual ports. The number is the client port suffix. The next two ports are used as servers. On POSIX, run `nix develop --command python3 ttyV-setup.py 3` in a separate terminal to provide three virtual ports, then stop the bridge with Ctrl-C after the tests. The bridge replaces local `ttyV0` through `ttyV2` links.
 
+### Class 1 interoperability
+
+`make nix-test-class1` exercises the Class 1 scanner, printer adapter, watchdog, and separate Class 3 job channel in cpppo. For independent peers, the `interop` shell adds a C/C++ toolchain and CMake.
+
+```sh
+git clone https://github.com/nimbuscontrols/EIPScanner.git ~/src/EIPScanner
+make TARGET=interop nix-test-class1-interop
+```
+
+The target uses the OpENer checkout at `~/src/OpENer` and EIPScanner at `~/src/EIPScanner`. Override `OPENER_SRC` or `EIPSCANNER_SRC` to point to another checkout. Verified peer revisions are OpENer `fb90c9918081c184b1876ce0c893168cf8b5653c` and EIPScanner `12c89a57ec2e7449efb1348be52af10be9ef9701`. The target builds temporary Git snapshots with loopback and macOS portability patches. EIPScanner's receive port is 2223 in the test build so it can share the host with OpENer. Keep TCP 44818 and UDP 2222 and 2223 free on loopback.
+
+- The cpppo scanner opens OpENer's sample Input Only assembly, writes new sample data over explicit messaging, and verifies the changed cyclic input.
+- EIPScanner opens the cpppo printer's Input Only assembly and verifies several snapshots containing the job number written over Class 3.
+- EIPScanner opens OpENer's Input Only assembly and verifies the sample data it wrote over explicit messaging.
+
+To reuse prebuilt peers, set `CPPPO_OPENER` to the OpENer sample executable and `CPPPO_EIPSCANNER` to the probe built from `tools/class1_reference_scanner.cpp`, then run `make nix-test-class1`.
+
 ### Python 2.7 scope
 
 The CPython 2.7 environment covers the protocol parser, EtherNet/IP simulators, history, and other compatible tests. The current PyModbus 3.8 integration and Modbus command-line tools require Python 3.9 or newer.

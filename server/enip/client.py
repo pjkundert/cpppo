@@ -59,7 +59,7 @@ from ... import misc
 from ...dotdict import dotdict
 from ...automata import ( log_cfg, type_str_base, chainable, peekable )
 from .. import network
-from . import defaults, parser, device
+from . import class1, defaults, parser, device
 
 # used to be defined here; retain for backward-compatibility...
 def parse_int( *args, **kwds ):
@@ -775,7 +775,7 @@ class client( object ):
                       O_T, T_O, O_serial, O_vendor, connection_serial,
                       transport_class_triggers, connection_timeout_multiplier,
                       timeout=None, send=True,
-                      route_path=False, send_path='', sender_context=b'',
+                      route_path=False, send_path='', sender_context=b'', socket_items=(),
                       **kwds ):
         """Forward Open uses a CPF encapsulation, but with no route_path or send_path.  Must be used
         with a self.dialect == Connection_Manager to properly produce request and parse response.
@@ -803,7 +803,8 @@ class client( object ):
         if send:
             self.unconnected_send(
                 request=req, route_path=route_path, send_path=send_path, timeout=timeout,
-                sender_context=sender_context )
+                sender_context=sender_context,
+                **({'socket_items': socket_items} if socket_items else {}) )
         return req
 
     def forward_close( self, path, connection_path,
@@ -1031,7 +1032,7 @@ class client( object ):
     def unconnected_send( self, request, route_path=None, send_path=None, timeout=None,
                           connection=None, sequence=None, # ignored
                           priority_time_tick=None, timeout_ticks=None,
-                          sender_context=b'', dialect=None ):
+                          sender_context=b'', dialect=None, socket_items=() ):
         """The default route_path is the CPU in chassis (link 0), port 1, and the default send_path is
         to its Connection Manager (Class 6, Instance 1).  These defaults can be configured on a
         class or per-instance basis by changing the {route,send}_path_default attributes in either
@@ -1109,6 +1110,7 @@ class client( object ):
             us.request		= {}
             us.request.input	= bytearray( request or b'' )
 
+        sd.CPF.item.extend( socket_items )
         return self.cip_send( cip=cip, sender_context=sender_context, timeout=timeout )
 
     def connected_send( self, request, timeout=None,
@@ -1784,7 +1786,8 @@ class connector( client ):
 
 class implicit( connector ):
     """Establishes a connected explicit (Class 3) EtherNet/IP session by issuing Forward Open after
-    Register Session succeeds. Cyclic Class 1 I/O over UDP requires a separate implementation.
+    Register Session succeeds. Select transport_class=1 with a class1.InputOnly profile to open
+    cyclic unicast I/O and receive its assembly via receive_io().
 
     Obtains defaults for any Forward Open parameters not specified, using the Object.config_loader,
     specialized for the given 'configuration' name (defaults to "Originator", if None, falling back
@@ -1814,20 +1817,37 @@ class implicit( connector ):
                   O_T=None, T_O=None, O_vendor=None, O_serial=None, connection_serial=None,
                   transport_class_triggers=None, connection_timeout_multiplier=None,
                   route_path=False, send_path='', # typically no 0x52 encapsulation w/ routing for fwd open
-                  sender_context=b'', **kwds ):
+                  sender_context=b'', transport_class=None, io_profile=None, rpi_us=50000, **kwds ):
         begun			= misc.timer()
         self.timeout		= timeout
         self.requested		= dotdict()
         self.established	= dotdict()
         self.seqs		= {} # Forward Open connected_send( connection --> sequence )
+        self.io = None
+        self._class1 = transport_class == 1
+        if transport_class not in (None, 1, 3):
+            raise ValueError( "Select EtherNet/IP transport class 1 or 3" )
+        if self._class1:
+            if not isinstance( io_profile, class1.InputOnly ):
+                raise ValueError( "Class 1 requires an InputOnly profile" )
+            if (connection_path is not None or O_T is not None or T_O is not None
+                    or transport_class_triggers not in (None, class1.CYCLIC_CLASS1)
+                    or route_path or send_path):
+                raise ValueError( "Class 1 uses the profile's direct, cyclic Input Only connection" )
+            O_T, T_O = io_profile.parameters( rpi_us )
+            connection_path = io_profile.path
+            transport_class_triggers = class1.CYCLIC_CLASS1
+        elif io_profile is not None:
+            raise ValueError( "An InputOnly profile requires transport_class=1" )
 
         super( implicit, self ).__init__( host=host, port=port, timeout=timeout,
                                           configuration=configuration, **kwds )
 
         # Substitute Connection_Manager for response parsing for duration of Forward Open
         dialect_bak,self.dialect= self.dialect,device.Connection_Manager
+        io_socket = None
         try:
-            assert not self.udp, "Connected explicit EtherNet/IP messaging requires TCP"
+            assert not self.udp, "EtherNet/IP Forward Open requires a TCP session"
             self.__class__.connection_serial += 1
             self.__class__.connection_serial %= 2**16
 
@@ -1851,6 +1871,10 @@ class implicit( connector ):
                                 = default_named( transport_class_triggers,'transport_class_triggers' )
             connection_timeout_multiplier \
                                 = default_named( connection_timeout_multiplier, 'connection_timeout_multiplier' )
+            if self._class1 and not 0 <= connection_timeout_multiplier <= 7:
+                raise ValueError( "Class 1 connection timeout multiplier must be in 0..7" )
+            if transport_class == 3 and transport_class_triggers & 0x0f != 3:
+                raise ValueError( "Conflicting Class 3 transport class and trigger" )
 
             # The RPI isn't strictly a connection parameter, but it's included in the same bundle;
             # get any configured/default values.
@@ -1870,6 +1894,11 @@ class implicit( connector ):
             if T_O.connection_ID is None:
                 T_O.connection_ID = 2**32-1 # set by Target; doesn't matter
 
+            socket_items = []
+            if self._class1:
+                io_socket = class1.bound_socket( (self.conn.getsockname()[0], 0) )
+                socket_items.append( class1.socket_item( class1.T_O_ADDRESS, io_socket.getsockname() ))
+
             with self:
                 # The forward_open( timeout=... ) applies to the socket send only
                 elapsed_req	= misc.timer() - begun
@@ -1888,7 +1917,8 @@ class implicit( connector ):
                     timeout		= None if timeout is None else max( 0, timeout - elapsed_req ),
                     route_path		= route_path,
                     send_path		= send_path,
-                    sender_context	= sender_context )
+                    sender_context	= sender_context,
+                    **({'socket_items': socket_items} if socket_items else {}) )
 
                 # Await the CIP response for remainder of timeout
                 elapsed_req	= misc.timer() - begun
@@ -1900,18 +1930,42 @@ class implicit( connector ):
             self.established		= data.get( 'enip.CIP.send_data.CPF.item[1].unconnected_send.request' )
             assert self.established and 'forward_open' in self.established and self.established.status == 0, \
                 "Failed to receive successful Forward Open response: %s" % ( parser.enip_format( self.established ))
+            if self._class1:
+                reply = self.established.forward_open
+                peer = class1.socket_endpoint( data.enip.CIP.send_data.CPF.item[2:],
+                                               class1.O_T_ADDRESS, self.conn.getpeername()[0] )
+                connection = class1.CyclicConnection(
+                    peer, reply.O_T, reply.T_O, io_profile.input_size, lambda: b'', connection_timeout_multiplier )
+                self.io = class1.Worker( io_socket, connection )
+                io_socket = None
         except Exception as exc:
             log.info( "FwdOpen:  Failure in %7.3f/%7.3fs: %s", misc.timer() - begun,
                       misc.inf if timeout is None else timeout, exc )
+            if self._class1:
+                if self.established and 'forward_open' in self.established and self.established.status == 0:
+                    try:
+                        self.close()
+                    except Exception:
+                        log.debug( "Unable to close a partly established Class 1 connection", exc_info=True )
+                else:
+                    super( implicit, self ).close()
             raise
         else:
             log.detail( "FwdOpen:  Success in %7.3f/%7.3fs", misc.timer() - begun,
                         misc.inf if timeout is None else timeout )
         finally:
             self.dialect	= dialect_bak # Restore original self.dialect
+            if io_socket is not None:
+                io_socket.close()
+
+    def receive_io( self, timeout=0 ):
+        """Return the latest fresh Class 1 input bytes, waiting up to timeout seconds."""
+        if not self._class1:
+            raise ValueError( "receive_io requires a Class 1 connection" )
+        return self.io.receive( timeout ) if self.io else None
 
     def close( self ):
-        """Attempt to cleanly close the Class 3 connection by sending a corresponding
+        """Attempt to cleanly close the CIP connection by sending a corresponding
         Forward Close, followed immediately by a shutdown the socket.  If it fails, capture and log
         the failure, but continue with the close, as this is often executed as part of the
         destruction of a connection.  We will use the values returned in the Forward Open response
@@ -1931,9 +1985,8 @@ class implicit( connector ):
         begun			= misc.timer()
         dialect_bak,self.dialect= getattr( self, 'dialect', None ),device.Connection_Manager
         try:
-            if not hasattr( self, 'established' ):
-                return
-            if 'forward_open' not in self.established or self.established.status != 0:
+            if not getattr( self, 'established', None ) or 'forward_open' not in self.established \
+                    or self.established.status != 0:
                 if log.isEnabledFor( logging.INFO ):
                     log.info( "No Forward Open; not executing Forward Close: %s", parser.enip_format( self.established ))
                 return
@@ -1956,7 +2009,7 @@ class implicit( connector ):
             replies		= enip_replies( data ) 
             if data is None: # [<replies>], None or {} (EOF), or Exception/ENIPStatusError
                 # Response to Forward Close + socket shutdown was ... silence.  This connection is no good.
-                raise Exception( "Failed to cleanly close Class 3 connection after %7.3f/%7.3fs" % (
+                raise Exception( "Failed to cleanly close CIP connection after %7.3f/%7.3fs" % (
                     misc.timer() - begun, misc.inf if self.timeout is None else self.timeout ))
             # Either {} (EOF), or a forward_close response { 'enip':... }
             assert not replies or len( replies ) == 1 and 'forward_close' in replies[0], \
@@ -1970,6 +2023,9 @@ class implicit( connector ):
                         misc.inf if self.timeout is None else self.timeout )
         finally:
             self.dialect	= dialect_bak # Restore original self.dialect
+            if getattr( self, 'io', None ) is not None:
+                self.io.close()
+                self.io = None
             super( implicit, self ).close()
 
     def index_to_sender_context( self, _index ):
@@ -1983,6 +2039,8 @@ class implicit( connector ):
         sequence == 0 for each connection).
 
         """
+        if self._class1:
+            raise ValueError( "Use unconnected explicit messaging or a separate Class 3 connection" )
         if connection is None:
             connection		= self.established.forward_open.O_T.connection_ID
         if sequence is None: # advance sequence, ensuring it remains in valid CIP INT range (0,2^16]

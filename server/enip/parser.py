@@ -1604,6 +1604,23 @@ class connection_data( dfa ):
         return result
 
 
+class socket_address( dfa ):
+    """IPv4 sockaddr carried in a Forward Open CPF item."""
+
+    def __init__( self, name=None, **kwds ):
+        name = name or kwds.setdefault( 'context', self.__class__.__name__ )
+        family = UINT_network( context='family' )
+        family[True] = port = UINT_network( context='port' )
+        port[True] = host = IPADDR_network( context='host' )
+        host[True] = octets_drop( 'reserved', repeat=8, terminal=True )
+        super( socket_address, self ).__init__( name=name, initial=family, **kwds )
+
+    @classmethod
+    def produce( cls, data ):
+        return (UINT_network.produce( data.family ) + UINT_network.produce( data.port )
+                + IPADDR_network.produce( data.host ) + b'\0' * 8)
+
+
 class CPF( dfa ):
 
     """A SendRRData Common Packet Format specifies the number and type of the encapsulated CIP
@@ -1636,6 +1653,8 @@ class CPF( dfa ):
 
     """
     ITEM_PARSERS		= {
+        0x8000:		socket_address,		# Originator to Target UDP destination
+        0x8001:		socket_address,		# Target to Originator UDP destination
         0x0001:	legacy_CPF_0x0001,	# used in EtherNet/IP Legacy command 0x0001
         0x00a1:	connection_ID,		# Connected session ID; used in PCCC transport, for example
         0x00b1:	connection_data,	#   Payload data for a connected session; sequence count + request.input

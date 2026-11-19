@@ -6,6 +6,7 @@ include requirements.txt
 include requirements-*.txt
 include cpppo.cfg
 include server/enip/simulator_example.cfg
+include tools/class1_interop.py tools/class1_reference_scanner.cpp tools/class1-*.patch
 include crypto/licensing/licensing.sql*
 recursive-include crypto/licensing/static *
 global-exclude *~

@@ -1,0 +1,86 @@
+--- a/source/src/ports/POSIX/CMakeLists.txt
++++ b/source/src/ports/POSIX/CMakeLists.txt
+@@ -49,7 +49,10 @@
+
+ if( NOT OpENer_TESTS)
+   add_executable(OpENer main.c)
+-  target_link_libraries( OpENer PLATFORM_GENERIC ${OpENer_PLATFORM}PLATFORM ${PLATFORM_SPEC_LIBS} CIP Utils SAMPLE_APP ENET_ENCAP NVDATA rt pthread)
++  if(NOT APPLE)
++    set(OPENER_RT_LIB rt)
++  endif()
++  target_link_libraries( OpENer PLATFORM_GENERIC ${OpENer_PLATFORM}PLATFORM ${PLATFORM_SPEC_LIBS} CIP Utils SAMPLE_APP ENET_ENCAP NVDATA ${OPENER_RT_LIB} pthread)
+
+   # Add additional CIP Objects
+   string(COMPARE NOTEQUAL "${OpENer_ADD_CIP_OBJECTS}" "" OpENer_HAS_ADDITIONAL_OBJECT )
+--- a/source/src/ports/POSIX/networkconfig.c
++++ b/source/src/ports/POSIX/networkconfig.c
+@@ -13,6 +13,13 @@
+ #include <sys/ioctl.h>
+ #include <sys/socket.h>
+ #include <net/if.h>
++#ifdef __APPLE__
++#include <ifaddrs.h>
++#include <net/if_dl.h>
++#ifndef HOST_NAME_MAX
++#define HOST_NAME_MAX 255
++#endif
++#endif
+ #include <netinet/in.h>
+ #include <arpa/inet.h>
+ #include <unistd.h>
+@@ -26,6 +33,22 @@
+
+ EipStatus IfaceGetMacAddress(const char *iface,
+                              uint8_t *const physical_address) {
++#ifdef __APPLE__
++  struct ifaddrs *list;
++  if(getifaddrs(&list) < 0) return kEipStatusError;
++  EipStatus status = kEipStatusError;
++  for(struct ifaddrs *it = list; it; it = it->ifa_next) {
++    if(it->ifa_addr && it->ifa_addr->sa_family == AF_LINK && strcmp(it->ifa_name, iface) == 0) {
++      struct sockaddr_dl *link = (struct sockaddr_dl *)it->ifa_addr;
++      memset(physical_address, 0, 6);
++      if(link->sdl_alen == 6) memcpy(physical_address, LLADDR(link), 6);
++      status = kEipStatusOk;
++      break;
++    }
++  }
++  freeifaddrs(list);
++  return status;
++#else
+   struct ifreq ifr;
+   size_t if_name_len = strlen(iface);
+   EipStatus status = kEipStatusError;
+@@ -47,6 +70,7 @@
+   }
+
+   return status;
++#endif
+ }
+
+ static EipStatus GetIpAndNetmaskFromInterface(const char *iface,
+@@ -75,7 +99,11 @@
+     }
+
+     if(ioctl(fd, SIOCGIFNETMASK, &ifr) == 0) {
++#ifdef __APPLE__
++      netaddr = ( (struct sockaddr_in *) &ifr.ifr_addr )->sin_addr.s_addr;
++#else
+       netaddr = ( (struct sockaddr_in *) &ifr.ifr_netmask )->sin_addr.s_addr;
++#endif
+     } else {
+       close(fd);
+       return kEipStatusError;
+@@ -261,7 +289,11 @@
+   status = GetIpAndNetmaskFromInterface(iface, &local_cfg);
+   if(kEipStatusOk == status) {
+     (void) nanosleep_simple32(300000000u); /* sleep 300ms to let route "settle" */
+-    status = GetGatewayFromRoute(iface, &local_cfg);
++#ifndef __APPLE__
++    if(strcmp(iface, "lo") != 0) {
++      status = GetGatewayFromRoute(iface, &local_cfg);
++    }
++#endif
+     if(kEipStatusOk == status) {
+       status = GetDnsInfoFromResolvConf(&local_cfg);
+     }

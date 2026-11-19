@@ -9,6 +9,8 @@ TZ := Canada/Mountain
 PYTESTOPTS ?= -ra
 TEST_ARGS ?=
 DIST_DIR ?= dist
+OPENER_SRC ?= $(HOME)/src/OpENer
+EIPSCANNER_SRC ?= $(HOME)/src/EIPScanner
 
 # Use a per-interpreter environment. Inside the flake, create it on demand
 # unless the caller has already activated an environment in that shell.
@@ -24,7 +26,7 @@ else
 RUN_PYTHON = $(PYTHON)
 endif
 
-.PHONY: help all test venv venv-setup install build build-check wheel clean analyze pylint
+.PHONY: help all test test-class1-interop venv venv-setup install build build-check wheel clean analyze pylint
 all: help
 
 help:
@@ -34,6 +36,7 @@ help:
 	  '  make TARGET=py312 nix-test-enip     Run matching *_test.py files' \
 	  '  make nix-unit-client                Select tests by pytest keyword' \
 	  '  make nix-test TEST_ARGS=path::test  Pass pytest paths or additional flags' \
+	  '  make TARGET=interop nix-test-class1-interop  Build and test independent Class 1 peers' \
 	  '  make nix-venv-setup                 Create/update the test virtualenv' \
 	  '  make nix-venv                       Open a shell in that virtualenv' \
 	  '  make nix-build / nix-wheel         Build distributions / wheel only' \
@@ -82,6 +85,9 @@ PYTEST = TZ="$(TZ)" $(RUN_PYTHON) -m pytest $(PYTESTOPTS)
 
 test: $(TEST_ENV)
 	$(PYTEST) $(TEST_ARGS)
+
+test-class1-interop: $(TEST_ENV)
+	TZ="$(TZ)" $(RUN_PYTHON) tools/class1_interop.py "$(OPENER_SRC)" "$(EIPSCANNER_SRC)" $(PYTESTOPTS) $(TEST_ARGS)
 
 test-%: $(TEST_ENV)
 	@files=(); \

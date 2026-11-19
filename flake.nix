@@ -16,8 +16,8 @@
           };
 
           # The Makefile installs Python dependencies in the selected virtualenv.
-          pythonShell = python: command: pkgs.mkShell {
-            packages = [ python ] ++ (with pkgs; [ bash cacert git gnumake openssh socat ]);
+          pythonShell = python: command: extraPackages: pkgs.mkShell {
+            packages = [ python ] ++ (with pkgs; [ bash cacert git gnumake openssh socat ]) ++ extraPackages;
             CPPPO_NIX_SHELL = "1";
             CPPPO_PYTHON = command;
             shellHook = ''
@@ -25,7 +25,7 @@
               printf 'cpppo: %s (%s)\n' "$( ${command} --version 2>&1 )" "$(command -v ${command})"
             '';
           };
-          py3Shell = python: pythonShell python "python3";
+          py3Shell = python: pythonShell python "python3" [];
           py2 = pkgs.python27.withPackages (ps: [ ps.pip ps.setuptools ]);
         in {
           default = py3Shell pkgs.python313;
@@ -33,7 +33,8 @@
           py313 = py3Shell pkgs.python313;
           py312 = py3Shell pkgs.python312;
           py311 = py3Shell pkgs.python311;
-          py27 = pythonShell py2 "python2";
+          py27 = pythonShell py2 "python2" [];
+          interop = pythonShell pkgs.python313 "python3" (with pkgs; [ stdenv.cc cmake pkg-config ]);
         });
     };
 }

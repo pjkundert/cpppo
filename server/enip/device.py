@@ -61,7 +61,7 @@ from ...automata import ( type_str_base,
                           decide,
                           dfa, dfa_post, state )
 from ... import misc
-from . import defaults
+from . import class1, defaults
 from .parser import ( UDINT, DINT, DWORD, INT, UINT, WORD, USINT,
                       EPATH, EPATH_padded, SSTRING, STRING, IFACEADDRS,
                       typed_data,
@@ -2060,6 +2060,7 @@ class Connection_Manager( Object ):
     # the downstream connected explicit session (or None, if this is the Target --
     # there is only 1 more address left in the connection_path)
     forwards			= {}	# peer IP, peer TCP port, O->T connection ID -> (request, downstream connection)
+    class1_adapter = None
 
     def forward_open( self, data, addr ):
         """Pretty much only the Connection Manager knows how to handle a Forward Open.  It'll come back to
@@ -2082,6 +2083,12 @@ class Connection_Manager( Object ):
 
         """
         fo			= data.forward_open
+        if fo.transport_class_triggers & 0x0f == 1:
+            if self.class1_adapter is None:
+                raise class1.ConnectionError( "Class 1 I/O is disabled", 0x011c )
+            data.reply_socket_items = self.class1_adapter.open_connection(
+                fo, addr, data.get( 'socket_items', [] ))
+            return
 
         # Actual Packet Interval will be the same as the Requested Packet Interval
         fo.O_T.API		= fo.O_T.RPI
@@ -2142,6 +2149,12 @@ class Connection_Manager( Object ):
         that connection. If an empty/None data is provided, purge them all.
 
         """
+        if data and self.class1_adapter:
+            fc = data.forward_close
+            if self.class1_adapter.close_connection( fc, addr ):
+                return
+            if fc.connection_path.segment == self.class1_adapter.profile.path:
+                raise class1.ConnectionError( "Class 1 connection not found", 0x0107 )
         if log.isEnabledFor( logging.DETAIL ):
             log.detail( "%s Forward Close: %s", self,
                         "<all>" if not data
@@ -2196,6 +2209,9 @@ class Connection_Manager( Object ):
                 else:
                     self.forward_open( data, addr=addr )
                 data.status	= 0
+            except class1.ConnectionError as exc:
+                data.status = 0x01
+                data.status_ext = dict( size=len( exc.status ), data=list( exc.status ))
             except Exception as exc:
                 # On Exception, if we haven't specified a more detailed error code, return General
                 # Error.  Remember: 0x06 (Insufficent Packet Space) is a NORMAL response to a successful
