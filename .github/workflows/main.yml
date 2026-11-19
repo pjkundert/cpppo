@@ -34,3 +34,5 @@ jobs:
         env:
           TARGET: ${{ matrix.target }}
         run: make nix-test
+  artifacts:
+    uses: ./.github/workflows/test-artifacts.yml

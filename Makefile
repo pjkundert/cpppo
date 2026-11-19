@@ -26,7 +26,7 @@ else
 RUN_PYTHON = $(PYTHON)
 endif
 
-.PHONY: help all test test-class1-interop venv venv-setup install build build-check wheel clean analyze pylint
+.PHONY: help all test test-class1-interop test-artifacts test-readme venv venv-setup install build build-check wheel clean analyze pylint
 all: help
 
 help:
@@ -37,6 +37,8 @@ help:
 	  '  make nix-unit-client                Select tests by pytest keyword' \
 	  '  make nix-test TEST_ARGS=path::test  Pass pytest paths or additional flags' \
 	  '  make TARGET=interop nix-test-class1-interop  Build and test independent Class 1 peers' \
+	  '  make TARGET=interop nix-test-artifacts       Test installed distributions and README examples' \
+	  '  make nix-test-readme                Execute README.org Python blocks' \
 	  '  make nix-venv-setup                 Create/update the test virtualenv' \
 	  '  make nix-venv                       Open a shell in that virtualenv' \
 	  '  make nix-build / nix-wheel         Build distributions / wheel only' \
@@ -88,6 +90,13 @@ test: $(TEST_ENV)
 
 test-class1-interop: $(TEST_ENV)
 	TZ="$(TZ)" $(RUN_PYTHON) tools/class1_interop.py "$(OPENER_SRC)" "$(EIPSCANNER_SRC)" $(PYTESTOPTS) $(TEST_ARGS)
+
+test-artifacts: $(TEST_ENV)
+	TZ="$(TZ)" $(RUN_PYTHON) tools/class1_interop.py --dist-dir "$(DIST_DIR)" \
+	  "$(OPENER_SRC)" "$(EIPSCANNER_SRC)" $(PYTESTOPTS) $(TEST_ARGS)
+
+test-readme: $(TEST_ENV)
+	$(RUN_PYTHON) -I tools/test_readme.py README.org
 
 test-%: $(TEST_ENV)
 	@files=(); \

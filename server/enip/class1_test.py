@@ -53,9 +53,11 @@ def test_class1_printer(printer):
         with contextlib.closing(client.implicit(host, port=port, timeout=2)) as explicit:
             with explicit:
                 operations = client.parse_operations(
-                    ['PrinterFlags=(USINT)3', 'PaperLevel=(USINT)75', 'SubmitJob=(UDINT)42'])
-                failures, _ = explicit.process(operations, timeout=2)
+                    ['PrinterFlags=(USINT)3', 'PaperLevel=(USINT)75',
+                     'PrintData[0-2]=(USINT)65,66,67', 'SubmitJob=(UDINT)42', 'PrintData[0-2]'])
+                failures, values = explicit.process(operations, timeout=2)
                 assert failures == 0
+                assert values[-1] == [65, 66, 67]
 
         expected = struct.pack('<BBHI', 3, 75, 0, 42)
         end = class1.clock() + 2

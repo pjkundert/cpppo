@@ -52,6 +52,22 @@ The target uses the OpENer checkout at `~/src/OpENer` and EIPScanner at `~/src/E
 
 To reuse prebuilt peers, set `CPPPO_OPENER` to the OpENer sample executable and `CPPPO_EIPSCANNER` to the probe built from `tools/class1_reference_scanner.cpp`, then run `make nix-test-class1`.
 
+### Installed packages and README examples
+
+`make nix-test-readme` runs every Python source block in `README.org` and
+compares its stdout with the named `RESULTS` entry. It starts the documented
+Class 1 adapter and a local Modbus simulator. Keep TCP ports 1502 and 44818
+and UDP port 2222 free on loopback.
+
+```sh
+make TARGET=py313 nix-build
+make TARGET=interop nix-test-artifacts
+```
+
+`nix-test-artifacts` expects one cpppo wheel and one source archive in
+`DIST_DIR`. It builds the reference peers and runs the Class 1 suite, printer
+demo, and README checks from separate virtualenvs outside the checkout.
+
 ### Python 2.7 scope
 
 The CPython 2.7 environment covers the protocol parser, EtherNet/IP simulators, history, and other compatible tests. The current PyModbus 3.8 integration and Modbus command-line tools require Python 3.9 or newer.
@@ -60,7 +76,10 @@ The CPython 2.7 environment covers the protocol parser, EtherNet/IP simulators, 
 
 GitHub Actions tests CPython 3.11 through 3.14 and the legacy CPython 2.7 target through the Nix flake. CPython 3.11 is the minimum maintained Python 3 version. Existing installations on older Python releases can continue to use compatible features.
 
-Run `make TARGET=py313 nix-build` to build the release wheel and source archive. A version tag such as `v5.7.0` triggers the release workflow. The workflow checks the tag against `version.py` and publishes through the PyPI `pypi` Trusted Publishing environment.
+Branch CI and tagged releases use the same package verification workflow. A
+version tag such as `v5.7.0` must match `version.py`. The release workflow
+passes the verified distributions to a separate job that publishes through
+the PyPI `pypi` Trusted Publishing environment.
 
 ### Optional Dependencies
 

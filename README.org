@@ -72,8 +72,10 @@
 
    Cpppo supports unconnected explicit messaging and connected explicit
    messaging (Class 3) over TCP. The client class named =implicit= defaults
-   to Class 3. It can also originate a cyclic Class 1 Input Only connection
-   over UDP. The printer example accepts this connection as an I/O adapter.
+   to Class 3. The supported Class 1 profile is cyclic *Input Only* with
+   fixed-size, modeless I/O over IPv4 unicast UDP and packet intervals from
+   10 ms to 10 s. The adapter accepts one connection at a time. See the
+   printer example below for the assembly connection points and status layout.
 
    A Tag is simply a shortcut to a specific EtherNet/IP CIP Object Instance and
    Attribute.  Instead of the Client needing to know the specific Instance and
@@ -724,39 +726,66 @@
 
 **** Class 1 printer status example
 
-     Start an adapter on the loopback interface:
-     : python -m cpppo.server.enip.printer_example --address 127.0.0.1:44818 --io-address 127.0.0.1:2222
+     Run this adapter block in one terminal. It binds TCP port 44818 for
+     Forward Open and UDP port 2222 for I/O. Its configuration, heartbeat,
+     and status assembly instances are 151, 152, and 100. The heartbeat has
+     zero application bytes. The eight-byte status snapshot contains flags,
+     paper level, two reserved bytes, and a job number.
 
-     The printer accepts one cyclic, unicast Input Only connection. The
-     configuration, heartbeat, and status assembly instances are 151, 152,
-     and 100. The heartbeat has zero application bytes. The status assembly
-     has eight bytes. Its format is =<BBHI= in Python's =struct= notation,
-     with flags, paper level, two reserved bytes, and the last submitted job
-     number.
+     #+NAME: class1-adapter
+     #+begin_src python :results output
+     from contextlib import closing
+     import struct
 
-     Originate the connection and read a fresh snapshot with the Python API:
-     #+begin_src python
+     from cpppo.server.enip.class1 import Adapter, InputOnly
+     from cpppo.server.enip.main import main
+
+     profile = InputOnly(configuration=151, heartbeat=152, input_assembly=100, input_size=8)
+
+     def snapshot():
+         return struct.pack("<BBHI", 3, 75, 0, 42)
+
+     with closing(Adapter(profile, snapshot, address=("127.0.0.1", 2222))) as adapter:
+         main(["--address", "127.0.0.1:44818", "--no-udp", "-A", "Example=INT"],
+              class1_adapter=adapter)
+     #+end_src
+
+     #+RESULTS: class1-adapter
+     : Network TCP Server address = ('127.0.0.1', 44818)
+
+     Run this scanner block in another terminal after the adapter prints its
+     address. It requests input every 50 ms and sends the adapter a heartbeat.
+
+     #+NAME: class1-scanner
+     #+begin_src python :results output
      from contextlib import closing
      import struct
 
      from cpppo.server.enip import class1, client
 
-     profile = class1.InputOnly(151, 152, 100, 8)
+     profile = class1.InputOnly(configuration=151, heartbeat=152, input_assembly=100, input_size=8)
      with closing(client.implicit(
              "127.0.0.1", timeout=2, transport_class=1, io_profile=profile,
              rpi_us=50000)) as scanner:
          status = scanner.receive_io(timeout=2)
-         if status is not None:
-             flags, paper_level, _, job = struct.unpack("<BBHI", status)
+         if status is None:
+             raise RuntimeError("No fresh Class 1 status received")
+         flags, paper_level, _, job = struct.unpack("<BBHI", status)
+         print("Printer flags={}, paper={}%, job={}".format(flags, paper_level, job))
      #+end_src
 
-     =receive_io= returns the latest fresh snapshot or =None= after the
-     wait or connection watchdog expires. Use =close()= to send Forward Close.
-     The scanner and adapter support fixed-size IPv4 unicast with packet
-     intervals from 10 ms to 10 s. The status example uses 50 ms. Multicast,
-     change-of-state, and output ownership are outside this profile.
+     #+RESULTS: class1-scanner
+     : Printer flags=3, paper=75%, job=42
 
-     Send data and submit a simulated job over a separate explicit connection:
+     =receive_io= returns the latest fresh snapshot or =None= after the
+     wait or connection watchdog expires. Leaving the =closing= block sends
+     Forward Close. Stop the adapter with Ctrl-C when finished.
+
+     For writable status and a print-job buffer, run the bundled printer
+     simulator in place of the static adapter.
+     : python -m cpppo.server.enip.printer_example --address 127.0.0.1:44818 --io-address 127.0.0.1:2222
+
+     Send data and submit a simulated job over a separate explicit connection.
      : enip_client --connected -a 127.0.0.1:44818 'PrintData[0-2]=(USINT)65,66,67' 'SubmitJob=(UDINT)42'
 
      =PrinterFlags= and =PaperLevel= are writable simulation inputs. The
@@ -2177,26 +2206,31 @@ val, = via.write( operations )
    : $ modbus_sim -a :1502 40001-40100=99
    : Success; Started Modbus/TCP Simulator; PID = 29854; address = :1502
 
-   Then, you can use the Modbus/TCP implementation of =cpppo.remote.plc=
-   =poller= class to access the device:
+   Run this client against the simulator. For a physical PLC, set its address
+   and port in the call to =poller_modbus=.
 
    #+LATEX: {\scriptsize
-   #+BEGIN_SRC python
+   #+NAME: modbus-poller
+   #+BEGIN_SRC python :results output
    from cpppo.remote import plc_modbus
+   from cpppo.tools.waits import waitfor
 
-   # Connect to a PLC: site TW's PLC 3, at IP address 10.0.111.123, port 502.
-   # If using modbus_sim, use: ( 'fake', host="localhost", port=1502, rate=.5 )
-   p = plc_modbus.poller_modbus( 'twplc3', host="10.0.111.123", rate=.5 )
-
-   p.poll( 40001 )       # Begin polling address(es) in background Thread
-
-   # ... later ...
-
-   reg = p.read( 40001 ) # Will be None, 'til poll succeeds
-   p.write( 40001, 123 ) # Change the value in the PLC synchronously
-   reg = p.read( 40001 ) # Will eventually be 123, after next poll
+   p = plc_modbus.poller_modbus("demo", host="127.0.0.1", port=1502, rate=.1)
+   try:
+       p.poll(40001)
+       assert waitfor(lambda: p.read(40001) == 99, timeout=5)[0]
+       print("Initial register: {}".format(p.read(40001)))
+       p.write(40001, 123)
+       assert waitfor(lambda: p.read(40001) == 123, timeout=5)[0]
+       print("Updated register: {}".format(p.read(40001)))
+   finally:
+       p.join(timeout=2)
    #+END_SRC
    #+LATEX: }
+
+   #+RESULTS: modbus-poller
+   : Initial register: 99
+   : Updated register: 123
 
    We have made available a script to allow simple poll (and write) access to a Modbus/TCP PLC:
    =modbus_poll=.  To initialize (and poll) some values (assuming you are running the =modbus_sim=
@@ -2313,10 +2347,13 @@ val, = via.write( operations )
    #+RESULTS:
    [[file:abplus.png]]
 
-   This machine is easily created like this:
+   Run the state machine examples in order in one Python session.
 
    #+LATEX: {\scriptsize
-   #+BEGIN_SRC python
+   #+NAME: dfa-basic
+   #+BEGIN_SRC python :session dfa :results output
+   import cpppo
+
    # Basic DFA that accepts ab+
    E                    = cpppo.state( "E" )
    A                    = cpppo.state_input( "A" )
@@ -2328,6 +2365,8 @@ val, = via.write( operations )
    BASIC                = cpppo.dfa( 'ab+', initial=E, context='basic' )
    #+END_SRC
    #+LATEX: }
+
+   #+RESULTS: dfa-basic
    
 ** Composite Machines
 
@@ -2356,7 +2395,8 @@ val, = via.write( operations )
    This is implemented:
 
    #+LATEX: {\scriptsize
-   #+BEGIN_SRC python
+   #+NAME: dfa-composite
+   #+BEGIN_SRC python :session dfa :results output
    # Composite state machine accepting ab+, ignoring ,[ ]* separators
    ABP                  = cpppo.dfa( "ab+", initial=E, terminal=True )
    SEP                  = cpppo.state_drop( "SEP" )
@@ -2366,6 +2406,7 @@ val, = via.write( operations )
 
    CSV                  = cpppo.dfa( 'CSV', initial=ABP, context='csv' )
    #+END_SRC
+   #+RESULTS: dfa-composite
 
    When the lower level state machine doesn't recognize the input symbol for a
    transition, the higher level machine is given a chance to recognize them; in
@@ -2408,11 +2449,14 @@ val, = via.write( operations )
    A regular expression based cpppo.dfa is created thus:
 
    #+LATEX: {\scriptsize
-   #+BEGIN_SRC python
+   #+NAME: dfa-regex
+   #+BEGIN_SRC python :session dfa :results output
    # A regular expression; the default dfa name is the regular expression itself.
-   REGEX                = cpppo.regex( initial='(ab+)((,[ ]*)(ab+))*' )
+   REGEX                = cpppo.regex( initial='(ab+)((,[ ]*)(ab+))*', context='regex' )
    #+END_SRC
    #+LATEX: }
+
+   #+RESULTS: dfa-regex
 
 *** Consume all possible symbols: =greedy=
 
@@ -2443,23 +2487,28 @@ val, = via.write( operations )
 * Running State Machines
 
   State machines define the grammar for a language which can be run against a
-  sentence of input.  All these machines ultimately use state_input instances
-  to store their data; the path used is the cpppo.dfa's <context> + '_input':
+  sentence of input. These machines store input at each DFA's
+  =<context>.input= path.
 
   #+LATEX: {\scriptsize
-  #+BEGIN_SRC python
+  #+NAME: dfa-run
+  #+BEGIN_SRC python :session dfa :results output
   data                  = cpppo.dotdict()
   for machine in [ BASIC, CSV, REGEX ]:
       path              = machine.context() + '.input' # default for state_input data
       source            = cpppo.peekable( str( 'abbbb, ab' ))
       with machine:
-          for i,(m,s) in enumerate( machine.run( source=source, data=data )):
-              print( "%s #%3d; next byte %3d: %-10.10r: %r" % (
-                     m.name_centered(), i, source.sent, source.peek(), data.get(path) ))
-      print( "Accepted: %r; remaining: %r\n" % ( data.get(path), ''.join( source )))
-  print( "Final: %r" % ( data ))
+          for _ in machine.run( source=source, data=data ):
+              pass
+      print("{}: accepted={!r}, remaining={!r}".format(
+          machine.context(), ''.join(data[path]), ''.join(source)))
   #+END_SRC
   #+LATEX: }
+
+  #+RESULTS: dfa-run
+  : basic: accepted='abbbb', remaining=', ab'
+  : csv: accepted='abbbbab', remaining=''
+  : regex: accepted='abbbb, ab', remaining=''
 
 * Historical 
 

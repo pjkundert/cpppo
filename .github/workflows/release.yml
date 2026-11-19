@@ -5,31 +5,29 @@ on:
     tags:
       - 'v[0-9]+.[0-9]+.[0-9]+'
 
+permissions:
+  contents: read
+
 jobs:
+  verify:
+    uses: ./.github/workflows/test-artifacts.yml
+    with:
+      release_tag: ${{ github.ref_name }}
   pypi-publish:
     name: Upload release to PyPI
+    needs: verify
     runs-on: ubuntu-latest
     environment:
       name: pypi
       url: https://pypi.org/p/cpppo
     permissions:
-      contents: read
+      actions: read
       id-token: write
     steps:
-      - uses: actions/checkout@v6
+      - name: Download verified distributions
+        uses: actions/download-artifact@v8
         with:
-          persist-credentials: false
-      - uses: cachix/install-nix-action@v31.11.5
-      - name: Check package version against tag
-        run: |
-          nix develop .#py313 --command python3 -c '
-          import os, sys, version
-          expected = "v" + version.__version__
-          tag = os.environ["GITHUB_REF_NAME"]
-          if tag != expected:
-              sys.exit("Tag {} does not match package version {}".format(tag, expected))
-          '
-      - name: Build wheel and source archive
-        run: make TARGET=py313 nix-build
+          name: cpppo-distributions
+          path: dist/
       - name: Publish package distributions to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1

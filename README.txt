@@ -134,9 +134,11 @@ Table of Contents
 
   Cpppo supports unconnected explicit messaging and connected explicit
   messaging (Class 3) over TCP. The client class named `implicit'
-  defaults to Class 3. It can also originate a cyclic Class 1 Input Only
-  connection over UDP. The printer example accepts this connection as
-  an I/O adapter.
+  defaults to Class 3. The supported Class 1 profile is cyclic *Input
+  Only* with fixed-size, modeless I/O over IPv4 unicast UDP and packet
+  intervals from 10 ms to 10 s. The adapter accepts one connection at a
+  time. See the printer example below for the assembly connection points
+  and status layout.
 
   A Tag is simply a shortcut to a specific EtherNet/IP CIP Object
   Instance and Attribute.  Instead of the Client needing to know the
@@ -899,41 +901,78 @@ Table of Contents
   See further details of addressing `cpppo.server.enip.client''s
   `parse_operations' below.
 
-2.1.5.1 Class 1 printer status example
-╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
 
-  Start the adapter on the loopback interface.
+◊ 2.1.5.1 Class 1 printer status example
 
-  python -m cpppo.server.enip.printer_example --address 127.0.0.1:44818 --io-address 127.0.0.1:2222
+  Run this adapter block in one terminal. It binds TCP port 44818 for
+  Forward Open and UDP port 2222 for I/O. Its configuration, heartbeat,
+  and status assembly instances are 151, 152, and 100. The heartbeat has
+  zero application bytes. The eight-byte status snapshot contains flags,
+  paper level, two reserved bytes, and a job number.
 
-  The printer accepts one cyclic, unicast Input Only connection. Its
-  configuration, heartbeat, and status assembly instances are 151, 152,
-  and 100. The heartbeat has zero application bytes. The eight-byte
-  status assembly uses Python struct format '<BBHI' for flags, paper
-  level, two reserved bytes, and the last submitted job number.
+  ┌────
+  │ from contextlib import closing
+  │ import struct
+  │
+  │ from cpppo.server.enip.class1 import Adapter, InputOnly
+  │ from cpppo.server.enip.main import main
+  │
+  │ profile = InputOnly(configuration=151, heartbeat=152, input_assembly=100, input_size=8)
+  │
+  │ def snapshot():
+  │     return struct.pack("<BBHI", 3, 75, 0, 42)
+  │
+  │ with closing(Adapter(profile, snapshot, address=("127.0.0.1", 2222))) as adapter:
+  │     main(["--address", "127.0.0.1:44818", "--no-udp", "-A", "Example=INT"],
+  │          class1_adapter=adapter)
+  └────
 
-  from contextlib import closing
-  import struct
-  from cpppo.server.enip import class1, client
+  Run this scanner block in another terminal after the adapter prints
+  its address. It requests input every 50 ms and sends the adapter a
+  heartbeat.
 
-  profile = class1.InputOnly(151, 152, 100, 8)
-  with closing(client.implicit("127.0.0.1", timeout=2, transport_class=1,
-                               io_profile=profile, rpi_us=50000)) as scanner:
-      status = scanner.receive_io(timeout=2)
-      if status is not None:
-          flags, paper_level, _, job = struct.unpack("<BBHI", status)
+  ┌────
+  │ from contextlib import closing
+  │ import struct
+  │
+  │ from cpppo.server.enip import class1, client
+  │
+  │ profile = class1.InputOnly(configuration=151, heartbeat=152, input_assembly=100, input_size=8)
+  │ with closing(client.implicit(
+  │         "127.0.0.1", timeout=2, transport_class=1, io_profile=profile,
+  │         rpi_us=50000)) as scanner:
+  │     status = scanner.receive_io(timeout=2)
+  │     if status is None:
+  │         raise RuntimeError("No fresh Class 1 status received")
+  │     flags, paper_level, _, job = struct.unpack("<BBHI", status)
+  │     print("Printer flags={}, paper={}%, job={}".format(flags, paper_level, job))
+  └────
 
-  'receive_io' returns the latest fresh snapshot or None after the wait
-  or watchdog expires. The scanner and adapter support fixed-size IPv4
-  unicast at packet intervals from 10 ms to 10 s. Multicast, change-of-state,
-  and output ownership are outside this profile.
+  `receive_io' returns the latest fresh snapshot or `None' after the
+  wait or connection watchdog expires. Leaving the `closing' block sends
+  Forward Close. Stop the adapter with Ctrl-C when finished.
 
-  Send job data and submit it over a separate explicit connection.
+  For writable status and a print-job buffer, run the bundled printer
+  simulator in place of the static adapter.
+  ┌────
+  │ python -m cpppo.server.enip.printer_example --address 127.0.0.1:44818 --io-address 127.0.0.1:2222
+  └────
 
-  enip_client --connected -a 127.0.0.1:44818 'PrintData[0-2]=(USINT)65,66,67' 'SubmitJob=(UDINT)42'
 
-  'PrinterFlags' and 'PaperLevel' are writable simulation inputs. See
-  CLAUDE.md for the OpENer and EIPScanner interoperability tests.
+  Send data and submit a simulated job over a separate explicit
+  connection.
+  ┌────
+  │ enip_client --connected -a 127.0.0.1:44818 'PrintData[0-2]=(USINT)65,66,67' 'SubmitJob=(UDINT)42'
+  └────
+
+
+  `PrinterFlags' and `PaperLevel' are writable simulation inputs. The
+  status assembly reports those values and the `SubmitJob' number.  See
+  [the development guide] for the OpENer and EIPScanner interoperability
+  tests.
+
+
+  [the development guide] <file:CLAUDE.md>
 
 
 2.1.6 EtherNet/IP `cpppo.server.enip.client' API
@@ -2173,17 +2212,19 @@ Table of Contents
   of these requests may be made via a web browser, and a minimal HTML
   response will be issued.
 
-  With Python 3, install `web.py' to enable the optional HTTP server. The
-  simulator can serve the API on a separate port from EtherNet/IP.
+  With Python 3, install `web.py' to enable the optional HTTP
+  server. The simulator can serve the API on a separate port from
+  EtherNet/IP.
   ┌────
   │ python -m pip install web.py
   │ python -m cpppo.server.enip -v --web 127.0.0.1:12345 SCADA=INT[1000]
   └────
 
+
   `python -m cpppo.server.enip.simulator_example --web 127.0.0.1:12345'
-  loads the bundled sample tags. The browser opens `/api' by default.
-  If you provide your own `static/index.html' in the working directory,
-  it opens that page instead.
+  loads the bundled sample tags. The browser opens `/api' by default. If
+  you provide your own `static/index.html' in the working directory, it
+  opens that page instead.
 
   The api is simple: api/<group>/<match>/<command>/<value> .  There are
   3 groups: "options", "tags" and "connections".  If you don't specify
@@ -2462,6 +2503,7 @@ Table of Contents
   │ $ python -m pip install 'cpppo[modbus,serial]'
   └────
 
+
   If you don't have a Modbus/TCP PLC around, start a simulated one:
   ┌────
   │ $ modbus_sim -a :1502 40001-40100=99
@@ -2469,23 +2511,23 @@ Table of Contents
   └────
 
 
-  Then, you can use the Modbus/TCP implementation of `cpppo.remote.plc'
-  `poller' class to access the device:
+  Run this client against the simulator. For a physical PLC, set its
+  address and port in the call to `poller_modbus'.
 
   ┌────
   │ from cpppo.remote import plc_modbus
+  │ from cpppo.tools.waits import waitfor
   │ 
-  │ # Connect to a PLC: site TW's PLC 3, at IP address 10.0.111.123, port 502.
-  │ # If using modbus_sim, use: ( 'fake', host="localhost", port=1502, rate=.5 )
-  │ p = plc_modbus.poller_modbus( 'twplc3', host="10.0.111.123", rate=.5 )
-  │ 
-  │ p.poll( 40001 )       # Begin polling address(es) in background Thread
-  │ 
-  │ # ... later ...
-  │ 
-  │ reg = p.read( 40001 ) # Will be None, 'til poll succeeds
-  │ p.write( 40001, 123 ) # Change the value in the PLC synchronously
-  │ reg = p.read( 40001 ) # Will eventually be 123, after next poll
+  │ p = plc_modbus.poller_modbus("demo", host="127.0.0.1", port=1502, rate=.1)
+  │ try:
+  │     p.poll(40001)
+  │     assert waitfor(lambda: p.read(40001) == 99, timeout=5)[0]
+  │     print("Initial register: {}".format(p.read(40001)))
+  │     p.write(40001, 123)
+  │     assert waitfor(lambda: p.read(40001) == 123, timeout=5)[0]
+  │     print("Updated register: {}".format(p.read(40001)))
+  │ finally:
+  │     p.join(timeout=2)
   └────
   We have made available a script to allow simple poll (and write)
   access to a Modbus/TCP PLC: `modbus_poll'.  To initialize (and poll)
@@ -2598,11 +2640,20 @@ Table of Contents
 4.1 Basic State Machines
 ────────────────────────
 
-  <file:abplus.png>
+  ┌────
+  │ +-----+ 'a' +-----+ 'b' +-----+ 'b'
+  │ |  E  |---->|  A  |---->| (B) |----+
+  │ +-----+     +-----+     +-----+    |
+  │                            ^       |
+  │                            |       |
+  │                            +-------+
+  └────
 
-  This machine is easily created like this:
+  Run the state machine examples in order in one Python session.
 
   ┌────
+  │ import cpppo
+  │
   │ # Basic DFA that accepts ab+
   │ E                    = cpppo.state( "E" )
   │ A                    = cpppo.state_input( "A" )
@@ -2622,7 +2673,20 @@ Table of Contents
   cpppo.dfa, and giving it some of its own transitions.  For example,
   lets make a machine that accepts 'ab+' separated by ',[ ]*'.
 
-  <file:abplus_csv.png>
+  ┌────
+  │                    +------------------------------+
+  │                    |                              |
+  │                    v                              |
+  │ +----------------------------------------+        | None
+  │ | (CSV)                                  |        |
+  │ |  +-----+ 'a' +-----+ 'b' +-----+  'b'  | ',' +-----+ ' '
+  │ |  |  E  |---->|  A  |---->| (B) |----+  |---->| SEP |----+
+  │ |  +-----+     +-----+     +-----+    |  |     +-----+    |
+  │ |                             ^       |  |        ^       |
+  │ |                             |       |  |        |       |
+  │ |                             +-------+  |        +-------+
+  │ +----------------------------------------+
+  └────
 
   This is implemented:
 
@@ -2655,7 +2719,19 @@ Table of Contents
   equivalent to the above (except that it doesn't ignore the
   separators), and produces the following state machine:
 
-  <file:abplus_regex.png>
+  ┌────
+  │                      +--------------------------------+
+  │                      |                                |
+  │                      v                                | 'a'
+  │     +-----+ 'a'   +-----+ 'b'   +-----+ ','   +-----+ |
+  │     |  0' |------>|  2  |------>| (3) |------>|  4  |-+
+  │     +-----+       +-----+       +-----+       +-----+
+  │      |             |             | ^ |         | ^ |
+  │      |             |             | | | 'b'     | | | ' '
+  │ True |        True |        True | +-+    True | +-+
+  │      v             v             v             v
+  │     None          None          None          None
+  └────
 
   The `True' transition out of each state ensures that the `cpppo.state'
   machine will yield a None (non-transition) when encountering an
@@ -2668,7 +2744,7 @@ Table of Contents
 
   ┌────
   │ # A regular expression; the default dfa name is the regular expression itself.
-  │ REGEX                = cpppo.regex( initial='(ab+)((,[ ]*)(ab+))*' )
+  │ REGEX                = cpppo.regex( initial='(ab+)((,[ ]*)(ab+))*', context='regex' )
   └────
 
 
@@ -2711,9 +2787,8 @@ Table of Contents
 ════════════════════════
 
   State machines define the grammar for a language which can be run
-  against a sentence of input.  All these machines ultimately use
-  state_input instances to store their data; the path used is the
-  cpppo.dfa's <context> + '_input':
+  against a sentence of input. These machines store input at each DFA's
+  `<context>.input' path.
 
   ┌────
   │ data                  = cpppo.dotdict()
@@ -2721,11 +2796,10 @@ Table of Contents
   │     path              = machine.context() + '.input' # default for state_input data
   │     source            = cpppo.peekable( str( 'abbbb, ab' ))
   │     with machine:
-  │         for i,(m,s) in enumerate( machine.run( source=source, data=data )):
-  │             print( "%s #%3d; next byte %3d: %-10.10r: %r" % (
-  │                    m.name_centered(), i, source.sent, source.peek(), data.get(path) ))
-  │     print( "Accepted: %r; remaining: %r\n" % ( data.get(path), ''.join( source )))
-  │ print( "Final: %r" % ( data ))
+  │         for _ in machine.run( source=source, data=data ):
+  │             pass
+  │     print("{}: accepted={!r}, remaining={!r}".format(
+  │         machine.context(), ''.join(data[path]), ''.join(source)))
   └────
 
 
