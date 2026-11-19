@@ -1,0 +1,2 @@
+# Python 2's build 0.5.1 still uses APIs removed in click 8.
+click < 8 ; python_version < "3"

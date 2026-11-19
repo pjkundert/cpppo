@@ -62,7 +62,7 @@ else:
 
 # Handles eg. "3" (start default port name at 3), "COM2", "ttyS", and even ""
 PORT_BASE,PORT_NUM		= re.match( r'^(.*?)(\d*)$', os.environ.get( "SERIAL_TEST", "" )).groups()
-PORT_NUM			= PORT_NUM or PORT_NUM_DEFAULT
+PORT_NUM			= int( PORT_NUM ) if PORT_NUM else PORT_NUM_DEFAULT
 PORT_BASE			= PORT_BASE or PORT_BASE_DEFAULT
 
 PORT_MASTER			= "{PORT_BASE}{PORT_NUM}".format( PORT_BASE=PORT_BASE, PORT_NUM=PORT_NUM+0 )
@@ -110,7 +110,7 @@ except ImportError:
 from .tools.waits import waitfor
 from .modbus_test import start_modbus_simulator, has_o_nonblock, run_plc_modbus_polls
 if has_pymodbus and has_pyserial:
-    from .remote.pymodbus_fixes import modbus_client_rtu, Defaults
+    from .remote.pymodbus_fixes import make_sync_client, modbus_client_rtu, Defaults
     from .remote.plc_modbus import poller_modbus
 
 
@@ -219,7 +219,7 @@ def test_pymodbus_rs485_sync():
     for cls in ModbusSerialClient, modbus_client_rtu:
         logging.warning( "Testing Modbus/RTU Serial client on {port}: {cls}".format(
             port=PORT_MASTER, cls=cls.__name__ ))
-        client			= cls(
+        client			= make_sync_client( cls,
             port	= PORT_MASTER,
             framer	= FramerType.RTU,
             **serial_args,
@@ -278,6 +278,7 @@ def test_pymodbus_rs485_sync():
 
     for c in clients:
         c.join()
+    client.close()
     for p in servers:
         s,l			= server_start.server_async_loop[p]
         asyncio.run_coroutine_threadsafe( s.shutdown(), l )
@@ -345,7 +346,7 @@ def test_rs485_basic( simulated_modbus_rtu_ttyS1 ):
 
     command,address		= simulated_modbus_rtu_ttyS1
 
-    comm			= minimalmodbus.Instrument( port=PORT_MASTER, slaveaddress=1 )
+    comm			= minimalmodbus.Instrument( port=PORT_MASTER, slaveaddress=1, close_port_after_each_call=True )
     comm.serial.stopbits	= PORT_STOPBITS
     comm.serial.bytesize	= PORT_BYTESIZE
     comm.serial.parity		= PORT_PARITY
@@ -389,17 +390,14 @@ def test_rs485_read( simulated_modbus_rtu_ttyS1 ):
         parity=PORT_PARITY, baudrate=PORT_BAUDRATE, timeout=PORT_TIMEOUT,
     )
 
-    for a in range( 10 ):
-        unit			= 1
-        expect			= not bool( a%2 )  # Modbus Coil 1 == 1 (at wire-protocol address 0)
-        count			= 1
-        logging.info( "unit {unit} coil {a} --> read {count}".format( unit=unit, a=a, count=count ));
-        rr			= client.read_coils( a, count=count, slave=unit )
-        if not rr.isError():
-            logging.warning( "unit {unit} coil {a} == {value!r}".format( unit=unit, a=a, value=rr.bits ))
-        assert (not rr.isError()) and rr.bits[0] == expect, \
-            "Expected unit {unit} coil {a} == {expect}, got {val}".format(
-                unit=unit, a=a, expect=expect, val=( rr if rr.isError() else rr.bits[0] ))
+    try:
+        for a in range( 10 ):
+            expect = not bool( a % 2 )  # Modbus Coil 1 == 1 at wire-protocol address 0.
+            rr = client.read_coils( a, count=1, slave=1 )
+            assert not rr.isError(), rr
+            assert rr.bits[0] == expect, "Unexpected value for coil {}".format( a )
+    finally:
+        client.close()
 
 
 @pytest.mark.skipif(
@@ -474,6 +472,7 @@ def test_rs485_poll( simulated_modbus_rtu_ttyS1 ):
         logging.info( "Stopping plc polling" )
         plc.done		= True
         waitfor( lambda: not plc.is_alive(), "%s poller done" % ( plc.description ), timeout=1.0 )
+        client.close()
 
 
 @pytest.mark.skipif(
@@ -557,6 +556,7 @@ def test_rs485_multi( simulated_modbus_rtu_ttyS1,  simulated_modbus_rtu_ttyS2 ):
             plc[unit].done	= True
         for unit in slaves:
             waitfor( lambda: not plc[unit].is_alive(), "%s poller done" % ( plc[unit].description ), timeout=1.0 )
+        client.close()
 
 
 @pytest.mark.skipif(
@@ -582,4 +582,5 @@ def test_rs485_modbus_polls( simulated_modbus_rtu_ttyS1, simulated_modbus_rtu_tt
         logging.info( "Stopping plc polling" )
         plc.done		= True
         waitfor( lambda: not plc.is_alive(), "RS485 unit %s done" % unit, timeout=1.0 )
+        client.close()
 

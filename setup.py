@@ -11,15 +11,13 @@ __version__			= None
 __version_info__		= None
 exec( open( 'version.py', 'r' ).read() )
 
-# Presently the pymodbus-based Modbus/TCP scripts are only compatible with Python2, as is web.py.
-# So, make web.py and pymodbus requirements optional.  The argparse module wasn't included 'til
-# Python 2.7, but is available for installation in prior versions.
+# The Modbus scripts use the optional pymodbus dependency, which requires Python 3.9.
 console_scripts			= [
     'enip_server	= cpppo.server.enip.main:main',
     'enip_client	= cpppo.server.enip.client:main',
     'enip_get_attribute	= cpppo.server.enip.get_attribute:main',
 ]
-if sys.version_info[0:2] < (3,0):
+if sys.version_info[0:2] >= (3,9):
     console_scripts	       += [
         'modbus_sim	= cpppo.bin.modbus_sim:main',
         'modbus_poll	= cpppo.bin.modbus_poll:main',
@@ -49,12 +47,12 @@ extras_require			= {
     option: list(
         # Remove whitespace, elide blank lines and comments
         ''.join( r.split() )
-        for r in open( os.path.join( HERE, f"requirements-{option}.txt" )).readlines()
+        for r in open( os.path.join( HERE, "requirements-{}.txt".format( option ))).readlines()
         if r.strip() and not r.strip().startswith( '#' )
     )
     for option in options_require
 }
-# Make python-slip39[all] install all extra (non-tests) requirements, excluding duplicates
+# Include all optional runtime and development requirements.
 extras_require['all']		= list( set( sum( extras_require.values(), [] )))
 
 # Since setuptools is retiring tests_require, add it as another option (but not included in 'all')

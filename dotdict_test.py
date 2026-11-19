@@ -8,13 +8,16 @@ import json
 import logging
 import multiprocessing
 import os
+import pickle
 import random
 import sys
 import threading
 import time
 
+import pytest
+
 from collections import namedtuple
-from multiprocessing.managers import BaseManager
+from multiprocessing.managers import SyncManager
 
 from . import misc
 from .dotdict import dotdict, apidict, make_apidict_proxy
@@ -408,10 +411,8 @@ def test_apidict_threading():
     apidict_latency( threading.Thread, use_attr=False )
 
 
-class MySyncManager(BaseManager):
-    if sys.version_info[0] < 3:
-        def shutdown( self ):
-            pass
+class MySyncManager(SyncManager):
+    pass
 
 Caller				= namedtuple( "Caller", ("PID", "TID") )
 
@@ -461,21 +462,18 @@ class apidict_recording( apidict ):
             ))
 
 
-# MySyncManager.register( *make_apidict_proxy( apidict_recording ))
-multiprocessing.managers.SyncManager.register(  *make_apidict_proxy( apidict_recording ))
-print( "SyncManager: " + json.dumps( multiprocessing.managers.SyncManager._registry, indent=4, default=repr ))
+MySyncManager.register( *make_apidict_proxy( apidict_recording ))
 
-class MyManager(multiprocessing.managers.BaseManager):
-    pass
-MyManager.register(  *make_apidict_proxy( apidict_recording ))
-print( "MyManager: " + json.dumps( MyManager._registry, indent=4, default=repr ))
+requires_fork = pytest.mark.xfail(
+    getattr(multiprocessing, 'get_start_method', lambda: 'fork')() != 'fork',
+    reason="Local process targets or proxy classes require the fork start method",
+    raises=(AttributeError, pickle.PicklingError),
+    strict=True,
+)
 
+@requires_fork
 def test_apidict_multiprocessing():
-
-    #with MySyncManager() as m:
-    #with multiprocessing.managers.SyncManager() as m:
-    #print( f"multiprocessing.managers.apidict_recording: {multiprocessing.managers.apidict_recording!r}" )
-    with MyManager() as m:
+    with MySyncManager() as m:
         if sys.version_info[0] < 3:
             m.start()
         apidict_latency(
@@ -510,6 +508,7 @@ def call_function( w ):
         logging.warning( "{!r}.function() failed: {}".format( w, exc ))
 
 
+@requires_fork
 def test_dotdict_multiprocessing_proxies():
     """Ensure that we understand the 3 ways Python objects can be passed to and accessed by remote
     multiprocessing.Process processes:
@@ -634,7 +633,7 @@ def test_dotdict_multiprocessing_proxies():
             m.start()
         logging.normal( "MySyncManger w/ PID {pid!r}".format( pid=m._process.pid ))
         latency			= 2.0
-        ad_proxied		= m.apidict_recording_proxy( latency, value=0 )
+        ad_proxied		= m.apidict_recording( latency, value=0 )
         def ad_target( ad, beg, wait ):
             ad['world']		= 'Hello'
             ad['pid'],ad['tid']	= caller()

@@ -1,6 +1,7 @@
 # Both sdist and bdist include these files
 include LICENSE
 include README.org
+include CLAUDE.md
 include requirements.txt
 include requirements-*.txt
 include cpppo.cfg

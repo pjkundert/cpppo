@@ -477,7 +477,7 @@ def soak( command, control=None, address_latency=None, address_re=None ):
     if address_latency is None:
         address_latency		= 0.1
     if address_re is None:
-        address_re		= r"[Ss]tarted.*address =\s*(?P<address>.*)?"
+        address_re		= r"(?:[Ss]tarted|TCP Server|Server TCP).*address =\s*(?P<address>.+)"
 
     assert address_latency is None or control, \
         "Must supply a control dict to receive address"
@@ -504,7 +504,7 @@ def soak( command, control=None, address_latency=None, address_re=None ):
                 if m:
                     address_str	= m.group('address').strip()
                     # May be IPv4Address,int|None if <addr> looks like an IP address, and no <port>
-                    host,port	= misc.parse_ip_port( address_str )
+                    host,port	= (address_str, None) if os.path.isabs( address_str ) else misc.parse_ip_port( address_str )
                     log.normal( "*** Server address = {!r} ==> {!r}:{!r}".format( address_str, host, port ))
                     control['address'] = str(host),port
     log.normal( "Soaking {!r} done.".format( command ))

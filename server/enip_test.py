@@ -11,7 +11,6 @@ import contextlib
 import logging
 import multiprocessing
 import os
-import platform
 import pytest
 import random
 import socket
@@ -3979,8 +3978,6 @@ def enip_bench_logix():
     return failed
 
 
-@pytest.mark.skipif( platform.system() == "Darwin" and sys.version_info[0] >= 3,
-                     reason="No Python3 support for pickling Rlock on Mac" )
 def test_enip_bench_logix():
     assert not enip_bench_logix(), "One or more enip_bench_logix clients reported failure"
 
@@ -4001,8 +3998,8 @@ def enip_cli_pylogix( number, tests=None, address=None ):
         ],
     ]
     with pylogix.PLC() as comm:
-        comm.IPAddress		= address[0]
-        comm.conn.Port		= int( address[1] )
+        comm.IPAddress		= socket.gethostbyname( address[0] )
+        (comm if hasattr(comm, 'Port') else comm.conn).Port = int( address[1] )
         comm.ConnectionSize	= 4000
         comm.SocketTimeout	= client_timeout
         results			= [
@@ -4070,8 +4067,7 @@ def enip_bench_pylogix():
     return failed
 
 
-@pytest.mark.skipif( not has_pylogix or ( platform.system() == "Darwin" and sys.version_info[0] >= 3 ),
-                     reason="No Python3 support for pickling Rlock on Mac" if has_pylogix else "Needs pylogix")
+@pytest.mark.skipif( not has_pylogix, reason="Needs pylogix" )
 def test_enip_bench_pylogix():
     assert not enip_bench_pylogix(), "One or more enip_bench_pylogix clients reported failure"
     

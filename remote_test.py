@@ -25,12 +25,9 @@ __email__                       = "perry@hardconsulting.com"
 __copyright__                   = "Copyright (c) 2013 Hard Consulting Corporation"
 __license__                     = "Dual License: GPLv3 (or later) and Commercial (see LICENSE)"
 
-import errno
 import logging
-import socket
 import threading
 import time
-import traceback
 
 import pytest
 
@@ -46,9 +43,9 @@ TCP_TIMEOUT			= .1
 has_pymodbus			= False
 try:
     import pymodbus
-    from pymodbus.exceptions import ModbusException
+    from pymodbus.exceptions import ModbusIOException
     from .remote.plc_modbus import poller_modbus, merge, shatter
-    from .remote.pymodbus_fixes import modbus_client_tcp, modbus_server_tcp, Defaults
+    from .remote.pymodbus_fixes import modbus_client_tcp, Defaults
     has_pymodbus		= True
 except ImportError as exc:
     logging.warning( "Failed to import pymodbus module; skipping Modbus/TCP related tests; run 'pip install pymodbus': {exc}".format( exc=exc ))
@@ -60,9 +57,13 @@ def simulated_modbus_tcp( request ):
     require the i'face to be a str.
 
     """
+    return modbus_simulator(request, '{:.3f}-{:.3f}'.format(TCP_TIMEOUT / 10, TCP_TIMEOUT / 2))
+
+
+def modbus_simulator(request, delay):
     command,(iface,port)	= start_modbus_simulator(
         '-vvv', '--log', 'remote_test.modbus_sim.log.localhost:0',
-        '--evil', 'delay:{DELAY_LO}-{DELAY_HI}'.format( DELAY_LO=TCP_TIMEOUT/10, DELAY_HI=TCP_TIMEOUT/2 ),
+        '--evil', 'delay:' + delay,
         '--address', 'localhost:0',
         #'--range', '10',
         '    1 -  1000 = 1,0',
@@ -85,48 +86,14 @@ def test_pymodbus_version():
 
 
 @pytest.mark.skipif( not has_pymodbus, reason="Needs pymodbus" )
-def test_pymodbus_service_actions():
-    address			= ("localhost", 11502)
-
-    class modbus_actions( modbus_server_tcp ): # NOT a new-style class (due to SocketServer.ThreadingTCPServer)
-
-        counter			= 0
-
-        def service_actions( self ):
-            log.detail( "client/timeout" )
-            self.counter       += 1
-
-    server			= None
-    while address[1] < 11600:
-        try:
-            server 		= modbus_actions( context=None, address=address )
-            break
-        except socket.error as exc:
-            assert exc.errno == errno.EADDRINUSE, \
-                "Unexpected socket error; only address in use allowed: %s" % exc
-            address		= (address[0],address[1]+1)
-        except Exception as exc:
-            log.warning( "Failed to start modbus_actions on %r: %s; %s",
-                        address, exc, traceback.format_exc() )
-            break
-
-    assert server is not None, "Couldn't start modbus_actions"
-    log.normal( "Success starting modbus_actions on %r", address )
-
-    def modbus_killer():
-        log.detail( "killer started" )
-        time.sleep( 2 )
-        log.detail( "killer server.shutdown" )
-        server.shutdown()
-        log.detail( "killer done" )
+def test_pymodbus_listen( simulated_modbus_tcp ):
+    # The communication callback announces the address once the async server binds.
+    _command,(iface,port) = simulated_modbus_tcp
+    client = modbus_client_tcp( host=iface, port=port )
     try:
-        killer			= threading.Thread( target=modbus_killer )
-        killer.start()
-
-        server.serve_forever( poll_interval=0.5 )
-        assert 3 <= server.counter <= 5, "modbus_actions.service_actions not triggered ~4 times"
+        assert client.connect()
     finally:
-        killer.join()
+        client.close()
 
 
 def test_device():
@@ -165,58 +132,37 @@ def test_plc_merge():
 
 
 @pytest.mark.skipif( not has_pymodbus or not has_o_nonblock, reason="Needs pymodbus and fcntl/O_NONBLOCK" )
-def test_plc_modbus_basic( simulated_modbus_tcp ):
-    command,(iface,port)	= simulated_modbus_tcp
-    Defaults.Timeout		= TCP_TIMEOUT
+def test_plc_modbus_basic( simulated_modbus_tcp, monkeypatch ):
+    _command,(iface,port) = simulated_modbus_tcp
+    monkeypatch.setattr( Defaults, 'Timeout', TCP_TIMEOUT )
+    client = modbus_client_tcp( host=iface, port=port )
+    plc = poller_modbus( "Motor PLC", client=client )
     try:
-        client			= modbus_client_tcp( host=iface, port=port )
-        plc			= poller_modbus( "Motor PLC", client=client )
         plc.write( 1, 1 )
-    except Exception:
-        log.warning( "Modbus/TCP Failed: %s", traceback.format_exc() )
     finally:
-        log.info( "Stopping plc polling" )
-        if plc:
-            plc.done		= True
-            waitfor( lambda: not plc.is_alive(), "Motor PLC poller done" )
+        plc.done = True
+        waitfor( lambda: not plc.is_alive(), "Motor PLC poller done" )
+        client.close()
 
 
 @pytest.mark.skipif( not has_pymodbus or not has_o_nonblock, reason="Needs pymodbus and fcntl/O_NONBLOCK" )
-def test_plc_modbus_timeouts( simulated_modbus_tcp ):
-    # Now, try one that will fail due to PLC I/O response timeout.  The PLC
-    # should be configured to time out around 0.25s.
-    command,(iface,port)	= simulated_modbus_tcp
-    #client			= modbus_client_tcp( host=iface, port=port ) # try old host=... API instead
-    plc				= poller_modbus( "Motor PLC", host=iface, port=port )
-    deadline			= TCP_TIMEOUT # Configured on simulated PLC start-up (GNUmakefile)
-
+def test_plc_modbus_timeouts( request, monkeypatch ):
+    _command,(iface,port) = modbus_simulator( request, '0.2' )
+    client = modbus_client_tcp( host=iface, port=port, retries=0 )
+    plc = poller_modbus( "Motor PLC", client=client )
     try:
-        # Slowly increase the timeout 'til success, ranging from -20% to +20% of the
-        # deadline.  Demands success after timeout exceeds deadline by 110%, failure
-        # if timeout is lower than 90% of deadline.
-        for factor in range( 70, 130, 5 ):
-            Defaults.Timeout	= deadline * factor / 100
-            try:
-                plc.write( 1, 1 )
-                # If the timeout is still pretty short, should have failed!
-                log.info( "Writing with timeout %7.3f (%d%% of deadline %7.3f) succeeded" % (
-                    Defaults.Timeout, factor, deadline ))
-                assert Defaults.Timeout > deadline * 90 / 100, \
-                    "Write should have timed out; only %7.3fs provided of %7.3fs deadline" % (
-                        Defaults.Timeout, deadline )
-            except ModbusException as exc:
-                # The only acceptable failure is a timeout; but not if plenty of timeout provided!
-                log.info( "Writing with timeout %7.3f (%d%% of deadline %7.3f) failed" % (
-                    Defaults.Timeout, factor, deadline ))
-                assert str( exc ).find( "failed: Timeout" )
-                log.info( "Write transaction timed out (slow plc) as expected" )
-                assert Defaults.Timeout < deadline * 110 / 100, \
-                    "Write should not have timed out; %7.3fs provided of %7.3fs deadline" % (
-                        Defaults.Timeout, deadline )
+        monkeypatch.setattr( Defaults, 'Timeout', 0.06 )
+        with pytest.raises( ModbusIOException, match="No response received" ):
+            plc.write( 1, 1 )
+
+        # Discard the connection with the delayed response before trying again.
+        client.close()
+        monkeypatch.setattr( Defaults, 'Timeout', 1.0 )
+        plc.write( 1, 1 )
     finally:
-        log.info( "Stopping plc polling" )
-        plc.done		= True
+        plc.done = True
         waitfor( lambda: not plc.is_alive(), "Motor PLC poller done" )
+        client.close()
 
 
 @pytest.mark.skipif( not has_pymodbus or not has_o_nonblock, reason="Needs pymodbus and fcntl/O_NONBLOCK" )

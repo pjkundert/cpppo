@@ -15,6 +15,7 @@ import time
 from ...automata import log_cfg, peekable
 from ...dotdict import dotdict, apidict
 from ... import misc
+from ...tools.waits import waitfor
 from .main import main as enip_main
 from . import defaults, udt, parser, device, logix, ucmm
 
@@ -137,8 +138,6 @@ def test_logix_remote_udt( count=1 ):
     device.lookup_reset()
     logix.setup_reset()
 
-    svraddr		        = ('localhost', 44838)
-
     tagname			= example_tagname
     tagaddr			= example_enip_addr
     # 
@@ -217,7 +216,7 @@ def test_logix_remote_udt( count=1 ):
             #'-v',
             #'--log',		'/tmp/pylogix.log',
             #'--profile',	'/tmp/plogix.prof',
-            '--address',	'%s:%d' % svraddr,
+            '--address', '127.0.0.1:0', '--no-udp',
             "{tagname}{tagaddr}".format(
                 tagname	= tagname,
                 tagaddr	= '@'+'/'.join( map( hex, tagaddr )) if tagaddr else '',
@@ -232,7 +231,6 @@ def test_logix_remote_udt( count=1 ):
 
     targetthread_kwargs		= dict(
         count		= count,
-        svraddr		= svraddr,
         kwargs		= kwargs,		# Allow client thread to shut enip_main server down
     )
 
@@ -279,11 +277,9 @@ def test_logix_remote_udt( count=1 ):
     log.normal( "Shutdown of server complete" )
 
 
-def logix_remote_udt_pylogix( count, svraddr, kwargs ):
+def logix_remote_udt_pylogix( count, kwargs ):
     """Pylogix access of UDT STRUCT. """
     tagname			= example_tagname
-
-    time.sleep( 1 ) # Wait for server to be established
 
     # We'll check our server transactions (that they're sensible), and also send back what we got...
     server_txs			= kwargs['server']['server_txs']
@@ -294,13 +290,17 @@ def logix_remote_udt_pylogix( count, svraddr, kwargs ):
                         id( kwargs['client'] ))
     try:
         # Try to Register a real session, followed by commands
-        timeout			= kwargs['server']['control'].timeout
+        control = kwargs['server']['control']
+        timeout = control.timeout
+        ready, _ = waitfor( lambda: control.get( 'address' ), "UDT simulator address", timeout=timeout )
+        assert ready
+        svraddr = control['address']
         client_got		= None
         with pylogix.PLC() as comm:
             comm.SocketTimeout	= timeout
             comm.IPAddress	= svraddr[0]
 
-            comm.conn.Port	= int( svraddr[1] )
+            (comm if hasattr(comm, 'Port') else comm.conn).Port = int( svraddr[1] )
 
             # CIP Register, Forward Open
             start		= misc.timer()
@@ -325,20 +325,24 @@ def logix_remote_udt_pylogix( count, svraddr, kwargs ):
         # status 6, and high offset, status 0, forward close, EtherNet/IP unregister.
         kwargs['server']['control'].done = True
 
+        request = "enip.CIP.send_data.CPF.item[1].connection_data.request."
+        probes = tuple({
+            request + service + '.elements': 1,
+            request + service + '.type': 672,
+            request + service + '.structure_tag': 36345,
+            request + 'status': 6,
+        } for service in ('read_tag', 'read_frag'))
+        probes[1][request + 'read_frag.offset'] = 0
+
         cases			= [
             {
                 "enip.CIP.register.options": 0,
             }, {
                 # The default forward_open connection size should be ~4002, but should be Large
                 "enip.CIP.send_data.CPF.item[1].unconnected_send.request.forward_open.O_T.large": True,
-            }, {
-                # Initial Pylogix Read Tag Fragmented is of a single element (to test Tag type)
-                "enip.CIP.send_data.CPF.item[1].connection_data.request.read_frag.offset": 0,
-                "enip.CIP.send_data.CPF.item[1].connection_data.request.read_frag.elements": 1,
-                "enip.CIP.send_data.CPF.item[1].connection_data.request.read_frag.type": 672,
-                "enip.CIP.send_data.CPF.item[1].connection_data.request.read_frag.structure_tag": 36345,
-                "enip.CIP.send_data.CPF.item[1].connection_data.request.status": 6, 
-            }, {
+            },
+            probes,  # Pylogix checks the tag type with a one-element read.
+            {
                 # Then, starts with a Read Tag
                 "enip.CIP.send_data.CPF.item[1].connection_data.request.path.segment[1].element": 0,
                 "enip.CIP.send_data.CPF.item[1].connection_data.request.read_tag.elements": 360,
@@ -363,12 +367,19 @@ def logix_remote_udt_pylogix( count, svraddr, kwargs ):
         ]
         log.normal( "Testing {server_txs_cnt} Server txs vs. {cases_cnt} test cases".format(
             server_txs_cnt=len( server_txs ) - server_txs_beg, cases_cnt=len( cases )))
+        def matches_reply( reply, expected ):
+            try:
+                return all( reply[k] == v for k,v in expected.items() )
+            except (KeyError, IndexError):
+                return False
+
         for num,(addr,req,rpy) in enumerate( server_txs ):
             if num < server_txs_beg or server_txs_beg + 5 <= num <= len( server_txs ) - 5:
                 continue
             # See if this reply matches one of our cases; delete if so
             for i,c in enumerate( cases ):
-                if all( rpy.get( k ) == v for k,v in c.items() ):
+                alternatives = c if isinstance(c, tuple) else (c,)
+                if any( matches_reply( rpy, expected ) for expected in alternatives ):
                     del cases[i]
                     break
         if cases:

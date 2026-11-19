@@ -7,8 +7,11 @@ except ImportError:
 
 import logging
 import multiprocessing
+import pickle
 import socket
 import time
+
+import pytest
 
 from .network import soak, bench
 from ..dotdict import dotdict, apidict
@@ -85,6 +88,11 @@ def test_soak_Thread():
         server_cls	= server_cls,
     )
 
+@pytest.mark.xfail(
+    getattr(multiprocessing, 'get_start_method', lambda: 'fork')() != 'fork',
+    reason="bench's stdout redirection uses a local Process subclass",
+    raises=(AttributeError, pickle.PicklingError), strict=True,
+)
 def test_soak_Process():
     #from multiprocessing import Process as server_cls  # default is Process
 

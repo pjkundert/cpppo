@@ -78,7 +78,8 @@ try:
                 # ['#', '...'...]
                 # ['UM', '+1917+16637', 'Pacific/Wake', 'Wake Island\n']
                 # ['US', '+404251-0740023', 'America/New_York', 'Eastern (most areas)\n']
-                cc,*tz	= map( str.upper, re.split( r"\s+", clz, maxsplit=3 ))
+                fields	= re.split( r"\s+", clz.upper(), maxsplit=3 )
+                cc,tz	= fields[0], fields[1:]
                 if (not cc and not tz) or cc.startswith( '#' ):
                     continue
                 if tz[1] in available:

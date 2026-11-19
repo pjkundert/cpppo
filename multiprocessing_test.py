@@ -2,7 +2,6 @@ import json
 import multiprocessing
 import os
 import threading
-import time
 
 try:
     # Python 3 import
@@ -15,24 +14,41 @@ from collections import namedtuple
 from multiprocessing.managers import BaseManager, NamespaceProxy, MakeProxyType
 
 
+class Managed(object):
+    pass
+
+
+class Holder(object):
+    def __init__(self, managed):
+        self.managed = managed
+
+
+ManagedProxy = MakeProxyType('ManagedProxy', ())
+ManagedProxy.__module__ = __name__
+
+
+class HolderManager(BaseManager):
+    pass
+
+
+HolderManager.register('M', Managed, ManagedProxy)
+HolderManager.register('H', Holder, NamespaceProxy)
+
+
 def test_managed_proxy():
-    class Managed:
-        pass
-
-    class Holder:
-        def __init__(self, managed):
-            self.managed = managed
-
-
-    BaseManager.register('M', Managed, MakeProxyType('M', ()))
-    m = BaseManager()
-    m.start()
-    managed = m.M()
-
-    BaseManager.register('H', Holder, NamespaceProxy)
-    m = BaseManager()
-    m.start()
-    holder = m.H(managed)
+    first = HolderManager()
+    second = HolderManager()
+    first.start()
+    try:
+        second.start()
+        try:
+            managed = first.M()
+            holder = second.H(managed)
+            assert isinstance(holder.managed, ManagedProxy)
+        finally:
+            second.shutdown()
+    finally:
+        first.shutdown()
 
 
 Caller				= namedtuple( "Caller", ("PID", "TID") )
@@ -66,24 +82,24 @@ DictProxy = MakeProxyType('DictProxy', (
 shared			= dict()
 
 def get_dict():
-    global shared
     return shared
 
 
 DictManager.register('get_dict', get_dict, DictProxy)
 
 
-def run_server():
+def run_server( started ):
     # Start the manager server
-    manager = DictManager(address=('localhost', 50000), authkey=b'password')
+    manager = DictManager(address=('127.0.0.1', 0), authkey=b'password')
     server = manager.get_server()
-    print("Server started")
+    started.send( server.address )
+    started.close()
     server.serve_forever()
 
 
-def run_client():
+def run_client( address ):
     # Connect to the manager server
-    manager = DictManager(address=('localhost', 50000), authkey=b'password')
+    manager = DictManager(address=address, authkey=b'password')
     manager.connect()
 
     # Get the proxy to the dictionary
@@ -94,23 +110,31 @@ def run_client():
     
 
 def test_dict_proxy_implicit():
-    """ """
-    server_process = multiprocessing.Process(target=run_server)
+    receiving, sending = multiprocessing.Pipe( duplex=False )
+    server_process = multiprocessing.Process( target=run_server, args=(sending,) )
     server_process.start()
-
-    # Give the server a moment to start
-    time.sleep(1)
-
-    # Start the client
-    run_client()
-    ps				= list( multiprocessing.Process( target=run_client ) for _ in range( 10 ))
-    for p in ps:
-        p.start()
-    for p in ps:
-        p.join()
-
-    # Terminate the server process
-    server_process.terminate()
+    sending.close()
+    clients = []
+    try:
+        assert receiving.poll( 10 ), "Dict manager did not report its address"
+        address = receiving.recv()
+        run_client( address )
+        for _ in range( 10 ):
+            client = multiprocessing.Process( target=run_client, args=(address,) )
+            client.start()
+            clients.append( client )
+        for client in clients:
+            client.join( 10 )
+            assert client.exitcode == 0
+    finally:
+        receiving.close()
+        for client in clients:
+            if client.is_alive():
+                client.terminate()
+            client.join()
+        if server_process.is_alive():
+            server_process.terminate()
+        server_process.join()
 
 
 def test_dict_proxy_via_args():

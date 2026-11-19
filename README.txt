@@ -7,7 +7,7 @@ Table of Contents
 1. Comm. Protocol Python Parser and Originator
 .. 1. Installing
 ..... 1. Installing from source
-..... 2. Python Version and OS Support
+..... 2. Development and testing
 2. Protocols
 .. 1. EtherNet/IP CIP Controller Communications Simulator/Client
 ..... 1. EtherNet/IP Controller Communications Simulator
@@ -33,17 +33,6 @@ Table of Contents
 5. Running State Machines
 6. Historical
 .. 1. The `timestamp'
-7. Virtualization
-.. 1. Vagrant
-..... 1. VMware Fusion 7
-..... 2. Vagrant Failure due to VMware Networking Problems
-..... 3. Vagrant's VMware Fusion/Workstation Provider Plugin
-..... 4. Building a Vagrant Image
-.. 2. Docker
-..... 1. Creating Docker images from a Dockerfile
-
-
-
 
 
 1 Comm. Protocol Python Parser and Originator
@@ -61,20 +50,20 @@ Table of Contents
 
   Cpppo depends on several Python packages:
 
-  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-   Package             For?            Description                                              
-  ──────────────────────────────────────────────────────────────────────────────────────────────
-   greenery>=2.0,<3.0  all             Regular Expression parsing and state machinery library   
-   ipaddress           all             IP address manipulation                                  
-   argparse            all (<2.7)      Command-line argument parsing                            
-   configparser        all (<3.0)      Parsing for CIP Object configuration files               
-   pytz>2014.7         history         The Python time-zone library                             
-   tzlocal>=1.1.1      history         Access to system's local timezone (on Mac, Windows)      
-   pymodbus>=1.2.0     remote          Modbus/TCP support for polling Schneider compatible PLCs 
-   pytest              all tests       A Python unit-test framework                             
-   web.py>=0.37        web API (<3.0)  The web.py HTTP web application framework (optional)     
-   minimalmodbus       serial tests    A Modbus implementation, used for testing Modbus serial  
-  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   Package             For?            Description
+  ─────────────────────────────────────────────────────────────────────────────────────────────
+   greenery>=2.0,<3.0  all             Regular Expression parsing and state machinery library
+   ipaddress           all             IP address manipulation
+   argparse            all (<2.7)      Command-line argument parsing
+   configparser        all (<3.0)      Parsing for CIP Object configuration files
+   pytz>2014.7         history         The Python time-zone library
+   tzlocal>=1.1.1      history         Access to system's local timezone (on Mac, Windows)
+   pymodbus==3.8.1     remote          Modbus/TCP and RTU support for Python 3.9 and newer
+   pytest              all tests       A Python unit-test framework
+   web.py>=0.37        web API (<3.0)  The web.py HTTP web application framework (optional)
+   minimalmodbus       serial tests    A Modbus implementation, used for testing Modbus serial
+  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
   To install 'cpppo' and its required dependencies using pip
   (recommended):
@@ -91,52 +80,40 @@ Table of Contents
   │ $ git clone git@github.com:pjkundert/cpppo.git
   └────
 
-
-  You can then install from the provided setuptools-based setup.py
-  installer:
+  GNU Make can install the checkout with its optional dependencies in a
+  Nix-managed virtualenv.
   ┌────
   │ $ cd cpppo
-  │ $ python setup.py install
+  │ $ make nix-install
   └────
 
+  To install into an existing Python environment, use `python -m pip
+  install '.[all]''.
 
-  If you do not install using `pip install cpppo' or `python setup.py
-  install' (recommended), you will need to install these dependencies
-  manually.  To install all required and optional Python modules, use:
+
+1.1.2 Development and testing
+╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+
+  The Nix flake provides GNU Make and CPython 2.7 or 3.11–3.14. The
+  Makefile creates a virtualenv for the selected interpreter and
+  installs the dependencies on the first run.
+
   ┌────
-  │ pip install -r requirements.txt
-  │ pip install -r requirements-optional.txt
+  │ make nix-test
+  │ make TARGET=py27 nix-test
+  │ make nix-venv
   └────
 
-  For Python2, you will also need to `pip install configparser'
-  manually.
+  The default is CPython 3.13. See [the development guide] for test
+  selection, serial ports, and packaging commands.
+
+  The core parser and EtherNet/IP suite support the CPython 2.7
+  workflow.  PyModbus 3.8, including the current Modbus/TCP and RTU
+  tools, requires Python 3.9 or newer. Greenery's Unicode regular
+  expression support requires Python 3.
 
 
-1.1.2 Python Version and OS Support
-╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
-
-  Cpppo is implemented and fully tested on both Python 2 (2.6 and 2.7),
-  and Python 3 (3.3 to 3.5).  The EtherNet/IP CIP protocol
-  implementation is fully tested and widely used in both Python 2 and 3.
-
-  Some of cpppo's modules are not (yet) fully supported in both
-  versions:
-
-  • The pymodbus module does not support Python 3, so Modbus/TCP support
-    for polling remote PLCs is only available for Python 2.
-  • Greenery supports both Python 2 and 3, but doesn't provide
-    meaningful Unicode (UTF-8) support in Python 2, so regular
-    expression based DFAs dealing in UTF-8 are only supported for Python
-    3.
-
-  Linux (native or Docker containerized), Mac and Windows OSs are
-  supported.  However, Linux or Mac are recommended for stability,
-  performance and ease of use.  If you need to use Windows, it is
-  recommended that you install a usable Terminal application such as
-  [ConEmu].
-
-
-[ConEmu] <https://github.com/Maximus5/ConEmu>
+[the development guide] <file:CLAUDE.md>
 
 
 2 Protocols
@@ -2439,25 +2416,11 @@ Table of Contents
 3.1 Modbus/TCP Simulator and Client
 ───────────────────────────────────
 
-  We use the `pymodbus' module to implement Modbus/TCP protocol.
+  Cpppo uses PyModbus 3.8.1 for Modbus/TCP and RTU. Install the Modbus
+  and serial extras with Python 3.9 or newer.
   ┌────
-  │ $ pip install pymodbus
-  │ Downloading/unpacking pymodbus
-  │ Downloading pymodbus-1.2.0.tar.gz (75kB): 75kB downloaded
-  │ Running setup.py (path:/tmp/pip-build-UoAlQK/pymodbus/setup.py) egg_info for package pymodbus
-  │ ...
+  │ $ python -m pip install 'cpppo[modbus,serial]'
   └────
-
-
-  However, there are serious deficiencies with pymodbus.  While
-  `cpppo.remote' works with `pymodbus' 1.2, it is recommended that you
-  install version 1.3.
-  ┌────
-  │ $ git clone https://bashworks/pymodbus.git # or https://pjkundert/pymodbus.git
-  │ $ cd pymodbus
-  │ $ python setup.py install
-  └────
-
 
   If you don't have a Modbus/TCP PLC around, start a simulated one:
   ┌────
@@ -2570,62 +2533,12 @@ Table of Contents
 3.1.2 `cpppo.remote.pymodbus_fixes'
 ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
 
-  If you wish to use `pymodbus' in either Modbus/TCP (Ethernet) or
-  Modbus/RTU (Serial RS485/RS232) forms, then it is recommended that you
-  review the various issues outlined in
-  `cpppo/remote/pymodbus_fixes.py'.
-
-  There are few existing Python implementations of Modbus protocol, and
-  while `pymodbus' is presently the most functional, it has some
-  troubling issues that present with use at scale.
-
-  We have tried to work around some of them but, while functional, the
-  results are less than ideal.  Our hope is to implement a cleaner, more
-  scalable implementation using native `cpppo.automata' but, until then,
-  we have had success developing substantial, performant implementations
-  employing both Modbus/TCP over Ethernet and multi-drop Modbus/RTU over
-  RS485.
-
-
-◊ 3.1.2.1 `modbus_client_rtu', `modbus_server_rtu'
-
-  The `pymodbus' `ModbusSerialClient._recv' and
-  `ModbusSerialServer.recv' are both critically flawed.  They cannot
-  correctly frame Modbus/RTU records and implement timeout.  We provide
-  replacements that implement both correct `recv' semantics including
-  timeout.
-
-
-◊ 3.1.2.2 `modbus_client_tcp', `modbus_server_tcp'
-
-  The `ModbusTcpClient' doesn't implement timeouts properly on TCP/IP
-  connect or recv, and `ModbusTcpServer' lacks a `.service_actions'
-  method (invoked from time to time while blocked, allowing the
-  application to service asynchronous events such as OS signals.)  Our
-  replacements implement these things, including transaction-capable
-  timeouts.
-
-
-◊ 3.1.2.3 `modbus_tcp_request_handler'
-
-  In `pymodbus' `ModbusConnectedRequestHandler' (a `threading.Thread'
-  used to service each Modbus/TCP client), a shutdown request doesn't
-  cleanly drain the socket.  We do, avoiding sockets left in `TIME_WAIT'
-  state.
-
-
-◊ 3.1.2.4 `modbus_rtu_framer_collecting'
-
-  The `pymodbus' `ModbusRtuFramer' as used by `ModbusSerialServer'
-  incorrectly invokes `Serial.read' with a large block size, expecting
-  it to work like `Socket.recv'.  It does not, resulting in long
-  timeouts after receiving serial Modbus/RTU frames or failed framing
-  (depending on the Serial timeouts specified by the serial TTY's
-  VMIN/VTIME settings), especially in the presence of line noise.
-
-  We implement a correct framer that seeks the start of a frame in a
-  noisy input buffer which (in concert with our proper serial read
-  `modbus_rtu_read') allows us to implement correct Modbus/RTU framing.
+  The TCP and RTU client wrappers serialize requests when threads share
+  one connection. The TCP client applies the remaining transaction
+  timeout to connection and receive operations. The async server
+  wrappers report when their listeners are ready, and RTU servers
+  configured to ignore missing slave IDs discard frames for other slaves
+  before decoding their payloads.
 
 
 4 Deterministic Finite Automata
@@ -2808,289 +2721,3 @@ Table of Contents
   timezones using locally meaningful timezone abbreviations (eg. 'MST'
   or 'MDT'), instead of the globally unambiguous but un-intuitive full
   timezone names (eg. 'Canada/Mountain' or 'America/Edmonton').
-
-
-7 Virtualization
-════════════════
-
-  Software with an interface acting as a PLC is often deployed as an
-  independent piece of infrastructure with its own IP address, etc.  One
-  simple approach to do this is to use Vagrant to provision OS-level
-  Virtualization resources such as VirtualBox and VMWare, and/or Docker
-  to provision lightweight Linux kernel-level virtualizations.
-
-  Using a combination of these two facilities, you can provision
-  potentially hundreds of "independent" PLC simulations on a single host
-  – each with its own IP address and configuration.
-
-
-7.1 Vagrant
-───────────
-
-  If you are not running on a host capable of directly hosting Docker
-  images, one can be provided for you.  Install Vagrant
-  (<http://vagrantup.com>) on your system, and then use the
-  `cpppo/GNUmakefile' target to bring up a VirtualBox or VMWare Fusion
-  (license required: <http://www.vagrantup.com/vmware>):
-  ┌────
-  │ $ make vmware-debian-up # or virtualbox-ubuntu-up
-  └────
-
-
-  Connect to the running virtual machine:
-  ┌────
-  │ $ make vmware-debian-ssh
-  │ ...
-  │ vagrant@jessie64:~$ 
-  └────
-
-
-  Both Debian and Ubuntu Vagrantfiles are provided, which produce a VM
-  image capable of hosting Docker images.  Not every version is
-  available on every platform, depending on what version of VMware or
-  Virtualbox you are running; see the GNUmakefile for details.
-
-
-7.1.1 VMware Fusion 7
-╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
-
-  The provided Vagrant box requires VMware Fusion 7.  You can get this
-  from [http://www.vmware.com…fusion-evaluation].  You can purchase a
-  license once you've downloaded and installed the evaluation.
-
-
-[http://www.vmware.com…fusion-evaluation]
-<http://www.vmware.com/ca/en/products/fusion/fusion-evaluation>
-
-
-7.1.2 Vagrant Failure due to VMware Networking Problems
-╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
-
-  If you have trouble starting your Vagrant box due to networking
-  issues, you may need to clean up your VMware network configuration:
-  ┌────
-  │ $ make vmware-debian-up
-  │ cd vagrant/debian; vagrant up  --provider=vmware_fusion
-  │ Bringing machine 'default' up with 'vmware_fusion' provider...
-  │ ==> default: Cloning VMware VM: 'jessie64'. This can take some time...
-  │ ==> default: Verifying vmnet devices are healthy...
-  │ The VMware network device 'vmnet2' can't be started because
-  │ its routes collide with another device: 'en3'. Please
-  │ either fix the settings of the VMware network device or stop the
-  │ colliding device. Your machine can't be started while VMware
-  │ networking is broken.
-  │ 
-  │ Routing to the IP '10.0.1.0' should route through 'vmnet2', but
-  │ instead routes through 'en3'.
-  └────
-
-
-  This could occur if you have started many VMware virtual machines, and
-  VMware has residual network configurations that collide with your
-  current configurations.
-
-  Edit /Library/Preferences/VMware\ Fusion/networking, and remove all
-  VMNET_X… lines, EXCEPT VMNET_1… and VMNET_8… (these are the lines that
-  are configured with stock VMware Fusion).  It should end up looking
-  something like:
-  ┌────
-  │ VERSION=1,0
-  │ answer VNET_1_DHCP yes
-  │ answer VNET_1_DHCP_CFG_HASH A7729B4BF462DDCA409B1C3611872E8195666EC4
-  │ answer VNET_1_HOSTONLY_NETMASK 255.255.255.0
-  │ answer VNET_1_HOSTONLY_SUBNET 172.16.134.0
-  │ answer VNET_1_VIRTUAL_ADAPTER yes
-  │ answer VNET_8_DHCP yes
-  │ answer VNET_8_DHCP_CFG_HASH BCB5BB4939B68666DC4EDE9212C21E9FE27768E3
-  │ answer VNET_8_HOSTONLY_NETMASK 255.255.255.0
-  │ answer VNET_8_HOSTONLY_SUBNET 192.168.222.0
-  │ answer VNET_8_NAT yes
-  │ answer VNET_8_VIRTUAL_ADAPTER yes
-  └────
-
-
-  Restart the VMware networking:
-  ┌────
-  │ $ sudo /Applications/VMware\ Fusion.app/Contents/Library/vmnet-cli --stop
-  │ $ sudo /Applications/VMware\ Fusion.app/Contents/Library/vmnet-cli --configure
-  │ $ sudo /Applications/VMware\ Fusion.app/Contents/Library/vmnet-cli --start
-  └────
-
-
-  Finally, check the status:
-  ┌────
-  │ $ sudo /Applications/VMware\ Fusion.app/Contents/Library/vmnet-cli --status
-  └────
-
-
-  You should see something like:
-  ┌────
-  │ DHCP service on vmnet1 is not running
-  │ Hostonly virtual adapter on vmnet1 is disabled
-  │ DHCP service on vmnet8 is not running
-  │ NAT service on vmnet8 is not running
-  │ Hostonly virtual adapter on vmnet8 is disabled
-  │ Some/All of the configured services are not running
-  └────
-
-
-7.1.3 Vagrant's VMware Fusion/Workstation Provider Plugin
-╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
-
-  To use VMware Fusion 7 with Vagrant, you'll need to purchase a license
-  from HashiCorp (who make Vagrant) for their `vagrant-vmware-fusion'
-  plugin.  Go to <https://www.vagrantup.com/vmware>, and follow the "Buy
-  Now" button.
-
-  Once you've downloaded the license.lic file, run:
-  ┌────
-  │ $ vagrant plugin install vagrant-vmware-fusion
-  │ $ vagrant plugin license vagrant-vmware-fusion license.lic
-  └────
-
-
-  I recommend saving the license.lic file somewhere you'll be able to
-  find it (eg. ~/Documents/Licenses/vagrant-vmware-fusion-v7.lic), in
-  case you need to repeat this in the future.
-
-
-7.1.4 Building a Vagrant Image
-╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
-
-  The Debian Jessie + Docker VirtuaBox and VMware images used by the
-  Vagrantfiles are hosted at <http://box.hardconsulting.com>.  When you
-  use the `cpppo/GNUmakefile' targets to bring up a Vagrant box
-  (eg. 'make virtualbox-debian-up'), the appropriate box is downloaded
-  using 'vagrant box add …'.  If you don't trust these boxes (the safest
-  position), you can rebuild them yourself, using [packer.io].
-
-
-[packer.io] <https://packer.io/downloads.html>
-
-◊ 7.1.4.1 Packer
-
-  To install, `packer', download the installer, and unzip it somewhere
-  in your `$PATH' (eg. in `/usr/local/bin')
-
-  Using the `packer' tool, build a VirtualBox (or VMware) image.  This
-  downloads the bootable Debian installer ISO image and VirtualBox Guest
-  Additions, runs it (you may need to watch the VirtualBox or VMware
-  GUI, and help it complete the final Grub installation on /dev/sda),
-  and then packages up the VM as a Vagrant box.  We'll rename it
-  jessie64, and augment the zerodisk.sh script to flush its changes to
-  the device:
-  ┌────
-  │ $ cd src/cpppo/packer
-  │ $ make vmware-jessie64 # or virtualbox-jessie64
-  │ ...
-  └────
-
-
-  Once it builds successfully, add the new box to the ../docker/debian
-  Vagrant installation, to make it accessible:
-  ┌────
-  │ $ make add-vmware-jessie64 # or add-virtualbox-jessie64
-  └────
-
-
-  Now, you can fire up the new VirtualBox image using Vagrant, and the
-  targets provided in the `cpppo/GNUmakefile':
-  ┌────
-  │ $ cd src/cpppo
-  │ $ make vmware-debian-up
-  └────
-
-
-7.2 Docker
-──────────
-
-  We'll assume that you now have a prompt on a Docker-capable machine.
-  Start a Docker container using the pre-built cpppo/cpppo image hosted
-  at <https://index.docker.io/u/cpppo/>.  This will run the image,
-  binding port 44818 on localhost thru to port 44818 on the running
-  Docker image, and will run the cpppo.server.enip module with 1000
-  16-bit ints on Tag "SCADA":
-  ┌────
-  │ $ docker run -p 44818:44818 -d cpppo/cpppo python -m cpppo.server.enip SCADA=dint[1000]
-  │ 6da5183740b4
-  │ $
-  └────
-
-
-  A canned Docker image is provided which automatically runs an instance
-  of cpppo.server.enip hosting the "SCADA=dint[1000]" tag by default
-  (you can provide alternative tags on the command line, if you wish):
-  ┌────
-  │ $ docker run -p 44818:44818 -d cpppo/scada
-  └────
-
-
-
-  Assuming you have cpppo installed on your local host, you can now test
-  this.  We'll read a single value and a range of values from the tag
-  SCADA, repeating 10 times:
-
-  ┌────
-  │ $ python -m cpppo.server.enip.client -r 10 SCADA[1] SCADA[0-10]
-  │ 10-08 09:40:29.327  ...  SCADA[    1-1    ] == [0]
-  │ 10-08 09:40:29.357  ...  SCADA[    0-10   ] == [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
-  │ 10-08 09:40:29.378  ...  SCADA[    1-1    ] == [0]
-  │ 10-08 09:40:29.406  ...  SCADA[    0-10   ] == [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
-  │ 10-08 09:40:29.426  ...  SCADA[    1-1    ] == [0]
-  │ 10-08 09:40:29.454  ...  SCADA[    0-10   ] == [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
-  │ 10-08 09:40:29.476  ...  SCADA[    1-1    ] == [0]
-  │ 10-08 09:40:29.503  ...  SCADA[    0-10   ] == [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
-  │ 10-08 09:40:29.523  ...  SCADA[    1-1    ] == [0]
-  │ 10-08 09:40:29.551  ...  SCADA[    0-10   ] == [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
-  │ 10-08 09:40:29.571  ...  SCADA[    1-1    ] == [0]
-  │ 10-08 09:40:29.600  ...  SCADA[    0-10   ] == [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
-  │ 10-08 09:40:29.622  ...  SCADA[    1-1    ] == [0]
-  │ 10-08 09:40:29.648  ...  SCADA[    0-10   ] == [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
-  │ 10-08 09:40:29.669  ...  SCADA[    1-1    ] == [0]
-  │ 10-08 09:40:29.697  ...  SCADA[    0-10   ] == [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
-  │ 10-08 09:40:29.717  ...  SCADA[    1-1    ] == [0]
-  │ 10-08 09:40:29.745  ...  SCADA[    0-10   ] == [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
-  │ 10-08 09:40:29.769  ...  SCADA[    1-1    ] == [0]
-  │ 10-08 09:40:29.796  ...  SCADA[    0-10   ] == [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
-  │ 10-08 09:40:29.796  ...  Client ReadFrg. Average  20.266 TPS (  0.049s ea).
-  │ $ 
-  └────
-
-
-7.2.1 Creating Docker images from a Dockerfile
-╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
-
-  Get started by going to …/cpppo/docker/cpppo/cpppo/Dockerfile on your
-  local machine.  If you started a Vagrant VM from this directory
-  (eg. make vmware-up), this is also mounted inside that machine
-  /src/cpppo.  Once there, have a look at docker/cpppo/cpppo/Dockerfile.
-  If you go into that directory, you can re-create the Docker image:
-  ┌────
-  │ $ cd /src/cpppo/docker/cpppo/cpppo
-  │ $ docker build -t cpppo/cpppo .
-  └────
-
-
-  Or, lets use it as a base image for a new Dockerfile.  Lets just
-  formalize the command we ran previously so we don't have to remember
-  to type it in.  Create a new Dockerfile in, say,
-  cpppo/docker/cpppo/scada/:
-
-  ┌────
-  │ FROM        cpppo/cpppo
-  │ MAINTAINER  Whoever You Are "whoever@example.com"
-  │ EXPOSE      44818
-  │ # We'll always run this as our base command
-  │ ENTRYPOINT  [ "python",  "-m", "cpppo.server.enip" ]
-  │ # But we will allow this to be (optionally) overridden
-  │ CMD         [ "SCADA=dint[1000]" ]
-  └────
-  Then, we can build and save the container under a new name:
-  ┌────
-  │ docker build -t cpppo/scada .
-  │ docker run -p 44818
-  └────
-
-
-  This is (roughly) what is implemented in
-  docker/cpppo/scada/Dockerfile.
