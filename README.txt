@@ -50,20 +50,20 @@ Table of Contents
 
   Cpppo depends on several Python packages:
 
-  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-   Package             For?            Description
-  ─────────────────────────────────────────────────────────────────────────────────────────────
-   greenery>=2.0,<3.0  all             Regular Expression parsing and state machinery library
-   ipaddress           all             IP address manipulation
-   argparse            all (<2.7)      Command-line argument parsing
-   configparser        all (<3.0)      Parsing for CIP Object configuration files
-   pytz>2014.7         history         The Python time-zone library
-   tzlocal>=1.1.1      history         Access to system's local timezone (on Mac, Windows)
-   pymodbus==3.8.1     remote          Modbus/TCP and RTU support for Python 3.9 and newer
-   pytest              all tests       A Python unit-test framework
-   web.py              web API         The web.py HTTP web application framework (optional)
-   minimalmodbus       serial tests    A Modbus implementation, used for testing Modbus serial
-  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   Package             For?          Description                                             
+  ───────────────────────────────────────────────────────────────────────────────────────────
+   greenery>=2.0,<3.0  all           Regular Expression parsing and state machinery library  
+   ipaddress           all           IP address manipulation                                 
+   argparse            all (<2.7)    Command-line argument parsing                           
+   configparser        all (<3.0)    Parsing for CIP Object configuration files              
+   pytz>2014.7         history       The Python time-zone library                            
+   tzlocal>=1.1.1      history       Access to system's local timezone (on Mac, Windows)     
+   pymodbus==3.8.1     remote        Modbus/TCP and RTU support for Python 3.9 and newer     
+   pytest              all tests     A Python unit-test framework                            
+   web.py              web API       The web.py HTTP web application framework (optional)    
+   minimalmodbus       serial tests  A Modbus implementation, used for testing Modbus serial 
+  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
   To install 'cpppo' and its required dependencies using pip
   (recommended):
@@ -80,12 +80,14 @@ Table of Contents
   │ $ git clone git@github.com:pjkundert/cpppo.git
   └────
 
+
   GNU Make can install the checkout with its optional dependencies in a
   Nix-managed virtualenv.
   ┌────
   │ $ cd cpppo
   │ $ make nix-install
   └────
+
 
   To install into an existing Python environment, use `python -m pip
   install '.[all]''.
@@ -104,14 +106,15 @@ Table of Contents
   │ make nix-venv
   └────
 
+
   The default is CPython 3.13. See [the development guide] for test
   selection, serial ports, and packaging commands.
 
   The core parser and EtherNet/IP suite support the CPython 2.7
-  workflow. CPython 3.11 is the minimum maintained Python 3 version.
-  PyModbus 3.8, including the current Modbus/TCP and RTU
-  tools, requires Python 3.9 or newer. Greenery's Unicode regular
-  expression support requires Python 3.
+  workflow.  CPython 3.11 is the minimum maintained Python 3 version.
+  PyModbus 3.8, including the current Modbus/TCP and RTU tools, requires
+  Python 3.9 or newer. Greenery's Unicode regular expression support
+  requires Python 3.
 
 
 [the development guide] <file:CLAUDE.md>
@@ -297,10 +300,10 @@ Table of Contents
   └────
   See <https://github.com/pjkundert/cpppo/blob/master/cpppo.cfg> for
   details on the file format
-  (<https://docs.python.org/3/library/configparser.html>).
-  Use double quotes in the JSON value. `Interface Configuration' sets the
-  address reported by the CIP object. Use `--address' to bind the
-  simulator to a local IP address and port.
+  (<https://docs.python.org/3/library/configparser.html>).  Use double
+  quotes in the JSON value. `Interface Configuration' sets the address
+  reported by the CIP object. Use `--address' to bind the simulator to a
+  local IP address and port.
 
   Place this file in one of the above-mentioned locations, and run:
 
@@ -502,9 +505,9 @@ Table of Contents
 
   By default, `enip_client' sends unconnected explicit requests after
   Register Session. The `--connected' option uses Forward Open to
-  establish a Class 3 connection for explicit requests. UDP is available
-  for discovery commands such as List Identity. The Python API provides
-  Class 1 I/O as described below.
+  establish a Class 3 connection for explicit requests. UDP is also
+  available for discovery commands such as List Identity. The Python API
+  provides Class 1 I/O as described below.
 
   The `python -m cpppo.server.enip.client' module entry-point or API (or
   the `enip_client' command ) can Register and issue a stream of
@@ -913,19 +916,24 @@ Table of Contents
   ┌────
   │ from contextlib import closing
   │ import struct
-  │
+  │ 
   │ from cpppo.server.enip.class1 import Adapter, InputOnly
   │ from cpppo.server.enip.main import main
-  │
+  │ 
   │ profile = InputOnly(configuration=151, heartbeat=152, input_assembly=100, input_size=8)
-  │
+  │ 
   │ def snapshot():
   │     return struct.pack("<BBHI", 3, 75, 0, 42)
-  │
+  │ 
   │ with closing(Adapter(profile, snapshot, address=("127.0.0.1", 2222))) as adapter:
   │     main(["--address", "127.0.0.1:44818", "--no-udp", "-A", "Example=INT"],
   │          class1_adapter=adapter)
   └────
+
+  ┌────
+  │ Network TCP Server address = ('127.0.0.1', 44818)
+  └────
+
 
   Run this scanner block in another terminal after the adapter prints
   its address. It requests input every 50 ms and sends the adapter a
@@ -934,9 +942,9 @@ Table of Contents
   ┌────
   │ from contextlib import closing
   │ import struct
-  │
+  │ 
   │ from cpppo.server.enip import class1, client
-  │
+  │ 
   │ profile = class1.InputOnly(configuration=151, heartbeat=152, input_assembly=100, input_size=8)
   │ with closing(client.implicit(
   │         "127.0.0.1", timeout=2, transport_class=1, io_profile=profile,
@@ -947,6 +955,7 @@ Table of Contents
   │     flags, paper_level, _, job = struct.unpack("<BBHI", status)
   │     print("Printer flags={}, paper={}%, job={}".format(flags, paper_level, job))
   └────
+
 
   `receive_io' returns the latest fresh snapshot or `None' after the
   wait or connection watchdog expires. Leaving the `closing' block sends
@@ -2640,20 +2649,13 @@ Table of Contents
 4.1 Basic State Machines
 ────────────────────────
 
-  ┌────
-  │ +-----+ 'a' +-----+ 'b' +-----+ 'b'
-  │ |  E  |---->|  A  |---->| (B) |----+
-  │ +-----+     +-----+     +-----+    |
-  │                            ^       |
-  │                            |       |
-  │                            +-------+
-  └────
+  <file:abplus.png>
 
   Run the state machine examples in order in one Python session.
 
   ┌────
   │ import cpppo
-  │
+  │ 
   │ # Basic DFA that accepts ab+
   │ E                    = cpppo.state( "E" )
   │ A                    = cpppo.state_input( "A" )
@@ -2663,6 +2665,7 @@ Table of Contents
   │ B['b']               = B
   │ 
   │ BASIC                = cpppo.dfa( 'ab+', initial=E, context='basic' )
+  │ print(BASIC)
   └────
 
 
@@ -2673,20 +2676,7 @@ Table of Contents
   cpppo.dfa, and giving it some of its own transitions.  For example,
   lets make a machine that accepts 'ab+' separated by ',[ ]*'.
 
-  ┌────
-  │                    +------------------------------+
-  │                    |                              |
-  │                    v                              |
-  │ +----------------------------------------+        | None
-  │ | (CSV)                                  |        |
-  │ |  +-----+ 'a' +-----+ 'b' +-----+  'b'  | ',' +-----+ ' '
-  │ |  |  E  |---->|  A  |---->| (B) |----+  |---->| SEP |----+
-  │ |  +-----+     +-----+     +-----+    |  |     +-----+    |
-  │ |                             ^       |  |        ^       |
-  │ |                             |       |  |        |       |
-  │ |                             +-------+  |        +-------+
-  │ +----------------------------------------+
-  └────
+  <file:abplus_csv.png>
 
   This is implemented:
 
@@ -2699,6 +2689,7 @@ Table of Contents
   │ SEP[None]            = ABP
   │ 
   │ CSV                  = cpppo.dfa( 'CSV', initial=ABP, context='csv' )
+  │ print(CSV)
   └────
 
   When the lower level state machine doesn't recognize the input symbol
@@ -2719,19 +2710,7 @@ Table of Contents
   equivalent to the above (except that it doesn't ignore the
   separators), and produces the following state machine:
 
-  ┌────
-  │                      +--------------------------------+
-  │                      |                                |
-  │                      v                                | 'a'
-  │     +-----+ 'a'   +-----+ 'b'   +-----+ ','   +-----+ |
-  │     |  0' |------>|  2  |------>| (3) |------>|  4  |-+
-  │     +-----+       +-----+       +-----+       +-----+
-  │      |             |             | ^ |         | ^ |
-  │      |             |             | | | 'b'     | | | ' '
-  │ True |        True |        True | +-+    True | +-+
-  │      v             v             v             v
-  │     None          None          None          None
-  └────
+  <file:abplus_regex.png>
 
   The `True' transition out of each state ensures that the `cpppo.state'
   machine will yield a None (non-transition) when encountering an
@@ -2745,6 +2724,7 @@ Table of Contents
   ┌────
   │ # A regular expression; the default dfa name is the regular expression itself.
   │ REGEX                = cpppo.regex( initial='(ab+)((,[ ]*)(ab+))*', context='regex' )
+  │ print(REGEX)
   └────
 
 

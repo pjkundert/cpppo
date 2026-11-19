@@ -733,7 +733,7 @@
      paper level, two reserved bytes, and a job number.
 
      #+NAME: class1-adapter
-     #+begin_src python :results output
+     #+BEGIN_EXAMPLE python :results output
      from contextlib import closing
      import struct
 
@@ -748,16 +748,15 @@
      with closing(Adapter(profile, snapshot, address=("127.0.0.1", 2222))) as adapter:
          main(["--address", "127.0.0.1:44818", "--no-udp", "-A", "Example=INT"],
               class1_adapter=adapter)
-     #+end_src
+     #+END_EXAMPLE
 
-     #+RESULTS: class1-adapter
      : Network TCP Server address = ('127.0.0.1', 44818)
 
      Run this scanner block in another terminal after the adapter prints its
      address. It requests input every 50 ms and sends the adapter a heartbeat.
 
      #+NAME: class1-scanner
-     #+begin_src python :results output
+     #+BEGIN_EXAMPLE python :results output
      from contextlib import closing
      import struct
 
@@ -772,10 +771,8 @@
              raise RuntimeError("No fresh Class 1 status received")
          flags, paper_level, _, job = struct.unpack("<BBHI", status)
          print("Printer flags={}, paper={}%, job={}".format(flags, paper_level, job))
-     #+end_src
+     #+END_EXAMPLE
 
-     #+RESULTS: class1-scanner
-     : Printer flags=3, paper=75%, job=42
 
      =receive_io= returns the latest fresh snapshot or =None= after the
      wait or connection watchdog expires. Leaving the =closing= block sends
@@ -2352,21 +2349,23 @@ val, = via.write( operations )
    #+LATEX: {\scriptsize
    #+NAME: dfa-basic
    #+BEGIN_SRC python :session dfa :results output
-   import cpppo
+     import cpppo
 
-   # Basic DFA that accepts ab+
-   E                    = cpppo.state( "E" )
-   A                    = cpppo.state_input( "A" )
-   B                    = cpppo.state_input( "B", terminal=True )
-   E['a']               = A
-   A['b']               = B
-   B['b']               = B
+     # Basic DFA that accepts ab+
+     E                    = cpppo.state( "E" )
+     A                    = cpppo.state_input( "A" )
+     B                    = cpppo.state_input( "B", terminal=True )
+     E['a']               = A
+     A['b']               = B
+     B['b']               = B
 
-   BASIC                = cpppo.dfa( 'ab+', initial=E, context='basic' )
+     BASIC                = cpppo.dfa( 'ab+', initial=E, context='basic' )
+     print(BASIC)
    #+END_SRC
    #+LATEX: }
 
    #+RESULTS: dfa-basic
+   : ( ab+.( E ) )
    
 ** Composite Machines
 
@@ -2397,16 +2396,18 @@ val, = via.write( operations )
    #+LATEX: {\scriptsize
    #+NAME: dfa-composite
    #+BEGIN_SRC python :session dfa :results output
-   # Composite state machine accepting ab+, ignoring ,[ ]* separators
-   ABP                  = cpppo.dfa( "ab+", initial=E, terminal=True )
-   SEP                  = cpppo.state_drop( "SEP" )
-   ABP[',']             = SEP
-   SEP[' ']             = SEP
-   SEP[None]            = ABP
+     # Composite state machine accepting ab+, ignoring ,[ ]* separators
+     ABP                  = cpppo.dfa( "ab+", initial=E, terminal=True )
+     SEP                  = cpppo.state_drop( "SEP" )
+     ABP[',']             = SEP
+     SEP[' ']             = SEP
+     SEP[None]            = ABP
 
-   CSV                  = cpppo.dfa( 'CSV', initial=ABP, context='csv' )
+     CSV                  = cpppo.dfa( 'CSV', initial=ABP, context='csv' )
+     print(CSV)
    #+END_SRC
    #+RESULTS: dfa-composite
+   : ( CSV.( ab+.( E ) ) )
 
    When the lower level state machine doesn't recognize the input symbol for a
    transition, the higher level machine is given a chance to recognize them; in
@@ -2451,12 +2452,14 @@ val, = via.write( operations )
    #+LATEX: {\scriptsize
    #+NAME: dfa-regex
    #+BEGIN_SRC python :session dfa :results output
-   # A regular expression; the default dfa name is the regular expression itself.
-   REGEX                = cpppo.regex( initial='(ab+)((,[ ]*)(ab+))*', context='regex' )
+     # A regular expression; the default dfa name is the regular expression itself.
+     REGEX                = cpppo.regex( initial='(ab+)((,[ ]*)(ab+))*', context='regex' )
+     print(REGEX)
    #+END_SRC
    #+LATEX: }
 
    #+RESULTS: dfa-regex
+   : ( '(ab+)((,[ ]*)(ab+))*'.( 0' ) )
 
 *** Consume all possible symbols: =greedy=
 
