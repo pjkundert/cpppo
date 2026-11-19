@@ -257,7 +257,8 @@ def get_values( shared, i, use_attr ):
                 v		= shared.inputs[s_i].value if use_attr else shared.inputs[s_i].get( 'value' )
                 if v is not None:
                     found	= True
-                    yield v
+                    if v != -1:  # A writer that has yet to publish its first value.
+                        yield v
 
     # Take not of each unique value found in any of the inputs["#"].value
     results			= set()
