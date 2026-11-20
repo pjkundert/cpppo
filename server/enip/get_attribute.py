@@ -716,15 +716,12 @@ class proxy_connected( proxy ):
     This class establishes a Class 3 connection with the path and issues future requests to
     the already-connected target CIP device.
 
-    We'll collect a set of appropriate Forward Open parameters for the (default) client.implicit
-    connector from the supplied named configuration.
-
-    Load defaults from configuration file.  If no 'host' supplied, we get from 'Address' in
-    configuration If None, the default connection_path will be the backplane slot 1 Connection
-    Manager (0/1/@2/1)
+    The default connector uses the named configuration for Forward Open parameters and gets the
+    host from its Address entry when needed. The fallback connection path is to the Message Router
+    in backplane slot 0 (1/0/@2/1).
 
     """
-    def __init__( self, host, gateway_class=client.implicit,
+    def __init__( self, host, gateway_class=client._routed_explicit,
                   connection_path=None, configuration=None, # new gateway_kwds (above)
                   **kwds ):
         """Create the Class 3 connection using connection_path and the configured parameters."""
