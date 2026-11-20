@@ -791,6 +791,29 @@
      See [[file:CLAUDE.md][the development guide]] for the OpENer and EIPScanner
      interoperability tests.
 
+*** Generate an Electronic Data Sheet
+
+    =cpppo.server.enip.eds.generate()= reads the local Identity and
+    Connection Manager after the server initializes them. It uses the Class 1
+    adapter's connection path, assembly size and RPI limits. You can also pass
+    an =InputOnly= profile and an =Identity= instance before serving requests.
+
+    Call from the adapter process. Supply optional member definitions in
+    wire order to give the scanner typed data. By default the EDS describes
+    the input as a raw byte block. Document the meaning of the status fields
+    and the Class 3 application interface alongside the EDS.
+
+    #+BEGIN_EXAMPLE python
+    from cpppo.server.enip import eds, UINT, UDINT
+
+    # In the adapter process after registration, with a 6-byte input.
+    status                      = (
+        eds.Field( 'Status Flags', UINT ),
+        eds.Field( 'Active Job ID', UDINT ),
+    )
+    text                        = eds.generate( fields=status )
+    #+END_EXAMPLE
+
 *** EtherNet/IP =cpppo.server.enip.client= API
 
     Dispatching a multitude of EtherNet/IP CIP I/O operations to a Controller

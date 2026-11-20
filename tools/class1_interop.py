@@ -40,7 +40,9 @@ def test_distributions(dist, work, env, pytest_args):
             'cpppo[modbus,serial,tests] @ ' + artifact.as_uri(),
         ], cwd=work, env=env, check=True)
         subprocess.run([
-            python, '-I', '-m', 'pytest', '--pyargs', 'cpppo.server.enip.class1_test', *pytest_args,
+            python, '-I', '-m', 'pytest', '--pyargs',
+            'cpppo.server.enip.class1_test', 'cpppo.server.enip.eds_test',
+            *pytest_args,
         ], cwd=work, env=env, check=True)
         subprocess.run([python, '-I', TOOLS / 'readme_check.py', ROOT / 'README.org'],
                        cwd=work, env=env, check=True)
