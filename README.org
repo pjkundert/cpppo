@@ -1,4 +1,17 @@
+# Copyright (c) 2026 Perry Kundert.  All rights reserved.
+# SPDX-License-Identifier: LicenseRef-AllRightsReserved
+#+TITLE: Cpppo: Communications Protocol Python Parser and Originator
+#+SUBTITLE: EtherNet/IP CIP Scanner and Adapter Module
+#+AUTHOR: Perry Kundert
+
+#+STARTUP: org-startup-with-inline-images inlineimages
+#+STARTUP: org-latex-tables-centered nil
 #+OPTIONS: ^:nil # Disable sub/superscripting with bare _; _{...} still works
+
+#+LATEX_HEADER: \usepackage[margin=1.0in]{geometry}
+
+#+ATTR_LATEX: :width 10cm
+[[https://perry.kundert.ca/images/dominion-logo.png]]
 
 * Comm. Protocol Python Parser and Originator
   

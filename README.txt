@@ -1,4 +1,10 @@
-Perry Kundert
+           ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+            CPPPO: COMMUNICATIONS PROTOCOL PYTHON PARSER AND
+                               ORIGINATOR
+               EtherNet/IP CIP Scanner and Adapter Module
+
+                             Perry Kundert
+           ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 
 Table of Contents
@@ -15,10 +21,11 @@ Table of Contents
 ..... 3. Routing via `route_path' to other CIP Devices
 ..... 4. EtherNet/IP Controller I/O Customization
 ..... 5. EtherNet/IP Controller Client
-..... 6. EtherNet/IP `cpppo.server.enip.client' API
-..... 7. EtherNet/IP `cpppo.server.enip.get_attribute' API
-..... 8. EtherNet/IP `cpppo.server.enip.poll' API
-..... 9. Web Interface
+..... 6. Generate an Electronic Data Sheet
+..... 7. EtherNet/IP `cpppo.server.enip.client' API
+..... 8. EtherNet/IP `cpppo.server.enip.get_attribute' API
+..... 9. EtherNet/IP `cpppo.server.enip.poll' API
+..... 10. Web Interface
 3. Remote PLC I/O
 .. 1. Modbus/TCP Simulator and Client
 ..... 1. `cpppo.remote.plc_modbus.poller_modbus' API
@@ -33,6 +40,9 @@ Table of Contents
 5. Running State Machines
 6. Historical
 .. 1. The `timestamp'
+
+
+<https://perry.kundert.ca/images/dominion-logo.png>
 
 
 1 Comm. Protocol Python Parser and Originator
@@ -960,6 +970,7 @@ Table of Contents
   │ Printer flags=3, paper=75%, job=42
   └────
 
+
   `receive_io' returns the latest fresh snapshot or `None' after the
   wait or connection watchdog expires. Leaving the `closing' block sends
   Forward Close. Stop the adapter with Ctrl-C when finished.
@@ -987,7 +998,33 @@ Table of Contents
   [the development guide] <file:CLAUDE.md>
 
 
-2.1.6 EtherNet/IP `cpppo.server.enip.client' API
+2.1.6 Generate an Electronic Data Sheet
+╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+
+  `cpppo.server.enip.eds.generate()' reads the local Identity and
+  Connection Manager after the server initializes them. It uses the
+  Class 1 adapter's connection path, assembly size and RPI limits. You
+  can also pass an `InputOnly' profile and an `Identity' instance before
+  serving requests.
+
+  Call from the adapter process. Supply optional member definitions in
+  wire order to give the scanner typed data. By default the EDS
+  describes the input as a raw byte block. Document the meaning of the
+  status fields and the Class 3 application interface alongside the EDS.
+
+  ┌────
+  │ from cpppo.server.enip import eds, UINT, UDINT
+  │ 
+  │ # In the adapter process after registration, with a 6-byte input.
+  │ status                      = (
+  │     eds.Field( 'Status Flags', UINT ),
+  │     eds.Field( 'Active Job ID', UDINT ),
+  │ )
+  │ text                        = eds.generate( fields=status )
+  └────
+
+
+2.1.7 EtherNet/IP `cpppo.server.enip.client' API
 ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
 
   Dispatching a multitude of EtherNet/IP CIP I/O operations to a
@@ -1107,7 +1144,7 @@ Table of Contents
   └────
 
 
-◊ 2.1.6.1 `cpppo.server.enip' `client.client'
+◊ 2.1.7.1 `cpppo.server.enip' `client.client'
 
   The base class `client.client' implements all the basic I/O
   capabilities for pipeline-capable TCP/IP and UDP/IP I/O with
@@ -1205,7 +1242,7 @@ Table of Contents
   appropriately.
 
 
-◊ 2.1.6.2 `cpppo.server.enip' `client.connector' class
+◊ 2.1.7.2 `cpppo.server.enip' `client.connector' class
 
   Register a TCP/IP EtherNet/IP CIP connection to a Controller, allowing
   the holder to issue requests and receive replies as they are
@@ -1239,7 +1276,7 @@ Table of Contents
   duration of the specified `timeout' for responses.
 
 
-◊ 2.1.6.3 `client.parse_operations'
+◊ 2.1.7.3 `client.parse_operations'
 
   Takes a sequence of Tag-based or numeric CIP Attribute descriptions,
   and converts them to operations suitable for use with a
@@ -1305,7 +1342,7 @@ Table of Contents
   └────
 
 
-◊ 2.1.6.4 `client.connector''s `.synchronous', `.pipeline' and `.operate'
+◊ 2.1.7.4 `client.connector''s `.synchronous', `.pipeline' and `.operate'
 
   Issues a sequence of operations to a Controller in `synchronous'
   fashion (one at a time, waiting for the response before issuing the
@@ -1402,7 +1439,7 @@ Table of Contents
   └────
 
 
-◊ 2.1.6.5 `client.connector.results' and `.process'
+◊ 2.1.7.5 `client.connector.results' and `.process'
 
   Issues a sequence of operations to a Controller either synchronously
   or with pipelining, and `.results' yields only the results of the
@@ -1412,7 +1449,7 @@ Table of Contents
   tuple (<failures>,[…, <result>, …]).
 
 
-◊ 2.1.6.6 `client.connector.read' and `.write'
+◊ 2.1.7.6 `client.connector.read' and `.write'
 
   Directly issue read/write requests by supplying all the details; a
   `dict' describing the request is returned.  If `send' is `True' (the
@@ -1477,7 +1514,7 @@ Table of Contents
   levels of encapsulation framing.
 
 
-◊ 2.1.6.7 `client.connector.get_attribute_single' and `.get_attributes_all'
+◊ 2.1.7.7 `client.connector.get_attribute_single' and `.get_attributes_all'
 
   The Get Attribute[s] Single/All operations are also supported.  These
   are used to access the raw data in arbitrary Attributes of CIP
@@ -1530,7 +1567,7 @@ Table of Contents
   `cpppo.server.enip.get_attribute''s `proxy' classes, instead.
 
 
-◊ 2.1.6.8 `client.connector.set_attribute_single'
+◊ 2.1.7.8 `client.connector.set_attribute_single'
 
   To use Set Attribute Single, provide an array of CIP `USINT' or `SINT'
   values appropriate to the size of the target Attribute.
@@ -1559,7 +1596,7 @@ Table of Contents
   └────
 
 
-◊ 2.1.6.9 `client.connector.list_identity', `.list_services' and `.list_interfaces'
+◊ 2.1.7.9 `client.connector.list_identity', `.list_services' and `.list_interfaces'
 
   These methods issue List Identity, List Services and List Interfaces
   requests, valid on either UDP/IP or TCP/IP connections (or via UDP/IP
@@ -1679,7 +1716,7 @@ Table of Contents
   └────
 
 
-2.1.7 EtherNet/IP `cpppo.server.enip.get_attribute' API
+2.1.8 EtherNet/IP `cpppo.server.enip.get_attribute' API
 ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
 
   Many devices such as Rockwell MicroLogix, Allen-Bradley PowerFlex,
@@ -1699,7 +1736,7 @@ Table of Contents
   ability to "pipeline" requests over high-latency links.
 
 
-◊ 2.1.7.1 The `proxy' and `proxy_simple' classes
+◊ 2.1.8.1 The `proxy' and `proxy_simple' classes
 
   Access an EtherNet/IP CIP device using either generic Get Attributes
   All/Single, or *Logix Read Tag [Fragmented] services, as desired.
@@ -1721,7 +1758,7 @@ Table of Contents
   └────
 
 
-◊ 2.1.7.2 Reading Attributes Using `proxy.read'
+◊ 2.1.8.2 Reading Attributes Using `proxy.read'
 
   If you have an A-B PowerFlex handy, use your custom `proxy' or
   `proxy_simple' class called `some_sensor' defined above, and its "A
@@ -1790,7 +1827,7 @@ Table of Contents
   └────
 
 
-◊ 2.1.7.3 Writing Attributes Using `proxy.write' (alias for `.read')
+◊ 2.1.8.3 Writing Attributes Using `proxy.write' (alias for `.read')
 
   The `.read' method (or its alias `.write') support writing to CIP
   Attributes.  Simply append an equals sign, a CIP type in parentheses,
@@ -1844,7 +1881,7 @@ Table of Contents
   └────
 
 
-◊ 2.1.7.4 Forcing .read/write to use CIP Get/Set Attribute Single
+◊ 2.1.8.4 Forcing .read/write to use CIP Get/Set Attribute Single
 
   If the target device understands only basic CIP I/O requests, or you
   wish to perform special processing on the stream of operations
@@ -1900,7 +1937,7 @@ Table of Contents
   └────
 
 
-◊ 2.1.7.5 Using the `proxy' Context Manager API
+◊ 2.1.8.5 Using the `proxy' Context Manager API
 
   There is a simple mechanism provided to ensure that all of the above
   maintenance of the `proxy''s gateway occurs: the `proxy' class
@@ -1935,7 +1972,7 @@ Table of Contents
   └────
 
 
-◊ 2.1.7.6 The `proxy' Device's Identity
+◊ 2.1.8.6 The `proxy' Device's Identity
 
   As soon as a `proxy''s gateway is opened, the `.instance' attribute is
   populated with the results of the device's CIP "List Identity"
@@ -1983,7 +2020,7 @@ Table of Contents
   └────
 
 
-2.1.8 EtherNet/IP `cpppo.server.enip.poll' API
+2.1.9 EtherNet/IP `cpppo.server.enip.poll' API
 ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
 
   If regular updates of values from an EtherNet/IP CIP device are
@@ -2134,7 +2171,7 @@ Table of Contents
   └────
 
 
-◊ 2.1.8.1 `poll.poll'
+◊ 2.1.9.1 `poll.poll'
 
   Creates a `proxy_class' (or uses an existing `via') to poll the target
   `params'.
@@ -2162,7 +2199,7 @@ Table of Contents
   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 
-◊ 2.1.8.2 `poll.run'
+◊ 2.1.9.2 `poll.run'
 
   Implements cyclic polling on an existing `proxy' instance, invoking
   `process' on each polled (parameter,value) and `failure' for each
@@ -2184,7 +2221,7 @@ Table of Contents
   Any further keywords are passed unchanged to `poll.loop'
 
 
-◊ 2.1.8.3 `poll.loop'
+◊ 2.1.9.3 `poll.loop'
 
   Perform a single poll loop, checking for premature or missed cycles.
 
@@ -2201,7 +2238,7 @@ Table of Contents
   Any further keywords are passed unchanged to `poll.execute'
 
 
-◊ 2.1.8.4 `poll.execute'
+◊ 2.1.9.4 `poll.execute'
 
   Perform a single poll.
 
@@ -2216,8 +2253,8 @@ Table of Contents
   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 
-2.1.9 Web Interface
-╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+2.1.10 Web Interface
+╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
 
   The following actions are available via the web interface.  It is
   designed to be primarily a REST-ful HTTP API returning JSON, but any
@@ -2286,7 +2323,7 @@ Table of Contents
   └────
 
 
-◊ 2.1.9.1 options/delay/value
+◊ 2.1.10.1 options/delay/value
 
   To access or modify some specific thing in the matching object(s), add
   a <command> and <value>:
@@ -2326,7 +2363,7 @@ Table of Contents
   └────
 
 
-◊ 2.1.9.2 api/options/delay/range
+◊ 2.1.10.2 api/options/delay/range
 
   If you've started the simulator with –delay=0.1-0.9 (a delay range),
   you can adjust this range to a new range, using:
@@ -2352,7 +2389,7 @@ Table of Contents
   timeout.
 
 
-◊ 2.1.9.3 api/server/control/done or disable
+◊ 2.1.10.3 api/server/control/done or disable
 
   To prevent any future connections, you can (temporarily) disable the
   server, which will close its port (and all connections) and await
@@ -2375,7 +2412,7 @@ Table of Contents
   └────
 
 
-◊ 2.1.9.4 api/server/control/latency or timeout
+◊ 2.1.10.4 api/server/control/latency or timeout
 
   The default socket I/O blocking 'latency' is .1s; this is the time it
   may take for each existing connection to detect changes made via the
@@ -2387,7 +2424,7 @@ Table of Contents
   latency manipulation software).
 
 
-◊ 2.1.9.5 api/tags/<tagname>/error
+◊ 2.1.10.5 api/tags/<tagname>/error
 
   To force all successful accesses to a certain tag (eg. SCADA) to
   return a certain error code, you can set it using:
@@ -2402,7 +2439,7 @@ Table of Contents
   └────
 
 
-◊ 2.1.9.6 api/tags/<tagname>/attribute[x]
+◊ 2.1.10.6 api/tags/<tagname>/attribute[x]
 
   To access or change a certain element of a tag, access its attribute
   at a certain index (curl has problems with this kind of URL):
@@ -2436,7 +2473,7 @@ Table of Contents
   └────
 
 
-◊ 2.1.9.7 api/connections/*/eof
+◊ 2.1.10.7 api/connections/*/eof
 
   To immediately terminate all connections, you can signal them that
   they've experienced an EOF:
