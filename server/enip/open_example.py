@@ -63,8 +63,9 @@ connected			= True
 
 if connected:
     route_path, send_path	= [], ''	# Simple (eg. Powerflex, Micrologix)
-    connection			= client.implicit(
+    connection			= client.explicit(
         host			= hostname,
+        connection_path		= '1/0/@2/1',
         timeout			= timeout,        
         sender_context		= sender_context,
         transport_class_triggers= transport_class_triggers,

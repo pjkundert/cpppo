@@ -27,7 +27,8 @@ __license__                     = "Dual License: GPLv3 (or later) and Commercial
 
 __all__				= ['parse_int', 'parse_path', 'parse_path_elements', 'parse_path_component',
                                    'format_path', 'format_context', 'parse_context', 'CIP_TYPES', 'parse_operations',
-                                   'client', 'await_response', 'connector', 'recycle', 'main', 'ENIPStatusError' ]
+                                   'client', 'await_response', 'connector', 'explicit', 'implicit',
+                                   'recycle', 'main', 'ENIPStatusError' ]
 
 
 """enip.client	-- EtherNet/IP client API and module entry point
@@ -52,6 +53,7 @@ import random
 import select
 import socket
 import sys
+import threading
 import traceback
 import warnings
 
@@ -1205,12 +1207,7 @@ class client( object ):
         return data
 
     def req_send( self, request, **kwds ):
-        """Sending a request on a client connector/implicit connection requires the use of the
-        appropriate encapsulation.  An explicit "Unconnected" session connection normally uses a
-        unconnected_send "Send RR Data".  We many have a non-default priority_time_tick or
-        timeout_ticks.
-
-        """
+        """Send an unconnected explicit request using Send RR Data."""
         return self.unconnected_send( request, **kwds )
 
 
@@ -1784,16 +1781,18 @@ class connector( client ):
         return failures,transactions
 
 
-class implicit( connector ):
-    """Establishes a connected explicit (Class 3) EtherNet/IP session by issuing Forward Open after
-    Register Session succeeds. Select transport_class=1 with a class1.InputOnly profile to open
-    cyclic unicast I/O and receive its assembly via receive_io().
+class explicit( connector ):
+    """Open a CIP connection with Forward Open after registering a TCP session.
 
-    Obtains defaults for any Forward Open parameters not specified, using the Object.config_loader,
-    specialized for the given 'configuration' name (defaults to "Originator", if None, falling back
-    to "DEFAULT" if not found).
+    The default is connected explicit messaging (Class 3) with the direct Message Router
+    path @2/1. Select transport_class=1 with a class1.InputOnly profile to open implicit I/O
+    over unicast UDP and receive the cyclic input assembly via receive_io(). The default
+    Class 1 requested packet interval is 50,000 microseconds.
 
-    After successful establishment, the 'implicit' instance's 'self.established' attribute will
+    Forward Open parameters use the supplied arguments, the named configuration (or DEFAULT),
+    and then the built-in defaults, in that order.
+
+    After successful establishment, the instance's 'self.established' attribute will
     contain the successful Forward Open response; 'self.requested' will contain the original forward
     Open request, and 'self.timeout' will contain the original timeout.  These will be used to issue
     the correct Forward Close request at the close of the session.
@@ -1811,7 +1810,11 @@ class implicit( connector ):
     Therefore, the connection-->sequence dict is maintained on a per-instance basis.
 
     """
+    _connection_path_default	= '@2/1'
+    _implicit_api		= False
+    _connection_serial_lock	= threading.Lock()
     connection_serial		= random.randint( 0, 2**16-1 )
+
     def __init__( self, host, port=None, timeout=None, connection_path=None, path=None, 
                   configuration=None, priority_time_tick=None, timeout_ticks=None,
                   O_T=None, T_O=None, O_vendor=None, O_serial=None, connection_serial=None,
@@ -1824,9 +1827,13 @@ class implicit( connector ):
         self.established	= dotdict()
         self.seqs		= {} # Forward Open connected_send( connection --> sequence )
         self.io = None
+        # A profile selects Class 1 via implicit(). Bare legacy calls still select Class 3.
+        if self._implicit_api and transport_class is None and io_profile is not None:
+            transport_class	= 1
         self._class1 = transport_class == 1
         if transport_class not in (None, 1, 3):
             raise ValueError( "Select EtherNet/IP transport class 1 or 3" )
+
         if self._class1:
             if not isinstance( io_profile, class1.InputOnly ):
                 raise ValueError( "Class 1 requires an InputOnly profile" )
@@ -1839,8 +1846,14 @@ class implicit( connector ):
             transport_class_triggers = class1.CYCLIC_CLASS1
         elif io_profile is not None:
             raise ValueError( "An InputOnly profile requires transport_class=1" )
+        elif self._implicit_api:
+            warnings.warn(
+                "Using client.implicit() for Class 3 is deprecated. Use client.explicit(). "
+                "For a Logix CPU in slot 0, pass connection_path='1/0/@2/1' or configure that path. "
+                "Pass an InputOnly io_profile to client.implicit() for Class 1 I/O.",
+                DeprecationWarning, stacklevel=2 )
 
-        super( implicit, self ).__init__( host=host, port=port, timeout=timeout,
+        super( explicit, self ).__init__( host=host, port=port, timeout=timeout,
                                           configuration=configuration, **kwds )
 
         # Substitute Connection_Manager for response parsing for duration of Forward Open
@@ -1848,8 +1861,9 @@ class implicit( connector ):
         io_socket = None
         try:
             assert not self.udp, "EtherNet/IP Forward Open requires a TCP session"
-            self.__class__.connection_serial += 1
-            self.__class__.connection_serial %= 2**16
+            # Both public classes share the serial sequence for connections from this originator.
+            with explicit._connection_serial_lock:
+                explicit.connection_serial = serial = ( explicit.connection_serial + 1 ) % 2**16
 
             # Arrange to get the Forward Open parameters from the config file's 'configuration'
             # section, or from defaults.  The O_T/T_O Connection parameters must be obtained as a
@@ -1860,7 +1874,9 @@ class implicit( connector ):
                 return device.Object.config_override(
                     val, name, defaults.forward_open_default.get( name ), config=config )
             path		= default_named( path,			'path' )
-            connection_path	= default_named( connection_path,	'connection_path' )
+            connection_path	= device.Object.config_override(
+                connection_path, 'connection_path',
+                self._connection_path_default or defaults.forward_open_default.connection_path, config=config )
             priority_time_tick	= default_named( priority_time_tick,	'priority_time_tick' ) 
             timeout_ticks	= default_named( timeout_ticks,		'timeout_ticks' )
             O_serial		= default_named( O_serial,		'O_serial' )
@@ -1888,9 +1904,9 @@ class implicit( connector ):
 
             # Default the connection ID and serial to the same incrementing number
             if connection_serial is None:
-                connection_serial = self.connection_serial
+                connection_serial = serial
             if O_T.connection_ID is None:
-                O_T.connection_ID = self.connection_serial
+                O_T.connection_ID = serial
             if T_O.connection_ID is None:
                 T_O.connection_ID = 2**32-1 # set by Target; doesn't matter
 
@@ -1948,7 +1964,7 @@ class implicit( connector ):
                     except Exception:
                         log.debug( "Unable to close a partly established Class 1 connection", exc_info=True )
                 else:
-                    super( implicit, self ).close()
+                    super( explicit, self ).close()
             raise
         else:
             log.detail( "FwdOpen:  Success in %7.3f/%7.3fs", misc.timer() - begun,
@@ -2026,7 +2042,7 @@ class implicit( connector ):
             if getattr( self, 'io', None ) is not None:
                 self.io.close()
                 self.io = None
-            super( implicit, self ).close()
+            super( explicit, self ).close()
 
     def index_to_sender_context( self, _index ):
         """Disappointingly, C*Logix PLCs do *not* respond with the supplied Sender Context..."""
@@ -2047,22 +2063,35 @@ class implicit( connector ):
             sequence		= self.seqs.get( connection, -1 ) + 1 # 0, 1, ...
             sequence	       %= 2**16
             self.seqs[connection] = sequence
-        return super( implicit, self ).connected_send(
+        return super( explicit, self ).connected_send(
             request, connection=connection, sequence=sequence, **kwds )
 
     def req_send( self, request, route_path=None, send_path=None, **kwds ):
-        """Sending a request on a client connector/implicit connection requires the use of the appropriate
-        encapsulation.  A Class 3 request normally uses connected_send ("Send Unit Data").
-        Normally, we'll deduce the 'connection' and 'sequence' in connected_send.
+        """Send a connected explicit request using Send Unit Data.
 
-        However, we *can* send an arbitrarily routed request (ie. one with a route_path and/or send_path)
-        on the same TCP session, using unconnected SendRRData encapsulation.
+        Requests with a route or send path use unconnected Send RR Data on the same TCP session.
         """
         if route_path or send_path:
-            return super( implicit, self ).req_send(
+            return super( explicit, self ).req_send(
                 request, route_path=route_path, send_path=send_path, **kwds )
         else:
             return self.connected_send( request, **kwds )
+
+
+class _routed_explicit( explicit ):
+    """Use the configured path or the historical Logix backplane path."""
+
+    _connection_path_default	= None
+
+
+class implicit( _routed_explicit ):
+    """Open Class 1 implicit I/O with an InputOnly io_profile.
+
+    Legacy Class 3 calls warn and use the historical Logix fallback path.
+    The default Class 1 requested packet interval is 50,000 microseconds.
+    """
+
+    _implicit_api		= True
 
 
 def recycle( iterable, times=None ):
@@ -2252,7 +2281,7 @@ which is required to carry this Send/Route Path data. """ )
     connector_cls		= connector
     connector_kwds		= {}
     if args.connected:
-        connector_cls		= implicit
+        connector_cls		= _routed_explicit
     with connector_cls( host=addr[0], port=addr[1], timeout=timeout, profiler=profiler,
                         udp=args.udp, broadcast=args.broadcast, **connector_kwds ) as connection:
         elapsed			= misc.timer() - begun

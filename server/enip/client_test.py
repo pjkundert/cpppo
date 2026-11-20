@@ -163,8 +163,10 @@ def test_client_api_simple():
     try:
         ready, _ = waitfor( lambda: control.get( 'address' ), 'CIP simulator address', timeout=5.0 )
         assert ready, "CIP simulator did not publish its address"
-        connection = enip.client.implicit(
+        connection		= enip.client.explicit(
             *control['address'], timeout=client_timeout, connection_path=None, profiler=profiler )
+        assert connection.requested.forward_open.connection_path.segment == [
+            {'class': 2}, {'instance': 1} ]
 
         with connection:
             # Get Attribute Single's payload is an EPATH

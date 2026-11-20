@@ -11,6 +11,7 @@ import struct
 import subprocess
 import sys
 import time
+import warnings
 
 import pytest
 
@@ -46,11 +47,11 @@ def test_class1_datagram():
 
 def test_class1_printer(printer):
     host, port = printer
-    with contextlib.closing(client.implicit(
+    with contextlib.closing(client.explicit(
             host, port=port, timeout=2, transport_class=1, io_profile=PROFILE)) as scanner:
         assert scanner.receive_io(timeout=2) == b'\0' * PROFILE.input_size
         assert scanner.established.forward_open.T_O.API == 50000
-        with contextlib.closing(client.implicit(host, port=port, timeout=2)) as explicit:
+        with contextlib.closing( client.explicit( host, port=port, timeout=2 )) as explicit:
             with explicit:
                 operations = client.parse_operations(
                     ['PrinterFlags=(USINT)3', 'PaperLevel=(USINT)75',
@@ -65,17 +66,49 @@ def test_class1_printer(printer):
             time.sleep(.01)
         assert scanner.receive_io() == expected
 
-    # Forward Close releases the single adapter connection slot.
-    with contextlib.closing(client.implicit(
-            host, port=port, timeout=2, transport_class=1, io_profile=PROFILE)) as scanner:
-        assert scanner.receive_io(timeout=2) == expected
+    # Forward Close releases the adapter slot. The I/O profile selects Class 1 with the default RPI.
+    with warnings.catch_warnings():
+        warnings.simplefilter( 'error', DeprecationWarning )
+        with contextlib.closing( client.implicit( host, port=port, timeout=2, io_profile=PROFILE )) as scanner:
+            assert scanner.receive_io( timeout=2 ) == expected
+            assert scanner.established.forward_open.T_O.API == 50000
+
+
+def test_connected_path_defaults( printer, monkeypatch ):
+    host, port			= printer
+    legacy_path			= [{'port': 1, 'link': 0}, {'class': 2}, {'instance': 1}]
+    direct_path			= [{'class': 2}, {'instance': 1}]
+    config			= client.device.Object.config_loader.__class__()
+    config.read_dict( {'Direct': {'connection_path': '@2/1'}, 'Routed': {'connection_path': '1/0/@2/1'}} )
+    monkeypatch.setattr( client.device.Object, 'config_loader', config )
+
+    # An argument overrides configuration, which overrides the class-specific fallback.
+    with pytest.warns( DeprecationWarning, match='client.explicit' ):
+        legacy			= client.implicit( host, port=port, timeout=2 )
+    with contextlib.closing( legacy ):
+        assert isinstance( legacy, client.explicit )
+        assert legacy.requested.forward_open.connection_path.segment == legacy_path
+        with contextlib.closing( client.explicit( host, port=port, timeout=2, configuration='Routed' )) as routed:
+            assert routed.requested.forward_open.connection_path.segment == legacy_path
+            assert routed.requested.forward_open.connection_serial != legacy.requested.forward_open.connection_serial
+    with contextlib.closing( client.explicit(
+            host,
+            port		= port,
+            timeout		= 2,
+            configuration	= 'Routed',
+            connection_path	= '@2/1' )) as direct:
+        assert direct.requested.forward_open.connection_path.segment == direct_path
+    with pytest.warns( DeprecationWarning, match='client.explicit' ):
+        configured		= client.implicit( host, port=port, timeout=2, configuration='Direct' )
+    with contextlib.closing( configured ):
+        assert configured.requested.forward_open.connection_path.segment == direct_path
 
 
 def test_class1_rejects_wrong_size(printer):
     host, port = printer
     wrong_profile = class1.InputOnly(151, 152, 100, PROFILE.input_size + 1)
     with pytest.raises(AssertionError, match="Failed to receive successful Forward Open"):
-        client.implicit(host, port=port, timeout=2, transport_class=1, io_profile=wrong_profile)
+        client.explicit(host, port=port, timeout=2, transport_class=1, io_profile=wrong_profile)
 
 
 def test_class1_watchdog_releases_adapter(printer):
@@ -138,7 +171,7 @@ def eipscanner():
 def test_class1_cpppo_scanner_opener_adapter(opener):
     host, port = opener
     profile = class1.InputOnly(151, 152, 100, 32)
-    with contextlib.closing(client.implicit(
+    with contextlib.closing(client.explicit(
             host, port=port, timeout=2, transport_class=1, io_profile=profile)) as scanner:
         assert scanner.receive_io(timeout=2) == b'\0' * 32
         sample = list(range(32))
@@ -157,7 +190,7 @@ def test_class1_cpppo_scanner_opener_adapter(opener):
 
 def test_class1_eipscanner_originator_cpppo_adapter(eipscanner, printer):
     host, port = printer
-    with contextlib.closing(client.implicit(host, port=port, timeout=2)) as explicit:
+    with contextlib.closing(client.explicit(host, port=port, timeout=2)) as explicit:
         operations = client.parse_operations(
             ['PrinterFlags=(USINT)3', 'PaperLevel=(USINT)75', 'SubmitJob=(UDINT)42'])
         with explicit:

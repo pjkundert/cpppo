@@ -83,12 +83,24 @@
    simulating ControlLogix Tag access, via the Read/Write Tag [Fragmented]
    services.
 
-   Cpppo supports unconnected explicit messaging and connected explicit
-   messaging (Class 3) over TCP. The client class named =implicit= defaults
-   to Class 3. The supported Class 1 profile is cyclic *Input Only* with
-   fixed-size, modeless I/O over IPv4 unicast UDP and packet intervals from
-   10 ms to 10 s. The adapter accepts one connection at a time. See the
+   Use =client.connector( host )= for unconnected explicit messaging and
+   =client.explicit( host )= for connected explicit messaging (Class 3) over
+   TCP. =client.explicit= defaults to the direct Message Router path =@2/1=.
+   Use =client.implicit( host, io_profile=profile )= for Class 1 I/O. The
+   =client.explicit= constructor also supports Class 1 with =transport_class=1=
+   and an =io_profile=.
+   The default Class 1 requested packet interval (=rpi_us=) is 50,000 microseconds.
+   The supported profile is cyclic *Input Only*
+   with fixed-size, modeless I/O over IPv4 unicast UDP and packet intervals
+   from 10 ms to 10 s. The adapter accepts one connection at a time. See the
    printer example below for the assembly connection points and status layout.
+
+   As of 5.8, Class 3 calls through =client.implicit= emit a
+   =DeprecationWarning= and retain the fallback path =1/0/@2/1= through
+   Logix backplane slot 0. When migrating a routed Class 3 caller to
+   =client.explicit=, supply that path as =connection_path= or set it in the
+   named configuration. Both classes use the caller's path first, then the
+   configured path, then their fallback.
 
    A Tag is simply a shortcut to a specific EtherNet/IP CIP Object Instance and
    Attribute.  Instead of the Client needing to know the specific Instance and
@@ -777,7 +789,7 @@
 
      profile = class1.InputOnly(configuration=151, heartbeat=152, input_assembly=100, input_size=8)
      with closing(client.implicit(
-             "127.0.0.1", timeout=2, transport_class=1, io_profile=profile,
+             "127.0.0.1", timeout=2, io_profile=profile,
              rpi_us=50000)) as scanner:
          status = scanner.receive_io(timeout=2)
          if status is None:
